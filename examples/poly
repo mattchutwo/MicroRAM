@@ -1,0 +1,1 @@
+[Imull 2 0 (Reg 0),Imull 1 0 (Const 3),Iadd 0 1 (Reg 2),Isub 0 0 (Const 10)]

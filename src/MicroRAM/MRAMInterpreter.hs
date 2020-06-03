@@ -9,6 +9,8 @@ module MicroRAM.MRAMInterpreter
     Trace,
     step,
     run,
+    init_state,
+    set_reg,
     execute,
     exec_input,
     pc_trace,
