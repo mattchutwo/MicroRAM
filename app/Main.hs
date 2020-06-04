@@ -1,5 +1,7 @@
 module Main where
 
+import Data.Foldable (toList)
+import Data.List (intercalate)
 import System.Environment
 
 import Lib
@@ -20,15 +22,47 @@ input, advice :: Tape
 input = []
 advice = []
 
+runFrom :: Prog -> State -> Int -> Trace
+runFrom p s 0 = [s]
+runFrom p s n
+  | n > 0 = s : runFrom p (step p s) (n - 1)
+  | otherwise = error "can't run for negative steps"
+
+dumpState :: State -> String
+dumpState s = intercalate "; " [
+    "pc " ++ show (pc s),
+    "regs " ++ intercalate " " (map show $ toList $ regs s),
+    "flag " ++ (if flag s then "1" else "0")
+    ]
+
+dumpOperand :: Operand Reg Wrd -> String
+dumpOperand (Reg r) = show r ++ " reg"
+dumpOperand (Const i) = show i ++ " imm"
+dumpOperand o = error $ "unsupported operand kind: " ++ show o
+
+dumpInstr :: Instruction Reg Wrd -> String
+dumpInstr i = intercalate " " $ case i of
+    Imov dest src -> ["mov", show dest, "0", dumpOperand src]
+    Iadd dest src1 src2 -> ["add", show dest, show src1, dumpOperand src2]
+    Isub dest src1 src2 -> ["sub", show dest, show src1, dumpOperand src2]
+    Imull dest src1 src2 -> ["mull", show dest, show src1, dumpOperand src2]
+    i -> error $ "unsupported instr kind: " ++ show i
+
 main :: IO ()
 --main = print prog1
 
 main = do
     args <- getArgs
     case args of 
-      [file,steps] -> do
-        x <- readFile file
-        let prog = read x::(Program Int Word) in 
-          let n = read steps::Int in 
-            print (take n (run k input advice prog))  
+      [file] -> do
+        prog <- read <$> readFile file
+        mapM_ (putStrLn . dumpInstr) (prog :: [Instruction Reg Wrd])
+      [file, steps] -> do
+        prog <- read <$> readFile file
+        let s = init_state k [] []
+        mapM_ (putStrLn . dumpState) $ runFrom prog s (read steps)
+      [file, steps, input] -> do
+        prog <- read <$> readFile file
+        let s = set_reg 0 (read input) $ init_state k [] []
+        mapM_ (putStrLn . dumpState) $ runFrom prog s (read steps)
       _ -> putStrLn "Wrong number of arguments"

@@ -1,11 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-module Compiler.CompilerSpec
-    () where
+module Compile where
+
+import Data.Foldable (toList)
+import Data.List (intercalate)
+import System.Environment
+
+import Lib
+import Compiler.LLVMutil
+import Compiler.Compiler
+import MicroRAM.MicroRAM
+import MicroRAM.MRAMInterpreter
+
 
 import Compiler.Compiler
-import Compiler.LLVMutil
 import qualified LLVM.AST as LLVM
 import qualified MicroRAM.MicroRAM as MRAM
 import MicroRAM.MRAMInterpreter
@@ -19,19 +26,11 @@ import qualified Data.String as String
 import qualified LLVM.AST.Linkage
 import qualified LLVM.AST.Visibility
 import qualified LLVM.AST.CallingConvention
---import Data.Bits.Extras
---import Data.Sequence as Seq
 
---import qualified Test.QuickCheck as QC
-
-
-
-
-  
 -- ** Definitinos
   
 -- ## Blocks
-label
+{- label
   :: LLVM.Name
      -> [Named LLVM.Instruction]
      -> Named LLVM.Terminator
@@ -52,46 +51,18 @@ bb0 = [
       ,"a":= ("a" .- 10)     -- r0 = r0 - 10
       ]
     (Do $ LLVM.Ret Nothing [])]
+main = putStrLn $ show bb0
 
-ex0 :: LLVM.Module
-ex0 = fromBlocks bb0
-
-ex0Comp = compile ex0
-
--- # Example 1
-{- Adds 1 to "a" forever
 -}
-bb1 :: [LLVM.BasicBlock]
-bb1 = [
-  label "main" [
-      "a":= ("a" .+ 1)]
-    (Do $ LLVM.Br "loop" []),
-    label "loop" [
-      "a":= ("a" .+ 1),
-      "":= ("a" .+ 0)]
-    (Do $ LLVM.Br "loop" [])]
-
-ex1 :: LLVM.Module
-ex1 = fromBlocks bb1
-
-ex1Comp = compile ex1
--- test1 n = (flip execute (n) <$> ex1Comp)-}
+-- For now we immport a list of basic blocks  
+main = do
+    args <- getArgs
+    case args of 
+      [filename] -> do
+        blocks <- read <$> readFile filename
+        let prog = fromBlocks blocks in
+          let compiled = compile prog in 
+            putStrLn $ show compiled
+      _ -> putStrLn "Wrong number of arguments"
 
 
--- # Example 2
-{- fibonacci
-
-ex2 :: [LLVM.BasicBlock]
-ex2 = [
-  label "main" [ 
-      "a":= ("a" .+ 1)]
-    (Do $ LLVM.Br "loop" []),
-    label "loop" [
-      "b":= ("a" .+ 0),
-      "a":= ("a" .+ ""),
-      "":= ("b" .+ 0)]
-    (Do $ LLVM.Br "loop" [])]
-     
-ex2Comp = codegenBlocks genv ex2
-test2 n = (flip execute (4+n*4) <$> ex2Comp) -- returns fib n
--}

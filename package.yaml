@@ -39,6 +39,17 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - MicroRAM
+  MicroRAM-compile:
+    main:                Compile.hs
+    source-dirs:         app
+    ghc-options:
+    - -main-is Compile
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - MicroRAM
+
 
 tests:
   MicroRAM-interpreter-test:
@@ -49,6 +60,19 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     - -main-is MicroRAM.InterpreterSpec
+    dependencies:
+    - MicroRAM
+    - tasty
+    - tasty-hunit
+    - tasty-smallcheck
+  MicroRAM-compiler-test:
+    main:                CompilerSpec.hs
+    source-dirs:         test/Compiler
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -main-is MicroRAM.CompilerSpec
     dependencies:
     - MicroRAM
     - tasty

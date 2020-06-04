@@ -212,8 +212,8 @@ wrd2integer x = fromIntegral x
 
 integer2wrd:: Integer -> CgMonad $ Wrd
 integer2wrd x
-  | x > (wrd2integer minBound) && x < (wrd2integer maxBound) = Right $ fromInteger x
-  | otherwise = Left $ OtherError "Literal out of bounds" 
+  | x >= (wrd2integer minBound) && x <= (wrd2integer maxBound) = Right $ fromInteger x
+  | otherwise = Left $ OtherError $ "Literal out of bounds: " ++ (show x) ++ ". Bounds " ++ (show (wrd2integer minBound, wrd2integer maxBound)) 
 
   
 getConstant :: LLVM.Constant.Constant -> CgMonad $ Wrd
@@ -240,8 +240,8 @@ codegenBinop _ (Just ret) (LLVM.LocalReference _ name1) op2 bop =
   let r1 = getReg name1 in
     let a = getConstReg op2 in
      (\x -> [x]) <$> ((bop ret) <$> r1 <*> a)
-codegenBinop _ _ _ _ _ = Left $
-  NotImpl "Binary operation with operands other than (register,register) or (register,constant)"
+codegenBinop _ ret op1 op2 _ = Left $
+  NotImpl $ "Binary operation with operands other than (register,register) or (register,constant). Tried compiling: " ++ (show (ret,op1,op2)) ++ ". Maybe you tried compiling a term of the form '3*r0'. That's not supported yet. Try 'r0*3'"
 
 codegenInstruction :: Genv -> Maybe Reg -> LLVM.Instruction -> CgMonad $ [MRAM.MAInstruction Reg Wrd]
 
@@ -521,7 +521,7 @@ codegenDefs :: Genv -> [LLVM.Definition] -> CgMonad $ MRAM.MAProgram Reg Wrd
 codegenDefs ge ds = concat <$> mapM (codegenDef ge) ds
 
 codegenDef :: Genv -> LLVM.Definition -> CgMonad $ MRAM.MAProgram Reg Wrd
-codegenDef genv (LLVM.GlobalDefinition glob) = Right []
+codegenDef genv (LLVM.GlobalDefinition glob) = codegenGlob genv glob
 codegenDef genv otherDef = Left $ NotImpl (show otherDef)
 
 
