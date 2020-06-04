@@ -7,10 +7,24 @@
  * A compiler from LLVM to TinyRAM
 
 
-There is a collection of examples in the `examples` folder. You can run them like so
+There is a collection of examples in the `examples` and `llvm-examples` folders. You can run them like so
+
+First build the project:
 
 ```
 % stack build
+```
+
+Then compile some program:
+
+```
+% stack exec MicroRAM-compile llvm-examples/example0
+\\ Prints the MicroRAM program (list of instructions)
+```
+
+Then run a Program:
+
+```
 % stack exec MicroRAM-exe examples/fibonacci 4
 \\ Prints trace with 40 steps of running the program
 \\ Register 0 should contain the 10th fibonacci
