@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: b2d0bca90cdf6ca06ec02905c0092e190cb3accba72f8928a88e2a62c4c44a76
+-- hash: 98d54a340a2f324f316d1ad78df349b14145031f3fcbda93ab6f05b883450c64
 
 name:           MicroRAM
 version:        0.1.0.0
@@ -37,6 +37,7 @@ library
       LLVMutil.LLVMutil
       MicroRAM.MicroRAM
       MicroRAM.MRAMInterpreter
+      MicroRAM.MRAMutil
   other-modules:
       Paths_MicroRAM
   hs-source-dirs:

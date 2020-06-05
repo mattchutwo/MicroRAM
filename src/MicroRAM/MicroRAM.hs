@@ -145,7 +145,7 @@ instance (Read regT, Read wrdT) => Read (Operand' Post regT wrdT) where
                    a1_a1rK <- step readPrec
                    return (MicroRAM.MicroRAM.Reg a1_a1rK))
         +++
-        (prec 10
+        (parens
          (do expectP (Ident "Const")
              a1_a1rL <- step readPrec
              return (MicroRAM.MicroRAM.Const a1_a1rL)))

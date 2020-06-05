@@ -49,18 +49,16 @@ dumpInstr i = intercalate " " $ case i of
     i -> error $ "unsupported instr kind: " ++ show i
 
 main :: IO ()
---main = print prog1
-
 main = do
     args <- getArgs
-    case args of 
+    case args of
       [file] -> do
         prog <- read <$> readFile file
         mapM_ (putStrLn . dumpInstr) (prog :: [Instruction Reg Wrd])
       [file, steps] -> do
         prog <- read <$> readFile file
-        let s = init_state k [] []
-        mapM_ (putStrLn . dumpState) $ runFrom prog s (read steps)
+        let s = init_state k [] [] in
+            mapM_ (putStrLn . dumpState) $ runFrom prog s (read steps)
       [file, steps, input] -> do
         prog <- read <$> readFile file
         let s = set_reg 0 (read input) $ init_state k [] []
