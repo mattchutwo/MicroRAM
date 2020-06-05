@@ -38,7 +38,7 @@ dumpState s = intercalate "; " [
 dumpOperand :: Operand Reg Wrd -> String
 dumpOperand (Reg r) = show r ++ " reg"
 dumpOperand (Const i) = show i ++ " imm"
-dumpOperand o = error $ "unsupported operand kind: " ++ show o
+-- dumpOperand o = error $ "unsupported operand kind: " ++ show o
 
 dumpInstr :: Instruction Reg Wrd -> String
 dumpInstr i = intercalate " " $ case i of

@@ -64,7 +64,7 @@ getLabel :: LabelMap -> String -> CgMonad Wrd
 getLabel lmap lbl =
   case Map.lookup  lbl lmap of
     Just w -> Right w
-    Nothing -> Left $ CompilerAssumption "Code label called but not defined"
+    Nothing -> Left $ CompilerAssumption $ "Code label called but not defined. Label" ++ (show lbl)
 
 data State = State { pc :: Wrd, lMap :: LabelMap}
 initState = State 0 Map.empty

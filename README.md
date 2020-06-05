@@ -15,10 +15,12 @@ First build the project:
 % stack build
 ```
 
-Then compile some program:
+Then compile some basic block or a program
 
 ```
-% stack exec MicroRAM-compile llvm-examples/example0
+% stack exec MicroRAM-compile basicblock llvm-examples/example0
+\\ Prints the MicroRAM program (list of instructions)
+% stack exec MicroRAM-compile llvm-examples/fibonacci-loop
 \\ Prints the MicroRAM program (list of instructions)
 ```
 

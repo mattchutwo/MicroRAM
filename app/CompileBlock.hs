@@ -1,4 +1,5 @@
-module Compile where
+{-# LANGUAGE OverloadedStrings #-}
+module CompileBlock where
 
 import Data.Foldable (toList)
 import Data.List (intercalate)
@@ -27,26 +28,24 @@ import qualified LLVM.AST.Visibility
 import qualified LLVM.AST.CallingConvention
 
 
--- | dropInitReturn : removes the first three3 and last 4 instructions.
+-- | dropInitReturn : removes the first three and last instructions.
 -- The initializations and return instructions are not needed for a single block
--- ONLY for basic block compilation
-dropInitReturn = tail . tail . tail . init . init . init . init
+dropInitReturn = tail . tail . tail . init
 
 -- For now we immport a list of basic blocks  
 main = do
     args <- getArgs
-    case args of
+    case args of 
       [flag,filename] ->
         case flag of
-          -- We add this case TOMPORARILY to only compile basic blocks
           "basicblock" -> do
-            blocks <- read <$> readFile filename
-            let prog = fromBlocks blocks in
-              let compiled = compile prog in 
-                putStrLn $ show (dropInitReturn <$> compiled)
+            prog <- read <$> readFile filename
+            let compiled = compile prog in 
+              putStrLn $ show compiled
           _ -> putStrLn $ "Wrong flag " ++ (show flag)
       [filename] -> do
-        prog <- read <$> readFile filename
-        let compiled = compile prog in 
-          putStrLn $ show compiled
+        blocks <- read <$> readFile filename
+        let prog = fromBlocks blocks in
+          let compiled = compile prog in 
+            putStrLn $ show (dropInitReturn <$> compiled)
       _ -> putStrLn $ "Wrong number of arguments: " ++ (show (length args))

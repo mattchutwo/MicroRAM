@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RankNTypes #-}
 
@@ -173,7 +174,10 @@ funCodeGen genv ret (Right (LLVM.LocalReference ty nm)) param =
 funCodeGen _ _ (Right _) _ = implError $ "Functions can only be called by local references for now"
 
 -- | Push parameters in the stack
-pushParams ptys params = []
+-- For now, we ignore the type and assume all params are Word size. 
+pushParams ptys params = [] -- TODO
+
+-- pushParams pty param =
 
 putResult :: Maybe Reg -> [MRAM.MAInstruction Reg Wrd]
 puResult (Just r) = [MRAM.Imov r (Reg ax)]
@@ -525,4 +529,16 @@ codegenDef genv (LLVM.GlobalDefinition glob) = codegenGlob genv glob
 codegenDef genv otherDef = Left $ NotImpl (show otherDef)
 
 
-codeGen = codegenModule emptyGenv
+-- | Premain:
+-- This is a pseudofunction, that sets up return address for main.
+-- Sends main to the returnBlock
+premain :: CompiledBlock
+premain = MRAM.NBlock Nothing $ MRAM.Imov ax (Label "_ret_") : push ax
+
+-- | returnBlock: return lets the program output an answer (when main returns)
+returnBlock :: CompiledBlock
+returnBlock = MRAM.NBlock (Just "_ret_") [MRAM.Ianswer (Reg ax)]
+
+codeGen modl= do
+  body <- codegenModule emptyGenv modl
+  Right $ premain : body ++ [returnBlock]

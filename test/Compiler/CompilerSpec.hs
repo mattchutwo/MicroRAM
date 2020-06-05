@@ -1,11 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module Compiler.CompilerSpec
-    () where
+module CompilerSpec where
 
 import Compiler.Compiler
-import Compiler.LLVMutil
+import LLVMutil.LLVMutil
 import qualified LLVM.AST as LLVM
 import qualified MicroRAM.MicroRAM as MRAM
 import MicroRAM.MRAMInterpreter
@@ -26,6 +25,13 @@ import qualified LLVM.AST.CallingConvention
 
 
 
+import Test.Tasty
+import Test.Tasty.HUnit
+import Test.Tasty.SmallCheck
+main :: IO ()
+main = defaultMain tests
+
+tests = testGroup "Compiler tests" []
 
   
 -- ** Definitinos

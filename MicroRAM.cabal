@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 7b71e436fdaad80a67c410651d3b1dec06d9888605890a43da1f72b6f7ec055e
+-- hash: b2d0bca90cdf6ca06ec02905c0092e190cb3accba72f8928a88e2a62c4c44a76
 
 name:           MicroRAM
 version:        0.1.0.0
@@ -31,9 +31,10 @@ library
       Compiler.Assembler
       Compiler.CodeGenerator
       Compiler.Compiler
-      Compiler.LLVMutil
       Compiler.MRAMMap
       Lib
+      LLVMutil.LLVMexamples
+      LLVMutil.LLVMutil
       MicroRAM.MicroRAM
       MicroRAM.MRAMInterpreter
   other-modules:
@@ -51,6 +52,7 @@ library
 executable MicroRAM-compile
   main-is: Compile.hs
   other-modules:
+      CompileBlock
       Main
       Paths_MicroRAM
   hs-source-dirs:
@@ -69,6 +71,7 @@ executable MicroRAM-exe
   main-is: Main.hs
   other-modules:
       Compile
+      CompileBlock
       Paths_MicroRAM
   hs-source-dirs:
       app
@@ -89,7 +92,7 @@ test-suite MicroRAM-compiler-test
       Paths_MicroRAM
   hs-source-dirs:
       test/Compiler
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -main-is MicroRAM.CompilerSpec
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -main-is CompilerSpec
   build-depends:
       MicroRAM
     , base >=4.7 && <5

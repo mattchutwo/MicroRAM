@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module Compiler.LLVMutil where
+module LLVMutil.LLVMutil where
 
 import Compiler.Compiler
 import qualified LLVM.AST as LLVM
@@ -153,3 +153,6 @@ defaultFunction name blocks = LLVM.Function
 
 fromBlocks :: [LLVM.BasicBlock] -> LLVM.Module
 fromBlocks blocks = fromGlobals [defaultFunction "main" blocks]
+
+
+-- ** From simple functions
