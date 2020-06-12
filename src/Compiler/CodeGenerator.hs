@@ -25,9 +25,10 @@ that contains some of the labels (this allows some simple separta compilation.
 
 module Compiler.CodeGenerator
     ( codeGen,
-      codegenGlob,
-      codegenBlock,
-      codegenBlocks,
+      codegenGlob,    -- TODO remove from inteface
+      codegenBlock,   -- TODO remove from inteface
+      codegenBlocks,  -- TODO remove from inteface
+      codeGenStraight,     
       Genv(..),
       CgMonad,
       CgError(..),
@@ -542,3 +543,5 @@ returnBlock = MRAM.NBlock (Just "_ret_") [MRAM.Ianswer (Reg ax)]
 codeGen modl= do
   body <- codegenModule emptyGenv modl
   Right $ premain : body ++ [returnBlock]
+  
+codeGenStraight = codegenInstrs emptyGenv

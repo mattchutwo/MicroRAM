@@ -28,9 +28,6 @@ import qualified LLVM.AST.Visibility
 import qualified LLVM.AST.CallingConvention
 
 
--- | dropInitReturn : removes the first three and last instructions.
--- The initializations and return instructions are not needed for a single block
-dropInitReturn = tail . tail . tail . init
 
 -- For now we immport a list of basic blocks  
 main = do
@@ -47,5 +44,5 @@ main = do
         blocks <- read <$> readFile filename
         let prog = fromBlocks blocks in
           let compiled = compile prog in 
-            putStrLn $ show (dropInitReturn <$> compiled)
+            putStrLn $ show (compiled)
       _ -> putStrLn $ "Wrong number of arguments: " ++ (show (length args))

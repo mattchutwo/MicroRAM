@@ -27,23 +27,17 @@ import qualified LLVM.AST.Visibility
 import qualified LLVM.AST.CallingConvention
 
 
--- | dropInitReturn : removes the first three3 and last 4 instructions.
--- The initializations and return instructions are not needed for a single block
--- ONLY for basic block compilation
-dropInitReturn = tail . tail . tail . init . init . init . init
-
 -- For now we immport a list of basic blocks  
 main = do
     args <- getArgs
     case args of
       [flag,filename] ->
         case flag of
-          -- We add this case TOMPORARILY to only compile basic blocks
-          "basicblock" -> do
+          -- We add this case TOMPORARILY to only compile straight code (no branching, no labels no functions)
+          "straight" -> do
             blocks <- read <$> readFile filename
-            let prog = fromBlocks blocks in
-              let compiled = compile prog in 
-                putStrLn $ show (dropInitReturn <$> compiled)
+            let compiled = compileStraight blocks in 
+              putStrLn $ show compiled
           _ -> putStrLn $ "Wrong flag " ++ (show flag)
       [filename] -> do
         prog <- read <$> readFile filename

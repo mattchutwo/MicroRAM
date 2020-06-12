@@ -1,5 +1,5 @@
 module Compiler.Compiler
-    ( compile
+    ( compile, compileStraight
     ) where
 
 import qualified LLVM.AST as LLVM
@@ -14,11 +14,19 @@ import qualified Data.Word as Word
 
 import Compiler.CodeGenerator
 import Compiler.Assembler
-import MicroRAM.MicroRAM (Program)
+import MicroRAM.MicroRAM (Program,NamedBlock(..))
 
 compile :: LLVM.Module
         -> CgMonad (MicroRAM.MicroRAM.Program Int Word)
 compile llvmProg = do
   assProg <- codeGen llvmProg
   mramProg <- assemble assProg
+  Right mramProg
+
+
+compileStraight :: [LLVM.Named LLVM.Instruction]
+        -> CgMonad (MicroRAM.MicroRAM.Program Int Word)
+compileStraight llvmProg = do
+  assCode <- codeGenStraight llvmProg
+  mramProg <- assemble [NBlock Nothing $ assCode]
   Right mramProg

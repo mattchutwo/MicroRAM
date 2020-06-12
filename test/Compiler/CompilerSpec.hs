@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module CompilerSpec where
+module Compiler.CompilerSpec where
 
 import Compiler.Compiler
 import LLVMutil.LLVMutil
