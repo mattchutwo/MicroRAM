@@ -15,20 +15,6 @@ import Circuit.CircuitIR
 
 -- * Tags and tag generators
 
--- | Unit: describes some units of the processor to tag them
-data Unit =
-  ALU
-  | Operands
-  | Decoder
-  | RegStore
-  | Other String
-  deriving (Eq, Ord, Show, Read)
-
--- | In a processor every tag indicates what unit it belongs to
-data Tag =
-  Tag Unit String
-  deriving (Eq, Ord, Show, Read)
-
 -- | State of used tags:
 -- Every automatically generated is a string of an integer
 -- and the state just carries the next integer.
@@ -221,7 +207,7 @@ Extracts the value in register # op1#
 
 op1Circuit ::  
    [String]   -- ^ registers
-  -> String     -- ^ op2 number
+  -> String     -- ^ reg number
   -> String     -- ^ out
   -> TState $  [TagGate Int String]
 op1Circuit registers opNumnber op1Tag =
@@ -250,7 +236,7 @@ isConst -->   mux    |
 
 op2Circuit ::  
    [String]   -- ^ registers
-  -> String     -- ^ op2 number
+  -> String     -- ^ reg2 number
   -> String     -- ^ Constant
   -> String     -- ^ is Constant?
   -> String     -- ^ out
@@ -287,13 +273,13 @@ Spec: forall r, if r == ourReg
                 else oldRegs[r] = newRegs 
 -}
 
-newRegs ::  
+newRegsCircuit ::  
    [String]     -- ^ Old registers
   -> String     -- ^ aluOut
   -> String     -- ^ outReg
   -> [String]     -- ^ new registers (outputs)
   -> TState $  [TagGate Int String]
-newRegs oldRegs aluOut outReg newRegs = do
+newRegsCircuit oldRegs aluOut outReg newRegs = do
   numberedPairedRegs <- return $ zip [0..] (zip oldRegs newRegs)
   allNewRegister <- mapM (newRegister' outReg aluOut) numberedPairedRegs 
   return $ concat allNewRegister
