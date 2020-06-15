@@ -42,6 +42,8 @@ evalTS ts = evalState ts initTState
 
 -- ** Building blocks of a processor
 
+   
+
 {- | Mux filter: simple filter that passes an input only
      if the signal matches a constant
 
@@ -55,7 +57,7 @@ evalTS ts = evalState ts initTState
    +----+   |    |
      |     +------+
      +-----+ mux  |
-      egT  +------+
+      eqT  +------+
               |
              out
 
@@ -78,8 +80,59 @@ muxFilter c sig x out = do
     , gconst zeroT 0        -- Constant 0
     , geq eqT sig cT        -- sig == C
     , gmux out eqT x zeroT] -- if sig == C then x else 0
-  
 
+
+{- Not: not natural way for not:
+   if x = 0 then 1
+   else 0
+
+   (It's really just a filter with one gate optimized away)  
+
+
+      zeroT  +-+
+sig +--------+0|
+ +  |   +-+  +++
+ |  |   |1|   |
+ |  |   +++   |
+ |  |    |    |
+++--v+   |oneT|
+| EQ?|   |    |zeroT
++-+--+   |    |
+  |     +v----v+
+  +-----+ mux  |
+   eqT  +--+---+
+           +
+          out
+
+
+  Notice that it doesn't enforce booleans, and interprets
+  any number other than 0 as 1.
+
+
+-}
+
+notCircuit ::
+  String        -- ^ inp
+  -> String     -- ^ out
+  -> TState $  [TagGate Int String]
+{-
+muxFilter ::
+  Int            -- ^ C
+  -> String      -- ^ sig
+  -> String      -- ^ X
+  -> String      -- ^ out
+  -> TState $ [TagGate Int String] -}
+  
+notCircuit inp out = do
+  eqT <- freshName
+  oneT <- freshName
+  zeroT <- freshName
+  return $
+    [ gconst zeroT 0        -- Constant 0
+    , gconst oneT  1        -- Constant 1
+    , geq eqT inp zeroT     -- sig == C
+    , gmux out eqT oneT zeroT] -- if sig == 0 then 1 else 0
+    
 {- | Multiplexer:
 
           ins
@@ -105,20 +158,28 @@ multiplexer defined here)
 
 -}
 
-mux ::  
-   [String]   -- ^ ins
+mux' ::
+  Int           -- ^ initial value 
+  -> [String]   -- ^ ins
   -> String     -- ^ sig
   -> String     -- ^ out
   -> TState $  [TagGate Int String]
-mux ins sig out = do
+mux' first ins sig out = do
   intermWires <- freshNameN (length ins) 
-  tagNameIns <- return $ zip intermWires $ zip [0..] ins
+  tagNameIns <- return $ zip intermWires $ zip [first..] ins
   -- Create a muxFilter for each in
   filters <- mapM muxFilter' tagNameIns
   return $ gadd out intermWires :  -- sum the result of all wires
     (concat filters) 
   where muxFilter' (out, (n, inp)) = muxFilter n sig inp out
 
+mux ::  
+   [String]   -- ^ ins
+  -> String     -- ^ sig
+  -> String     -- ^ out
+  -> TState $  [TagGate Int String]
+mux  = mux' 0
+  
 
 
 
@@ -284,15 +345,15 @@ newRegsCircuit oldRegs aluOut outReg newRegs = do
   allNewRegister <- mapM (newRegister' outReg aluOut) numberedPairedRegs 
   return $ concat allNewRegister
   where newRegister' outReg aluOut (rn, (oldR, newR)) =
-          newReg rn outReg aluOut oldR newR
+          eqIf rn outReg aluOut oldR newR
   
 
-{- | new Register: for each new register 
+{- | eqIf: choosing a wire, based on equality 
      this loos almost like the muxFilter, except instead of 0
-     the defaul value is oldReg
+     the defaul value is x.
 
-   regN    aluOut
-    + +--+  +  oldReg    
+   sign     x
+    + +--+  +    y     
     | |rn|  |    +
     | +--+  |    |
     |  |rnT |    |
@@ -305,39 +366,20 @@ newRegsCircuit oldRegs aluOut outReg newRegs = do
               |
              out
 
-out = if regN == rn then aluOut else oldReg
+out = if sign == rn then x else y
 
 -}
-newReg ::
+eqIf ::
   Int            -- ^ fixed number of this register
-  -> String      -- ^ regN
-  -> String      -- ^ aluOut
-  -> String      -- ^ oldReg
+  -> String      -- ^ sign
+  -> String      -- ^ x
+  -> String      -- ^ y
   -> String      -- ^ out
   -> TState $ [TagGate Int String]
-newReg rn regN aluOut oldReg out = do
+eqIf rn sign x y out = do
   eqT <- freshName
   rnT <- freshName
   return $
     [gconst rnT rn            -- Constant rn
-    , geq eqT regN rnT        -- regN == rnT ?
-    , gmux out eqT aluOut oldReg] -- if regN == rnT then aluOut else oldReg  
-  
-{- Tests
-
-lstNames :: String -> Int -> [String]
-lstNames seed n = map (\n -> seed ++ show n) [0..(n-1)]
-
-
-
-newNames = lstNames "newR"
-oldNames = lstNames "oldR"
-
-newRegsC :: Int -> TagCircuit Int String
-newRegsC n = TC ("aluOut":"outReg":(oldNames n)) (evalTS $ newRegs (oldNames n) "aluOut" "outReg" (newNames n))
-
-newRegsTestPure :: [Int] -> Int -> Int -> [Int]
-newRegsTestPure [] _ _ = []
-newRegsTestPure (_:ls) 0 a = (a:ls)
-newRegsTestPure (hd:ls) n a = hd:(newRegsTestPure ls (n-1) a)
--}
+    , geq eqT sign rnT        -- regN == rnT ?
+    , gmux out eqT x y] -- if regN == rnT then aluOut else oldReg  
