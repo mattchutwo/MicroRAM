@@ -19,11 +19,12 @@ data Gate val wire =
    Gconst val          -- ^ constant
   | Gadd [wire]         -- ^ adds all wires in a list
   | Gmul [wire]         -- ^ multiplies all wires in a list
+  | Gsub wire wire      -- ^ substracts two values
   | Gmux wire wire wire -- ^ if a then b else c
   | Geq  wire wire      -- ^ a == b
   | Ggt  wire wire      -- ^ a == b
-  | Gge  wire wire      -- ^ a == b
-  | Grelay wire         -- ^
+  | Gge  wire wire      -- ^ a == b 
+  | Grelay wire         -- ^ useful, but optimize away!
   | Ggadget String [wire]  -- ^ Eventually we might want gadgets with multiple outs?  
   deriving (Eq, Show, Read, Functor, Traversable, Foldable)
 
@@ -31,6 +32,7 @@ data Gate val wire =
 -- usefull constructors
 gconst tag val = TG tag (Gconst val)
 gadd tag tags = TG tag (Gadd tags)
+gsub tag x y = TG tag (Gsub x y)
 gmul tag tags = TG tag (Gmul tags)
 gmux tag w1 w2 w3 = TG tag (Gmux w1 w2 w3)
 geq tag w1 w2 = TG tag (Geq w1 w2)
@@ -239,6 +241,10 @@ evalGate (Gconst v) = return v
 evalGate (Gadd wls) = do
   values <- evalWires wls
   return $ sum values
+evalGate (Gsub x y) = do
+  xVal <- evalWire x
+  yVal <- evalWire y
+  return $ xVal - yVal
 evalGate (Gmul wls) = do
   values <- evalWires wls
   return $ product values

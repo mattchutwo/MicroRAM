@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 108cb67cbf77f0282b137cc69cab8b224a1a72cfb1c5e7cdbf1dc43e4f828b3d
+-- hash: 5e84801e7b6ad6a52b02fca64e1817a9d9f4c58bbdfe05214380fca5f05e8711
 
 name:           MicroRAM
 version:        0.1.0.0
@@ -29,7 +29,6 @@ library
   exposed-modules:
       Circuit.CircuitBuilder
       Circuit.CircuitIR
-      Circuit.MAC
       Circuit.Processor
       Compiler.Assembler
       Compiler.CodeGenerator

@@ -84,18 +84,18 @@ aluTest = testProperty "Testing the ALU" $
 
 
 
--- ** Test4 : new Register
+-- ** Test4 : eqIf
 -- tests the circuit that sets new registers
-newRegC :: Int -> TagCircuit Int String
-newRegC c = TC ["regN", "aluOut", "oldReg"] (evalTS $ newReg c "regN" "aluOut" "oldReg" "newReg")
+eqIfC :: Int -> TagCircuit Int String
+eqIfC c = TC ["regN", "aluOut", "oldReg"] (evalTS $ eqIf c "regN" "aluOut" "oldReg" "newReg")
 
 newRegTest :: TestTree
-newRegTest = testProperty "Testing new register (one) circuit" $
+newRegTest = testProperty "Testing eqIf circuit" $
   \rn ->
   \regN -> 
   \aluOut -> 
   \oldReg ->
-  evalCircuit (newRegC rn) [regN,aluOut,oldReg] ["newReg"] == Ok [if rn == regN then aluOut else oldReg]
+  evalCircuit (eqIfC rn) [regN,aluOut,oldReg] ["newReg"] == Ok [if rn == regN then aluOut else oldReg]
 
 
 
@@ -105,7 +105,7 @@ newNames = lstNames "newR"
 oldNames = lstNames "oldR"
 
 newRegsC :: Int -> TagCircuit Int String
-newRegsC n = TC ("aluOut":"outReg":(oldNames n)) (evalTS $ newRegs (oldNames n) "aluOut" "outReg" (newNames n))
+newRegsC n = TC ("aluOut":"outReg":(oldNames n)) (evalTS $ newRegsCircuit (oldNames n) "aluOut" "outReg" (newNames n))
 
 newRegsTestPure :: [Int] -> Int -> Int -> [Int]
 newRegsTestPure [] _ _ = []

@@ -208,9 +208,15 @@ We will treat one of the registers as the flag.
 Instructions:
 0 - Nothing (returns op2) for move instruction
 1 - Addition
-2 - Multiplication
-3 - Equality testing (flag)
-4 - greater: op1 > op2 (flag)
+2 - substraction
+3 - Multiplication
+4 - Equality testing (flag)
+5 - greater: op1 > op2 (flag)
+
+(If you change the number of instructions, you have to change the jmp instructions
+ defined in the processor.hs
+TODO remove this dependency
+)
 
 -}
 
@@ -224,15 +230,17 @@ nopC,addC,mulC,eqC,gtC ::
 nopC tag op1 op2 = [grelay tag op2]
 -- | 1. add unit (return op1+op2)
 addC tag op1 op2 = [gadd tag [op1, op2]]
--- | 2. mull unit (return op1*op2)
+-- | 2. add unit (return op1+op2)
+subC tag op1 op2 = [gsub tag [op1, op2]]
+-- | 3. mull unit (return op1*op2)
 mulC tag op1 op2 = [gmul tag [op1, op2]]
--- | 3. Equality testing unit (return op1 == op2)
+-- | 4. Equality testing unit (return op1 == op2)
 eqC tag op1 op2 = [geq tag op1 op2]
--- | 4. Greater unit (return op1 > op2)
+-- | 5. Greater unit (return op1 > op2)
 gtC tag op1 op2 = [ggt tag op1 op2]
 
 -- | add unit
-instructions = [nopC, addC, mulC, eqC, gtC]
+instructions = [nopC, addC, subC, mulC, eqC, gtC]
 alu ::  
   String     -- ^ op1
   -> String     -- ^ op2
@@ -383,3 +391,5 @@ eqIf rn sign x y out = do
     [gconst rnT rn            -- Constant rn
     , geq eqT sign rnT        -- regN == rnT ?
     , gmux out eqT x y] -- if regN == rnT then aluOut else oldReg  
+
+

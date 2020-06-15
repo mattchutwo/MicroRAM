@@ -217,14 +217,14 @@ inst   |          +--->    |
 
 
 We hard-code the following
-* There are 4 alu instrucitons
-* jmpInstr = 5
-* cjmpInstr = 6
-* cnjmpInstr = 7
+* There are 6 alu instrucitons (numbered 0..5)
+* jmpInstr = 6
+* cjmpInstr = 7
+* cnjmpInstr = 8
 * flag is the last register
   flag = (length regs) - 1 
 -}
-jmpInstr = 5
+jmpInstr = 6
 cjmpInstr = jmpInstr + 1
 cnjmpInstr = jmpInstr + 2
 
