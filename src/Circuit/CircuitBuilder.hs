@@ -231,7 +231,7 @@ nopC tag op1 op2 = [grelay tag op2]
 -- | 1. add unit (return op1+op2)
 addC tag op1 op2 = [gadd tag [op1, op2]]
 -- | 2. add unit (return op1+op2)
-subC tag op1 op2 = [gsub tag [op1, op2]]
+subC tag op1 op2 = [gsub tag op1 op2]
 -- | 3. mull unit (return op1*op2)
 mulC tag op1 op2 = [gmul tag [op1, op2]]
 -- | 4. Equality testing unit (return op1 == op2)

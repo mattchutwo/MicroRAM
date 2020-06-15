@@ -64,6 +64,7 @@ posibleResults :: Int -> Int-> [Int]
 posibleResults op1 op2 =
   [op2
   , op1 + op2
+  , op1 - op2
   , op1 * op2
   , fromEnum (op1 == op2)
   , fromEnum (op1 > op2)
