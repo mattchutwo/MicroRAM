@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 5e84801e7b6ad6a52b02fca64e1817a9d9f4c58bbdfe05214380fca5f05e8711
+-- hash: c0b807b80dc78efdd9c1e2f1ede0692b02682365fd5b15a5d8e1b7f854fe4c34
 
 name:           MicroRAM
 version:        0.1.0.0
@@ -27,6 +27,7 @@ source-repository head
 
 library
   exposed-modules:
+      Backend.Test
       Circuit.CircuitBuilder
       Circuit.CircuitIR
       Circuit.Processor
@@ -34,12 +35,14 @@ library
       Compiler.CodeGenerator
       Compiler.Compiler
       Compiler.MRAMMap
+      Compiler.Try
       Lib
       LLVMutil.LLVMexamples
       LLVMutil.LLVMutil
       MicroRAM.MicroRAM
       MicroRAM.MRAMInterpreter
       MicroRAM.MRAMutil
+      Parse.ReadTest
   other-modules:
       Paths_MicroRAM
   hs-source-dirs:

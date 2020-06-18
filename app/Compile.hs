@@ -34,7 +34,7 @@ main = do
       [flag,filename] ->
         case flag of
           -- We add this case TOMPORARILY to only compile straight code (no branching, no labels no functions)
-          "straight" -> do
+          "basicblock" -> do
             blocks <- read <$> readFile filename
             let compiled = compileStraight blocks in 
               putStrLn $ show compiled
