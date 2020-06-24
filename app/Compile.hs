@@ -34,10 +34,10 @@ main = do
       [flag,filename] ->
         case flag of
           -- We add this case TOMPORARILY to only compile straight code (no branching, no labels no functions)
-          "basicblock" -> do
+         {- "basicblock" -> do
             blocks <- read <$> readFile filename
             let compiled = compileStraight blocks in 
-              putStrLn $ show compiled
+              putStrLn $ show compiled -}
           _ -> putStrLn $ "Wrong flag " ++ (show flag)
       [filename] -> do
         prog <- read <$> readFile filename

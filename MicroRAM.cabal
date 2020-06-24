@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: c0b807b80dc78efdd9c1e2f1ede0692b02682365fd5b15a5d8e1b7f854fe4c34
+-- hash: 85ab858b61836b93e40868fc2fb1d289faef6a81eb91726b9628e4389ff8971f
 
 name:           MicroRAM
 version:        0.1.0.0
@@ -33,8 +33,14 @@ library
       Circuit.Processor
       Compiler.Assembler
       Compiler.CodeGenerator
+      Compiler.CompileErrors
       Compiler.Compiler
+      Compiler.InstructionSelection
+      Compiler.IRs
       Compiler.MRAMMap
+      Compiler.RegisterAlloc
+      Compiler.RemoveLabels
+      Compiler.Stacking
       Compiler.Try
       Lib
       LLVMutil.LLVMexamples
@@ -43,6 +49,7 @@ library
       MicroRAM.MRAMInterpreter
       MicroRAM.MRAMutil
       Parse.ReadTest
+      Util.Util
   other-modules:
       Paths_MicroRAM
   hs-source-dirs:
@@ -51,6 +58,7 @@ library
       base >=4.7 && <5
     , bytestring
     , containers
+    , llvm-hs
     , llvm-hs-pure
     , mtl
   default-language: Haskell2010
@@ -69,6 +77,7 @@ executable MicroRAM-compile
     , base >=4.7 && <5
     , bytestring
     , containers
+    , llvm-hs
     , llvm-hs-pure
     , mtl
   default-language: Haskell2010
@@ -87,6 +96,7 @@ executable MicroRAM-exe
     , base >=4.7 && <5
     , bytestring
     , containers
+    , llvm-hs
     , llvm-hs-pure
     , mtl
   default-language: Haskell2010
@@ -107,6 +117,7 @@ test-suite MicroRAM-circuit-test
     , base >=4.7 && <5
     , bytestring
     , containers
+    , llvm-hs
     , llvm-hs-pure
     , mtl
     , tasty
@@ -127,6 +138,7 @@ test-suite MicroRAM-compiler-test
     , base >=4.7 && <5
     , bytestring
     , containers
+    , llvm-hs
     , llvm-hs-pure
     , mtl
     , tasty
@@ -147,6 +159,7 @@ test-suite MicroRAM-interpreter-test
     , base >=4.7 && <5
     , bytestring
     , containers
+    , llvm-hs
     , llvm-hs-pure
     , mtl
     , tasty

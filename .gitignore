@@ -8,3 +8,4 @@
 */.#*
 *.DS_Store
 src/Compiler/Try.hs
+src/Backend/Notes

@@ -23,7 +23,7 @@ dependencies:
 - base >= 4.7 && < 5
 - containers
 - llvm-hs-pure
-#- llvm-hs
+- llvm-hs
 - mtl
 - bytestring
 

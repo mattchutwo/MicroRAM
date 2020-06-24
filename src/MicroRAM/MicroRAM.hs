@@ -15,7 +15,8 @@ module MicroRAM.MicroRAM
   Program,
   Operand'(..),
   Operand,
-  MAOperand) where
+  MAOperand,
+  ) where
 
 {-
 
@@ -80,6 +81,7 @@ before assembly... but I also use it to stand in for label addresses before we k
 import GHC.Read
 import Text.Read.Lex
 import Text.ParserCombinators.ReadPrec
+import Data.ByteString.Short
 
 -- ## Registers (see assumptions above)
 {-   regNum >= 8 
@@ -120,8 +122,10 @@ data Operand phase regT wrdT where
 -- labeled blocks and Operands can be labels
 -- Post: indicates Pure MicroRAM where the program is a list of instructions
 -- at this level, labels have been removed.
+-- FIXME: Post is now used in RTL and LTL, so change names like Pre->"labeled" and Post->"simple"
 data Phase = Pre | Post
   deriving (Eq, Ord, Read, Show)
+
 
 -- | Operands
 -- TinyRAM instructions take immidiate values (constants) and registers
