@@ -27,6 +27,9 @@ module Compiler.InstructionSelection
     ( instrSelect,
     ) where
 
+
+import Data.ByteString.Short
+
 import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.IntegerPredicate as IntPred
@@ -47,9 +50,14 @@ import qualified MicroRAM.MicroRAM as MRAM
 
 -}
 
--- ** Translation between LLVM and RTL "things" 
+-- ** Translation between LLVM and RTL "things"
+any2short :: Show a => a -> ShortByteString
+any2short n = toShort $ read $ show $ n
+
 name2name (LLVM.Name s) = return $ Name s
-name2name (LLVM.UnName _) = implError "Unnamed opareands not supported yet. TODO soon... "
+name2name (LLVM.UnName n) = return $ Name $ any2short n
+
+--  implError "Unnamed opareands not supported yet. TODO soon... "
 
 
 toType :: LLVM.Type -> Ty
@@ -433,25 +441,77 @@ isBlocks = mapM isBlock
 processParams :: ([LLVM.Parameter], Bool) -> [Ty]
 processParams (params, _) = map (\_ -> Tint) params
 
--- | Instruction generation for Globals
-isGlob :: LLVM.Global -> Hopefully $ RFunction () Word
-isGlob (LLVM.GlobalVariable name _ _ _ _ _ _ _ _ _ _ _ _ _) =
-  implError "Global Variables"
-isGlob (LLVM.GlobalAlias name _ _ _ _ _ _ _ _) = implError "Global Alias"
-isGlob (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _) = do
+-- | Instruction generation for Functions
+
+isFunction (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) = do
   body <- isBlocks code
   params' <- return $ processParams params
   name' <- name2name name
   return $ Function name' (toType retT) params' body
+isFunction other = unreachableError $ show other -- Shoudl be filtered out 
 
 -- | Instruction Selection for all definitions
-isDef :: LLVM.Definition -> Hopefully $ RFunction () Word
+-- We create filters to separate the definitions into categories.
+-- Then process each category of definition separatedly
 
-isDef (LLVM.GlobalDefinition glob) = undefined -- isGlob glob
+-- | Filters
+itIsFunc, itIsGlobVar, itIsTypeDef, itIsMetaData :: LLVM.Definition -> Bool
+itIsFunc (LLVM.GlobalDefinition (LLVM.Function  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ )) = True
+itIsFunc _ = False
+
+itIsFuncAttr (LLVM.FunctionAttributes _ _) = True
+itIsFuncAttr _ = False
+
+itIsGlobVar (LLVM.GlobalDefinition (LLVM.GlobalVariable name _ _ _ _ _ _ _ _ _ _ _ _ _)) = True
+itIsGlobVar _ = False
+
+itIsTypeDef (LLVM.TypeDefinition _ _) = True
+itIsTypeDef _ = False
+
+itIsMetaData (LLVM.MetadataNodeDefinition _ _) = True
+itIsMetaData (LLVM.NamedMetadataDefinition _ _) = True
+itIsMetaData _ = False
+
+unreachableError what = otherError $ "This is akward. This error should be unreachable. You called a function that should only be called on a list after filtering, to avoid this error. Here is the info: " ++ what
+
+-- ** Instruction selection for each of those filtered definitions
+
+-- | We check that we are not discarding anything we care about
+-- We allow discarding metadata for now...
+fOr ::  [a -> Bool] -> (a -> Bool)
+fOr fs a = or $ map (\f -> f a) fs 
+
+acceptedDef = fOr [itIsFunc, itIsFuncAttr, itIsGlobVar, itIsTypeDef, itIsMetaData]
+
+checkDiscardedDef :: LLVM.Definition -> Hopefully ()
+checkDiscardedDef def = if acceptedDef def
+  then return ()
+  else implError $ "Definition: " ++ (show def) ++ ".\n While checking discarded defs "
+  
+checkDiscardedDefs :: [LLVM.Definition] -> Hopefully ()
+checkDiscardedDefs defs = do
+  mapM checkDiscardedDef defs
+  return ()
+
+isTypeDefs :: [LLVM.Definition] -> Hopefully $ TypeEnv
+isTypeDefs _ = return ()
+
+
+isGlobVars :: [LLVM.Definition] -> Hopefully $ GEnv Word
+isGlobVars _ = return []
+
+isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
+isFuncAttributes _ = return () 
 
 isDefs :: [LLVM.Definition] -> Hopefully $ Rprog () Word
-isDefs = mapM isDef
-
+isDefs defs = do
+  typeDefs <- isTypeDefs $ filter itIsTypeDef defs
+  globVars <- isGlobVars $ filter itIsGlobVar defs
+  funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
+  funcs <- mapM isFunction $ filter itIsFunc defs
+  checkDiscardedDefs defs -- Make sure we dont drop something important
+  return $ IRprog typeDefs globVars funcs
+  
 -- | Instruction selection generates an RTL Program
 instrSelect :: LLVM.Module -> Hopefully $ Rprog () Word
 instrSelect (LLVM.Module _ _ _ _ defs) = isDefs defs

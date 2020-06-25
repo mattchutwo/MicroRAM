@@ -23,6 +23,7 @@ import qualified LLVM.AST.CallingConvention
 
 --import qualified Test.QuickCheck as QC
 
+import InstructionSelectionSpec
 
 
 import Test.Tasty
@@ -31,7 +32,7 @@ import Test.Tasty.SmallCheck
 main :: IO ()
 main = defaultMain tests
 
-tests = testGroup "Compiler tests" []
+tests = testGroup "Compiler tests" [instructionSelectionTests]
 
   
 -- ** Definitinos

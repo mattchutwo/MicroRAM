@@ -1,6 +1,8 @@
 #include <stdio.h>
-
-int main() {
-  printf("hello world\n");
+int main(int argc, char **argv) {
+   // printf() displays the string inside quotation
+  char *a;
+  a = argv[1];
+  printf(a);
   return 0;
 }

@@ -43,8 +43,30 @@ type IRFunction mdata regT wrdT irinstr =
 data Name = Name ShortByteString -- | we keep the LLVM names 
   deriving (Eq, Ord, Read, Show)
 
+type TypeEnv = () -- TODO
 
+data GlobalVariable wrdT = GlobalVariable
+  { name :: Name
+  , isConstant :: Bool
+  , gType :: Ty
+  , initializer :: Maybe wrdT
+  }
+type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"
+data IRprog mdata wrdT funcT = IRprog
+  { typeEnv :: TypeEnv
+  , globals :: GEnv wrdT
+  , code :: [funcT]
+  }
+
+
+
+
+
+
+-- -------------------------------
 -- ** Register Transfer language (RTL)
+-- -------------------------------
+
 -- RTL uses infinite registers, function calls and regular MRAM instructions for the rest.
 data CallInstrs operand = 
    ICall operand -- ^ function
@@ -75,12 +97,20 @@ type RTLInstr mdata wrdT = IRInstruction mdata VReg wrdT (RTLInstr' $ MAOperand 
 type RFunction mdata wrdT =
   IRFunction mdata VReg wrdT (RTLInstr' $ MAOperand VReg wrdT)
   
-type Rprog mdata wrdT = [RFunction mdata wrdT] -- TODO: what about global variables?
+type Rprog mdata wrdT = IRprog mdata wrdT $ RFunction mdata wrdT
 
 
 
 
+
+
+
+
+
+-- -------------------------------
 -- ** Location Transfer Language
+-- -------------------------------
+
 -- It's the target language for register allocation: Close to RTL but uses machine registers and stack slots instead of virtual registers.
 
 -- | Ty determines the type of something in the stack. Helps us calculate
@@ -124,5 +154,7 @@ data LTLInstr' mreg wrdT operand =
 data LTLInstr mdata mreg wrdT =
   IRInstruction mdata mreg wrdT (LTLInstr' mreg wrdT $ MAOperand mreg wrdT)
   
-type Lprog mdata mreg wrdT  =
-  [IRFunction  mdata VReg wrdT (LTLInstr mdata mreg wrdT)] -- TODO: what about global variables?
+type LFunction mdata mreg wrdT =
+  IRFunction mdata mreg wrdT (RTLInstr' $ MAOperand mreg wrdT)
+
+type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
