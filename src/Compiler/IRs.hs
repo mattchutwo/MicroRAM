@@ -40,7 +40,9 @@ data BB instrT = BB Name [instrT] DAGinfo
 type IRFunction mdata regT wrdT irinstr =
   Function Name Ty (BB $ IRInstruction mdata regT wrdT irinstr)
 
-data Name = Name ShortByteString -- | we keep the LLVM names 
+data Name =
+  Name ShortByteString -- | we keep the LLVM names
+  | NewName Word         -- | and add some new ones
   deriving (Eq, Ord, Read, Show)
 
 type TypeEnv = () -- TODO
@@ -57,8 +59,6 @@ data IRprog mdata wrdT funcT = IRprog
   , globals :: GEnv wrdT
   , code :: [funcT]
   }
-
-
 
 
 

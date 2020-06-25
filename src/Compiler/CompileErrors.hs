@@ -33,6 +33,7 @@ instance Show CmplError where
 type Hopefully = Either CmplError
 ok :: a -> Hopefully a
 ok result = Right result
+implError, assumptError, otherError :: String -> Hopefully b
 implError msg = Left $ NotImpl msg
 assumptError msg = Left $ CompilerAssumption msg
 otherError msg = Left $ OtherError msg
