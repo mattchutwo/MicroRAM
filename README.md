@@ -31,3 +31,10 @@ Then run a Program:
 \\ Prints trace with 40 steps of running the program
 \\ Register 0 should contain the 10th fibonacci
 ```
+
+OS X
+----
+
+```
+brew install llvm-hs/llvm/llvm-9
+```

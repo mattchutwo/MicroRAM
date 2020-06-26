@@ -124,5 +124,7 @@ data LTLInstr' mreg wrdT operand =
 data LTLInstr mdata mreg wrdT =
   IRInstruction mdata mreg wrdT (LTLInstr' mreg wrdT $ MAOperand mreg wrdT)
   
+type LFunction mdata mreg wrdT = IRFunction  mdata VReg wrdT (LTLInstr mdata mreg wrdT) -- TODO: what about global variables?
+
 type Lprog mdata mreg wrdT  =
-  [IRFunction  mdata VReg wrdT (LTLInstr mdata mreg wrdT)] -- TODO: what about global variables?
+  [LFunction mdata mreg wrdT]
