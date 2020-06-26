@@ -14,6 +14,27 @@ This pass lays out the stack in memory in two steps:
    an alloc and other accesses with store and loads. 
 
 
+    Stack layout during function execution
+
+     |                 |
+     +=================+ 
+     | Local variables | <- SP
+     |                 |
+     |                 |
+     +-----------------+
+     | Spilled         |
+     | variables       |
+     |                 |  <- BP
+     +-----------------+
+     | Return address  |
+     +-----------------+ 
+     | Function        | 
+     | arguments       |
+     +=================+
+     | Caller frame    |
+     |                 |
+
+
 NOTE: we are not setting functions in memory, so
       we do NOT SUPPORT CALLING FUNCTIONS BY POINTER.
       This could be relaxed if need be.
@@ -25,8 +46,9 @@ module Compiler.Stacking
     ) where
 
 import qualified Data.Map.Strict as Map
-import Data.ByteString.Short
+import qualified Data.ByteString.Short as Short
 
+import Data.ByteString.Short (ShortByteString)
 
 import MicroRAM.MicroRAM
 --import qualified MicroRAM.MicroRAM as MRAM
@@ -70,6 +92,12 @@ pushN :: [LOperand] -> [MAInstruction MReg Word]
 pushN [] = []
 pushN (r:rs) = pushOperand r ++ pushN rs 
 
+-- PopN doesn't return, just drops the top n things in the stack
+popN :: Word -> [MAInstruction MReg Word]
+popN 0 = []
+popN n = [Isub sp sp (Const n) ]
+
+
 -- | smartMov is like Imov, but does nothing if the registers are the same
 smartMov :: MReg -> MReg -> [MAInstruction MReg Word]
 smartMov r1 r2 = if r1 == r2 then [Imov r1 (Reg r2)] else []
@@ -86,7 +114,9 @@ type GVEnv = Map.Map ShortByteString Ptr
    1. A Preamble: set of instructions that lay global variables in memory.
       Sets the initial stack pointer etc. 
    2. A map with the locations of the globals, so we can replace their
-      values in the code. 
+      values in the code.
+
+
 -}
 
 storeGlobVars ::
@@ -101,7 +131,7 @@ storeGlobVars _ = return (Map.empty , NBlock Nothing [])
 replaceGlobalsInstr :: LTLInstr mdata mrag wrdT -> LTLInstr mdata mrag wrdT
 replaceGlobalsInstr = undefined
 
---| replaceGlobals : replace globals with their actual ptr value
+-- | replaceGlobals : replace globals with their actual ptr value
 -- 
 replaceGlobals _ block = return block -- TODO: Replace global
 
@@ -145,6 +175,8 @@ funCallInstructions _ ret f _ args =
   -- Run function 
     Ijmp f :
   -- The function should return to the this next instruciton
+  -- remove arguments and return address from the stack
+  (popN (fromIntegral $ (length args) + 1)) ++
   -- move the return value (allways returns to ax)
   setResult ret
   
