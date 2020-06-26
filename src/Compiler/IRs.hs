@@ -80,10 +80,11 @@ type VReg = Name
 -- | Instructions for the RTL language
 data RTLInstr' operand =
     RCall
-      Ty -- ^ return type
+      Ty           -- ^ return type
       (Maybe VReg) -- ^ return register
-      operand -- ^ function
-      [operand] -- ^ arguments
+      operand      -- ^ function
+      [Ty]         -- ^ types of parameters 
+      [operand]    -- ^ arguments
   | RRet (Maybe operand) -- ^ return this value
   | RAlloc
     (Maybe VReg) -- ^ return register (gives location)
@@ -120,7 +121,7 @@ type Rprog mdata wrdT = IRprog mdata wrdT $ RFunction mdata wrdT
 data Ty = Tint
 
 -- Determines the relative size of types (relative to a 32bit integer)
-tySize :: Ty -> Int
+tySize :: Ty -> Word
 tySize _ = 1
 
 
@@ -138,20 +139,21 @@ data Loc mreg where
 
 -- | LTL unique instrustions
 data LTLInstr' mreg wrdT operand =
-    Lgetstack Slot Int Ty mreg -- load from the stack into a register
-  | Lsetstack mreg Slot Int Ty -- store into the stack from a register
+    Lgetstack Slot Word Ty mreg -- load from the stack into a register
+  | Lsetstack mreg Slot Word Ty -- store into the stack from a register
   | LCall
       Ty
       (Maybe mreg) -- ^ return register
       operand -- ^ function
-         [operand] -- ^ arguments
+      [Ty]         -- ^ types of parameters 
+      [operand] -- ^ arguments
   | LRet (Maybe operand) -- ^ return this value
   | LAlloc
     mreg -- ^ return register (gives location)
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
   
-data LTLInstr mdata mreg wrdT =
+type LTLInstr mdata mreg wrdT =
   IRInstruction mdata mreg wrdT (LTLInstr' mreg wrdT $ MAOperand mreg wrdT)
 
 -- data Function nameT paramT blockT =

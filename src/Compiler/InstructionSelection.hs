@@ -410,6 +410,9 @@ isTerminator' (LLVM.CondBr (LLVM.LocalReference _ name) name1 name2 _) = do
                     MRAM.Ijmp loc2]
 isTerminator' (LLVM.CondBr _ name1 name2 _) =
   assumptError "conditional branching must depend on a register. If you passed a constant prhaps you forgot to run constant propagation. Can't branch on Metadata."
+
+-- Possible optimisation:
+-- Add just one return block, and have all others jump there.
 isTerminator' (LLVM.Ret (Just ret) md) = do
   ret' <- operand2operand ret
   return $ [IRI (RRet $ Just ret') ()] 
