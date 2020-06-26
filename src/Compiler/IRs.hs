@@ -32,13 +32,13 @@ data IRInstruction metadata regT wrdT irinst =
 data Function nameT paramT blockT =
   Function nameT paramT [paramT] [blockT]
 
-type DAGinfo = [Name]
+type DAGinfo name = [name]
 -- | Basic blocks:
 -- | it's a list of instructions + all the blocks that it can jump to
-data BB instrT = BB Name [instrT] DAGinfo
+data BB name instrT = BB name [instrT] (DAGinfo name)
 
 type IRFunction mdata regT wrdT irinstr =
-  Function Name Ty (BB $ IRInstruction mdata regT wrdT irinstr)
+  Function Name Ty (BB Name $ IRInstruction mdata regT wrdT irinstr)
 
 data Name = Name ShortByteString -- | we keep the LLVM names 
   deriving (Eq, Ord, Read, Show)

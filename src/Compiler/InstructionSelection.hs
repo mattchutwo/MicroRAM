@@ -417,7 +417,7 @@ blockJumpsTo term = do
 
 
 -- instruction selection for blocks
-isBlock:: LLVM.BasicBlock -> Hopefully (BB $ RTLInstr () Word)
+isBlock:: LLVM.BasicBlock -> Hopefully (BB Name $ RTLInstr () Word)
 isBlock  (LLVM.BasicBlock name instrs term) = do
   body <- isInstrs instrs
   end <- isTerminator term
@@ -427,7 +427,7 @@ isBlock  (LLVM.BasicBlock name instrs term) = do
 
 
   
-isBlocks :: [LLVM.BasicBlock] -> Hopefully [BB $ RTLInstr () Word]
+isBlocks :: [LLVM.BasicBlock] -> Hopefully [BB Name $ RTLInstr () Word]
 isBlocks = mapM isBlock
 
 processParams :: ([LLVM.Parameter], Bool) -> [Ty]
