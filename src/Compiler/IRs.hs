@@ -153,8 +153,16 @@ data LTLInstr' mreg wrdT operand =
   
 data LTLInstr mdata mreg wrdT =
   IRInstruction mdata mreg wrdT (LTLInstr' mreg wrdT $ MAOperand mreg wrdT)
-  
-type LFunction mdata mreg wrdT =
-  IRFunction mdata mreg wrdT (RTLInstr' $ MAOperand mreg wrdT)
+
+-- data Function nameT paramT blockT =
+--  Function nameT paramT [paramT] [blockT]
+data LFunction mdata mreg wrdT = LFunction {
+  funName :: String -- Think about this.
+  , funMetadata :: mdata
+  , retType :: Ty
+  , paramTypes :: [Ty]
+  , stackSize :: Word
+  , funBody:: [BB $ LTLInstr mdata mreg wrdT]
+}
 
 type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
