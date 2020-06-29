@@ -75,7 +75,9 @@ integer2wrd x
   
 getConstant :: LLVM.Constant.Constant -> Hopefully $ Word
 getConstant (LLVM.Constant.Int _ val) = integer2wrd val
-getConstant _ = otherError $  "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions)"
+getConstant (LLVM.Constant.Undef typ) = return $ 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
+getConstant consT = otherError $
+  "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions)" ++ (show consT)
 
 
 operand2operand :: LLVM.Operand -> Hopefully $ MAOperand VReg Word
@@ -85,10 +87,10 @@ operand2operand (LLVM.LocalReference _ name) = do
   return $ Reg name'
 operand2operand _ = implError "operand, probably metadata"
 
-
 name2Operand :: LLVM.Name -> Hopefully $ MRAM.MAOperand VReg Word
 name2Operand (LLVM.Name name) = return $ Reg $ Name name
-name2Operand _ = assumptError "Unnamed name passed. Unnammed things should not be called."
+name2Operand (LLVM.UnName number) = return $ Reg $ Name $ any2short number
+--name2Operand _ = assumptError "Unnamed name passed. Unnammed things should not be called."
 
 
 type2type (LLVM.IntegerType n) = return Tint -- FIXME check size! 
@@ -187,12 +189,17 @@ isCompare pred (Const lhs) _ =
   "Comparing left hand side constants (expected a register). Did you forget to do constant propagation?"
 isCompare IntPred.EQ (Reg lhs) rhs = return $ MRAM.Icmpe lhs rhs
 isCompare IntPred.NE (Reg lhs) rhs = return $ MRAM.Icmpe lhs rhs
-isCompare IntPred.SGT (Reg lhs) rhs = return $ MRAM.Icmpa lhs rhs
-isCompare IntPred.SGE (Reg lhs) rhs = return $ MRAM.Icmpae lhs rhs
-isCompare IntPred.SLT (Reg lhs) rhs = return $ MRAM.Icmpae lhs rhs
-isCompare IntPred.SLE (Reg lhs) rhs = return $ MRAM.Icmpa lhs rhs
-isCompare _ _ _ = implError "Unsigned comparisons"
-
+-- Unsigned
+isCompare IntPred.UGT (Reg lhs) rhs = return $ MRAM.Icmpa lhs rhs
+isCompare IntPred.UGE (Reg lhs) rhs = return $ MRAM.Icmpae lhs rhs
+isCompare IntPred.ULT (Reg lhs) rhs = return $ MRAM.Icmpae lhs rhs
+isCompare IntPred.ULE (Reg lhs) rhs = return $ MRAM.Icmpa lhs rhs
+-- Signed
+isCompare IntPred.SGT (Reg lhs) rhs = return $ MRAM.Icmpg lhs rhs
+isCompare IntPred.SGE (Reg lhs) rhs = return $ MRAM.Icmpge lhs rhs
+isCompare IntPred.SLT (Reg lhs) rhs = return $ MRAM.Icmpge lhs rhs
+isCompare IntPred.SLE (Reg lhs) rhs = return $ MRAM.Icmpg lhs rhs
+isCompare pred _ _ = implError $ "Unsigned comparisons: " ++ show pred
 
 
 fError = implError "Floatin point arithmetic"
@@ -349,10 +356,33 @@ isInstruction (Just ret) (LLVM.ICmp pred op1 op2 _) = toState $ do
 isInstruction ret (LLVM.Call _ _ _ f args _ _ ) = toState $  do
   (f',retT,paramT) <- function2function f
   args' <- params2params args paramT
-  return [IRI (RCall retT ret (Reg f') args') ()]
+  return [IRI (RCall retT ret (Reg f') paramT args') ()]
+
+-- *** Phi
+isInstruction Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
+isInstruction (Just ret) (LLVM.Phi typ ins _)  =  toState $ do
+  ins' <- mapM convertPhiInput ins
+  return $ [IRI (RPhi ret ins') ()]
+
+isInstruction Nothing (LLVM.Select _ _ _ _)  = return [] -- Select without a name is useless
+isInstruction (Just ret) (LLVM.Select cond op1 op2 _)  =  toStateRTL $ do
+   cond' <- operand2operand op1
+   op1' <- operand2operand op1 
+   op2' <- operand2operand op2 
+   return $ case cond' of
+     Reg r -> [MRAM.Icmpe r (Const 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
+     Const c -> -- compiler optimization should take care of this case. but just in case...
+       [if c == 1 then MRAM.Imov ret op1' else MRAM.Imov ret op2']
+       
 
 -- *** Not supprted instructions (return meaningfull error)
 isInstruction _ instr =  toState $ implError $ "Instruction: " ++ (show instr)
+
+convertPhiInput :: (LLVM.Operand, LLVM.Name) -> Hopefully $ (MAOperand VReg Word, Name)
+convertPhiInput (op, name) = do
+  op' <- operand2operand op
+  name' <- name2name name
+  return (op', name')
 
 
 -- ** Named instructions and instructions lists

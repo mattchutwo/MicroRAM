@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -28,14 +29,14 @@ data IRInstruction metadata regT wrdT irinst =
    MRI (MRAM.MAInstruction regT wrdT) metadata
   | IRI irinst metadata
 
-
 data Function nameT paramT blockT =
-  Function nameT paramT [paramT] [blockT]
+  Function nameT paramT [paramT] [blockT] deriving (Functor)
 
 type DAGinfo = [Name]
 -- | Basic blocks:
 -- | it's a list of instructions + all the blocks that it can jump to
 data BB instrT = BB Name [instrT] DAGinfo
+  deriving (Functor)
 
 type IRFunction mdata regT wrdT irinstr =
   Function Name Ty (BB $ IRInstruction mdata regT wrdT irinstr)
@@ -58,7 +59,7 @@ data IRprog mdata wrdT funcT = IRprog
   { typeEnv :: TypeEnv
   , globals :: GEnv wrdT
   , code :: [funcT]
-  }
+  } deriving (Functor)
 
 
 
@@ -90,6 +91,7 @@ data RTLInstr' operand =
     (Maybe VReg) -- ^ return register (gives location)
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
+  | RPhi VReg [(operand,Name)]
     
     
 type RTLInstr mdata wrdT = IRInstruction mdata VReg wrdT (RTLInstr' $ MAOperand VReg wrdT)
@@ -159,7 +161,7 @@ type LTLInstr mdata mreg wrdT =
 -- data Function nameT paramT blockT =
 --  Function nameT paramT [paramT] [blockT]
 data LFunction mdata mreg wrdT = LFunction {
-  funName :: String -- Think about this.
+  funName :: String -- should this be a special label?
   , funMetadata :: mdata
   , retType :: Ty
   , paramTypes :: [Ty]

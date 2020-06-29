@@ -18,13 +18,19 @@ import qualified Data.String as String
 import qualified LLVM.AST.Linkage
 import qualified LLVM.AST.Visibility
 import qualified LLVM.AST.CallingConvention
---import Data.Bits.Extras
---import Data.Sequence as Seq
 
---import qualified Test.QuickCheck as QC
+--import InstructionSelectionSpec
 
-import InstructionSelectionSpec
 
+-- Compiler imports
+import Compiler.CompileErrors
+import Compiler.InstructionSelection
+import Compiler.RegisterAlloc
+import Compiler.Stacking
+import Compiler.RemoveLabels
+
+
+import LLVMutil.LLVMIO
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -32,73 +38,40 @@ import Test.Tasty.SmallCheck
 main :: IO ()
 main = defaultMain tests
 
-tests = testGroup "Compiler tests" [instructionSelectionTests]
+tests = testGroup "Compiler tests" $
+  map compileTest $
+  [("Return 42", "Cprograms/return42.ll")
+  ,("21 + 21", "Cprograms/compute42.ll")
+  , ("Fibonacci loop", "Cprograms/fib.ll")
+--  ,("Hello world", "Cprograms/hello.ll")
+  ]
 
-  
--- ** Definitinos
-  
--- ## Blocks
-label
-  :: LLVM.Name
-     -> [Named LLVM.Instruction]
-     -> Named LLVM.Terminator
-     -> LLVM.BasicBlock
-label name insts term =
-  LLVM.BasicBlock name insts term
-
--- # Example 0
-{- Compute x^2 + 3x - 10 (For now x = 42)
--}
-bb0 :: [LLVM.BasicBlock]
-bb0 = [
-  label "main0" [
-      "a":=  ("a" .+ 42)     -- r0 = 42
-      ,"c":= ("a" .* "a")    -- r2 = r0 * r0
-      ,"b":= ("a" .* 3)      -- r1 = 3 * r0
-      ,"a":= ("b" .+ "c")    -- r0 = r1 + r2
-      ,"a":= ("a" .- 10)     -- r0 = r0 - 10
-      ]
-    (Do $ LLVM.Ret Nothing [])]
-
-ex0 :: LLVM.Module
-ex0 = fromBlocks bb0
-
-ex0Comp = compile ex0
-
--- # Example 1
-{- Adds 1 to "a" forever
--}
-bb1 :: [LLVM.BasicBlock]
-bb1 = [
-  label "main" [
-      "a":= ("a" .+ 1)]
-    (Do $ LLVM.Br "loop" []),
-    label "loop" [
-      "a":= ("a" .+ 1),
-      "":= ("a" .+ 0)]
-    (Do $ LLVM.Br "loop" [])]
-
-ex1 :: LLVM.Module
-ex1 = fromBlocks bb1
-
-ex1Comp = compile ex1
--- test1 n = (flip execute (n) <$> ex1Comp)-}
+-- tests = testGroup "Compiler tests" [instructionSelectionTests]
 
 
--- # Example 2
-{- fibonacci
+-- Full compilation tests
 
-ex2 :: [LLVM.BasicBlock]
-ex2 = [
-  label "main" [ 
-      "a":= ("a" .+ 1)]
-    (Do $ LLVM.Br "loop" []),
-    label "loop" [
-      "b":= ("a" .+ 0),
-      "a":= ("a" .+ ""),
-      "":= ("b" .+ 0)]
-    (Do $ LLVM.Br "loop" [])]
-     
-ex2Comp = codegenBlocks genv ex2
-test2 n = (flip execute (4+n*4) <$> ex2Comp) -- returns fib n
--}
+-- | compileTest : compile step by step llvm code from file:
+
+type AssertionInfo = IO String
+
+compileTest ::
+  (String, FilePath)
+  -> TestTree
+compileTest (testName, file) = 
+  testCaseSteps ("Compiling " ++ testName) $ \step -> do
+  step "Preparing code to compile"
+  llvmModule <- llvmParse file
+  step "Instruction selection "
+  rtlModule <- checkPass $ instrSelect llvmModule
+  step "Register Allocation "
+  ltlModule <- checkPass $ trivialRegisterAlloc rtlModule
+  step "Stacking "
+  asmModule <- checkPass $ stacking ltlModule
+  step "Removing Labels "
+  checkPass $ removeLabels asmModule
+  assertBool  "" True
+
+checkPass :: Hopefully a -> IO a 
+checkPass (Right c) = return c
+checkPass (Left msg) = assertFailure $ "produced compilation error: " ++ (show msg)

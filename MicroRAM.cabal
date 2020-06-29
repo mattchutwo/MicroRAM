@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: b67160087fb036d1ef129c72bf6bd2d5134b2c844797076a7cd8da2ddf190417
+-- hash: 1fc6062551aee95530d6937b802c25ef82253973354c5e3d4a8127d200274fc6
 
 name:           MicroRAM
 version:        0.1.0.0
@@ -111,7 +111,7 @@ executable MicroRAM-exe
     , tasty-smallcheck
   default-language: Haskell2010
 
-test-suite MicroRAM-circuit-test
+test-suite circuit-test
   type: exitcode-stdio-1.0
   main-is: CircuitSpec.hs
   other-modules:
@@ -135,7 +135,7 @@ test-suite MicroRAM-circuit-test
     , tasty-smallcheck
   default-language: Haskell2010
 
-test-suite MicroRAM-compiler-test
+test-suite compiler-test
   type: exitcode-stdio-1.0
   main-is: CompilerSpec.hs
   other-modules:
@@ -157,7 +157,7 @@ test-suite MicroRAM-compiler-test
     , tasty-smallcheck
   default-language: Haskell2010
 
-test-suite MicroRAM-interpreter-test
+test-suite interpreter-test
   type: exitcode-stdio-1.0
   main-is: InterpreterSpec.hs
   other-modules:

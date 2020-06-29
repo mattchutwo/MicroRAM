@@ -26,7 +26,7 @@ data CmplError = NotImpl String      -- Feature not implemented
 -- | Converts Error to a readable message.
 instance Show CmplError where
   show (NotImpl msg) =
-      "The following feature has not been yet supported by the compiler: " ++ msg
+      "Feature not supported by the compiler yet: " ++ msg
   show (CompilerAssumption msg) = "Compiler assumption broken: " ++ msg
   show (OtherError msg) = msg
 

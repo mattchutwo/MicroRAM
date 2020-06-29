@@ -79,6 +79,8 @@ push r = [Istore (Reg sp) r, Iadd sp sp (Const 1)]
 pop r = [Iload r (Reg sp), Isub  sp sp (Const 1)]
 
 -- | pushOperand sometimes we want to push a constant
+-- Notice here we use ax. This can only be done at funciton entry
+-- where ax is callee-saved.
 pushOperand :: LOperand -> [MAInstruction MReg Word]
 pushOperand (Reg r) = push r
 pushOperand (Const c) = Imov ax (Const c) :  push ax
@@ -225,6 +227,10 @@ stackBlock genv (BB name body _ ) = do
   body' <- return $ map stackInstr body
   body'' <- replaceGlobals genv body'
   return $ NBlock Nothing $ concat body'
+
+name2string :: Name -> String
+name2string (Name st) = "Name:"++(show st)
+name2string (NewName st) = "NewName:"++(show st)
 
 -- | Translating funcitons
 stackFunction
