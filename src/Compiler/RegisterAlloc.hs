@@ -21,7 +21,7 @@ import Compiler.CompileErrors
 import Compiler.IRs
 
 
-registerAlloc :: Rprog () Word -> Hopefully $ Lprog () Int Word
+registerAlloc :: Rprog () Word -> Hopefully $ Lprog () VReg Word
 registerAlloc = undefined
 
 
@@ -33,6 +33,6 @@ registerAlloc = undefined
 -- * Triviall allocation: we provide a pass that erases the code. Usefull for early testing.
 -- FIXME: remove this once registerAlloc is implemented and can be tested!
 
-trivialRegisterAlloc :: Rprog () Word -> Hopefully $ Lprog () Int Word
-trivialRegisterAlloc (IRprog tenv glbs code) = return . rtlToLtl
+trivialRegisterAlloc :: Rprog () Word -> Hopefully $ Lprog () VReg Word
+trivialRegisterAlloc = return . rtlToLtl
 
