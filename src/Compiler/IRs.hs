@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GADTs #-}
@@ -9,6 +10,8 @@ module Compiler.IRs where
 import MicroRAM.MicroRAM(MAOperand)
 import qualified MicroRAM.MicroRAM as MRAM
 import Data.ByteString.Short
+
+import Compiler.CompileErrors
 
 type ($) a b = a b
 
@@ -151,7 +154,7 @@ data LTLInstr' mreg wrdT operand =
       [operand] -- ^ arguments
   | LRet (Maybe operand) -- ^ return this value
   | LAlloc
-    mreg -- ^ return register (gives location)
+    (Maybe mreg) -- ^ return register (gives location)
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
   
@@ -170,3 +173,40 @@ data LFunction mdata mreg wrdT = LFunction {
 }
 
 type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
+
+
+-- Converts a RTL program to a LTL program.
+rtlToLtl :: forall mdata wrdT . Monoid mdata => Rprog mdata wrdT -> Hopefully $ Lprog mdata VReg wrdT
+rtlToLtl (IRprog tenv globals code) = do
+  code' <- mapM convertFunc code
+  return $ IRprog tenv globals $ code'
+  where
+   convertFunc :: RFunction mdata wrdT -> Hopefully $ LFunction mdata VReg wrdT
+   convertFunc (Function name retType paramTypes body) = 
+     -- JP: Where should we get the metadata and stack size from?
+     let mdata = mempty in
+     let stackSize = 16 in
+     let name' = show name in
+       do
+         body' <- mapM convertBasicBlock body
+         return $ LFunction name' mdata retType paramTypes stackSize body' 
+
+   convertBasicBlock :: BB (RTLInstr mdata wrdT) -> Hopefully $ BB (LTLInstr mdata VReg wrdT)
+   convertBasicBlock (BB name instrs dag) = do
+     instrs' <- mapM convertIRInstruction instrs
+     return $ BB name instrs' dag
+
+   convertIRInstruction :: RTLInstr mdata wrdT -> Hopefully $ LTLInstr mdata VReg wrdT
+   convertIRInstruction (MRI inst mdata) = return $ MRI inst mdata
+   convertIRInstruction (IRI inst mdata) = do
+     inst' <- convertInstruction inst
+     return $ IRI inst' mdata
+
+   convertInstruction ::
+     RTLInstr' (MAOperand VReg wrdT)
+     -> Hopefully $ LTLInstr' VReg wrdT (MAOperand VReg wrdT)
+   convertInstruction (RCall t mr f ts as) = return $ LCall t mr f ts as
+   convertInstruction (RRet mo) = return $ LRet mo
+   convertInstruction (RAlloc mr t o) = return $ LAlloc mr t o
+   convertInstruction (RPhi _ _) = implError "Phi. Not implemented in the trivial Register allocation."
+   

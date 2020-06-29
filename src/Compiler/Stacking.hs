@@ -58,20 +58,20 @@ import Compiler.IRs
 import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..)) 
 
 type Ptr = Word
-type MReg = Int
+type MReg = VReg -- FIXME only while we use trivial register allocation
 
 type LOperand =  MAOperand MReg Word
 
 -- * Reserved pointers: Stack pointer (SP) and Base Pointer (BP) are reserved for
 -- managing the stack
 sp , bp :: MReg
-sp = 0
-bp = 1
+sp = NewName 0
+bp = NewName 1
 
 -- * Callee saved registers:
 -- we need one calee saved register to operate when calling a function
 ax  :: MReg
-ax = 2
+ax = NewName 2
 
 -- ** Usefull snipets
 push, pop :: MReg -> [MAInstruction MReg Word]
@@ -103,6 +103,12 @@ popN n = [Isub sp sp (Const n) ]
 -- | smartMov is like Imov, but does nothing if the registers are the same
 smartMov :: MReg -> MReg -> [MAInstruction MReg Word]
 smartMov r1 r2 = if r1 == r2 then [Imov r1 (Reg r2)] else []
+
+smartMovMaybe :: Maybe MReg -> MReg -> [MAInstruction MReg Word]
+smartMovMaybe Nothing _ = []
+smartMovMaybe (Just r) a = smartMov r a
+
+
 
 -- ** Setting Global Variables
 
@@ -203,12 +209,14 @@ stackLTLInstr (LRet (Just retVal)) =
   (Imov ax retVal) : epilogue 
 stackLTLInstr (LAlloc reg typ n) =
   -- Return the current sp (that's the base of the new allocation)
-  (smartMov reg sp) ++
+  (smartMovMaybe reg sp) ++
+  -- sp = sp + n * |typ| 
+  incrSP typ n
+  where incrSP typ (Reg r) =
+          [Imull r r (Const $ tySize typ),
+           Iadd sp sp (Reg r)]
+        incrSP typ (Const n) = [Iadd sp sp (Const $ n * (tySize typ))] 
   -- Compute the size of the allocated memory
-  [Imov sp n, -- TODO optimize away multiplying by one (probably common)
-   Imull sp sp (Const $ tySize typ)] ++
-  -- Set sp to the new value (old sp + size of allocated mem)
-  [Iadd sp sp (Reg reg)]
   
  
 -- | stack all instructions
@@ -221,7 +229,7 @@ stackInstr (IRI instr _) = stackLTLInstr instr
 
 stackBlock
   :: GVEnv
-  -> (BB $ LTLInstr () Int Word)
+  -> (BB $ LTLInstr () MReg Word)
   -> Hopefully (NamedBlock MReg Word)
 stackBlock genv (BB name body _ ) = do
   body' <- return $ map stackInstr body
@@ -235,7 +243,7 @@ name2string (NewName st) = "NewName:"++(show st)
 -- | Translating funcitons
 stackFunction
   :: GVEnv
-  -> LFunction () Int Word
+  -> LFunction () MReg Word
   -> Hopefully $ [NamedBlock MReg Word]
 stackFunction genv (LFunction name mdata retT argT size code) = do
   prologueBlock <- return $ NBlock (Just name) $ prologue size
@@ -243,7 +251,7 @@ stackFunction genv (LFunction name mdata retT argT size code) = do
   return $ prologueBlock : codeBlocks
   
   
-stacking :: Lprog () Int Word -> Hopefully $ MAProgram Int Word
+stacking :: Lprog () MReg Word -> Hopefully $ MAProgram MReg Word
 stacking (IRprog tenv globals functions) = do
   (genv, preamble) <- storeGlobVars globals
   functions' <- mapM (stackFunction genv) functions
