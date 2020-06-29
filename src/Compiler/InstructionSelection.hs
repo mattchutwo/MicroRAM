@@ -115,7 +115,7 @@ returnStateRTL x = toState  $ returnRTL x
 type Statefully = StateT Word Hopefully
 
 initState :: Word
-initState = 0
+initState = 2 -- Leave space for ESP and EBP
 
 freshName :: Statefully Name
 freshName = do

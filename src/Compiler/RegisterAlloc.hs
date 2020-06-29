@@ -34,5 +34,5 @@ registerAlloc = undefined
 -- FIXME: remove this once registerAlloc is implemented and can be tested!
 
 trivialRegisterAlloc :: Rprog () Word -> Hopefully $ Lprog () VReg Word
-trivialRegisterAlloc = return . rtlToLtl
+trivialRegisterAlloc = rtlToLtl
 
