@@ -27,6 +27,10 @@ module Compiler.InstructionSelection
     ( instrSelect,
     ) where
 
+
+import Data.ByteString.Short
+import Control.Monad.State.Lazy
+
 import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.IntegerPredicate as IntPred
@@ -47,9 +51,14 @@ import qualified MicroRAM.MicroRAM as MRAM
 
 -}
 
--- ** Translation between LLVM and RTL "things" 
+-- ** Translation between LLVM and RTL "things"
+any2short :: Show a => a -> ShortByteString
+any2short n = toShort $ read $ show $ n
+
 name2name (LLVM.Name s) = return $ Name s
-name2name (LLVM.UnName _) = implError "Unnamed opareands not supported yet. TODO soon... "
+name2name (LLVM.UnName n) = return $ Name $ any2short n
+
+--  implError "Unnamed opareands not supported yet. TODO soon... "
 
 
 toType :: LLVM.Type -> Ty
@@ -66,7 +75,9 @@ integer2wrd x
   
 getConstant :: LLVM.Constant.Constant -> Hopefully $ Word
 getConstant (LLVM.Constant.Int _ val) = integer2wrd val
-getConstant _ = otherError $  "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions)"
+getConstant (LLVM.Constant.Undef typ) = return $ 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
+getConstant consT = otherError $
+  "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions)" ++ (show consT)
 
 
 operand2operand :: LLVM.Operand -> Hopefully $ MAOperand VReg Word
@@ -76,10 +87,10 @@ operand2operand (LLVM.LocalReference _ name) = do
   return $ Reg name'
 operand2operand _ = implError "operand, probably metadata"
 
-
 name2Operand :: LLVM.Name -> Hopefully $ MRAM.MAOperand VReg Word
 name2Operand (LLVM.Name name) = return $ Reg $ Name name
-name2Operand _ = assumptError "Unnamed name passed. Unnammed things should not be called."
+name2Operand (LLVM.UnName number) = return $ Reg $ Name $ any2short number
+--name2Operand _ = assumptError "Unnamed name passed. Unnammed things should not be called."
 
 
 type2type (LLVM.IntegerType n) = return Tint -- FIXME check size! 
@@ -92,10 +103,32 @@ type2type t = implError $ "Type: " ++ (show t)
 toRTL :: [MRAM.MAInstruction VReg Word] -> [RTLInstr () Word]
 toRTL = map  $ \x -> MRI x ()
 
+toStateRTL x = toState $ toRTL <$> x
+
 returnRTL :: Monad m => [MRAM.MAInstruction VReg Word] -> m [RTLInstr () Word]
 returnRTL = return . toRTL
 
--- START
+returnStateRTL x = toState  $ returnRTL x
+
+-- ** State
+-- We create a state to create new variables
+type Statefully = StateT Word Hopefully
+
+initState :: Word
+initState = 0
+
+freshName :: Statefully Name
+freshName = do
+  n <- get
+  put (n + 1)
+  return $ NewName n
+
+evalStatefully :: Statefully t -> Hopefully t
+evalStatefully ts = evalStateT ts initState
+
+toState :: Hopefully a -> Statefully a
+toState (Left x) = StateT (\_ -> Left x)
+toState (Right x) = StateT (\s -> Right (x,s))
 
 -- ** Instruction selection
 
@@ -156,12 +189,17 @@ isCompare pred (Const lhs) _ =
   "Comparing left hand side constants (expected a register). Did you forget to do constant propagation?"
 isCompare IntPred.EQ (Reg lhs) rhs = return $ MRAM.Icmpe lhs rhs
 isCompare IntPred.NE (Reg lhs) rhs = return $ MRAM.Icmpe lhs rhs
-isCompare IntPred.SGT (Reg lhs) rhs = return $ MRAM.Icmpa lhs rhs
-isCompare IntPred.SGE (Reg lhs) rhs = return $ MRAM.Icmpae lhs rhs
-isCompare IntPred.SLT (Reg lhs) rhs = return $ MRAM.Icmpae lhs rhs
-isCompare IntPred.SLE (Reg lhs) rhs = return $ MRAM.Icmpa lhs rhs
-isCompare _ _ _ = implError "Unsigned comparisons"
-
+-- Unsigned
+isCompare IntPred.UGT (Reg lhs) rhs = return $ MRAM.Icmpa lhs rhs
+isCompare IntPred.UGE (Reg lhs) rhs = return $ MRAM.Icmpae lhs rhs
+isCompare IntPred.ULT (Reg lhs) rhs = return $ MRAM.Icmpae lhs rhs
+isCompare IntPred.ULE (Reg lhs) rhs = return $ MRAM.Icmpa lhs rhs
+-- Signed
+isCompare IntPred.SGT (Reg lhs) rhs = return $ MRAM.Icmpg lhs rhs
+isCompare IntPred.SGE (Reg lhs) rhs = return $ MRAM.Icmpge lhs rhs
+isCompare IntPred.SLT (Reg lhs) rhs = return $ MRAM.Icmpge lhs rhs
+isCompare IntPred.SLE (Reg lhs) rhs = return $ MRAM.Icmpg lhs rhs
+isCompare pred _ _ = implError $ "Unsigned comparisons: " ++ show pred
 
 
 fError = implError "Floatin point arithmetic"
@@ -199,58 +237,67 @@ params2params params paramsT = do
   params' <- mapM (operand2operand . fst) params -- fst dumps the attributes
   return params' 
 
+-- | Storing memory
+-- MicroRAM does not suppor storing constants.
+-- For storing a constant we need to move it to a register and then store.
+storer loc cont'@(Reg reg)  =
+  return [MRAM.Istore loc reg]
+storer loc cont'@(Const val) = do
+  temp <- freshName
+  return [MRAM.Imov temp cont', MRAM.Istore loc temp]
+
 
 -- | Instruction Selection for single LLVM instructions 
-isInstruction :: Maybe VReg -> LLVM.Instruction -> Hopefully $ [RTLInstr () Word]
+isInstruction :: Maybe VReg -> LLVM.Instruction -> Statefully $ [RTLInstr () Word]
 -- *** Arithmetic
 
 -- Add
-isInstruction ret (LLVM.Add _ _ o1 o2 _) = toRTL <$> isBinop ret o1 o2 MRAM.Iadd
+isInstruction ret (LLVM.Add _ _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Iadd
 -- Sub
-isInstruction ret (LLVM.Sub _ _ o1 o2 _) = toRTL <$> isBinop ret o1 o2 MRAM.Isub
+isInstruction ret (LLVM.Sub _ _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Isub
 -- Mul
-isInstruction ret (LLVM.Mul _ _ o1 o2 _) = toRTL <$> isBinop ret o1 o2 MRAM.Imull
+isInstruction ret (LLVM.Mul _ _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Imull
 -- SDiv
-isInstruction ret (LLVM.SDiv _ _ o1 o2 ) = implError "Signed division ius hard! SDiv"
+isInstruction ret (LLVM.SDiv _ _ o1 o2 ) = toState $ implError "Signed division ius hard! SDiv"
 -- SRem
-isInstruction ret (LLVM.SRem o1 o2 _) = implError "Signed division ius hard! SRem"
+isInstruction ret (LLVM.SRem o1 o2 _) = toState $ implError "Signed division ius hard! SRem"
 
 
 
 -- *** Floating Point 
 -- FAdd
-isInstruction ret (LLVM.FAdd _ o1 o2 _) = implError "Fast Multiplication FMul"
+isInstruction ret (LLVM.FAdd _ o1 o2 _) = toState $ implError "Fast Multiplication FMul"
 -- FSub
-isInstruction ret (LLVM.FSub _ o1 o2 _) =  implError "Fast Multiplication FMul"
+isInstruction ret (LLVM.FSub _ o1 o2 _) =  toState $ implError "Fast Multiplication FMul"
 -- FMul
-isInstruction ret (LLVM.FMul _ o1 o2 _) =  implError "Fast Multiplication FMul"
+isInstruction ret (LLVM.FMul _ o1 o2 _) =  toState $ implError "Fast Multiplication FMul"
 -- FDiv
-isInstruction ret (LLVM.FDiv _ o1 o2 _) =  implError "Fast Division FDiv"
+isInstruction ret (LLVM.FDiv _ o1 o2 _) =  toState $ implError "Fast Division FDiv"
 -- FRem
-isInstruction ret (LLVM.FRem _ o1 o2 _) = fError
+isInstruction ret (LLVM.FRem _ o1 o2 _) = toState $ fError
 
 -- *** Unsigned operations
 -- UDiv
-isInstruction ret (LLVM.UDiv _ o1 o2 _) = toRTL <$> isBinop ret o1 o2 MRAM.Iudiv -- this is easy
+isInstruction ret (LLVM.UDiv _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Iudiv -- this is easy
 -- URem
-isInstruction ret (LLVM.URem o1 o2 _) = toRTL <$> isBinop ret o1 o2 MRAM.Iumod -- this is eay
+isInstruction ret (LLVM.URem o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Iumod -- this is eay
 
 
 -- *** Shift operations
 -- Shl
-isInstruction ret (LLVM.Shl _ _ o1 o2 _) = toRTL <$> isBinop ret o1 o2 MRAM.Ishl
+isInstruction ret (LLVM.Shl _ _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Ishl
 -- LShr
-isInstruction ret (LLVM.LShr _ o1 o2 _) = toRTL <$> isBinop ret o1 o2 MRAM.Ishr
+isInstruction ret (LLVM.LShr _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Ishr
 -- AShr
-isInstruction ret (LLVM.AShr _ o1 o2 _) =  implError "Arithmetic shift right AShr"
+isInstruction ret (LLVM.AShr _ o1 o2 _) =  toState $ implError "Arithmetic shift right AShr"
 
 -- *** Logical
 --And
-isInstruction ret (LLVM.And o1 o2 _) =  toRTL <$> isBinop ret o1 o2 MRAM.Iand
+isInstruction ret (LLVM.And o1 o2 _) =  toState $ toRTL <$> isBinop ret o1 o2 MRAM.Iand
 --Or
-isInstruction ret (LLVM.Or o1 o2 _) =  toRTL <$> isBinop ret o1 o2 MRAM.Ior
+isInstruction ret (LLVM.Or o1 o2 _) =  toState $ toRTL <$> isBinop ret o1 o2 MRAM.Ior
 --Xor
-isInstruction ret (LLVM.Xor o1 o2 _) =  toRTL <$> isBinop ret o1 o2 MRAM.Ixor
+isInstruction ret (LLVM.Xor o1 o2 _) =  toState $ toRTL <$> isBinop ret o1 o2 MRAM.Ixor
 
 -- *** Memory operations
 -- Alloca
@@ -260,7 +307,7 @@ isInstruction ret (LLVM.Xor o1 o2 _) =  toRTL <$> isBinop ret o1 o2 MRAM.Ixor
    Also the current granularity of our memory is per word so ptr arithmetic and alignment are trivial. -}
 isInstruction ret (LLVM.Alloca a Nothing b c) =
   isInstruction ret (LLVM.Alloca a (Just constOne) b c) --NumElements is defaulted to be one. 
-isInstruction ret (LLVM.Alloca ty (Just size) _ _) = do
+isInstruction ret (LLVM.Alloca ty (Just size) _ _) = toState $ do
   ty' <- type2type ty
   size' <- operand2operand size
   return [IRI (RAlloc ret ty' size') ()]
@@ -269,7 +316,7 @@ isInstruction ret (LLVM.Alloca ty (Just size) _ _) = do
 
 -- Load
 isInstruction Nothing (LLVM.Load _ _ _ _ _) = return [] -- Optimization reconside if we care about atomics
-isInstruction (Just ret) (LLVM.Load _ n _ _ _) = do 
+isInstruction (Just ret) (LLVM.Load _ n _ _ _) = toState $ do 
   a <- operand2operand n
   returnRTL $ (MRAM.Iload ret a) : []
     
@@ -281,15 +328,12 @@ isInstruction (Just ret) (LLVM.Load _ n _ _ _) = do
    2. Change MicroRAM: swap the operands in stores so we can store constants but not store to constant addresses.
       Why would you store to a constant address anyways! Isn't that undefined?
 -}
+
 isInstruction _ (LLVM.Store _ adr cont _ _ _) = do
-  cont' <- operand2operand cont
-  adr' <- operand2operand adr
-  ret <- loader adr' cont'
+  cont' <- toState $ operand2operand cont
+  adr' <- toState $ operand2operand adr
+  ret <- storer adr' cont'
   returnRTL ret
-  where loader loc cont'@(Reg reg)  = return [MRAM.Istore loc reg]
-        loader loc cont'@(Const val) = implError
-          "Storing constants. See code for explanation of why this is not implemented and how to fix it (Compiler/InstructionSelecion.hs  Store)"
-  -- OLD version: [MRAM.Imov ax cont', MRAM.Istore loc ax]
 
 
 -- *** Compare
@@ -299,8 +343,8 @@ isInstruction _ (LLVM.Store _ adr cont _ _ _) = do
    register allocator can actually use the flag as it was intended...
 -}
 
-isInstruction Nothing (LLVM.ICmp pred op1 op2 _) =  return [] -- Optimization
-isInstruction (Just ret) (LLVM.ICmp pred op1 op2 _) = do
+isInstruction Nothing (LLVM.ICmp pred op1 op2 _) =  toState $ return [] -- Optimization
+isInstruction (Just ret) (LLVM.ICmp pred op1 op2 _) = toState $ do
   lhs <- operand2operand op1
   rhs <- operand2operand op2
   comp' <- isCompare pred lhs rhs -- Do the comparison
@@ -309,24 +353,47 @@ isInstruction (Just ret) (LLVM.ICmp pred op1 op2 _) = do
 
                         
 -- *** Function Call 
-isInstruction ret (LLVM.Call _ _ _ f args _ _ ) = do
+isInstruction ret (LLVM.Call _ _ _ f args _ _ ) = toState $  do
   (f',retT,paramT) <- function2function f
   args' <- params2params args paramT
-  return [IRI (RCall retT ret (Reg f') args') ()]
+  return [IRI (RCall retT ret (Reg f') paramT args') ()]
+
+-- *** Phi
+isInstruction Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
+isInstruction (Just ret) (LLVM.Phi typ ins _)  =  toState $ do
+  ins' <- mapM convertPhiInput ins
+  return $ [IRI (RPhi ret ins') ()]
+
+isInstruction Nothing (LLVM.Select _ _ _ _)  = return [] -- Select without a name is useless
+isInstruction (Just ret) (LLVM.Select cond op1 op2 _)  =  toStateRTL $ do
+   cond' <- operand2operand op1
+   op1' <- operand2operand op1 
+   op2' <- operand2operand op2 
+   return $ case cond' of
+     Reg r -> [MRAM.Icmpe r (Const 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
+     Const c -> -- compiler optimization should take care of this case. but just in case...
+       [if c == 1 then MRAM.Imov ret op1' else MRAM.Imov ret op2']
+       
 
 -- *** Not supprted instructions (return meaningfull error)
-isInstruction _ instr =  implError $ "Instruction: " ++ (show instr)
+isInstruction _ instr =  toState $ implError $ "Instruction: " ++ (show instr)
+
+convertPhiInput :: (LLVM.Operand, LLVM.Name) -> Hopefully $ (MAOperand VReg Word, Name)
+convertPhiInput (op, name) = do
+  op' <- operand2operand op
+  name' <- name2name name
+  return (op', name')
 
 
 -- ** Named instructions and instructions lists
 
-isNInstruction :: LLVM.Named LLVM.Instruction -> Hopefully $ [RTLInstr () Word]
+isNInstruction :: LLVM.Named LLVM.Instruction -> Statefully $ [RTLInstr () Word]
 isNInstruction (LLVM.Do instr) = isInstruction Nothing instr
 isNInstruction (name LLVM.:= instr) = let ret = name2name name in
                                                   (\ret -> isInstruction (Just ret) instr) =<< ret
 isInstrs
   :: [LLVM.Named LLVM.Instruction]
-     -> Hopefully $ [RTLInstr () Word]
+     -> Statefully $ [RTLInstr () Word]
 isInstrs [] = return []
 isInstrs instrs = do
   instrs' <- mapM isNInstruction instrs
@@ -373,6 +440,9 @@ isTerminator' (LLVM.CondBr (LLVM.LocalReference _ name) name1 name2 _) = do
                     MRAM.Ijmp loc2]
 isTerminator' (LLVM.CondBr _ name1 name2 _) =
   assumptError "conditional branching must depend on a register. If you passed a constant prhaps you forgot to run constant propagation. Can't branch on Metadata."
+
+-- Possible optimisation:
+-- Add just one return block, and have all others jump there.
 isTerminator' (LLVM.Ret (Just ret) md) = do
   ret' <- operand2operand ret
   return $ [IRI (RRet $ Just ret') ()] 
@@ -417,41 +487,95 @@ blockJumpsTo term = do
 
 
 -- instruction selection for blocks
-isBlock:: LLVM.BasicBlock -> Hopefully (BB Name $ RTLInstr () Word)
+isBlock:: LLVM.BasicBlock -> Statefully (BB $ RTLInstr () Word)
 isBlock  (LLVM.BasicBlock name instrs term) = do
   body <- isInstrs instrs
-  end <- isTerminator term
-  jumpsTo <- blockJumpsTo term
-  name' <- name2name name
+  end <- toState $ isTerminator term
+  jumpsTo <- toState $ blockJumpsTo term
+  name' <- toState $ name2name name
   return $ BB name' body jumpsTo
 
 
   
-isBlocks :: [LLVM.BasicBlock] -> Hopefully [BB Name $ RTLInstr () Word]
+isBlocks :: [LLVM.BasicBlock] -> Statefully [BB $ RTLInstr () Word]
 isBlocks = mapM isBlock
 
 processParams :: ([LLVM.Parameter], Bool) -> [Ty]
 processParams (params, _) = map (\_ -> Tint) params
 
--- | Instruction generation for Globals
-isGlob :: LLVM.Global -> Hopefully $ RFunction () Word
-isGlob (LLVM.GlobalVariable name _ _ _ _ _ _ _ _ _ _ _ _ _) =
-  implError "Global Variables"
-isGlob (LLVM.GlobalAlias name _ _ _ _ _ _ _ _) = implError "Global Alias"
-isGlob (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _) = do
-  body <- isBlocks code
-  params' <- return $ processParams params
-  name' <- name2name name
-  return $ Function name' (toType retT) params' body
+-- | Instruction generation for Functions
+
+isFunction :: LLVM.Definition -> Hopefully $ RFunction () Word
+isFunction (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
+  do
+    body <- evalStateT (isBlocks code) initState
+    params' <- return $ processParams params
+    name' <- name2name name
+    return $ Function name' (toType retT) params' body
+isFunction other = unreachableError $ show other -- Shoudl be filtered out 
 
 -- | Instruction Selection for all definitions
-isDef :: LLVM.Definition -> Hopefully $ RFunction () Word
+-- We create filters to separate the definitions into categories.
+-- Then process each category of definition separatedly
 
-isDef (LLVM.GlobalDefinition glob) = undefined -- isGlob glob
+-- | Filters
+itIsFunc, itIsGlobVar, itIsTypeDef, itIsMetaData :: LLVM.Definition -> Bool
+itIsFunc (LLVM.GlobalDefinition (LLVM.Function  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ )) = True
+itIsFunc _ = False
+
+itIsFuncAttr (LLVM.FunctionAttributes _ _) = True
+itIsFuncAttr _ = False
+
+itIsGlobVar (LLVM.GlobalDefinition (LLVM.GlobalVariable name _ _ _ _ _ _ _ _ _ _ _ _ _)) = True
+itIsGlobVar _ = False
+
+itIsTypeDef (LLVM.TypeDefinition _ _) = True
+itIsTypeDef _ = False
+
+itIsMetaData (LLVM.MetadataNodeDefinition _ _) = True
+itIsMetaData (LLVM.NamedMetadataDefinition _ _) = True
+itIsMetaData _ = False
+
+unreachableError what = otherError $ "This is akward. This error should be unreachable. You called a function that should only be called on a list after filtering, to avoid this error. Here is the info: " ++ what
+
+-- ** Instruction selection for each of those filtered definitions
+
+-- | We check that we are not discarding anything we care about
+-- We allow discarding metadata for now...
+fOr ::  [a -> Bool] -> (a -> Bool)
+fOr fs a = or $ map (\f -> f a) fs 
+
+acceptedDef = fOr [itIsFunc, itIsFuncAttr, itIsGlobVar, itIsTypeDef, itIsMetaData]
+
+checkDiscardedDef :: LLVM.Definition -> Hopefully ()
+checkDiscardedDef def = if acceptedDef def
+  then return ()
+  else implError $ "Definition: " ++ (show def) ++ ".\n While checking discarded defs "
+  
+checkDiscardedDefs :: [LLVM.Definition] -> Hopefully ()
+checkDiscardedDefs defs = do
+  mapM checkDiscardedDef defs
+  return ()
+
+isTypeDefs :: [LLVM.Definition] -> Hopefully $ TypeEnv
+isTypeDefs _ = return ()
+
+
+isGlobVars :: [LLVM.Definition] -> Hopefully $ GEnv Word
+isGlobVars _ = return []
+
+isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
+isFuncAttributes _ = return () 
 
 isDefs :: [LLVM.Definition] -> Hopefully $ Rprog () Word
-isDefs = mapM isDef
-
+isDefs defs = do
+  typeDefs <- isTypeDefs $ filter itIsTypeDef defs
+  globVars <- isGlobVars $ filter itIsGlobVar defs
+  funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
+  funcs <- mapM isFunction $ filter itIsFunc defs
+  checkDiscardedDefs defs -- Make sure we dont drop something important
+  return $ IRprog typeDefs globVars funcs
+  
 -- | Instruction selection generates an RTL Program
 instrSelect :: LLVM.Module -> Hopefully $ Rprog () Word
 instrSelect (LLVM.Module _ _ _ _ defs) = isDefs defs

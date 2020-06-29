@@ -27,6 +27,9 @@ dependencies:
 - llvm-hs
 - mtl
 - bytestring
+- tasty
+- tasty-hunit
+- tasty-smallcheck
 
 library:
   source-dirs: src
@@ -54,20 +57,7 @@ executables:
 
 
 tests:
-  MicroRAM-interpreter-test:
-    main:                InterpreterSpec.hs
-    source-dirs:         test/MicroRAM
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    - -main-is MicroRAM.InterpreterSpec
-    dependencies:
-    - MicroRAM
-    - tasty
-    - tasty-hunit
-    - tasty-smallcheck
-  MicroRAM-compiler-test:
+  compiler-test:
     main:                CompilerSpec.hs
     source-dirs:         test/Compiler
     ghc-options:
@@ -80,7 +70,20 @@ tests:
     - tasty
     - tasty-hunit
     - tasty-smallcheck
-  MicroRAM-circuit-test:
+  interpreter-test:
+    main:                InterpreterSpec.hs
+    source-dirs:         test/MicroRAM
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -main-is MicroRAM.InterpreterSpec
+    dependencies:
+    - MicroRAM
+    - tasty
+    - tasty-hunit
+    - tasty-smallcheck
+  circuit-test:
     main:                CircuitSpec.hs
     source-dirs:         test/Circuit
     ghc-options:

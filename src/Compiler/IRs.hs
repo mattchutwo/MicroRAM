@@ -1,5 +1,7 @@
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GADTs #-}
@@ -28,23 +30,45 @@ data IRInstruction metadata regT wrdT irinst =
    MRI (MRAM.MAInstruction regT wrdT) metadata
   | IRI irinst metadata
 
-
 data Function nameT paramT blockT =
-  Function nameT paramT [paramT] [blockT]
+  Function nameT paramT [paramT] [blockT] deriving (Functor)
 
 type DAGinfo name = [name]
 -- | Basic blocks:
 -- | it's a list of instructions + all the blocks that it can jump to
-data BB name instrT = BB name [instrT] (DAGinfo name)
+data BB instrT = BB Name [instrT] (DAGinfo name)
+  deriving (Functor)
 
 type IRFunction mdata regT wrdT irinstr =
   Function Name Ty (BB Name $ IRInstruction mdata regT wrdT irinstr)
 
-data Name = Name ShortByteString -- | we keep the LLVM names 
+data Name =
+  Name ShortByteString -- | we keep the LLVM names
+  | NewName Word         -- | and add some new ones
   deriving (Eq, Ord, Read, Show)
 
+type TypeEnv = () -- TODO
 
+data GlobalVariable wrdT = GlobalVariable
+  { name :: Name
+  , isConstant :: Bool
+  , gType :: Ty
+  , initializer :: Maybe wrdT
+  }
+type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"
+data IRprog mdata wrdT funcT = IRprog
+  { typeEnv :: TypeEnv
+  , globals :: GEnv wrdT
+  , code :: [funcT]
+  } deriving (Functor)
+
+
+
+
+-- -------------------------------
 -- ** Register Transfer language (RTL)
+-- -------------------------------
+
 -- RTL uses infinite registers, function calls and regular MRAM instructions for the rest.
 data CallInstrs operand = 
    ICall operand -- ^ function
@@ -58,15 +82,17 @@ type VReg = Name
 -- | Instructions for the RTL language
 data RTLInstr' operand =
     RCall
-      Ty -- ^ return type
+      Ty           -- ^ return type
       (Maybe VReg) -- ^ return register
-      operand -- ^ function
-      [operand] -- ^ arguments
+      operand      -- ^ function
+      [Ty]         -- ^ types of parameters 
+      [operand]    -- ^ arguments
   | RRet (Maybe operand) -- ^ return this value
   | RAlloc
     (Maybe VReg) -- ^ return register (gives location)
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
+  | RPhi VReg [(operand,Name)]
     
     
 type RTLInstr mdata wrdT = IRInstruction mdata VReg wrdT (RTLInstr' $ MAOperand VReg wrdT)
@@ -75,12 +101,20 @@ type RTLInstr mdata wrdT = IRInstruction mdata VReg wrdT (RTLInstr' $ MAOperand 
 type RFunction mdata wrdT =
   IRFunction mdata VReg wrdT (RTLInstr' $ MAOperand VReg wrdT)
   
-type Rprog mdata wrdT = [RFunction mdata wrdT] -- TODO: what about global variables?
+type Rprog mdata wrdT = IRprog mdata wrdT $ RFunction mdata wrdT
 
 
 
 
+
+
+
+
+
+-- -------------------------------
 -- ** Location Transfer Language
+-- -------------------------------
+
 -- It's the target language for register allocation: Close to RTL but uses machine registers and stack slots instead of virtual registers.
 
 -- | Ty determines the type of something in the stack. Helps us calculate
@@ -90,7 +124,7 @@ type Rprog mdata wrdT = [RFunction mdata wrdT] -- TODO: what about global variab
 data Ty = Tint
 
 -- Determines the relative size of types (relative to a 32bit integer)
-tySize :: Ty -> Int
+tySize :: Ty -> Word
 tySize _ = 1
 
 
@@ -108,23 +142,59 @@ data Loc mreg where
 
 -- | LTL unique instrustions
 data LTLInstr' mreg wrdT operand =
-    Lgetstack Slot Int Ty mreg -- load from the stack into a register
-  | Lsetstack mreg Slot Int Ty -- store into the stack from a register
+    Lgetstack Slot Word Ty mreg -- load from the stack into a register
+  | Lsetstack mreg Slot Word Ty -- store into the stack from a register
   | LCall
       Ty
       (Maybe mreg) -- ^ return register
       operand -- ^ function
-         [operand] -- ^ arguments
+      [Ty]         -- ^ types of parameters 
+      [operand] -- ^ arguments
   | LRet (Maybe operand) -- ^ return this value
   | LAlloc
-    mreg -- ^ return register (gives location)
+    (Maybe mreg) -- ^ return register (gives location)
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
   
-data LTLInstr mdata mreg wrdT =
+type LTLInstr mdata mreg wrdT =
   IRInstruction mdata mreg wrdT (LTLInstr' mreg wrdT $ MAOperand mreg wrdT)
   
-type LFunction mdata mreg wrdT = IRFunction  mdata VReg wrdT (LTLInstr mdata mreg wrdT) -- TODO: what about global variables?
 
-type Lprog mdata mreg wrdT  =
-  [LFunction mdata mreg wrdT]
+-- data Function nameT paramT blockT =
+--  Function nameT paramT [paramT] [blockT]
+data LFunction mdata mreg wrdT = LFunction {
+  funName :: String -- should this be a special label?
+  , funMetadata :: mdata
+  , retType :: Ty
+  , paramTypes :: [Ty]
+  , stackSize :: Word
+  , funBody:: [BB $ LTLInstr mdata mreg wrdT]
+}
+
+type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
+
+
+-- Converts a RTL program to a LTL program.
+rtlToLtl :: forall mdata wrdT . Monoid mdata => Rprog mdata wrdT -> Lprog mdata VReg wrdT
+rtlToLtl (IRprog tenv globals code) = IRprog tenv globals $ fmap convertFunc code
+  where
+   convertFunc :: RFunction mdata wrdT -> LFunction mdata VReg wrdT
+   convertFunc (Function name retType paramTypes body) = 
+     -- JP: Where should we get the metadata and stack size from?
+     let mdata = mempty in
+     let stackSize = 16 in
+     let name' = show name in
+     LFunction name' mdata retType paramTypes stackSize $ fmap convertBasicBlock body
+
+   convertBasicBlock :: BB (RTLInstr mdata wrdT) -> BB (LTLInstr mdata VReg wrdT)
+   convertBasicBlock (BB name instrs dag) = BB name (fmap convertIRInstruction instrs) dag
+
+   convertIRInstruction :: RTLInstr mdata wrdT -> LTLInstr mdata VReg wrdT
+   convertIRInstruction (MRI inst mdata) = MRI inst mdata
+   convertIRInstruction (IRI inst mdata) = IRI (convertInstruction inst) mdata
+
+   convertInstruction :: RTLInstr' (MAOperand VReg wrdT) -> LTLInstr' VReg wrdT (MAOperand VReg wrdT)
+   convertInstruction (RCall t mr f ts as) = LCall t mr f ts as
+   convertInstruction (RRet mo) = LRet mo
+   convertInstruction (RAlloc mr t o) = LAlloc mr t o
+

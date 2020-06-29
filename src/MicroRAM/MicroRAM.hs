@@ -192,7 +192,7 @@ data Instruction' regT operand =
   | Istore operand regT      -- store [ri] at memory address [A]u
   | Iload regT operand       -- store the content of memory address [A]u into ri 
   | Iread regT operand       -- if the [A]u-th tape has remaining words then consume the next word,
-                                       -- store it in ri, and set flag = 0; otherwise store 0W in ri and set flag = 1
+                             -- store it in ri, and set flag = 0; otherwise store 0W in ri and set flag = 1
   | Ianswer operand          -- stall or halt (and the return value is [A]u)
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 

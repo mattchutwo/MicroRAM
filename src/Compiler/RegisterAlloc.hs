@@ -12,6 +12,7 @@ Description
 -}
 module Compiler.RegisterAlloc
     ( registerAlloc, --compileStraight
+      trivialRegisterAlloc, -- FIXME : remove when reg alloc completed
     ) where
 
 import           Control.Applicative (liftA2)
@@ -24,10 +25,14 @@ import qualified Data.Set as Set
 
 import           Compiler.CompileErrors
 import           Compiler.IRs
+-- import qualified MicroRAM.MicroRAM as MRAM
+
+
+
 
 type Registers = [String]
 
-registerAlloc :: Rprog () Word -> Hopefully $ Lprog () Int Word
+registerAlloc :: Rprog () Word -> Hopefully $ Lprog () VReg Word
 registerAlloc = mapM $ registerAllocFunc registers
   where
     numRegisters = 8
@@ -111,4 +116,16 @@ computeInterferenceGraph liveness =
 
     combinations []       = mempty
     combinations (r:regs) = liftA2 (,) (pure r) regs <> combinations regs
+
+
+
+
+
+
+
+-- * Triviall allocation: we provide a pass that erases the code. Usefull for early testing.
+-- FIXME: remove this once registerAlloc is implemented and can be tested!
+
+trivialRegisterAlloc :: Rprog () Word -> Hopefully $ Lprog () VReg Word
+trivialRegisterAlloc = return . rtlToLtl
 
