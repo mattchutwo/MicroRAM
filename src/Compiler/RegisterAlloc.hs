@@ -17,4 +17,4 @@ import Compiler.CompileErrors
 import Compiler.IRs
 
 registerAlloc :: Rprog () Word -> Hopefully $ Lprog () Int Word
-registerAlloc = undefined
+registerAlloc = return . rtlToLtl

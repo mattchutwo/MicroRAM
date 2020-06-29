@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GADTs #-}
@@ -149,7 +150,7 @@ data LTLInstr' mreg wrdT operand =
       [operand] -- ^ arguments
   | LRet (Maybe operand) -- ^ return this value
   | LAlloc
-    mreg -- ^ return register (gives location)
+    (Maybe mreg) -- ^ return register (gives location)
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
   
@@ -169,6 +170,28 @@ data LFunction mdata mreg wrdT = LFunction {
 
 type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
 
-rtlToLtl :: Rprog mdata wrdT -> Lprog mdata mreg wrdT
-rtlToLtl
+
+-- Converts a RTL program to a LTL program.
+rtlToLtl :: forall mdata wrdT . Monoid mdata => Rprog mdata wrdT -> Lprog mdata VReg wrdT
+rtlToLtl (IRprog tenv globals code) = IRprog tenv globals $ fmap convertFunc code
+  where
+   convertFunc :: RFunction mdata wrdT -> LFunction mdata VReg wrdT
+   convertFunc (Function name retType paramTypes body) = 
+     -- JP: Where should we get the metadata and stack size from?
+     let mdata = mempty in
+     let stackSize = 16 in
+     let name' = show name in
+     LFunction name' mdata retType paramTypes stackSize $ fmap convertBasicBlock body
+
+   convertBasicBlock :: BB (RTLInstr mdata wrdT) -> BB (LTLInstr mdata VReg wrdT)
+   convertBasicBlock (BB name instrs dag) = BB name (fmap convertIRInstruction instrs) dag
+
+   convertIRInstruction :: RTLInstr mdata wrdT -> LTLInstr mdata VReg wrdT
+   convertIRInstruction (MRI inst mdata) = MRI inst mdata
+   convertIRInstruction (IRI inst mdata) = IRI (convertInstruction inst) mdata
+
+   convertInstruction :: RTLInstr' (MAOperand VReg wrdT) -> LTLInstr' VReg wrdT (MAOperand VReg wrdT)
+   convertInstruction (RCall t mr f ts as) = LCall t mr f ts as
+   convertInstruction (RRet mo) = LRet mo
+   convertInstruction (RAlloc mr t o) = LAlloc mr t o
 
