@@ -168,3 +168,7 @@ data LFunction mdata mreg wrdT = LFunction {
 }
 
 type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
+
+rtlToLtl :: Rprog mdata wrdT -> Lprog mdata mreg wrdT
+rtlToLtl
+
