@@ -15,6 +15,8 @@ module Compiler.RegisterAlloc
     ) where
 
 import           Control.Applicative (liftA2)
+import           Data.Graph.Undirected (Graph(..))
+import qualified Data.Graph.Undirected as Graph
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Set (Set)
@@ -36,22 +38,39 @@ registerAllocFunc :: Registers -> RFunction () Word -> Hopefully $ LFunction () 
 registerAllocFunc registers (Function name typ typs blocks') = do
   let blocks = concatMap flattenBasicBlock blocks'
 
-  -- Call helper?
-  registerAllocFunc' blocks
+  rtlBlocks <- registerAllocFunc' blocks -- mempty
+
+  return $ error "TODO" rtlBlocks
+
+  -- Unflatten basic block?
+      
 
   where
-    registerAllocFunc' blocks = do
+    registerAllocFunc' blocks = do -- _spilled = do
 
       liveness <- livenessAnalysis blocks
 
       let interferenceGraph = computeInterferenceGraph liveness
 
-      (registerMapping, spills) <- registerColoring registers liveness blocks
+      -- TODO: we could coalesce
 
-      -- Unflatten basic block?
-      
+      -- Sort registers by spill cost (lowest cost first).
+      let sortedTemporaries = sortTemporaries liveness blocks
+
+      let registerMappingOrSpilled = Graph.color registers sortedTemporaries interferenceGraph
+
+      case registerMappingOrSpilled of
+        Left spill ->
+        Right coloring ->
+
       -- return $ Function name typ typs blocks'
       return $ error "TODO"
+
+    -- Sort registers by spill cost (lowest cost first).
+    sortTemporaries :: LivenessResult instname -> [block] -> [VReg]
+    sortTemporaries liveness _blocks = 
+      -- TODO: actually compute a spill cost.
+      Set.toList $ Set.unions liveness
 
 
 -- Each returned basic block will have one instruction. 
@@ -67,7 +86,7 @@ flattenBasicBlock (BB name instrs dag) = flatten $ zip instrs [0..]
     flatten ((instr, iid):instrs) = BB (name, iid) [instr] [(name, iid+1)]:flatten instrs
 
 
--- unflattenBasicBlock :: [BB Name inst] -> [BB (Name, Int) inst]
+-- unflattenBasicBlock :: [BB (Name, Int) inst] -> [BB Name inst]
 
 
 -- If the target instruction is Nothing, it's a return edge.
@@ -77,18 +96,19 @@ livenessAnalysis :: [block] -> Hopefully (LivenessResult name)
 livenessAnalysis blocks = error "TODO"
 
 
--- Returns the set of edges of the interference graph. Edges are tuples between two vertices, where the smaller vertex is first.
--- JP: Take spilled vars too?
-computeInterferenceGraph :: LivenessResult instname -> Set (VReg, VReg)
-computeInterferenceGraph = Map.foldr (\regs acc -> foldr insertEdge acc $ combinations $ Set.toList regs) mempty
+-- -- Returns the set of edges of the interference graph. Edges are tuples between two vertices, where the smaller vertex is first.
+-- -- JP: Take spilled vars too?
+--
+-- Returns the interference graph. 
+computeInterferenceGraph :: LivenessResult instname -> Graph VReg () -- Set (VReg, VReg)
+computeInterferenceGraph liveness = 
+  let edges = Map.foldr (\regs acc -> foldr insertEdge acc $ combinations $ Set.toList regs) mempty liveness in
+  Graph.fromEdges $ fmap (\(r1, r2) -> (r1,r2,())) $ Set.toList edges
+
   where
     insertEdge (r1, r2) acc | r1 > r2 = Set.insert (r2, r1) acc
     insertEdge edge acc               = Set.insert edge acc
 
     combinations []       = mempty
     combinations (r:regs) = liftA2 (,) (pure r) regs <> combinations regs
-
-
--- registerColoring :: Registers -> LivenessResult -> [block] -> Hopefully (Map VReg Reg, Set VReg)
-registerColoring = error "TODO"
 

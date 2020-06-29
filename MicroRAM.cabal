@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 85ab858b61836b93e40868fc2fb1d289faef6a81eb91726b9628e4389ff8971f
+-- hash: 6e83b30f117ea6ad6bf1d9da664e2d3d7e8ce6a218ad0030d95fc9966850578f
 
 name:           MicroRAM
 version:        0.1.0.0
@@ -41,7 +41,7 @@ library
       Compiler.RegisterAlloc
       Compiler.RemoveLabels
       Compiler.Stacking
-      Compiler.Try
+      Data.Graph.Undirected
       Lib
       LLVMutil.LLVMexamples
       LLVMutil.LLVMutil
@@ -58,6 +58,7 @@ library
       base >=4.7 && <5
     , bytestring
     , containers
+    , fgl
     , llvm-hs
     , llvm-hs-pure
     , mtl
@@ -77,6 +78,7 @@ executable MicroRAM-compile
     , base >=4.7 && <5
     , bytestring
     , containers
+    , fgl
     , llvm-hs
     , llvm-hs-pure
     , mtl
@@ -96,6 +98,7 @@ executable MicroRAM-exe
     , base >=4.7 && <5
     , bytestring
     , containers
+    , fgl
     , llvm-hs
     , llvm-hs-pure
     , mtl
@@ -117,6 +120,7 @@ test-suite MicroRAM-circuit-test
     , base >=4.7 && <5
     , bytestring
     , containers
+    , fgl
     , llvm-hs
     , llvm-hs-pure
     , mtl
@@ -138,6 +142,7 @@ test-suite MicroRAM-compiler-test
     , base >=4.7 && <5
     , bytestring
     , containers
+    , fgl
     , llvm-hs
     , llvm-hs-pure
     , mtl
@@ -159,6 +164,7 @@ test-suite MicroRAM-interpreter-test
     , base >=4.7 && <5
     , bytestring
     , containers
+    , fgl
     , llvm-hs
     , llvm-hs-pure
     , mtl
