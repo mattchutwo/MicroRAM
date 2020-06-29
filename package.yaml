@@ -56,20 +56,20 @@ executables:
 
 
 tests:
-  MicroRAM-circuit-test:
-    main:                CircuitSpec.hs
-    source-dirs:         test/Circuit
+  compiler-test:
+    main:                CompilerSpec.hs
+    source-dirs:         test/Compiler
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
-    - -main-is Circuit.CircuitSpec
+    - -main-is Compiler.CompilerSpec
     dependencies:
     - MicroRAM
     - tasty
     - tasty-hunit
     - tasty-smallcheck
-  MicroRAM-interpreter-test:
+  interpreter-test:
     main:                InterpreterSpec.hs
     source-dirs:         test/MicroRAM
     ghc-options:
@@ -82,14 +82,14 @@ tests:
     - tasty
     - tasty-hunit
     - tasty-smallcheck
-  MicroRAM-compiler-test:
-    main:                CompilerSpec.hs
-    source-dirs:         test/Compiler
+  circuit-test:
+    main:                CircuitSpec.hs
+    source-dirs:         test/Circuit
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
-    - -main-is Compiler.CompilerSpec
+    - -main-is Circuit.CircuitSpec
     dependencies:
     - MicroRAM
     - tasty
