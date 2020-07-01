@@ -6,28 +6,18 @@
  * A interpreter of TinyRAM in Haskell 
  * A compiler from LLVM to TinyRAM
 
-
-There is a collection of examples in the `examples` and `llvm-examples` folders. You can run them like so
-
-First build the project:
+To try the this out first build the project
 
 ```
 % stack build
 ```
 
-Then compile some basic block or a program
+Then run the tests. In theory this compiles several C programs to MicroRAM and runs them. In reality I provide the llvm intermediate repressentation already. Feel free to recompile them in the `Cexamples` folder with your clang.
 
 ```
-% stack exec MicroRAM-compile basicblock llvm-examples/example0
-\\ Prints the MicroRAM program (list of instructions)
-% stack exec MicroRAM-compile llvm-examples/fibonacci-loop
-\\ Prints the MicroRAM program (list of instructions)
+% stack test
 ```
 
-Then run a Program:
+Some of the tests will fail for now. For example we don't currently support `phi`, so if the front end introduces a `phi` we can't compile. You will see this error in the optimized fibonacci example.
 
-```
-% stack exec MicroRAM-exe examples/fibonacci 4
-\\ Prints trace with 40 steps of running the program
-\\ Register 0 should contain the 10th fibonacci
-```
+
