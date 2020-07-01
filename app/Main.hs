@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Main where
 
 import Data.Foldable (toList)
@@ -5,6 +6,7 @@ import Data.List (intercalate)
 import System.Environment
 
 import Lib
+import Compiler.Registers
 import Compiler.Compiler
 import MicroRAM.MicroRAM
 import MicroRAM.MRAMInterpreter
@@ -22,25 +24,26 @@ input, advice :: Tape
 input = []
 advice = []
 
-runFrom :: Prog -> State -> Int -> Trace
+runFrom :: Regs mreg => Prog mreg -> State mreg -> Int -> Trace mreg
 runFrom p s 0 = [s]
 runFrom p s n
   | n > 0 = s : runFrom p (step p s) (n - 1)
   | otherwise = error "can't run for negative steps"
 
-dumpState :: State -> String
+dumpState :: (Foldable (RMap mreg)) => State mreg -> String
 dumpState s = intercalate "; " [
     "pc " ++ show (pc s),
     "regs " ++ intercalate " " (map show $ toList $ regs s),
     "flag " ++ (if flag s then "1" else "0")
     ]
 
-dumpOperand :: Operand Reg Wrd -> String
+
+dumpOperand :: Show mreg => Operand mreg Wrd -> String
 dumpOperand (Reg r) = show r ++ " reg"
 dumpOperand (Const i) = show i ++ " imm"
 -- dumpOperand o = error $ "unsupported operand kind: " ++ show o
 
-dumpInstr :: Instruction Reg Wrd -> String
+dumpInstr :: Show mreg => Instruction mreg Wrd -> String
 dumpInstr i = intercalate " " $ case i of
     Imov dest src -> ["mov", show dest, "0", dumpOperand src]
     Iadd dest src1 src2 -> ["add", show dest, show src1, dumpOperand src2]
@@ -49,12 +52,13 @@ dumpInstr i = intercalate " " $ case i of
     i -> error $ "unsupported instr kind: " ++ show i
 
 main :: IO ()
-main = do
-    args <- getArgs
+main = undefined
+{-do
+  args <- getArgs
     case args of
       [file] -> do
         prog <- read <$> readFile file
-        mapM_ (putStrLn . dumpInstr) (prog :: [Instruction Reg Wrd])
+        mapM_ (putStrLn . dumpInstr) (prog :: [Instruction mreg Wrd])
       [file, steps] -> do
         prog <- read <$> readFile file
         let s = init_state k [] [] in
@@ -64,3 +68,4 @@ main = do
         let s = set_reg 0 (read input) $ init_state k [] []
         mapM_ (putStrLn . dumpState) $ runFrom prog s (read steps)
       _ -> putStrLn "Wrong number of arguments"
+-}

@@ -1,3 +1,6 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RankNTypes #-}
@@ -10,7 +13,9 @@ module Compiler.IRs where
 import MicroRAM.MicroRAM(MAOperand)
 import qualified MicroRAM.MicroRAM as MRAM
 import Data.ByteString.Short
+import qualified Data.Map as Map
 
+import Compiler.Registers
 import Compiler.CompileErrors
 
 type ($) a b = a b
@@ -31,23 +36,39 @@ and adding some functionality such as functions Stack locations etc.
 data IRInstruction metadata regT wrdT irinst =
    MRI (MRAM.MAInstruction regT wrdT) metadata
   | IRI irinst metadata
-
+  deriving (Show)
 data Function nameT paramT blockT =
-  Function nameT paramT [paramT] [blockT] deriving (Functor)
+  Function nameT paramT [paramT] [blockT] deriving (Show, Functor)
+
+
 
 type DAGinfo = [Name]
 -- | Basic blocks:
 -- | it's a list of instructions + all the blocks that it can jump to
 data BB instrT = BB Name [instrT] DAGinfo
-  deriving (Functor)
+  deriving (Show,Functor)
 
 type IRFunction mdata regT wrdT irinstr =
   Function Name Ty (BB $ IRInstruction mdata regT wrdT irinstr)
-
+ 
 data Name =
   Name ShortByteString -- | we keep the LLVM names
   | NewName Word         -- | and add some new ones
   deriving (Eq, Ord, Read, Show)
+
+instance Regs Name where
+  sp = NewName 0
+  bp = NewName 1
+  ax = NewName 2
+  argc = Name "0"
+  argv = Name "1"
+  data RMap Name x = RMap x (Map.Map Name x)
+  initBank d = RMap d Map.empty
+  lookupReg r (RMap d m) = case Map.lookup r m of
+                        Just x -> x
+                        Nothing -> d
+  updateBank r x (RMap d m) = RMap d (Map.insert r x m)
+
 
 type TypeEnv = () -- TODO
 
@@ -56,13 +77,13 @@ data GlobalVariable wrdT = GlobalVariable
   , isConstant :: Bool
   , gType :: Ty
   , initializer :: Maybe wrdT
-  }
+  } deriving (Show)
 type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"
 data IRprog mdata wrdT funcT = IRprog
   { typeEnv :: TypeEnv
   , globals :: GEnv wrdT
   , code :: [funcT]
-  } deriving (Functor)
+  } deriving (Show, Functor)
 
 
 
@@ -95,6 +116,7 @@ data RTLInstr' operand =
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
   | RPhi VReg [(operand,Name)]
+  deriving (Show)
     
     
 type RTLInstr mdata wrdT = IRInstruction mdata VReg wrdT (RTLInstr' $ MAOperand VReg wrdT)
@@ -124,6 +146,7 @@ type Rprog mdata wrdT = IRprog mdata wrdT $ RFunction mdata wrdT
 -- FIXME: For now we assume everything is an int, but the code should be
 --  written genrically over this type so it's easy to change
 data Ty = Tint
+  deriving (Show)
 
 -- Determines the relative size of types (relative to a 32bit integer)
 tySize :: Ty -> Word
@@ -141,6 +164,7 @@ data Slot =
 data Loc mreg where
   R :: mreg -> Loc mreg
   L :: Slot -> Int -> Ty -> Loc mregm
+  deriving (Show)
 
 -- | LTL unique instrustions
 data LTLInstr' mreg wrdT operand =
@@ -157,6 +181,7 @@ data LTLInstr' mreg wrdT operand =
     (Maybe mreg) -- ^ return register (gives location)
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
+  deriving (Show)
   
 type LTLInstr mdata mreg wrdT =
   IRInstruction mdata mreg wrdT (LTLInstr' mreg wrdT $ MAOperand mreg wrdT)
@@ -170,7 +195,7 @@ data LFunction mdata mreg wrdT = LFunction {
   , paramTypes :: [Ty]
   , stackSize :: Word
   , funBody:: [BB $ LTLInstr mdata mreg wrdT]
-}
+} deriving (Show)
 
 type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
 
@@ -185,7 +210,7 @@ rtlToLtl (IRprog tenv globals code) = do
    convertFunc (Function name retType paramTypes body) = 
      -- JP: Where should we get the metadata and stack size from?
      let mdata = mempty in
-     let stackSize = 16 in
+     let stackSize = 0 in -- Since nothing is spilled 0
      let name' = show name in
        do
          body' <- mapM convertBasicBlock body

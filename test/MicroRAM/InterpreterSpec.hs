@@ -1,3 +1,7 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE TypeFamilies #-}
+
 module MicroRAM.InterpreterSpec where
 
 
@@ -6,9 +10,12 @@ import Test.Tasty.HUnit
 import Test.Tasty.SmallCheck
 
 
+import Compiler.Registers
+
 import MicroRAM.MicroRAM
 import MicroRAM.MRAMInterpreter
 import Data.Sequence as Seq
+import qualified Data.Map as Map
 
 
 main :: IO ()
@@ -19,25 +26,37 @@ k = 5 -- 5 registers
 -- We are treating the first register as the return
 -- To get ouptu to get output provide a program and a number of steps to get the result after that long
 -- Execute gets the trace and then looks at the first register after t steps
-get_trace prog input advice = run k input advice prog
-exec prog input advice steps = Seq.index (see (get_trace prog input advice) steps) 0 -- this throws an error if there is no register 0
+get_trace prog input advice = run input advice prog
+exec prog input advice steps =
+  lookupReg sp (see (get_trace prog input advice) steps) -- this throws an error if there is no register 0
 simpl_exec prog steps = exec prog [] [] steps -- when there are no inputs
 
 -- The tester setup
+type Reg = Int
+instance Regs Int where
+  sp = 0
+  bp = 1
+  ax = 2
+  data RMap Int x = RMap x (Map.Map Int x)
+  initBank d = RMap d Map.empty
+  lookupReg r (RMap d m) = case Map.lookup r m of
+                        Just x -> x
+                        Nothing -> d
+  updateBank r x (RMap d m) = RMap d (Map.insert r x m)
 
-get_regs :: State -> Regs
+get_regs :: State mreg -> RMap mreg Word
 get_regs = regs
 
-see:: Trace -> Int -> Regs
+see:: Trace mreg -> Int -> RMap mreg Word
 see t n = regs (t !! n)
 
-reg_trace::Trace -> [Regs]
+reg_trace::Trace mreg -> [RMap mreg Word]
 reg_trace t= map regs t
 
-pc_trace::Trace -> [Wrd]
+pc_trace::Trace Reg -> [Wrd]
 pc_trace t= map pc t
 
-flag_trace::Trace -> [Bool]
+flag_trace::Trace Reg -> [Bool]
 flag_trace t= map flag t
 
 
@@ -46,8 +65,8 @@ flag_trace t= map flag t
 {- (1+2)*(3+4) = 21
 -}
 
-run' = run k [] []
-prog1 :: Prog
+run' = run [] []
+prog1 :: Prog Reg
 prog1 = [Iadd 0 0 (Const 1),
        Iadd 0 0 (Const 2),
        Iadd 1 1 (Const 3),
@@ -68,12 +87,12 @@ test1 = testProperty "Testing (1+2)*(3+4) == 21" $ (simpl_exec prog1 5) == 21
    } 
 -}
 
-prog2 :: Prog
+prog2 :: Prog Reg
 prog2 = [Iadd 0 0 (Const 1),
        Ijmp (Const 0)]
 
 run2 = run' prog2
-test2_results_list = map ((Seq.lookup 0) . regs) (Prelude.take 11 run2) == map Just [0,1,1,2,2,3,3,4,4,5,5] 
+test2_results_list = map ((lookupReg sp) . regs) (Prelude.take 11 run2) ==  [0,1,1,2,2,3,3,4,4,5,5] 
 test2 = testProperty "Test `x++` on a loop" $ \n -> (n :: Int) >= 0 ==> simpl_exec prog2 (2*n) == fromIntegral n
 
 -- # Test 3: fibonacci
@@ -91,7 +110,7 @@ fib_pure 0 = 0
 fib_pure 1 = 1
 fib_pure n = fib_pure (n-1) + fib_pure (n-2) 
 
-prog3 :: Prog
+prog3 :: Prog Reg
 prog3 = [Iadd 0 1 (Const 1), -- x=1
          Iadd 2 0 (Const 0), -- z=x
          Iadd 0 0 (Reg 1),  -- x=x+y
@@ -116,9 +135,9 @@ test3 = testProperty "Test fibonacci" $ \n -> (n :: Int) >= 0 ==>
    
 -- # Test 4: conditional + input
 
-run4:: Wrd -> Trace
-run4 input = run k [input] [] prog4
-prog4 :: Prog
+run4:: Wrd -> Trace Reg
+run4 input = run [input] [] prog4
+prog4 :: Prog Reg
 prog4 = [Iread 1 (Const 0), --
          Icmpg 1 (Const 10), -- 1
          Icjmp (Const 5),    -- 2 
@@ -138,9 +157,9 @@ test4 = testProperty "Test a conditional and input" $ \x ->
 -}
 
 
-run5:: [Wrd] -> Trace
-run5 input = run k input [] prog5
-prog5 :: Prog
+run5:: [Wrd] -> Trace Reg
+run5 input = run input [] prog5
+prog5 :: Prog Reg
 prog5 = [Iread 1 (Const 0), --
          Iadd 0 0 (Reg 1), -- 1
          Icjmp (Const 4),   -- 2
@@ -162,14 +181,14 @@ test5 = testProperty "Test adding a list of inputs" $ \xs ->
 -}
 
 
-run6:: Int -> Trace
-run6 n = run n [] [] prog6
+run6:: Int -> Trace Reg
+run6 n = run [] [] prog6
 failSignal:: Operand Reg Wrd
 failSignal = (Const 11)
 gotoFail = Ijmp failSignal
 cGotoFail = Icjmp failSignal
 
-prog6 :: Prog
+prog6 :: Prog Reg
 prog6 = [Imov 1 (Const 1),   -- 0. x = 1 // Test 1
          Isub 1 1 (Const 2), -- 1. x = x - 2 (should underflow)
          Icjmp  (Const 4),   -- 2. goto Test 2

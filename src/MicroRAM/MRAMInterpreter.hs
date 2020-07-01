@@ -1,7 +1,8 @@
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE StandaloneDeriving #-}
 module MicroRAM.MRAMInterpreter
   ( Wrd,
-    Reg,
-    Regs,
     Mem,
     Tape,
     State(..),
@@ -20,9 +21,12 @@ module MicroRAM.MRAMInterpreter
 
 import MicroRAM.MicroRAM
 import Data.Bits
+import Control.Exception
 import qualified Data.Sequence as Seq
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!))
+
+import Compiler.Registers
 
 {-
 notes:
@@ -43,7 +47,7 @@ notes:
 -}
 
 type Wrd = Word
-type Reg = Int
+--type Reg = Int
 wrdMax = toInteger (maxBound :: Word)
 wrdMin = toInteger (minBound :: Word)
 
@@ -78,10 +82,10 @@ init_pc = 0
 
 -- | Registers
 -- We represent the registers a a list of words, 
-type Regs = Seq.Seq Wrd
+-- type Regs = Seq.Seq Wrd
 
-init_regs :: Int -> Regs
-init_regs k = Seq.replicate k 0 
+--init_regs :: Int -> Regs
+--init_regs k = Seq.replicate k 0 
 
 -- The condition and bad flags
 {- Current implementation of the flag only works for conditionals
@@ -99,13 +103,19 @@ init_flag = False
 -- but that is not good to building a (finite) trace
 -- also we want programs that read uninitialized memory to bad
 
-type Mem = Map.Map Wrd Wrd
+type Mem = (Wrd,Map.Map Wrd Wrd)
 
 init_mem :: Mem
-init_mem = Map.empty
+init_mem = (0,Map.empty)
 
 store ::  Wrd -> Wrd -> Mem -> Mem
-store =  Map.insert
+store x y (d,m)=  (d,Map.insert x y m) 
+
+load ::  Wrd -> Mem -> Wrd
+load x (d,m)=  case Map.lookup x m of
+                 Just y -> y
+                 Nothing -> d
+
 
 -- *** Tapes
 type Tape = [Wrd]  -- ^read only tape
@@ -115,77 +125,55 @@ type Tape = [Wrd]  -- ^read only tape
 
 -}
 
+
 -- | The program state 
-data State = State {
+data State mreg = State {
   pc :: Pc
-  , regs :: Regs
+  , regs :: RMap mreg Word 
   , mem :: Mem
   , tapes :: (Tape, Tape)
   , flag :: Bool
-  , bad :: Bool }
-  deriving (Eq, Read, Show)
+  , bad :: Bool
+  , answer :: Word }
+
+deriving instance (Read (RMap mreg Word)) => Read (State mreg)
+deriving instance (Show (RMap mreg Word)) => Show (State mreg)
+
   
-  
-init_state :: Int -> Tape -> Tape -> State
-init_state k t_input t_advice  = State {
+init_state :: Regs mreg => Tape -> Tape -> State mreg
+init_state t_input t_advice  = State {
   pc = init_pc
-  , regs = init_regs k
+  , regs = initBank 0
   , mem = init_mem
   , tapes = (t_input, t_advice)
   , flag = init_flag
   , bad = init_flag
+  , answer = 0
 }
 
-set_reg:: Reg -> Wrd -> State -> State
-set_reg r x st = State {
-  pc = pc st
-  , regs = Seq.update r x (regs st)
-  , mem = mem st
-  , tapes = tapes st
-  , flag = flag st
-  , bad = bad st
+set_reg:: Regs mreg => mreg -> Wrd -> State mreg -> State mreg
+set_reg r x st = st { regs = updateBank r x (regs st) }
+
+store_mem::  Wrd -> Wrd -> State mreg -> State mreg
+store_mem r x st = st {
+   mem = store r x (mem st)
 }
 
-store_mem::  Wrd -> Wrd -> State -> State
-store_mem r x st = State {
-  pc = pc st
-  , regs = regs st 
-  , mem = store r x (mem st)
-  , tapes = tapes st
-  , flag = flag st
-  , bad = bad st
+set_flag:: Bool -> State mreg  -> State mreg
+set_flag b st = st {
+   flag = b
 }
 
-set_flag:: Bool -> State -> State
-set_flag b st = State {
-  pc = pc st
-  , regs = regs st 
-  , mem = mem st
-  , tapes = tapes st
-  , flag = b
-  , bad = bad st
-}
-
-set_pc:: Wrd -> State -> State
-set_pc pc' st = State {
+set_pc:: Wrd -> State mreg -> State mreg
+set_pc pc' st = st {
   pc = pc'
-  , regs = regs st 
-  , mem = mem st
-  , tapes = tapes st
-  , flag = flag st
-  , bad = bad st
 }
 
 -- Turn on the bad flag
 -- there is no way to "unbad" a state
-set_bad:: State -> State
-set_bad st= State {
-  pc = pc st
-  , regs = regs st 
-  , mem = mem st
-  , tapes = tapes st
-  , flag = flag st
-  , bad = True
+set_bad:: State mreg -> State mreg
+set_bad st= st {
+   bad = True
 }
 data Side = LeftSide | RightSide
 
@@ -197,7 +185,7 @@ set_pair::Side -> a -> (a,a) -> (a,a)
 set_pair LeftSide a (_, b)= (a, b)
 set_pair RightSide b (a, _) = (a,b)
 
-get_tape::State -> Side -> Tape
+get_tape::State mreg -> Side -> Tape
 get_tape st b = get_pair b (tapes st)
 
 to_side:: Wrd -> Maybe Side
@@ -209,20 +197,19 @@ pop::Tape -> Maybe (Wrd, Tape)
 pop (x:tp) = Just (x,tp)
 pop _ = Nothing
 
-set_tape::Side -> Tape -> State -> State
-set_tape sd tp st  =  State {
-  pc = pc st
-  , regs = regs st
-  , mem = mem st
-  , tapes = set_pair sd tp (tapes st)
+set_tape::Side -> Tape -> State mreg -> State mreg
+set_tape sd tp st  =  st {
+  tapes = set_pair sd tp (tapes st)
   , flag = False -- ^ changing the tape always sets the flag to 0 (as per Tiny RAM semantics)
-  , bad = bad st
 }
+
+set_answer:: Word -> State mreg -> State mreg
+set_answer ans st  =  st { answer = ans }
 
 -- Pop tape tries to pop a value from tape tp_n and store it in register r
 -- if the tape is empty (or tp_n > 2) set r = 0 and flag = 1
 -- if success set flag = 0
-pop_tape::Wrd -> Reg -> State -> State
+pop_tape:: Regs mreg => Wrd -> mreg -> State mreg -> State mreg
 pop_tape tp_n r st =
   case try_pop_tape st tp_n r of
     Just st' -> set_flag False st'
@@ -232,7 +219,7 @@ pop_tape tp_n r st =
           (x,tp) <- pop (get_tape st sd)
           Just $ set_reg r x $ set_tape sd tp st
 
-next:: State -> State
+next:: State mreg -> State mreg
 next st = set_pc (succ $ pc st) st
 
 -- * Interpreter
@@ -240,13 +227,13 @@ next st = set_pc (succ $ pc st) st
 -- ** Utility evaluators
 
 -- | Register getters (from a set register set)
-get_reg :: Regs -> Reg -> Wrd
-get_reg rs r = Seq.index rs r 
+get_reg :: Regs mreg => RMap mreg Word -> mreg -> Wrd
+get_reg rs r = lookupReg r rs
 
 eval_reg st r = get_reg (regs st) r
 
 -- | Gets operand wether it's a register or a constant or a PC
-eval_operand :: State -> Operand Reg Wrd -> Wrd
+eval_operand :: Regs mreg => State mreg -> Operand mreg Wrd -> Wrd
 eval_operand st (Reg r) = eval_reg st r
 eval_operand st (Const w) = w
 
@@ -262,17 +249,19 @@ We use Integers to be homogeneus over all possible types Wrd and because it make
 -}
 
 -- | Binary operations generic.
-bop :: State
-       -> Reg
-       -> Operand Reg Wrd
+bop :: Regs mreg =>
+       State mreg
+       -> mreg
+       -> Operand mreg Wrd
        -> (Integer -> Integer -> x) -- ^ Binary operation
        -- -> (Integer -> Bool) -- ^ Set the flag? Is applied to the result of the operation 
        -> x
 bop rs r1 a f = f (toInteger $ get_reg (regs rs) r1) (toInteger $ eval_operand rs a)
 
 -- | Unart operations generic. 
-uop :: State
-       -> Operand Reg Wrd
+uop :: Regs mreg =>
+       State mreg
+       -> Operand mreg Wrd
        -> (Integer -> x)
        -- -> (Integer -> Bool) -- ^ Set the flag? Is applied to the result of the operation 
        -> x
@@ -282,45 +271,51 @@ uop rs a f = f (toInteger $ eval_operand rs a)
 -- | Catches division by 0
 -- By TinyRAM semantics, this sets the flag to 0 and returns 0
 -- I would like to flag this as an error.
-exception :: Bool
-          -> Reg
-          -> (State -> State) -- ^ continuation
-          -> State
-          -> State
+exception :: Regs mreg => 
+             Bool
+          -> mreg
+          -> (State mreg -> State mreg) -- ^ continuation
+          -> State mreg
+          -> State mreg
 exception False _ f st = f st
 exception True r _ st = set_flag True $ set_reg r 0 st
-catchZero :: Wrd
-           -> Reg
-          -> (State -> State) -- ^ continuation
-          -> State
-          -> State
+catchZero :: Regs mreg =>
+             Wrd
+           -> mreg
+          -> (State mreg -> State mreg) -- ^ continuation
+          -> State mreg
+          -> State mreg
 catchZero w = exception (w == 0)
 
-exec_bop :: State
-         -> Reg
-         -> Reg
-         -> Operand Reg Wrd
+exec_bop :: Regs mreg =>
+            State mreg
+         -> mreg
+         -> mreg
+         -> Operand mreg Wrd
          -> (Integer -> Integer -> Integer) -- ^ Binary operation
          -> (Integer -> Bool) -- ^ Checks if flag should be set
-         -> State 
+         -> State mreg 
 exec_bop st r1 r2 a f check = next $ set_flag (check result) $ set_reg r1 (fromInteger result) st
   where result = bop st r2 a f
 
 -- | Evaluate binop, but first check a<>0 
-execBopCatchZero :: State
-         -> Reg
-         -> Reg
-         -> Operand Reg Wrd
-         -> (Integer -> Integer -> Integer) -- ^ Binary operation
-         -> State 
+execBopCatchZero ::
+  Regs mreg =>
+  State mreg
+  -> mreg
+  -> mreg
+  -> Operand mreg Wrd
+  -> (Integer -> Integer -> Integer) -- ^ Binary operation
+  -> State mreg 
 execBopCatchZero st r1 r2 a f =
   catchZero (eval_operand st a) r1 (\st -> exec_bop st r1 r2 a quot (\_->True)) st 
 
 
-exec_uop :: State -> Reg -> Operand Reg Wrd
+exec_uop :: Regs mreg =>
+            State mreg -> mreg -> Operand mreg Wrd
          -> (Integer -> Integer) -- ^ Unary operatio
          -> (Integer -> Bool) -- ^ Checks if flag should be set
-         -> State
+         -> State mreg
 exec_uop st r1 a f check = next $ set_flag (check result) $ set_reg r1 (fromInteger result) st
   where result = uop st a f
 
@@ -351,7 +346,12 @@ lsb x = 0 == x `mod` 2
                  
 -- *** Conditionals Util
 
-exec_cnd :: State -> Reg -> Operand Reg Wrd -> (Integer -> Integer -> Bool) -> State
+exec_cnd :: Regs mreg =>
+  State mreg
+  -> mreg
+  -> Operand mreg Wrd
+  -> (Integer -> Integer -> Bool)
+  -> State mreg
 exec_cnd st r1 a f = next $ set_flag result st
                         where result = bop st r1 a f
 
@@ -361,7 +361,7 @@ exec_jmp st a = set_pc (eval_operand st a) st
 
 -- ** Instruction execution (after instr. fetching)
 
-exec :: Instruction Reg Wrd -> State -> State
+exec :: Regs mreg => Instruction mreg Wrd -> State mreg -> State mreg
 exec (Iand r1 r2 a) st = exec_bop st r1 r2 a (.&.) isZero
 exec (Ior r1 r2 a) st = exec_bop st r1 r2 a (.|.) isZero
 exec (Ixor r1 r2 a) st = exec_bop st r1 r2 a xor isZero
@@ -402,38 +402,42 @@ exec (Icnjmp a) st = if not $ flag st then exec_jmp st a else next st
 
 --Memory operations
 exec (Istore a r1) st = next $ store_mem (eval_operand st a) (get_reg (regs st) r1) st
-exec (Iload r1 a) st = next $ set_reg r1 (mem st ! (eval_operand st a)) st
+exec (Iload r1 a) st = next $ set_reg r1 (load (eval_operand st a) $ (mem st)) st
 exec (Iread r1 a) st = next $ pop_tape (eval_operand st a) r1 st
 
-exec (Ianswer a) st = set_reg 0 (eval_operand st a) st -- sets register 0 to the answer and loops (pc not incremented)
+-- Answer : set answer to ans and loop (pc not incremented)
+exec (Ianswer a) st =
+  let ans = (eval_operand st a) in
+    set_answer ans st   -- Set answer to ans
+  --set_reg sp ans st -- sets register 0 (backwards compat. FIXME! )
 
 -- ** Program step
-type Prog = Program Reg Wrd
+type Prog mreg = Program mreg Wrd
 
-step :: Prog -> State -> State
+step :: Regs mreg => Prog mreg  -> State mreg -> State mreg
 step prog st = exec (prog !! (toInt $ pc st)) st
 
 
 -- ** Execution
-type Trace = [State]
-run :: Int -> Tape -> Tape -> Prog -> Trace
-run k x w prog = iterate (step prog) $ init_state k x w
+type Trace mreg = [State mreg]
+run :: Regs mreg => Tape -> Tape -> Prog mreg -> Trace mreg
+run x w prog = iterate (step prog) $ init_state x w
 
 -- ** Some facilities to run
 -- Simple getters to explore the trace.
-get_regs :: State -> Regs
+get_regs :: State mreg -> RMap mreg Word
 get_regs = regs
 
-see_regs:: Trace -> Int -> Regs
+see_regs:: Trace mreg -> Int -> RMap mreg Word
 see_regs t n = regs (t !! n)
 
-reg_trace::Trace -> [Regs]
+reg_trace::Trace mreg -> [RMap mreg Word]
 reg_trace t = map regs t
 
-pc_trace'::Trace -> [Wrd]
+pc_trace'::Trace mreg -> [Wrd]
 pc_trace' t= map pc t
 
-flag_trace'::Trace -> [Bool]
+flag_trace'::Trace mreg -> [Bool]
 flag_trace' t= map flag t
 
 -- Convenient execution
@@ -442,15 +446,15 @@ flag_trace' t= map flag t
 -}
 k = 16
 
-run' n prog = Prelude.take n (run k [] [] prog)
+run' n prog = Prelude.take n (run [] [] prog)
 pc_trace n prog = map pc (run' n prog)
-out_trace n prog = map (\s-> Seq.index (regs s) 0) (run' n prog)
+out_trace n prog = map (\s-> lookupReg 0 (regs s)) (run' n prog)
 flag_trace n prog = map flag (run' n prog)
 
-execute :: Prog -> Int -> Wrd
-execute prog n = Seq.index (regs $ (run k [] [] prog) !! n) 0
+execute :: Regs mreg => Prog mreg -> Int -> Wrd
+execute prog n = lookupReg sp (regs $ (run [] [] prog) !! n)
 
-execute_pc prog n = Seq.index ((see_regs $ run k [] [] prog) n) 0
+execute_pc prog n = lookupReg sp ((see_regs $ run [] [] prog) n)
 
-exec_input :: Prog -> Tape -> Tape -> Int -> Wrd
-exec_input prog x w n = Seq.index ((see_regs $ run k x w prog) n) 0
+exec_input :: Regs mreg => Prog mreg -> Tape -> Tape -> Int -> Wrd
+exec_input prog x w n = lookupReg sp ((see_regs $ run x w prog) n)

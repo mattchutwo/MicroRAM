@@ -24,7 +24,9 @@ This pass lays out the stack in memory in two steps:
      +-----------------+
      | Spilled         |
      | variables       |
-     |                 |  <- BP
+     |                 |  
+     +-----------------+
+     | Old BP          | <- BP
      +-----------------+
      | Return address  |
      +-----------------+ 
@@ -55,33 +57,37 @@ import MicroRAM.MicroRAM
 
 import Compiler.CompileErrors
 import Compiler.IRs
+import Compiler.Registers
 import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..)) 
 
 type Ptr = Word
-type MReg = VReg -- FIXME only while we use trivial register allocation
+-- moved to typeclass, type MReg = VReg -- FIXME only while we use trivial register allocation
 
-type LOperand =  MAOperand MReg Word
+type LOperand mreg =  MAOperand mreg Word
 
+{-
 -- * Reserved pointers: Stack pointer (SP) and Base Pointer (BP) are reserved for
 -- managing the stack
 sp , bp :: MReg
 sp = NewName 0
 bp = NewName 1
 
+
 -- * Callee saved registers:
 -- we need one calee saved register to operate when calling a function
 ax  :: MReg
 ax = NewName 2
+-}
 
 -- ** Usefull snipets
-push, pop :: MReg -> [MAInstruction MReg Word]
-push r = [Istore (Reg sp) r, Iadd sp sp (Const 1)]
+push, pop :: Regs mreg => mreg -> [MAInstruction mreg Word]
+push r = [Iadd sp sp (Const 1),Istore (Reg sp) r]
 pop r = [Iload r (Reg sp), Isub  sp sp (Const 1)]
 
 -- | pushOperand sometimes we want to push a constant
 -- Notice here we use ax. This can only be done at funciton entry
 -- where ax is callee-saved.
-pushOperand :: LOperand -> [MAInstruction MReg Word]
+pushOperand :: Regs mreg => LOperand mreg -> [MAInstruction mreg Word]
 pushOperand (Reg r) = push r
 pushOperand (Const c) = Imov ax (Const c) :  push ax
 
@@ -90,21 +96,21 @@ pushOperand (Const c) = Imov ax (Const c) :  push ax
 -- TODO: Can we do this in batch? Unfortunately I dont think we can statically compute
 -- sp + 1
 -- TODO: include types 
-pushN :: [LOperand] -> [MAInstruction MReg Word]
+pushN :: Regs mreg => [LOperand mreg] -> [MAInstruction mreg Word]
 pushN [] = []
 pushN (r:rs) = pushOperand r ++ pushN rs 
 
 -- PopN doesn't return, just drops the top n things in the stack
-popN :: Word -> [MAInstruction MReg Word]
+popN :: Regs mreg => Word -> [MAInstruction mreg Word]
 popN 0 = []
 popN n = [Isub sp sp (Const n) ]
 
 
 -- | smartMov is like Imov, but does nothing if the registers are the same
-smartMov :: MReg -> MReg -> [MAInstruction MReg Word]
-smartMov r1 r2 = if r1 == r2 then [Imov r1 (Reg r2)] else []
+smartMov :: Regs mreg => mreg -> mreg -> [MAInstruction mreg Word]
+smartMov r1 r2 = if r1 == r2 then [] else [Imov r1 (Reg r2)]
 
-smartMovMaybe :: Maybe MReg -> MReg -> [MAInstruction MReg Word]
+smartMovMaybe :: Regs mreg => Maybe mreg -> mreg -> [MAInstruction mreg Word]
 smartMovMaybe Nothing _ = []
 smartMovMaybe (Just r) a = smartMov r a
 
@@ -129,7 +135,7 @@ type GVEnv = Map.Map ShortByteString Ptr
 
 storeGlobVars ::
   GEnv Word
-  -> Hopefully $ (GVEnv, NamedBlock MReg Word)
+  -> Hopefully $ (GVEnv, NamedBlock mreg Word)
 storeGlobVars _ = return (Map.empty , NBlock Nothing [])
 
 -- | replaceGlobals: replaces the invocation of global variables with a constant
@@ -144,36 +150,79 @@ replaceGlobalsInstr = undefined
 replaceGlobals _ block = return block -- TODO: Replace global
 
 
+-- ** Pre-main:
+{-  This is the code that:
+    1. Passes the arguments to main
+    2. Sets the return address for main.
+    3. Returns the final value.
+
+-}
+
+-- | Read input:
+-- We read the entire input, stroe it into the stack (almost like in the paper)
+readInput :: Regs mreg => [NamedBlock mreg Word]
+readInput =
+  (MRAM.NBlock Nothing
+  [Istore (Const 0) sp]) :                -- 1.
+  MRAM.NBlock (Just "_read input_")
+  [Iread bp (Const 0),                    -- 2.
+    Icjmp (Label "_End read input_"),     -- 3.
+    Iadd sp sp (Const 1),                 -- 4.
+    Istore (Reg sp) bp,                   -- 5.
+    Ijmp (Label "_read input_")]:         -- 6.
+  MRAM.NBlock (Just "_End read input_")
+  [ Imov argc (Reg sp),
+   Imov argv (Const 1)]  :                 -- FIXME passing arguments in registers for trivial reg alloc.
+  []
+
+-- | Premain:
+-- This is a pseudofunction, that sets up return address for main.
+-- Stores the input in memory.
+-- Sends main to the returnBlock
+premain :: Regs mreg => [NamedBlock mreg Word]
+premain =
+  readInput ++
+  [MRAM.NBlock Nothing $ Imov ax (Label "_ret_") : push ax]
+
+-- | returnBlock: return lets the program output an answer (when main returns)
+returnBlock :: Regs mreg => NamedBlock mreg Word
+returnBlock = MRAM.NBlock (Just "_ret_") [Ianswer (Reg ax)]
 
 
 
-
-
--- ** Prologues and Epilogues
+-- ** Function Prologues and Epilogues
 
 
 -- | prologue: allocates the stack at the beggining of the function
-prologue :: Word -> [MAInstruction MReg Word]
+prologue :: Regs mreg => Word -> [MAInstruction mreg Word]
 prologue size =
     (push bp) ++ [Imov bp (Reg sp), Isub sp sp (Const size)]
 
 
--- | epilogue: allocates the stack at the beggining of the function
-epilogue :: [MAInstruction MReg Word]
-epilogue = Imov sp (Reg bp) : pop bp
+-- | epilogue: deallocate the stack, then jump to return address
+epilogue :: Regs mreg => [MAInstruction mreg Word]
+epilogue =
+  -- restore the old stack pointer (bp is popped by the caller)
+  Imov sp (Reg bp) :
+  -- load return address and jump (remember return is passed in ax, so we use bp here)
+  -- bp = sp point at the old bp and the return address is one bellow. 
+  Isub bp bp (Const 1) :
+  Iload bp (Reg bp) : 
+  [Ijmp (Reg bp)]
 
 
 -- ** Function calls:
 
 -- | Instructions produced to call a function.
--- Note that setting the stackframe is the job of the function.
+-- Note that setting the stackframe is the job of the callee function.
 funCallInstructions ::
+  Regs mreg => 
   Ty   -- ^ Function Type
-  -> Maybe MReg      -- ^ Return
-  -> LOperand         -- ^ Function name
+  -> Maybe mreg      -- ^ Return
+  -> LOperand mreg         -- ^ Function name
   -> [Ty]
-  -> [LOperand] -- ^ Arguments
-  -> [MAInstruction MReg Word]
+  -> [LOperand mreg] -- ^ Arguments
+  -> [MAInstruction mreg Word]
 funCallInstructions _ ret f _ args =
   -- Push all arguments to stack
   -- Mant architectures store arguemnts backwards, we don't
@@ -183,12 +232,14 @@ funCallInstructions _ ret f _ args =
   -- Run function 
     Ijmp f :
   -- The function should return to the this next instruciton
+  -- restore the base pointer (right before this is used to compute return address)
+  pop bp ++
   -- remove arguments and return address from the stack
   (popN (fromIntegral $ (length args) + 1)) ++
   -- move the return value (allways returns to ax)
   setResult ret
   
-setResult :: Maybe MReg -> [MAInstruction MReg Word]
+setResult :: Regs mreg => Maybe mreg -> [MAInstruction mreg Word]
 setResult Nothing = []
 setResult (Just ret) = smartMov ret ax
 
@@ -196,8 +247,8 @@ setResult (Just ret) = smartMov ret ax
 -- ** Stacking translation
 
 -- | stack only the new instructions
-stackLTLInstr :: LTLInstr' MReg Word $ MAOperand MReg Word
-              -> [MAInstruction MReg Word]
+stackLTLInstr :: Regs mreg => LTLInstr' mreg Word $ MAOperand mreg Word
+              -> [MAInstruction mreg Word]
 stackLTLInstr (Lgetstack slot offset typ reg) =
    [Iadd reg bp (Const offset), Iload reg (Reg reg)]
 stackLTLInstr (Lsetstack reg slot offset typ) =
@@ -221,20 +272,22 @@ stackLTLInstr (LAlloc reg typ n) =
  
 -- | stack all instructions
 stackInstr ::
-  LTLInstr () MReg Word
-  -> [MAInstruction MReg Word]
+  Regs mreg => 
+  LTLInstr () mreg Word
+  -> [MAInstruction mreg Word]
 stackInstr (MRI instr ()) =  [instr]
 stackInstr (IRI instr _) = stackLTLInstr instr 
 
 
 stackBlock
-  :: GVEnv
-  -> (BB $ LTLInstr () MReg Word)
-  -> Hopefully (NamedBlock MReg Word)
+  :: Regs mreg =>
+  GVEnv
+  -> (BB $ LTLInstr () mreg Word)
+  -> Hopefully (NamedBlock mreg Word)
 stackBlock genv (BB name body _ ) = do
   body' <- return $ map stackInstr body
   body'' <- replaceGlobals genv body'
-  return $ NBlock Nothing $ concat body'
+  return $ NBlock (Just $ show name) $ concat body'
 
 name2string :: Name -> String
 name2string (Name st) = "Name:"++(show st)
@@ -242,17 +295,18 @@ name2string (NewName st) = "NewName:"++(show st)
 
 -- | Translating funcitons
 stackFunction
-  :: GVEnv
-  -> LFunction () MReg Word
-  -> Hopefully $ [NamedBlock MReg Word]
+  :: Regs mreg =>
+  GVEnv
+  -> LFunction () mreg Word
+  -> Hopefully $ [NamedBlock mreg Word]
 stackFunction genv (LFunction name mdata retT argT size code) = do
   prologueBlock <- return $ NBlock (Just name) $ prologue size
   codeBlocks <- mapM (stackBlock genv) code
   return $ prologueBlock : codeBlocks
   
   
-stacking :: Lprog () MReg Word -> Hopefully $ MAProgram MReg Word
+stacking :: Regs mreg => Lprog () mreg Word -> Hopefully $ MAProgram mreg Word
 stacking (IRprog tenv globals functions) = do
   (genv, preamble) <- storeGlobVars globals
   functions' <- mapM (stackFunction genv) functions
-  return $ preamble : concat functions'
+  return $ preamble : premain ++ (concat functions') ++ [returnBlock]

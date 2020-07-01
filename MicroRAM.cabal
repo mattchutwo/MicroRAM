@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1fc6062551aee95530d6937b802c25ef82253973354c5e3d4a8127d200274fc6
+-- hash: 047049c6505396366874f3472d15c9329c7896eb3c3ef1820e48edf64de4e639
 
 name:           MicroRAM
 version:        0.1.0.0
@@ -39,6 +39,7 @@ library
       Compiler.IRs
       Compiler.MRAMMap
       Compiler.RegisterAlloc
+      Compiler.Registers
       Compiler.RemoveLabels
       Compiler.Stacking
       Compiler.Try
@@ -65,6 +66,7 @@ library
     , tasty
     , tasty-hunit
     , tasty-smallcheck
+    , utf8-string
   default-language: Haskell2010
 
 executable MicroRAM-compile
@@ -87,6 +89,7 @@ executable MicroRAM-compile
     , tasty
     , tasty-hunit
     , tasty-smallcheck
+    , utf8-string
   default-language: Haskell2010
 
 executable MicroRAM-exe
@@ -109,6 +112,7 @@ executable MicroRAM-exe
     , tasty
     , tasty-hunit
     , tasty-smallcheck
+    , utf8-string
   default-language: Haskell2010
 
 test-suite circuit-test
@@ -133,6 +137,7 @@ test-suite circuit-test
     , tasty
     , tasty-hunit
     , tasty-smallcheck
+    , utf8-string
   default-language: Haskell2010
 
 test-suite compiler-test
@@ -155,6 +160,7 @@ test-suite compiler-test
     , tasty
     , tasty-hunit
     , tasty-smallcheck
+    , utf8-string
   default-language: Haskell2010
 
 test-suite interpreter-test
@@ -176,4 +182,5 @@ test-suite interpreter-test
     , tasty
     , tasty-hunit
     , tasty-smallcheck
+    , utf8-string
   default-language: Haskell2010

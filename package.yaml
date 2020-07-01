@@ -29,6 +29,7 @@ dependencies:
 - tasty
 - tasty-hunit
 - tasty-smallcheck
+- utf8-string
 
 library:
   source-dirs: src

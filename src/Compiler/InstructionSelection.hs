@@ -29,6 +29,7 @@ module Compiler.InstructionSelection
 
 
 import Data.ByteString.Short
+import Data.ByteString.UTF8 as BSU 
 import Control.Monad.State.Lazy
 
 import qualified LLVM.AST as LLVM
@@ -53,7 +54,7 @@ import qualified MicroRAM.MicroRAM as MRAM
 
 -- ** Translation between LLVM and RTL "things"
 any2short :: Show a => a -> ShortByteString
-any2short n = toShort $ read $ show $ n
+any2short n = toShort $ BSU.fromString $ show $ n
 
 name2name (LLVM.Name s) = return $ Name s
 name2name (LLVM.UnName n) = return $ Name $ any2short n
@@ -430,14 +431,14 @@ isTerminator (LLVM.Do term) = do
 isTerminator' :: LLVM.Terminator -> Hopefully $ [RTLInstr () Word]
 isTerminator' (LLVM.Br name _) = do
   name' <- name2name name
-  returnRTL $ [MRAM.Ijmp $ Reg name']
+  returnRTL $ [MRAM.Ijmp $ Label (show name')] -- FIXME: This works but it's a hack. Think about labels.
 isTerminator' (LLVM.CondBr (LLVM.LocalReference _ name) name1 name2 _) = do
   r1 <- name2name name
-  loc1 <- name2Operand name1
-  loc2 <- name2Operand name2
+  loc1 <- name2name name1
+  loc2 <- name2name name2 
   returnRTL $ [MRAM.Icmpe r1 (Const 1),
-                    MRAM.Icjmp loc1,
-                    MRAM.Ijmp loc2]
+                    MRAM.Icjmp $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
+                    MRAM.Ijmp $ Label (show loc2)]
 isTerminator' (LLVM.CondBr _ name1 name2 _) =
   assumptError "conditional branching must depend on a register. If you passed a constant prhaps you forgot to run constant propagation. Can't branch on Metadata."
 
@@ -493,7 +494,7 @@ isBlock  (LLVM.BasicBlock name instrs term) = do
   end <- toState $ isTerminator term
   jumpsTo <- toState $ blockJumpsTo term
   name' <- toState $ name2name name
-  return $ BB name' body jumpsTo
+  return $ BB name' (body ++ end) jumpsTo
 
 
   

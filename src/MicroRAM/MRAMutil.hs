@@ -4,6 +4,8 @@ import MicroRAM.MicroRAM
 import MicroRAM.MRAMInterpreter
 import Data.Sequence as Seq
 
+
+{-
   -- defaultMain (testGroup "Our Library Tests" testSuite) -- testSuit defined at eof
 k = 5 -- 5 registers
 
@@ -33,3 +35,6 @@ flag_trace t= map flag t
 
 
 fib = [Iadd 0 1 (Const 1), Iadd 2 0 (Const 0), Iadd 0 0 (Reg 1), Iadd 1 2 (Const 0), Ijmp (Const 1)]
+
+
+-}
