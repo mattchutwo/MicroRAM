@@ -42,6 +42,7 @@ tests = testGroup "Compiler tests" $
   map compileTest $
   [("Return 42", "Cprograms/return42.ll")
   ,("21 + 21", "Cprograms/compute42.ll")
+  , ("Fibonacci loop (not optimized)", "Cprograms/fibSlow.ll")
   , ("Fibonacci loop", "Cprograms/fib.ll")
 --  ,("Hello world", "Cprograms/hello.ll")
   ]
