@@ -47,6 +47,30 @@ Returns the 10th fibonacci number. Yay!
 
 ## Usage
 
+The compiler recognizes the following usage
+
+```
+Usage: compile [-benstuv] [file ...]
+           --llvm-out=FILE   Save the llvm IR to a file
+  -O[arg]  --optimize[=arg]  Optimization level of the front end
+  -o FILE  --output=FILE     Output to file
+           --from-llvm       Compile only with the backend. Compiles from an LLVM file.
+           --just-llvm       Compile only with the frontend. 
+  -v       --verbose         Chatty compiler
+  -h       --help            Print this help message
+```
+
+Remember that for stack, all arguments go after a `--`. For example, we can compile `fib.c` with full optimizations, saving the intermediate llvm file and customizing the output file:
+
+```
+stack exec compile -- programs/fib.c --llvm-out=programs/fib.ll -oprograms/mysuperfancyfib.micro
+```
+
+*Beware:* if you get too fancy with the optimizations, clang might use instructions we do not support yet. We are working on it. For example
+
+```
+% stack exec compile -- programs/fib.c -O3                                         Backend compilation error: Feature not supported by the compiler yet: Phi. Not implemented in the trivial Register allocation.
+```
 
 
 

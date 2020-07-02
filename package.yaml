@@ -31,7 +31,7 @@ dependencies:
 - tasty-smallcheck
 - utf8-string
 - process
-- text
+- split
 
 library:
   source-dirs: src
