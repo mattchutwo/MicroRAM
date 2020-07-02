@@ -1,3 +1,4 @@
+
 # MicroRAM
  
 MicroRAM is a random-access machine designed to efficiently do zero knowledge proofs of program properties. The design is mased on [TinyRAM](https://www.scipr-lab.org/doc/TinyRAM-spec-0.991.pdf). The current implementation includes the following tools:
@@ -35,7 +36,7 @@ To compile and run the program `programs/fib.c` do:
 % stack exec compile programs/fib.c  
 ```
 
-This will create the compiled file `programs/fib.micro` which you can run for 400 steps like so ([notice fib takes it's argument in unary, explained bellow](###Why-inputs-inunary?))
+This will create the compiled file `programs/fib.micro` which you can run for 400 steps like so ([notice fib takes it's argument in unary, explained bellow](#why-inputs-inunary))
 
 ```
 % stack exec run programs/fib.micro 400 1 1 1 1 1 1 1 1 1 1
@@ -89,7 +90,7 @@ Some of the tests will fail for now. For example we don't currently support `phi
 
 ## More details
 
-### Why inputs inunary?
+### Why inputs inunary
 
 Well, c programs take only two arguments: ` int argc, char *argv[]`. Our current implementation only supports ints. To avoid dealing with conversions (i.e. `char -> int`) the current hack is to use `argc` as the input. But that's only the number of arguments...
 
