@@ -69,7 +69,9 @@ stack exec compile -- programs/fib.c --llvm-out=programs/fib.ll -oprograms/mysup
 *Beware:* if you get too fancy with the optimizations, clang might use instructions we do not support yet. We are working on it. For example
 
 ```
-% stack exec compile -- programs/fib.c -O3                                         Backend compilation error: Feature not supported by the compiler yet: Phi. Not implemented in the trivial Register allocation.
+% stack exec compile -- programs/fib.c -O3
+
+  Backend compilation error: Feature not supported by the compiler yet: Phi. Not implemented in the trivial Register allocation.
 ```
 
 
