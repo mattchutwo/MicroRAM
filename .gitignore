@@ -10,3 +10,4 @@
 src/Compiler/Try.hs
 src/Backend/Notes
 Cprograms/*.ll
+MicroRAM.cabal

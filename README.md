@@ -1,6 +1,6 @@
 # MicroRAM
  
-MicroRAM is a random-access machine designed to efficiently do zero knowledge proofs of program properties. The design is mased on (TinyRAM)[https://www.scipr-lab.org/doc/TinyRAM-spec-0.991.pdf]. The current implementation includes the following tools:
+MicroRAM is a random-access machine designed to efficiently do zero knowledge proofs of program properties. The design is mased on [TinyRAM](https://www.scipr-lab.org/doc/TinyRAM-spec-0.991.pdf). The current implementation includes the following tools:
  
  * An ADT implementation of MicroRAM 
  * A interpreter of MicroRAM in Haskell 
