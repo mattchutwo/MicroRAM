@@ -29,17 +29,17 @@ Clone this repository and build it
 
 ## Quick use example:
 
-To compile and run the program `fib.c` do:
+To compile and run the program `programs/fib.c` do:
 
 ```
-% stack exec compile Cprograms/fib.c  
+% stack exec compile programs/fib.c  
 ```
 
-This will create the compiled file `Cprograms/fib.micro` which you can run for 400 steps like so (notice fib takes it's argument in unary)
+This will create the compiled file `programs/fib.micro` which you can run for 400 steps like so (notice fib takes it's argument in unary)
 
 ```
-% stack exec run Cprograms/fib.micro 400 1 1 1 1 1 1 1 1 1 1
-Running program Cprograms/fib.mic for 400 steps.
+% stack exec run programs/fib.micro 400 1 1 1 1 1 1 1 1 1 1
+Running program programs/fib.mic for 400 steps.
 Result: 34
 ```
 
