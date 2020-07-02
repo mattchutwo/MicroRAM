@@ -55,5 +55,5 @@ compileFromFile testName file = testCaseInfo testName $ do
   llvmModule <- llvmParse file
   claimCompiles llvmModule
 
-isTests = [compileFromFile "Return 42" "Cprograms/return42.ll",
-          compileFromFile "21 + 21" "Cprograms/compute42.ll"]
+isTests = [compileFromFile "Return 42" "programs/return42.ll",
+          compileFromFile "21 + 21" "programs/compute42.ll"]

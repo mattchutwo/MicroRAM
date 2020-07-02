@@ -43,7 +43,7 @@ main :: IO ()
 main = defaultMain tests
 
 tests' = testGroup "Compiler tests" $
-        map (executionTest "Return argc" "Cprograms/fibSlow.ll" [1,1,1,1,1,1,1,1,1,1]) $
+        map (executionTest "Return argc" "programs/fibSlow.ll" [1,1,1,1,1,1,1,1,1,1]) $
         take 375 $ nats
 nats :: [Int] 
 nats = iterate ((+) 1) 0
@@ -52,25 +52,25 @@ nats = iterate ((+) 1) 0
 tests = testGroup "Compiler tests" $
   compileTest
     "Return 42"
-    "Cprograms/return42.ll"
+    "programs/return42.ll"
     25 [] 42 :
   compileTest
     "21 + 21"
-    "Cprograms/compute42.ll"
+    "programs/compute42.ll"
     70 [] 42 :
   compileTest
     "Return argc"
-    "Cprograms/returnArgc.ll"
+    "programs/returnArgc.ll"
     50 [1,2,3] 3 :
   compileTest
     "Fibonacci loop (not optimized)"
-    "Cprograms/fibSlow.ll"
+    "programs/fibSlow.ll"
     375 (take 10 $ repeat 1) 34 :
   compileTest
     "Fibonacci loop"
-    "Cprograms/fib.ll"
+    "programs/fib.ll"
     100 [1,2,3,4] 2 :
---  compileTest "Hello world" "Cprograms/hello.ll" 50 [] 0 :
+--  compileTest "Hello world" "programs/hello.ll" 50 [] 0 :
     []
 
 -- tests = testGroup "Compiler tests" [instructionSelectionTests]

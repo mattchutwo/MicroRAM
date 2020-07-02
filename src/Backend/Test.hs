@@ -6,7 +6,7 @@ import LLVM.Module
 import qualified LLVM.Internal.FFI.LLVMCTypes as FFI
 import qualified LLVM.Internal.FFI.Target as FFI
 
-myFile = "/Users/Santiago/Projects/MicroRAM/Cprograms/hello.ll"
+myFile = "/Users/Santiago/Projects/MicroRAM/programs/hello.ll"
 
 
 withMyTarget = withTargetMachine
