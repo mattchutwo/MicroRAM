@@ -28,6 +28,7 @@ import           Compiler.IRs
 -- import qualified MicroRAM.MicroRAM as MRAM
 
 
+-- TODO: Replace `Name "0"` with `Lgetstack Incoming 0 _ _`
 
 
 type Registers = [String]
