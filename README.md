@@ -66,7 +66,7 @@ Remember that for stack, all arguments go after a `--`. For example, we can comp
 stack exec compile -- programs/fib.c --llvm-out=programs/fib.ll -oprograms/mysuperfancyfib.micro
 ```
 
-*Beware:* if you get too fancy with the optimizations, clang might use instructions we do not support yet. We are working on it. For example
+**Beware:** if you get too fancy with the optimizations, clang might use instructions we do not support yet. We are working on it. For example
 
 ```
 % stack exec compile -- programs/fib.c -O3
