@@ -205,6 +205,7 @@ data NamedBlock r w = NBlock (Maybe String) [MAInstruction r w]
 type MAProgram r w = [NamedBlock r w] -- These are MicroASM programs
 
 
+  
 -- ** MicroRAM
 type Operand regT wrdT = Operand' Post regT wrdT
 type Instruction regT wrdT = Instruction' regT (Operand regT wrdT)

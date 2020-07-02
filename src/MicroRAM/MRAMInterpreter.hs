@@ -17,7 +17,8 @@ module MicroRAM.MRAMInterpreter
     pc_trace,
     out_trace,
     flag_trace,
-    toInt) where
+    toInt,
+    execAnswer) where
 
 import MicroRAM.MicroRAM
 import Data.Bits
@@ -458,3 +459,7 @@ execute_pc prog n = lookupReg sp ((see_regs $ run [] [] prog) n)
 
 exec_input :: Regs mreg => Prog mreg -> Tape -> Tape -> Int -> Wrd
 exec_input prog x w n = lookupReg sp ((see_regs $ run x w prog) n)
+
+
+execAnswer :: Regs mreg => Prog mreg -> Int -> [Word] -> Word
+execAnswer prog bound input = answer $ (run input [] prog) !! bound

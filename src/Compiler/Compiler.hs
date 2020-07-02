@@ -60,8 +60,11 @@ import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..))
 
 compile :: LLVM.Module
         -> Hopefully $ (MRAM.Program Name Word)
-compile llvmProg = (return llvmProg) >>=
-  instrSelect >>= registerAlloc >>= stacking >>= removeLabels
+compile llvmProg = (return llvmProg)
+  >>= instrSelect
+  >>= trivialRegisterAlloc --FIXME remove the trivial
+  >>= stacking
+  >>= removeLabels
 
 
 {-

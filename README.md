@@ -1,18 +1,58 @@
 # MicroRAM
  
- This is a toy experiment containing:
+MicroRAM is a random-access machine designed to efficiently do zero knowledge proofs of program properties. The design is mased on (TinyRAM)[https://www.scipr-lab.org/doc/TinyRAM-spec-0.991.pdf]. The current implementation includes the following tools:
  
- * An implementation of TinyRAM 
- * A interpreter of TinyRAM in Haskell 
- * A compiler from LLVM to TinyRAM
+ * An ADT implementation of MicroRAM 
+ * A interpreter of MicroRAM in Haskell 
+ * A compiler from C to MicroRAM
 
-To try the this out first build the project
+## Installing
+
+First get llvm compatible with the haskell bindings:
+
+```
+brew install llvm-hs/llvm/llvm-9
+```
+
+Make sure clang is installed
+
+```
+clang --version
+```
+
+Clone this repository and build it
 
 ```
 % stack build
 ```
 
-Then run the tests. In theory this compiles several C programs to MicroRAM and runs them. In reality I provide the llvm intermediate repressentation already. Feel free to recompile them in the `Cexamples` folder with your clang.
+
+## Quick use example:
+
+To compile and run the program `fib.c` do:
+
+```
+% stack exec compile Cprograms/fib.c  
+```
+
+This will create the compiled file `Cprograms/fib.micro` which you can run for 400 steps like so (notice fib takes it's argument in unary)
+
+```
+% stack exec run Cprograms/fib.micro 400 1 1 1 1 1 1 1 1 1 1
+Running program Cprograms/fib.mic for 400 steps.
+Result: 34
+```
+
+Returns the 10th fibonacci number. Yay!
+
+## Usage
+
+
+
+
+## Running the tests
+
+You can also run our test suite loke so:
 
 ```
 % stack test

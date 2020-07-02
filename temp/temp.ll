@@ -1,5 +1,5 @@
-; ModuleID = 'fib.c'
-source_filename = "fib.c"
+; ModuleID = 'Cprograms/fib.c'
+source_filename = "Cprograms/fib.c"
 target datalayout = "e-m:o-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-apple-macosx10.15.0"
 

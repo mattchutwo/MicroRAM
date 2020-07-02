@@ -30,6 +30,8 @@ dependencies:
 - tasty-hunit
 - tasty-smallcheck
 - utf8-string
+- process
+- text
 
 library:
   source-dirs: src
@@ -44,11 +46,21 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - MicroRAM
-  MicroRAM-compile:
+  compile:
     main:                Compile.hs
     source-dirs:         app
     ghc-options:
     - -main-is Compile
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - MicroRAM
+  run:
+    main:                Run.hs
+    source-dirs:         app
+    ghc-options:
+    - -main-is Run
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
