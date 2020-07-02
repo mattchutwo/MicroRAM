@@ -89,7 +89,7 @@ Some of the tests will fail for now. For example we don't currently support `phi
 
 ## More details
 
-###Why inputs inunary?
+### Why inputs inunary?
 
 Well, c programs take only two arguments: ` int argc, char *argv[]`. Our current implementation only supports ints. To avoid dealing with conversions (i.e. `char -> int`) the current hack is to use `argc` as the input. But that's only the number of arguments...
 
