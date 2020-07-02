@@ -47,7 +47,7 @@ main = do
                    "Input file needs to be a .micro file: " ++ (show file)
         Just name -> do
           mramProgram <- microFromFile file
-          putStrLn $ "Running program " ++ name ++ " for " ++ bound ++ " steps."
+          putStrLn $ "Running program " ++ file ++ " for " ++ bound ++ " steps."
           mramArgs <- return $ parseArgs progArgs
           result <- return $ execAnswer mramProgram (read bound) mramArgs
           putStrLn $ "Result: " ++ show result
@@ -67,7 +67,8 @@ fromText = read
 -- | Extracts the prefix: checkName file 
 removeSuffix :: String -> Maybe String
 removeSuffix file =
-  if isSuffixOf ".micro" file then
-    Just $ take ((length file) - 2) file
+  if isSuffixOf suffix file then
+    Just $ take ((length file) - length suffix) file
   else
     Nothing
+  where suffix = ".micro"
