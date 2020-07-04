@@ -32,6 +32,8 @@ dependencies:
 - utf8-string
 - process
 - split
+- pptable
+- boxes
 
 library:
   source-dirs: src

@@ -18,7 +18,8 @@ module MicroRAM.MRAMInterpreter
     out_trace,
     flag_trace,
     toInt,
-    execAnswer) where
+    execAnswer,
+    load) where
 
 import MicroRAM.MicroRAM
 import Data.Bits
