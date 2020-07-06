@@ -19,8 +19,13 @@ module MicroRAM.MicroRAM
   ) where
 
 {-
+Module      : MicroRAM
+Description : ADT for MicroRam instructions and programs
+Maintainer  : santiago@galois.com
+Stability   : experimental
 
-From TinyRAM paper:
+
+Instructions from TinyRAM paper (everything is now supported in MicroRAM):
 
 +---------+----------+----------------------------------------------+--------------+
 |  Instr  | operands |                   effects                    |     flag     |
@@ -66,7 +71,7 @@ From TinyRAM paper:
 |          (i.e., the computation stops); the choice between the two is undefined. |
 +----------------------------------------------------------------------------------+
 
-The language defined bellow is 2 different languages:
+There are 2 different languages defined here:
  - MicroASM:
    Which represents the TinyRAM assembly language (Similar to assembly desccribed in TinyRAM paper)
  - MicroRAM
@@ -83,40 +88,6 @@ import Text.Read.Lex
 import Text.ParserCombinators.ReadPrec
 import Data.ByteString.Short
 
--- ## Registers (see assumptions above)
-{-   regNum >= 8 
-     + 0. Accumulator register (AX). Used in arithmetic operations
-     + 1. Counter register (CX). Used in shift/rotate instructions and loops.
-     + 2. Data register (DX). Used in arithmetic operations and I/O operations.
-     + 3. Base register (BX). Used as a pointer to data (located in segment register DS, when in segmented mode).
-     + 4. Stack Pointer register (SP). Pointer to the top of the stack.
-     + 5. Stack Base Pointer register (BP). Used to point to the base of the stack.
-     + 6. Source Index register (SI). Used as a pointer to a source in stream operations.
-     + 7. Destination Index register (DI). Used as a pointer to a destination in stream operations.
--}
-ax = 0::Int
-cx = 1::Int
-dx = 2::Int
-bx = 3::Int
-sp = 4::Int
-bp = 5::Int
-si = 6::Int
-di = 7::Int
-
-{-
-data Phase = Pre | Post
-  deriving (Eq, Ord, Read, Show)
-
--- | Operands
--- TinyRAM instructions take immidiate values (constants) and registers
--- when an instruction allows either we denote it a (|A| in the paper).
-data Operand phase regT wrdT where
-  Reg :: regT -> Operand phase regT wrdT
-  Const :: wrdT -> Operand phase regT wrdT
-  Label :: String -> Operand Pre regT wrdT
-  HereLabel :: Operand Pre regT wrdT
-
--}
 -- | Phase: This language can be instantiated at different levels:
 -- Pre: Indicates MicroAssembly where the program is made of
 -- labeled blocks and Operands can be labels
@@ -160,40 +131,40 @@ instance (Read regT, Read wrdT) => Read (Operand' Post regT wrdT) where
 -- | TinyRAM Instructions
 data Instruction' regT operand =
   -- Bit Operations
-  Iand regT regT operand     --compute bitwise AND of [rj] and [A] and store result in ri
-  | Ior regT regT operand    --compute bitwise OR of [rj] and [A] and store result in ri
-  | Ixor regT regT operand   --compute bitwise XOR of [rj] and [A] and store result in ri
-  | Inot regT operand        --compute bitwise NOT of [A] and store result in ri
+  Iand regT regT operand     -- ^ compute bitwise AND of [rj] and [A] and store result in ri
+  | Ior regT regT operand    -- ^ compute bitwise OR of [rj] and [A] and store result in ri
+  | Ixor regT regT operand   -- ^ compute bitwise XOR of [rj] and [A] and store result in ri
+  | Inot regT operand        -- ^ compute bitwise NOT of [A] and store result in ri
   -- Integer Operations
-  | Iadd regT regT operand   --compute [rj]u + [A]u and store result in ri
-  | Isub regT regT operand   --compute [rj]u − [A]u and store result in ri
-  | Imull regT regT operand  --compute [rj]u × [A]u and store least significant bits of result in ri
-  | Iumulh regT regT operand --compute [rj]u × [A]u and store most significant bits of result in ri
-  | Ismulh regT regT operand --compute [rj]s × [A]s and store most significant bits of result in ri 
-  | Iudiv regT regT operand  --compute quotient of [rj ]u /[A]u and store result in ri
-  | Iumod regT regT operand  --compute remainder of [rj ]u /[A]u and store result in ri
+  | Iadd regT regT operand   -- ^ compute [rj]u + [A]u and store result in ri
+  | Isub regT regT operand   -- ^ compute [rj]u − [A]u and store result in ri
+  | Imull regT regT operand  -- ^ compute [rj]u × [A]u and store least significant bits of result in ri
+  | Iumulh regT regT operand -- ^ compute [rj]u × [A]u and store most significant bits of result in ri
+  | Ismulh regT regT operand -- ^ compute [rj]s × [A]s and store most significant bits of result in ri 
+  | Iudiv regT regT operand  -- ^ compute quotient of [rj ]u /[A]u and store result in ri
+  | Iumod regT regT operand  -- ^ compute remainder of [rj ]u /[A]u and store result in ri
   -- Shift operations
-  | Ishl regT regT operand   --shift [rj] by [A]u bits to the left and store result in ri
-  | Ishr regT regT operand   --shift [rj] by [A]u bits to the right and store result in ri
-  -- Compare Operations
-  | Icmpe regT operand       --none (“compare equal”)
-  | Icmpa regT operand       --none (“compare above”, unsigned)
-  | Icmpae regT operand      --none (“compare above or equal”, unsigned)
-  | Icmpg regT operand       --none (“compare greater”, signed)
-  | Icmpge regT operand      --none (“compare greater or equal”, signed)
-  -- Move operations
-  | Imov regT operand        -- store [A] in ri
-  | Icmov regT operand       -- iff lag=1, store [A] in ri
-  -- Jump operations
-  | Ijmp operand             -- set pc to [A]
-  | Icjmp operand            -- if flag = 1, set pc to [A] (else increment pc as usual)
-  | Icnjmp operand           -- if flag = 0, set pc to [A] (else increment pc as usual)
-  -- Memory operations
-  | Istore operand regT      -- store [ri] at memory address [A]u
-  | Iload regT operand       -- store the content of memory address [A]u into ri 
-  | Iread regT operand       -- if the [A]u-th tape has remaining words then consume the next word,
-                             -- store it in ri, and set flag = 0; otherwise store 0W in ri and set flag = 1
-  | Ianswer operand          -- stall or halt (and the return value is [A]u)
+  | Ishl regT regT operand   -- ^ shift [rj] by [A]u bits to the left and store result in ri
+  | Ishr regT regT operand   -- ^ shift [rj] by [A]u bits to the right and store result in ri
+  -- Compare Operations          
+  | Icmpe regT operand       -- ^ none (“compare equal”)
+  | Icmpa regT operand       -- ^ none (“compare above”, unsigned)
+  | Icmpae regT operand      -- ^ none (“compare above or equal”, unsigned)
+  | Icmpg regT operand       -- ^ none (“compare greater”, signed)
+  | Icmpge regT operand      -- ^ none (“compare greater or equal”, signed)
+  -- Move operations             
+  | Imov regT operand        -- ^  store [A] in ri
+  | Icmov regT operand       -- ^  iff lag=1, store [A] in ri
+  -- Jump operations             
+  | Ijmp operand             -- ^  set pc to [A]
+  | Icjmp operand            -- ^  if flag = 1, set pc to [A] (else increment pc as usual)
+  | Icnjmp operand           -- ^  if flag = 0, set pc to [A] (else increment pc as usual)
+  -- Memory operations           
+  | Istore operand regT      -- ^  store [ri] at memory address [A]u
+  | Iload regT operand       -- ^  store the content of memory address [A]u into ri 
+  | Iread regT operand       -- ^  if the [A]u-th tape has remaining words then consume the next word,
+                             -- ^  store it in ri, and set flag = 0; otherwise store 0W in ri and set flag = 1
+  | Ianswer operand          -- ^  stall or halt (and the return value is [A]u)
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
 -- ** MicroAssembly

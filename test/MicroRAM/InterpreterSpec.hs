@@ -53,7 +53,7 @@ see t n = regs (t !! n)
 reg_trace::Trace mreg -> [RMap mreg Word]
 reg_trace t= map regs t
 
-pc_trace::Trace Reg -> [Wrd]
+pc_trace::Trace Reg -> [Word]
 pc_trace t= map pc t
 
 flag_trace::Trace Reg -> [Bool]
@@ -66,7 +66,7 @@ flag_trace t= map flag t
 -}
 
 run' = run [] []
-prog1 :: Prog Reg
+prog1 :: Program Reg Word
 prog1 = [Iadd 0 0 (Const 1),
        Iadd 0 0 (Const 2),
        Iadd 1 1 (Const 3),
@@ -87,7 +87,7 @@ test1 = testProperty "Testing (1+2)*(3+4) == 21" $ (simpl_exec prog1 5) == 21
    } 
 -}
 
-prog2 :: Prog Reg
+prog2 :: Program Reg Word
 prog2 = [Iadd 0 0 (Const 1),
        Ijmp (Const 0)]
 
@@ -110,7 +110,7 @@ fib_pure 0 = 0
 fib_pure 1 = 1
 fib_pure n = fib_pure (n-1) + fib_pure (n-2) 
 
-prog3 :: Prog Reg
+prog3 :: Program Reg Word
 prog3 = [Iadd 0 1 (Const 1), -- x=1
          Iadd 2 0 (Const 0), -- z=x
          Iadd 0 0 (Reg 1),  -- x=x+y
@@ -119,9 +119,9 @@ prog3 = [Iadd 0 1 (Const 1), -- x=1
 
 run3 = run' prog3
 
-fibs:: [Wrd]
+fibs:: [Word]
 fibs = 0 : 1 : Prelude.zipWith (+) fibs (tail fibs)
-fib::Int -> Wrd
+fib::Int -> Word
 fib n = fibs !! n
 
 claimEqual :: (Eq a, Show a) => a -> a -> Either String String
@@ -131,13 +131,13 @@ claimEqual a b =
      else Left $ "Got " ++ show a ++ " but expected " ++ show b
 
 test3 = testProperty "Test fibonacci" $ \n -> (n :: Int) >= 0 ==>
-   claimEqual (toInt $ simpl_exec prog3 (1+4*n)) (fib_pure (n+1))
+   claimEqual (fromIntegral $ simpl_exec prog3 (1+4*n)) (fib_pure (n+1))
    
 -- # Test 4: conditional + input
 
-run4:: Wrd -> Trace Reg
+run4:: Word -> Trace Reg
 run4 input = run [input] [] prog4
-prog4 :: Prog Reg
+prog4 :: Program Reg Word
 prog4 = [Iread 1 (Const 0), --
          Icmpg 1 (Const 10), -- 1
          Icjmp (Const 5),    -- 2 
@@ -148,7 +148,7 @@ prog4 = [Iread 1 (Const 0), --
         ]
 
 test4 = testProperty "Test a conditional and input" $ \x ->
-   claimEqual (toInt $ exec prog4 [(x::Wrd)] [] 5) (fromIntegral $ if x>10 then 42 else 77)
+   claimEqual (fromIntegral $ exec prog4 [(x::Word)] [] 5) (fromIntegral $ if x>10 then 42 else 77)
 
                                                                
 -- # Test 5: sum all input
@@ -157,9 +157,9 @@ test4 = testProperty "Test a conditional and input" $ \x ->
 -}
 
 
-run5:: [Wrd] -> Trace Reg
+run5:: [Word] -> Trace Reg
 run5 input = run input [] prog5
-prog5 :: Prog Reg
+prog5 :: Program Reg Word
 prog5 = [Iread 1 (Const 0), --
          Iadd 0 0 (Reg 1), -- 1
          Icjmp (Const 4),   -- 2
@@ -169,7 +169,7 @@ prog5 = [Iread 1 (Const 0), --
 
 --test5 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
 test5 = testProperty "Test adding a list of inputs" $ \xs ->
-   claimEqual (exec prog5 (xs::[Wrd]) [] (4* (Prelude.length xs))) (sum xs)
+   claimEqual (exec prog5 (xs::[Word]) [] (4* (Prelude.length xs))) (sum xs)
 
 
                                                                
@@ -183,12 +183,12 @@ test5 = testProperty "Test adding a list of inputs" $ \xs ->
 
 run6:: Int -> Trace Reg
 run6 n = run [] [] prog6
-failSignal:: Operand Reg Wrd
+failSignal:: Operand Reg Word
 failSignal = (Const 11)
 gotoFail = Ijmp failSignal
 cGotoFail = Icjmp failSignal
 
-prog6 :: Prog Reg
+prog6 :: Program Reg Word
 prog6 = [Imov 1 (Const 1),   -- 0. x = 1 // Test 1
          Isub 1 1 (Const 2), -- 1. x = x - 2 (should underflow)
          Icjmp  (Const 4),   -- 2. goto Test 2

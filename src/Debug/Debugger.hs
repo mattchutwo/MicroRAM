@@ -26,10 +26,17 @@ import Text.PrettyPrint.Tabulate
 import Text.PrettyPrint.Boxes
 import Text.Printf
 
+import System.Process
 
+-- LLVM
+import qualified LLVM.AST as LLVM
+
+-- Local 
 import Compiler.IRs
 import Compiler.Registers
 import MicroRAM.MRAMInterpreter
+import MicroRAM.MicroRAM
+import LLVMutil.LLVMIO
 
 
 -- * Summary: Pretty prints summary of an execution.
@@ -62,6 +69,12 @@ toSummaryMem theseLocations m =
 defaultSummary :: CustomSummary mreg
 defaultSummary = CS True True Nothing True [0..4] True True 
   
+defaultCSInt :: CustomSummary Int 
+defaultCSInt = defaultSummary
+
+defaultCSName :: CustomSummary Name 
+defaultCSName = defaultSummary
+
 
 -- | Reserved regs
 data ResRegs = RRs
@@ -148,9 +161,9 @@ printSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer) t n =do
         sCustRegs = case custRegs of
                       Just _ -> True
                       Nothing -> False
-        fldsTxt = fldDepends sPC "PC   "                 -- Hack to get Headers
-                  ++ (fldDepends sFlag "Flag  ")   
-                  ++ (fldDepends sAnswer "Ansr   ") 
+        fldsTxt = fldDepends sPC "PC    "                 -- Hack to get Headers
+                  ++ (fldDepends sFlag "Flag   ")   
+                  ++ (fldDepends sAnswer "Ansr    ") 
                   ++ (fldDepends sRegs "Regs")
                   ++ filler
                   ++ (fldDepends sMem "Mem \t")
@@ -161,14 +174,57 @@ printSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer) t n =do
         
 
 
--- TESTING
+-- Example
+{- | Example
+@
 t::Trace Name
 t = [init_state [] [],init_state [] [] ]
+@
 
-
+Then run:
+λ> printSummary defaultSummary t 2
+PC   Flag  Ansr   Regs                                Mem 	
+0     0     0     RRs {esp = 0, ebp = 0, eax = 0}     [0,0,0,0,0]
+0     0     0     RRs {esp = 0, ebp = 0, eax = 0}     [0,0,0,0,0]
+@
+-}
 
 -- * Loading and saving
 {- Tools to load and store programs (at any level) and execution traces.
 
 -}
+fromLLVMFile :: FilePath -> IO LLVM.Module
+fromLLVMFile = llvmParse
 
+fromMRAMFile :: (Read mreg, Regs mreg) => FilePath -> IO (Program mreg Word)
+fromMRAMFile file = do
+  contents <- readFile file
+  return $ read contents
+
+runFromFile  :: (Read mreg, Regs mreg) =>
+  FilePath -> Tape -> Tape -> IO (Trace mreg)
+runFromFile file input advice = do
+  prog <- fromMRAMFile file
+  return $ run input advice prog
+  
+summaryFromFile ::
+  (Read mreg, Regs mreg) =>
+  FilePath ->
+  CustomSummary mreg ->
+  Tape -> Tape -> Int -> IO ()
+summaryFromFile file cs input advice length = do
+  trace <- runFromFile file input advice
+  printSummary cs trace length
+  
+
+-- Example
+myfile = "programs/fib.micro"
+mram :: IO (Program Name Word)
+mram =  fromMRAMFile "programs/fib.micro"
+
+{- | Example
+
+
+
+
+-}

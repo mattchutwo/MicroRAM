@@ -2,24 +2,16 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE StandaloneDeriving #-}
 module MicroRAM.MRAMInterpreter
-  ( Wrd,
-    Mem,
-    Tape,
+  ( Mem,
+    Tape, 
     State(..),
     Prog,
     Trace,
-    step,
     run,
-    init_state,
-    set_reg,
-    execute,
-    exec_input,
-    pc_trace,
-    out_trace,
-    flag_trace,
-    toInt,
     execAnswer,
-    load) where
+    --init_state,
+    load
+    ) where
 
 import MicroRAM.MicroRAM
 import Data.Bits
@@ -31,7 +23,16 @@ import Data.Map.Strict ((!))
 import Compiler.Registers
 
 {-
-notes:
+Module      : MRAM Interpreter
+Description : Interpreter for MicrRAM programs
+Maintainer  : santiago@galois.com
+Stability   : experimental
+
+The interpreter runs a MicroRAM pprogram, producing a
+Trace of states that can easily be inspected. Current
+semantics follows the TinyRAM paper.
+
+Notes:
 * Current implementation uses (Words) but it follows an interface
   that can be easily converted to any other Num
 * Operations are performed over unbounded Integer and converted
@@ -41,15 +42,8 @@ notes:
 -}
 
 -- * MicroRAM semantics
-{- In this semantics we represent words with Word and
-  registers are indexed by intergers
-
- The interpreter is written such that it's easy
- to switch representations (e.e. Word8 or Int)
--}
 
 type Wrd = Word
---type Reg = Int
 wrdMax = toInteger (maxBound :: Word)
 wrdMin = toInteger (minBound :: Word)
 
@@ -83,11 +77,7 @@ type Pc = Wrd
 init_pc = 0
 
 -- | Registers
--- We represent the registers a a list of words, 
--- type Regs = Seq.Seq Wrd
-
---init_regs :: Int -> Regs
---init_regs k = Seq.replicate k 0 
+-- We represent the registers a a list of words,
 
 -- The condition and bad flags
 {- Current implementation of the flag only works for conditionals

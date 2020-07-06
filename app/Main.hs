@@ -24,12 +24,6 @@ input, advice :: Tape
 input = []
 advice = []
 
-runFrom :: Regs mreg => Prog mreg -> State mreg -> Int -> Trace mreg
-runFrom p s 0 = [s]
-runFrom p s n
-  | n > 0 = s : runFrom p (step p s) (n - 1)
-  | otherwise = error "can't run for negative steps"
-
 dumpState :: (Foldable (RMap mreg)) => State mreg -> String
 dumpState s = intercalate "; " [
     "pc " ++ show (pc s),
@@ -38,12 +32,12 @@ dumpState s = intercalate "; " [
     ]
 
 
-dumpOperand :: Show mreg => Operand mreg Wrd -> String
+dumpOperand :: Show mreg => Operand mreg Word -> String
 dumpOperand (Reg r) = show r ++ " reg"
 dumpOperand (Const i) = show i ++ " imm"
 -- dumpOperand o = error $ "unsupported operand kind: " ++ show o
 
-dumpInstr :: Show mreg => Instruction mreg Wrd -> String
+dumpInstr :: Show mreg => Instruction mreg Word -> String
 dumpInstr i = intercalate " " $ case i of
     Imov dest src -> ["mov", show dest, "0", dumpOperand src]
     Iadd dest src1 src2 -> ["add", show dest, show src1, dumpOperand src2]
@@ -58,7 +52,7 @@ main = undefined
     case args of
       [file] -> do
         prog <- read <$> readFile file
-        mapM_ (putStrLn . dumpInstr) (prog :: [Instruction mreg Wrd])
+        mapM_ (putStrLn . dumpInstr) (prog :: [Instruction mreg Word])
       [file, steps] -> do
         prog <- read <$> readFile file
         let s = init_state k [] [] in
