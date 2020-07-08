@@ -15,7 +15,7 @@ the compiler to choose the number of registers as well as the classes
 -}
 module Compiler.Registers
     ( Regs(..),
-      --RegBank(..)
+      RegisterData(..)
     ) where
 
 
@@ -33,16 +33,18 @@ class Ord a => Regs a where
   initBank :: b -> RMap a b 
   lookupReg :: a -> RMap a b -> b
   updateBank :: a -> b -> RMap a b -> RMap a b
-  
--- | Register Banks
--- Are abstract bacuase in some cases we want them finite and fixed size
--- (generate a trace usefull by the circuit) and other cases we want it a variable
--- (e.g. to support compilation without register allocation)
 
-{-
-class (Show (b reg), Read (b reg)) => RegBank b reg | reg -> b where
-  initBank :: b reg
-  lookupReg :: reg -> b reg -> Word 
-  updateBank :: reg -> Word -> b reg -> b reg
+
+{- | RegisterData : carries info about the registers.
+     Number of regs, classes, types.
+
+     This is different from the Regs class. For example,
+     we can implement registers indexed by `Int`s (instance of regs),
+     but chose a different number of regs each time. That's what
+     RegisterData is for.
+
+     Needed once reg. alloc. is done.
 -}
-  
+
+data RegisterData = RDempty
+  deriving (Eq, Ord, Read, Show)

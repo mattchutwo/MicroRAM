@@ -65,15 +65,3 @@ compile llvmProg = (return llvmProg)
   >>= trivialRegisterAlloc --FIXME remove the trivial
   >>= stacking
   >>= removeLabels
-
-
-{-
--- Old usefull piece of code.
-
-compileStraight :: [LLVM.Named LLVM.Instruction]
-        -> CgMonad (MicroRAM.MicroRAM.Program Int Word)
-compileStraight llvmProg = do
-  assCode <- codeGenStraight llvmProg
-  mramProg <- assemble [NBlock Nothing $ assCode]
-  Right mramProg
--}

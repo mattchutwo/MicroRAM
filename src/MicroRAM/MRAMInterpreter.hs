@@ -404,10 +404,12 @@ exec (Ianswer a) st =
   --set_reg sp ans st -- sets register 0 (backwards compat. FIXME! )
 
 -- ** Program step
-type Prog mreg = Program mreg Wrd
+type Prog mreg = Program (Code mreg Wrd)
 
 step :: Regs mreg => Prog mreg  -> State mreg -> State mreg
-step prog st = exec (prog !! (toInt $ pc st)) st
+step prog st = exec (code prog !! (toInt $ pc st)) st
+-- OPTIMIZE: run everything on code; the wrap the program at the end.
+-- So it doens't have to get fetched at every step.
 
 
 -- ** Execution

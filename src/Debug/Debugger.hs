@@ -196,7 +196,7 @@ PC   Flag  Ansr   Regs                                Mem
 fromLLVMFile :: FilePath -> IO LLVM.Module
 fromLLVMFile = llvmParse
 
-fromMRAMFile :: (Read mreg, Regs mreg) => FilePath -> IO (Program mreg Word)
+fromMRAMFile :: (Read mreg, Regs mreg) => FilePath -> IO $ Program (Code mreg Word)
 fromMRAMFile file = do
   contents <- readFile file
   return $ read contents
@@ -219,7 +219,7 @@ summaryFromFile file cs input advice length = do
 
 -- Example
 myfile = "programs/fib.micro"
-mram :: IO (Program Name Word)
+mram ::  IO $ Program (Code Name Word)
 mram =  fromMRAMFile "programs/fib.micro"
 
 {- | Example

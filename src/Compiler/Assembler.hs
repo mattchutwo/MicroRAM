@@ -8,7 +8,7 @@ Description : MicroASM -> MicroRAM
 Maintainer  : santiago@galois.com
 Stability   : experimental
 
-This module compiles Translates MicroASM to MicroRAM.
+This module Translates MicroASM to MicroRAM.
 
 MicroASM is different to MicrRAM in that it allows the operands
 `Label` and `HereLabel`. The assembler will replace those labels
@@ -31,18 +31,6 @@ TODO: It can all be done in 2 passes. Optimize?
 
 module Compiler.Assembler
     (assemble) where
-
-{-
-import qualified LLVM.AST as LLVM 
-import qualified LLVM.AST.Constant as LLVM.Constant
-import Control.Monad.State.Lazy
-import Control.Monad.Except
-import qualified Data.List as List
-import qualified Data.ByteString.Char8 as C8
-import qualified Data.ByteString.Short as Short
-import qualified Data.Sequence as Seq (lookup, fromList)
-import qualified Data.Word as Word
--}
 
 import MicroRAM.MicroRAM
 import Data.Map.Strict ((!))
