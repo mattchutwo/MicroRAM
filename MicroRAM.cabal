@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.31.2.
+-- This file has been generated from package.yaml by hpack version 0.33.0.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1fc6062551aee95530d6937b802c25ef82253973354c5e3d4a8127d200274fc6
+-- hash: defa6765666e38dda2a7094b25b95fa7e92e066f4ddc7721f82b930ee4f215c0
 
 name:           MicroRAM
 version:        0.1.0.0
@@ -55,6 +55,7 @@ library
       Paths_MicroRAM
   hs-source-dirs:
       src
+  ghc-options: -Wall -Wno-name-shadowing
   build-depends:
       base >=4.7 && <5
     , bytestring

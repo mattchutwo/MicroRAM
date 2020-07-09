@@ -33,6 +33,7 @@ dependencies:
 
 library:
   source-dirs: src
+  ghc-options: -Wall -Wno-name-shadowing
 
 executables:
   MicroRAM-exe:
