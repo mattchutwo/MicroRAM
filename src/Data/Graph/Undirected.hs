@@ -10,6 +10,6 @@ fromEdges :: [(n,n,e)] -> Graph n e
 fromEdges = error "TODO"
 
 
-color :: [color] -> [n] -> Graph n e -> Either (Map n color) n
+color :: [color] -> [n] -> Graph n e -> Either n (Map n color)
 color colors sortedNodes graph = error "TODO"
 

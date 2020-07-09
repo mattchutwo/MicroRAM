@@ -38,7 +38,7 @@ data Function nameT paramT blockT =
 type DAGinfo name = [name]
 -- | Basic blocks:
 -- | it's a list of instructions + all the blocks that it can jump to
-data BB instrT = BB Name [instrT] (DAGinfo name)
+data BB name instrT = BB name [instrT] (DAGinfo name)
   deriving (Functor)
 
 type IRFunction mdata regT wrdT irinstr =
@@ -61,7 +61,7 @@ type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar 
 data IRprog mdata wrdT funcT = IRprog
   { typeEnv :: TypeEnv
   , globals :: GEnv wrdT
-  , code :: [funcT]
+  , irProgCode :: [funcT]
   } deriving (Functor)
 
 
@@ -143,6 +143,7 @@ data Loc mreg where
   L :: Slot -> Int -> Ty -> Loc mregm
 
 -- | LTL unique instrustions
+-- JP: wrdT is unused. Drop?
 data LTLInstr' mreg wrdT operand =
     Lgetstack Slot Word Ty mreg -- load from the stack into a register
   | Lsetstack mreg Slot Word Ty -- store into the stack from a register
@@ -170,7 +171,7 @@ data LFunction mdata mreg wrdT = LFunction {
   , retType :: Ty
   , paramTypes :: [Ty]
   , stackSize :: Word
-  , funBody:: [BB $ LTLInstr mdata mreg wrdT]
+  , funBody:: [BB Name $ LTLInstr mdata mreg wrdT]
 }
 
 type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
@@ -180,7 +181,7 @@ type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
 rtlToLtl :: forall mdata wrdT . Monoid mdata => Rprog mdata wrdT -> Hopefully $ Lprog mdata VReg wrdT
 rtlToLtl (IRprog tenv globals code) = do
   code' <- mapM convertFunc code
-  return $ IRprog tenv globals $ code'
+  return $ IRprog tenv globals code'
   where
    convertFunc :: RFunction mdata wrdT -> Hopefully $ LFunction mdata VReg wrdT
    convertFunc (Function name retType paramTypes body) = 
@@ -192,7 +193,7 @@ rtlToLtl (IRprog tenv globals code) = do
          body' <- mapM convertBasicBlock body
          return $ LFunction name' mdata retType paramTypes stackSize body' 
 
-   convertBasicBlock :: BB (RTLInstr mdata wrdT) -> Hopefully $ BB (LTLInstr mdata VReg wrdT)
+   convertBasicBlock :: BB name (RTLInstr mdata wrdT) -> Hopefully $ BB name (LTLInstr mdata VReg wrdT)
    convertBasicBlock (BB name instrs dag) = do
      instrs' <- mapM convertIRInstruction instrs
      return $ BB name instrs' dag

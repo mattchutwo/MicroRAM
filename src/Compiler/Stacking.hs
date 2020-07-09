@@ -229,7 +229,7 @@ stackInstr (IRI instr _) = stackLTLInstr instr
 
 stackBlock
   :: GVEnv
-  -> (BB $ LTLInstr () MReg Word)
+  -> (BB Name $ LTLInstr () MReg Word)
   -> Hopefully (NamedBlock MReg Word)
 stackBlock genv (BB name body _ ) = do
   body' <- return $ map stackInstr body
