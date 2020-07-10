@@ -12,8 +12,11 @@ Metadata is produced by the compiler and passed down to the witness generator.
 
 -}
 module Compiler.Analysis
-    ( AnalysisData(..)
+    ( AnalysisPiece(..),
+      AnalysisData(..)
     ) where
 
-data AnalysisData = ADempty
+data AnalysisPiece = TrivialPiece
   deriving (Eq, Ord, Read, Show)
+
+type AnalysisData = [AnalysisPiece]

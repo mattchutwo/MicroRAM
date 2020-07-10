@@ -305,11 +305,8 @@ stackFunction genv (LFunction name mdata retT argT size code) = do
   return $ prologueBlock : codeBlocks
   
   
-stackingCode :: Regs mreg => Lprog () mreg Word -> Hopefully $ MACode mreg Word
-stackingCode (IRprog tenv globals functions) = do
+stacking :: Regs mreg => Lprog () mreg Word -> Hopefully $ MAProgram mreg Word
+stacking (IRprog tenv globals functions) = do
   (genv, preamble) <- storeGlobVars globals
   functions' <- mapM (stackFunction genv) functions
   return $ preamble : premain ++ (concat functions') ++ [returnBlock]
-
-stacking :: Hopefully $ MAProgram mreg Word
-stacking = undefined

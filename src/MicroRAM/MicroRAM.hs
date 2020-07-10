@@ -1,4 +1,3 @@
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -12,9 +11,8 @@ module MicroRAM.MicroRAM
   MAInstruction,
   Instruction,
   NamedBlock(NBlock),
-  MACode, MAProgram,
-  Code, MRAMProg,
-  Program (..),
+  MAProgram,
+  Program,
   Operand'(..),
   Operand,
   MAOperand,
@@ -89,11 +87,6 @@ import GHC.Read
 import Text.Read.Lex
 import Text.ParserCombinators.ReadPrec
 import Data.ByteString.Short
-
-import Util.Util
-
-import Compiler.Registers
-import Compiler.Analysis
 
 -- | Phase: This language can be instantiated at different levels:
 -- Pre: Indicates MicroAssembly where the program is made of
@@ -174,29 +167,18 @@ data Instruction' regT operand =
   | Ianswer operand          -- ^  stall or halt (and the return value is [A]u)
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
-data Program codeType = Program
-  { code :: codeType
-  , rData :: RegisterData 
-  , aData :: AnalysisData
-  } deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
-
-translateProgram :: (a -> b) -> Program a -> Program b
-translateProgram = fmap 
-
-
 -- ** MicroAssembly
 type MAOperand regT wrdT = Operand' Pre regT wrdT
 type MAInstruction regT wrdT = Instruction' regT (MAOperand regT wrdT)
 
 data NamedBlock r w = NBlock (Maybe String) [MAInstruction r w]
   deriving (Eq, Ord, Read, Show)
-type MACode r w = [NamedBlock r w] -- These are MicroASM programs
-type MAProgram r w = Program $ MACode r w
+type MAProgram r w = [NamedBlock r w] -- These are MicroASM programs
+
 
   
 -- ** MicroRAM
 type Operand regT wrdT = Operand' Post regT wrdT
 type Instruction regT wrdT = Instruction' regT (Operand regT wrdT)
 
-type Code r w = [Instruction r w]
-type MRAMProg r w = Program $ Code r w
+type Program r w = [Instruction r w]

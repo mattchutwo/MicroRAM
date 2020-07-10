@@ -48,6 +48,8 @@ import qualified Data.Word as Word
 
 --import Compiler.CodeGenerator
 --import Compiler.Assembler
+
+import Compiler.CompilationUnit
 import Compiler.CompileErrors
 import Compiler.IRs
 import Compiler.InstructionSelection
@@ -59,9 +61,9 @@ import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..))
 
 
 compile :: LLVM.Module
-        -> Hopefully $ (MRAM.Program Name Word)
-compile llvmProg = (return llvmProg)
-  >>= instrSelect
-  >>= trivialRegisterAlloc --FIXME remove the trivial
-  >>= stacking
-  >>= removeLabels
+        -> Hopefully $ CompilationUnit (MRAM.Program Name Word)
+compile llvmProg = (return $ prog2unit llvmProg)
+  >>= (justCompile instrSelect)
+  >>= (justCompile trivialRegisterAlloc) --FIXME remove the trivial
+  >>= (justCompile stacking)
+  >>= (justCompile removeLabels)

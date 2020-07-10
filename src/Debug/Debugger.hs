@@ -59,8 +59,6 @@ data CustomSummary mreg = CS
   }
 
 
-nats = iterate (1+) 0 
-
 memSummarySize = 5
 toSummaryMem :: [Word] -> Mem -> [Word]
 toSummaryMem theseLocations m =
@@ -196,7 +194,7 @@ PC   Flag  Ansr   Regs                                Mem
 fromLLVMFile :: FilePath -> IO LLVM.Module
 fromLLVMFile = llvmParse
 
-fromMRAMFile :: (Read mreg, Regs mreg) => FilePath -> IO $ Program (Code mreg Word)
+fromMRAMFile :: (Read mreg, Regs mreg) => FilePath -> IO (Program mreg Word)
 fromMRAMFile file = do
   contents <- readFile file
   return $ read contents
@@ -219,7 +217,7 @@ summaryFromFile file cs input advice length = do
 
 -- Example
 myfile = "programs/fib.micro"
-mram ::  IO $ Program (Code Name Word)
+mram :: IO (Program Name Word)
 mram =  fromMRAMFile "programs/fib.micro"
 
 {- | Example
