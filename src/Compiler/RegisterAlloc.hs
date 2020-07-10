@@ -1,6 +1,9 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
+
 {-|
 Module      : Register allocation
 Description : RTL -> LTL
@@ -17,6 +20,10 @@ module Compiler.RegisterAlloc
     ) where
 
 import           Control.Applicative (liftA2)
+import           Control.Monad.State (runStateT, StateT, get, modify')
+import           Control.Monad.Trans.Class (lift)
+import qualified Data.ByteString.Char8 as BSC
+import qualified Data.ByteString.Short as BSS
 import           Data.Graph.Undirected (Graph(..))
 import qualified Data.Graph.Undirected as Graph
 import           Data.Map (Map)
@@ -48,18 +55,28 @@ registerAlloc rprog = do
 
   where
     numRegisters = 8
+    -- Available registers.
     -- First two registers are reserved.
     registers = map NewName [2..numRegisters]
 
+-- Register allocator state.
+data RAState = RAState {
+    raNextRegister :: Word
+  , raNextStackPosition :: Word
+  , raNextInstructionForBlock :: Map Name Int
+  -- , raRegisterStackPosition :: Map VReg Word
+  }
 
--- registerAllocFunc :: Registers -> RFunction () Word -> Hopefully $ LFunction () Int Word
--- registerAllocFunc registers (Function name typ typs blocks') = do
-
+-- Assumes that instructions are in SSA form.
 registerAllocFunc :: Registers -> LFunction () VReg Word -> Hopefully $ LFunction () VReg Word
-registerAllocFunc registers (LFunction mdata name typ typs stackSize blocks') = do
-  let blocks = concatMap flattenBasicBlock blocks'
+registerAllocFunc registers (LFunction mdata name typ typs stackSize' blocks') = do
 
-  rtlBlocks <- registerAllocFunc' blocks -- mempty
+  (rtlBlocks, rast) <- flip runStateT (RAState 0 0 mempty) $ do
+    blocks <- mapM flattenBasicBlock blocks'
+
+    registerAllocFunc' $ concat blocks
+  
+  let stackSize = stackSize' + raNextStackPosition rast
 
   -- Unflatten basic block?
       
@@ -67,9 +84,10 @@ registerAllocFunc registers (LFunction mdata name typ typs stackSize blocks') = 
   return $ error "TODO" rtlBlocks
 
   where
+    -- registerAllocFunc' :: [BB name inst] -> StateT RAState Hopefully [BB name inst]
     registerAllocFunc' blocks = do -- _spilled = do
 
-      liveness <- livenessAnalysis blocks
+      liveness <- lift $ livenessAnalysis blocks
 
       let interferenceGraph = computeInterferenceGraph liveness
 
@@ -81,10 +99,16 @@ registerAllocFunc registers (LFunction mdata name typ typs stackSize blocks') = 
       let registerMappingOrSpilled = Graph.color registers sortedTemporaries interferenceGraph
 
       case registerMappingOrSpilled of
-        Left spill ->
-          error "TODO"
+        Left spillReg -> do
+          -- Get next stack position and increment it.
+          pos <- raNextStackPosition <$> get
+          modify' $ \(RAState r s m) -> RAState r (s+1) m
+
+          -- Spill register.
+          spillRegister spillReg pos blocks
+
         Right coloring ->
-          applyColoring coloring blocks
+          lift $ applyColoring coloring blocks
 
 
     -- Sort registers by spill cost (lowest cost first).
@@ -92,6 +116,70 @@ registerAllocFunc registers (LFunction mdata name typ typs stackSize blocks') = 
     sortTemporaries liveness _blocks = 
       -- TODO: actually compute a spill cost.
       Set.toList $ Set.unions liveness
+
+spillRegister :: forall name mdata wrdT . (Monoid mdata, name ~ (Name, Int)) => VReg -> Word -> [BB name (LTLInstr mdata VReg wrdT)] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
+spillRegister spillReg pos blocks = do
+  blocks' <- mapM spillBlock blocks
+  return $ concat blocks'
+  where
+    spillBlock :: BB name (LTLInstr mdata VReg wrdT) -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
+    spillBlock (BB (name, iid) insts dag) = do
+      insts' <- mapM spillIRInstruction insts
+      flatten name iid dag $ concat insts'
+
+    flatten :: Name -> Int -> DAGinfo name -> [LTLInstr mdata VReg wrdT] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
+    flatten name iid dag [] = return []
+    flatten name iid dag [inst] = return [BB (name, iid) [inst] dag]
+    flatten name iid dag (inst:insts) = do
+      iid' <- getNextInstructionId name
+      ((BB (name, iid) [inst] [(name, iid')]):) <$> flatten name iid' dag insts
+
+
+    -- Assumes SSA.
+    spillIRInstruction :: LTLInstr mdata VReg wrdT -> StateT RAState Hopefully [LTLInstr mdata VReg wrdT]
+    spillIRInstruction instr | Set.member spillReg (writeRegisters instr) = do
+      -- Generate new reg.
+      reg <- generateNewRegister
+
+      -- Replace spillReg with reg.
+      let instr' = substituteRegisters (Map.singleton spillReg reg) instr
+
+      -- Append push to stack instruction.
+      let ty = getTyForRegister spillReg instr
+      let push = IRI (Lsetstack reg Local pos ty) mempty
+
+      return [instr', push]
+
+    spillIRInstruction instr | Set.member spillReg (readRegisters instr) = do
+      -- Generate new reg.
+      reg <- generateNewRegister
+
+      -- Replace spillReg with reg.
+      let instr' = substituteRegisters (Map.singleton spillReg reg) instr
+
+      -- Prepend load from stack instruction.
+      let ty = getTyForRegister spillReg instr
+      let load = IRI (Lgetstack Local pos ty reg) mempty
+      
+      return [load, instr']
+
+    spillIRInstruction instr = return [instr]
+
+    generateNewRegister = do
+      reg <- (\i -> Name $ "_reg_alloc" <> BSS.toShort (BSC.pack $ show $ raNextRegister i)) <$> get
+      modify' $ \(RAState c s m) -> RAState (c+1) s m
+      return reg
+
+    -- Retrieve the write registers of an instruction.
+    writeRegisters = error "TODO"
+
+    -- Retrieve the read registers of an instruction.
+    readRegisters = error "TODO"
+
+    substituteRegisters :: Map VReg VReg -> LTLInstr mdata VReg wrdT -> LTLInstr mdata VReg wrdT
+    substituteRegisters = error "TODO"
+
+    getTyForRegister reg instr = Tint -- TODO: How do we get the Ty?
 
 -- JP: lens/uniplate would make this easier.
 applyColoring :: Map VReg VReg -> [BB name (LTLInstr mdata VReg wrdT)] -> Hopefully [BB name (LTLInstr mdata VReg wrdT)]
@@ -155,14 +243,34 @@ applyColoring coloring = mapM applyBasicBlock
 -- Each returned basic block will have one instruction. 
 -- Instruction identifiers are not guaranteed to be in order.
 -- The first instruction will always have identifier 0.
-flattenBasicBlock :: BB Name inst -> [BB (Name, Int) inst]
-flattenBasicBlock (BB name instrs dag) = flatten $ zip instrs [0..]
+flattenBasicBlock :: BB Name inst -> StateT RAState Hopefully [BB (Name, Int) inst]
+flattenBasicBlock (BB name instrs dag) = flatten instrs
   where
-    flatten [] = []
-    flatten [(instr, iid)] = 
-      let dag' = map (, 0) dag in
-      [BB (name, iid) [instr] dag']
-    flatten ((instr, iid):instrs) = BB (name, iid) [instr] [(name, iid+1)]:flatten instrs
+    flatten [] = return []
+    flatten [instr] = do
+      iid <- getNextInstructionId name
+      let dag' = map (, 0) dag
+      return [BB (name, iid) [instr] dag']
+    flatten (instr:instrs) = do
+      iid <- getNextInstructionId name
+      (BB (name, iid) [instr] [(name, iid+1)]:) <$> flatten instrs
+
+getNextInstructionId :: Name -> StateT RAState Hopefully Int
+getNextInstructionId name = do
+  iidm <- (Map.lookup name . raNextInstructionForBlock) <$> get
+  let iid = maybe 0 id iidm
+  modify' $ \(RAState c p m) -> RAState c p $ Map.insert name (iid+1) m
+  return iid
+  
+
+-- flattenBasicBlock :: BB Name inst -> [BB (Name, Int) inst]
+-- flattenBasicBlock (BB name instrs dag) = flatten $ zip instrs [0..]
+--   where
+--     flatten [] = []
+--     flatten [(instr, iid)] = 
+--       let dag' = map (, 0) dag in
+--       [BB (name, iid) [instr] dag']
+--     flatten ((instr, iid):instrs) = BB (name, iid) [instr] [(name, iid+1)]:flatten instrs
 
 
 -- unflattenBasicBlock :: [BB (Name, Int) inst] -> [BB Name inst]

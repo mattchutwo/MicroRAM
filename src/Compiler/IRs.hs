@@ -187,7 +187,7 @@ rtlToLtl (IRprog tenv globals code) = do
    convertFunc (Function name retType paramTypes body) = 
      -- JP: Where should we get the metadata and stack size from?
      let mdata = mempty in
-     let stackSize = 16 in
+     let stackSize = 0 in
      let name' = show name in
        do
          body' <- mapM convertBasicBlock body

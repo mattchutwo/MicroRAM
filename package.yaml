@@ -30,6 +30,7 @@ dependencies:
 - tasty
 - tasty-hunit
 - tasty-smallcheck
+- transformers
 
 library:
   source-dirs: src
