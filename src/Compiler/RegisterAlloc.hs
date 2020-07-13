@@ -170,16 +170,65 @@ spillRegister spillReg pos blocks = do
       modify' $ \(RAState c s m) -> RAState (c+1) s m
       return reg
 
-    -- Retrieve the write registers of an instruction.
-    writeRegisters = error "TODO"
-
-    -- Retrieve the read registers of an instruction.
-    readRegisters = error "TODO"
-
-    substituteRegisters :: Map VReg VReg -> LTLInstr mdata VReg wrdT -> LTLInstr mdata VReg wrdT
-    substituteRegisters = error "TODO"
-
     getTyForRegister reg instr = Tint -- TODO: How do we get the Ty?
+
+-- Retrieve the write registers of an instruction.
+writeRegisters :: LTLInstr mdata VReg wrdT -> Set VReg
+writeRegisters = error "TODO"
+
+-- Retrieve the read registers of an instruction.
+readRegisters :: LTLInstr mdata VReg wrdT -> Set VReg
+readRegisters = error "TODO"
+
+substituteRegisters :: Ord reg => Map reg reg -> LTLInstr mdata reg wrdT -> LTLInstr mdata reg wrdT
+substituteRegisters substs (MRI inst mdata) = MRI (substituteMRIInstruction substs inst) mdata
+substituteRegisters substs (IRI inst mdata) = IRI (substituteLTLInstruction substs inst) mdata
+
+substituteMRIInstruction :: Ord reg => Map reg reg -> MRAM.MAInstruction reg wrdT -> MRAM.MAInstruction reg wrdT
+substituteMRIInstruction substs (MRAM.Iand r1 r2 op) = MRAM.Iand (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Ior r1 r2 op) = MRAM.Ior (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Ixor r1 r2 op) = MRAM.Ixor (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Inot r1 op) = MRAM.Inot (substituteRegister substs r1) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Iadd r1 r2 op) = MRAM.Iadd (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Isub r1 r2 op) = MRAM.Isub (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Imull r1 r2 op) = MRAM.Imull (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Iumulh r1 r2 op) = MRAM.Iumulh (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Ismulh r1 r2 op) = MRAM.Ismulh (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Iudiv r1 r2 op) = MRAM.Iudiv (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Iumod r1 r2 op) = MRAM.Iumod (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Ishl r1 r2 op) = MRAM.Ishl (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Ishr r1 r2 op) = MRAM.Ishr (substituteRegister substs r1) (substituteRegister substs r2) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Icmpe r1 op) = MRAM.Icmpe (substituteRegister substs r1) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Icmpa r1 op) = MRAM.Icmpa (substituteRegister substs r1) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Icmpae r1 op) = MRAM.Icmpae (substituteRegister substs r1) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Icmpg r1 op) = MRAM.Icmpg (substituteRegister substs r1) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Icmpge r1 op) = MRAM.Icmpge (substituteRegister substs r1) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Imov r1 op) = MRAM.Imov (substituteRegister substs r1) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Icmov r1 op) = MRAM.Icmov (substituteRegister substs r1) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Ijmp op) = MRAM.Ijmp (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Icjmp op) = MRAM.Icjmp (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Icnjmp op) = MRAM.Icnjmp (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Istore op r1) = MRAM.Istore (substituteOperand substs op) (substituteRegister substs r1)
+substituteMRIInstruction substs (MRAM.Iload r1 op) = MRAM.Iload (substituteRegister substs r1) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Iread r1 op) = MRAM.Iread (substituteRegister substs r1) (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Ianswer op) = MRAM.Ianswer (substituteOperand substs op)
+
+substituteLTLInstruction :: Ord reg => Map reg reg -> LTLInstr' reg mdata (MRAM.MAOperand reg wrdT) -> LTLInstr' reg mdata (MRAM.MAOperand reg wrdT)
+substituteLTLInstruction substs (Lgetstack s w t r1) = Lgetstack s w t (substituteRegister substs r1)
+substituteLTLInstruction substs (Lsetstack r1 s w t) = Lsetstack (substituteRegister substs r1) s w t
+substituteLTLInstruction substs (LCall t mr op ts ops) = LCall t (substituteRegister substs <$> mr) (substituteOperand substs op) ts (map (substituteOperand substs) ops)
+substituteLTLInstruction substs (LRet mo) = LRet (substituteOperand substs <$> mo)
+substituteLTLInstruction substs (LAlloc mr t op) = LAlloc (substituteRegister substs <$> mr) t (substituteOperand substs op)
+
+substituteRegister :: Ord reg => Map reg reg -> reg -> reg
+substituteRegister substs r | Just r' <- Map.lookup r substs = r'
+substituteRegister _      r                                  = r
+
+substituteOperand :: Ord reg => Map reg reg -> MRAM.MAOperand reg wrdT -> MRAM.MAOperand reg wrdT
+substituteOperand substs (MRAM.Reg r)   = MRAM.Reg (substituteRegister substs r)
+substituteOperand _      (MRAM.Const w) = MRAM.Const w
+substituteOperand _      (MRAM.Label s) = MRAM.Label s
+substituteOperand _      MRAM.HereLabel = MRAM.HereLabel
 
 -- JP: lens/uniplate would make this easier.
 applyColoring :: Map VReg VReg -> [BB name (LTLInstr mdata VReg wrdT)] -> Hopefully [BB name (LTLInstr mdata VReg wrdT)]
