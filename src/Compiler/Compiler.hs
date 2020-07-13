@@ -55,10 +55,14 @@ import Compiler.IRs
 import Compiler.InstructionSelection
 import Compiler.RegisterAlloc
 import Compiler.Stacking
+import Compiler.Sparcity
 import Compiler.RemoveLabels
+import Compiler.Analysis
 
 import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..)) 
 
+(<.>) :: Monad m => (b -> c) -> (a -> b) -> a -> m c
+f <.> g = \x -> return $ f $ g x 
 
 compile :: LLVM.Module
         -> Hopefully $ CompilationUnit (MRAM.Program Name Word)
@@ -66,4 +70,6 @@ compile llvmProg = (return $ prog2unit llvmProg)
   >>= (justCompile instrSelect)
   >>= (justCompile trivialRegisterAlloc) --FIXME remove the trivial
   >>= (justCompile stacking)
+  >>= (justAnalyse (SparcityData <.> sparcity))
   >>= (justCompile removeLabels)
+          

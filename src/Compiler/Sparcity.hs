@@ -1,4 +1,5 @@
-module Compiler.Sparcity where
+{-# LANGUAGE OverloadedStrings #-}
+module Compiler.Sparcity (sparcity, Sparcity) where
 
 {-
 Module      : Opcode Sparcity Analysis
@@ -41,13 +42,18 @@ import qualified Data.Map as Map
 import Util.Util
 import MicroRAM.MicroRAM
 
+--  Temp
+import Compiler.IRs
+import Control.Monad
+
+
 -- * Infinity type
 -- We define Infinity types and make them a (somwhat bogus, see below)
 -- instance of `Num`. For convenience
 
 -- | Inf: We add infinity to the `Int`s.
 
-data Inf = Infinity | Finite Int
+data Inf = Finite Int | Infinity
   deriving (Eq, Ord, Show, Read)
 
 inf2maybe :: Inf -> Maybe Int
@@ -90,7 +96,7 @@ data OpSparcity = OpSparcity
   , spar :: Inf      -- ^ Min distance between `op` in straigh code 
   , begSpar :: Inf   -- ^ Min distance from beggining of blocks
   , endSpar :: Inf   -- ^ Min distance from end of block
-  } deriving (Eq, Ord)
+  } deriving (Eq, Ord, Show)
 
 
 -- * Instruction labels.
@@ -146,11 +152,6 @@ setNewEnd loc (OpSparcity (Just lastS) spar begSpar endSpar) =
 setNewEnd loc (OpSparcity Nothing spar begSpar endSpar) =
   OpSparcity Nothing spar begSpar endSpar
   
-sparcInstr ::
-  (Int, MAInstruction r w)
-  -> Sparcity'
-  -> Sparcity'
--- For jumps, we don't know where we are going, so we must add the "edge effect"
 sparcJump location sparc =
   fmap forgetLastSeen $
   fmap (setNewEnd location) sparc
@@ -165,7 +166,7 @@ updateInstrSparc ::
 updateInstrSparc location intrL Nothing =
   OpSparcity (Just location) Infinity (Finite location) Infinity
 updateInstrSparc location intrL (Just (OpSparcity Nothing spar begSpar endSpar)) =
-  OpSparcity (Just location) spar (Finite location) endSpar
+  OpSparcity (Just location) spar (min begSpar $ Finite location) endSpar
 updateInstrSparc location intrL (Just ( OpSparcity (Just lastSeen) spar begSpar endSpar)) =
   OpSparcity (Just location) (min spar (Finite $ location - lastSeen)) begSpar endSpar
   
@@ -173,10 +174,15 @@ updateInstrSparc location intrL (Just ( OpSparcity (Just lastSeen) spar begSpar 
 
   
 
-sparcInstr (location, Ijmp _) sparc = sparcJump location sparc
-sparcInstr (location, Icjmp _) sparc = sparcJump location sparc
-sparcInstr (location, Icnjmp _) sparc = sparcJump location sparc
-sparcInstr (location, instr) sparc =
+sparcInstr ::
+  Sparcity'
+  -> (Int, MAInstruction r w)
+  -> Sparcity'
+-- For jumps, we don't know where we are going, so we must add the "edge effect"
+sparcInstr sparc (location, Ijmp _) = sparcJump location sparc
+sparcInstr sparc (location, Icjmp _) = sparcJump location sparc
+sparcInstr sparc (location, Icnjmp _) = sparcJump location sparc
+sparcInstr sparc (location, instr) =
   Map.insert instrLabel (updateInstrSparc location instrLabel instrSparc) sparc
   where instrLabel = instrType instr
         instrSparc = Map.lookup instrLabel sparc
@@ -191,7 +197,7 @@ sparcInstr (location, instr) sparc =
 sparcBlock :: NamedBlock r w -> Sparcity'
 sparcBlock (NBlock _ instrs) =
   setEndSparc (length instrs) $                 -- second step
-  foldr sparcInstr Map.empty $ enumerate instrs -- first step
+  foldl sparcInstr Map.empty $ enumerate instrs -- first step
   where setEndSparc lastLoc sparc = fmap (setNewEnd lastLoc) sparc
 
 -- ** TODO: Functions

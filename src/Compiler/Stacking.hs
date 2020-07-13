@@ -159,7 +159,7 @@ replaceGlobals _ block = return block -- TODO: Replace global
 -}
 
 -- | Read input:
--- We read the entire input, stroe it into the stack (almost like in the paper)
+-- We read the entire input, store it into the stack (almost like in the paper)
 readInput :: Regs mreg => [NamedBlock mreg Word]
 readInput =
   (MRAM.NBlock Nothing

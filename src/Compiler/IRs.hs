@@ -60,8 +60,8 @@ instance Regs Name where
   sp = NewName 0
   bp = NewName 1
   ax = NewName 2
-  argc = Name "0"
-  argv = Name "1"
+  argc = Name "0" -- Where the first arguemtns to main is passed
+  argv = Name "1" -- Where the second arguemtns to main is passed
   data RMap Name x = RMap x (Map.Map Name x)
   initBank d = RMap d Map.empty
   lookupReg r (RMap d m) = case Map.lookup r m of

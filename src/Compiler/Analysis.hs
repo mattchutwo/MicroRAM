@@ -16,7 +16,10 @@ module Compiler.Analysis
       AnalysisData(..)
     ) where
 
-data AnalysisPiece = TrivialPiece
+import Compiler.Sparcity
+
+data AnalysisPiece =
+  SparcityData Sparcity
   deriving (Eq, Ord, Read, Show)
 
 type AnalysisData = [AnalysisPiece]
