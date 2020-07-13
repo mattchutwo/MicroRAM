@@ -202,7 +202,7 @@ writeRegistersMRIInstruction (MRAM.Icmov r1 op) = Set.singleton r1
 writeRegistersMRIInstruction (MRAM.Ijmp op) = mempty
 writeRegistersMRIInstruction (MRAM.Icjmp op) = mempty
 writeRegistersMRIInstruction (MRAM.Icnjmp op) = mempty
-writeRegistersMRIInstruction (MRAM.Istore op r1) = writeRegistersOperand op
+writeRegistersMRIInstruction (MRAM.Istore op r1) = mempty -- writeRegistersOperand op
 writeRegistersMRIInstruction (MRAM.Iload r1 op) = Set.singleton r1
 writeRegistersMRIInstruction (MRAM.Iread r1 op) = Set.singleton r1
 writeRegistersMRIInstruction (MRAM.Ianswer op) = mempty
@@ -214,16 +214,60 @@ writeRegistersLTLInstruction (LCall t mr op ts ops) = maybe mempty Set.singleton
 writeRegistersLTLInstruction (LRet mo) = mempty
 writeRegistersLTLInstruction (LAlloc mr t op) = maybe mempty Set.singleton mr
 
-writeRegistersOperand :: Ord reg => MRAM.MAOperand reg wrdT -> Set reg
-writeRegistersOperand (MRAM.Reg r) = Set.singleton r
-writeRegistersOperand (MRAM.Const w) = mempty
-writeRegistersOperand (MRAM.Label s) = mempty
-writeRegistersOperand MRAM.HereLabel = mempty
+-- writeRegistersOperand :: Ord reg => MRAM.MAOperand reg wrdT -> Set reg
+-- writeRegistersOperand (MRAM.Reg r) = Set.singleton r
+-- writeRegistersOperand (MRAM.Const w) = mempty
+-- writeRegistersOperand (MRAM.Label s) = mempty
+-- writeRegistersOperand MRAM.HereLabel = mempty
 
 
 -- Retrieve the read registers of an instruction.
-readRegisters :: LTLInstr mdata VReg wrdT -> Set VReg
-readRegisters = error "TODO"
+readRegisters :: Ord reg => LTLInstr mdata reg wrdT -> Set reg
+readRegisters (MRI inst mdata) = readRegistersMRIInstruction inst
+readRegisters (IRI inst mdata) = readRegistersLTLInstruction inst
+
+readRegistersMRIInstruction :: Ord reg => MRAM.MAInstruction reg wrdT -> Set reg
+readRegistersMRIInstruction (MRAM.Iand r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Ior r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Ixor r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Inot r1 op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Iadd r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Isub r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Imull r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Iumulh r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Ismulh r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Iudiv r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Iumod r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Ishl r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Ishr r1 r2 op) = Set.singleton r2 <> readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Icmpe r1 op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Icmpa r1 op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Icmpae r1 op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Icmpg r1 op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Icmpge r1 op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Imov r1 op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Icmov r1 op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Ijmp op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Icjmp op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Icnjmp op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Istore op r1) = readRegistersOperand op <> Set.singleton r1
+readRegistersMRIInstruction (MRAM.Iload r1 op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Iread r1 op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Ianswer op) = readRegistersOperand op
+
+
+readRegistersLTLInstruction :: Ord reg => LTLInstr' reg mdata (MRAM.MAOperand reg wrdT) -> Set reg
+readRegistersLTLInstruction (Lgetstack s w t r1) = mempty
+readRegistersLTLInstruction (Lsetstack r1 s w t) = Set.singleton r1
+readRegistersLTLInstruction (LCall t mr op ts ops) = readRegistersOperand op <> mconcat (map readRegistersOperand ops)
+readRegistersLTLInstruction (LRet mo) = maybe mempty readRegistersOperand mo
+readRegistersLTLInstruction (LAlloc mr t op) = readRegistersOperand op
+
+readRegistersOperand :: Ord reg => MRAM.MAOperand reg wrdT -> Set reg
+readRegistersOperand (MRAM.Reg r) = Set.singleton r
+readRegistersOperand (MRAM.Const w) = mempty
+readRegistersOperand (MRAM.Label s) = mempty
+readRegistersOperand MRAM.HereLabel = mempty
 
 
 -- Substitute registers in an instruction.
