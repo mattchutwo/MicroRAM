@@ -172,14 +172,61 @@ spillRegister spillReg pos blocks = do
 
     getTyForRegister reg instr = Tint -- TODO: How do we get the Ty?
 
+
 -- Retrieve the write registers of an instruction.
-writeRegisters :: LTLInstr mdata VReg wrdT -> Set VReg
-writeRegisters = error "TODO"
+writeRegisters :: Ord reg => LTLInstr mdata reg wrdT -> Set reg
+writeRegisters (MRI inst mdata) = writeRegistersMRIInstruction inst
+writeRegisters (IRI inst mdata) = writeRegistersLTLInstruction inst
+
+writeRegistersMRIInstruction :: Ord reg => MRAM.MAInstruction reg wrdT -> Set reg
+writeRegistersMRIInstruction (MRAM.Iand r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Ior r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Ixor r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Inot r1 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Iadd r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Isub r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Imull r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Iumulh r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Ismulh r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Iudiv r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Iumod r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Ishl r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Ishr r1 r2 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Icmpe r1 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Icmpa r1 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Icmpae r1 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Icmpg r1 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Icmpge r1 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Imov r1 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Icmov r1 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Ijmp op) = mempty
+writeRegistersMRIInstruction (MRAM.Icjmp op) = mempty
+writeRegistersMRIInstruction (MRAM.Icnjmp op) = mempty
+writeRegistersMRIInstruction (MRAM.Istore op r1) = writeRegistersOperand op
+writeRegistersMRIInstruction (MRAM.Iload r1 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Iread r1 op) = Set.singleton r1
+writeRegistersMRIInstruction (MRAM.Ianswer op) = mempty
+
+writeRegistersLTLInstruction :: Ord reg => LTLInstr' reg mdata (MRAM.MAOperand reg wrdT) -> Set reg
+writeRegistersLTLInstruction (Lgetstack s w t r1) = Set.singleton r1
+writeRegistersLTLInstruction (Lsetstack r1 s w t) = mempty
+writeRegistersLTLInstruction (LCall t mr op ts ops) = maybe mempty Set.singleton mr
+writeRegistersLTLInstruction (LRet mo) = mempty
+writeRegistersLTLInstruction (LAlloc mr t op) = maybe mempty Set.singleton mr
+
+writeRegistersOperand :: Ord reg => MRAM.MAOperand reg wrdT -> Set reg
+writeRegistersOperand (MRAM.Reg r) = Set.singleton r
+writeRegistersOperand (MRAM.Const w) = mempty
+writeRegistersOperand (MRAM.Label s) = mempty
+writeRegistersOperand MRAM.HereLabel = mempty
+
 
 -- Retrieve the read registers of an instruction.
 readRegisters :: LTLInstr mdata VReg wrdT -> Set VReg
 readRegisters = error "TODO"
 
+
+-- Substitute registers in an instruction.
 substituteRegisters :: Ord reg => Map reg reg -> LTLInstr mdata reg wrdT -> LTLInstr mdata reg wrdT
 substituteRegisters substs (MRI inst mdata) = MRI (substituteMRIInstruction substs inst) mdata
 substituteRegisters substs (IRI inst mdata) = IRI (substituteLTLInstruction substs inst) mdata
