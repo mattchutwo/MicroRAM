@@ -44,8 +44,9 @@ data Function nameT paramT blockT =
 
 type DAGinfo = [Name]
 -- | Basic blocks:
--- | it's a list of instructions + all the blocks that it can jump to
-data BB instrT = BB Name [instrT] DAGinfo
+--  it's a list of instructions + all the blocks that it can jump to
+--  It separates the body from the instructions of the terminator.
+data BB instrT = BB Name [instrT] [instrT] DAGinfo
   deriving (Show,Functor)
 
 type IRFunction mdata regT wrdT irinstr =
@@ -217,9 +218,10 @@ rtlToLtl (IRprog tenv globals code) = do
          return $ LFunction name' mdata retType paramTypes stackSize body' 
 
    convertBasicBlock :: BB (RTLInstr mdata wrdT) -> Hopefully $ BB (LTLInstr mdata VReg wrdT)
-   convertBasicBlock (BB name instrs dag) = do
+   convertBasicBlock (BB name instrs term dag) = do
      instrs' <- mapM convertIRInstruction instrs
-     return $ BB name instrs' dag
+     term' <- mapM convertIRInstruction term
+     return $ BB name instrs' term' dag
 
    convertIRInstruction :: RTLInstr mdata wrdT -> Hopefully $ LTLInstr mdata VReg wrdT
    convertIRInstruction (MRI inst mdata) = return $ MRI inst mdata

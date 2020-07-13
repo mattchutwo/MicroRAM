@@ -284,8 +284,8 @@ stackBlock
   GVEnv
   -> (BB $ LTLInstr () mreg Word)
   -> Hopefully (NamedBlock mreg Word)
-stackBlock genv (BB name body _ ) = do
-  body' <- return $ map stackInstr body
+stackBlock genv (BB name body term _ ) = do
+  body' <- return $ map stackInstr (body++term)
   body'' <- replaceGlobals genv body'
   return $ NBlock (Just $ show name) $ concat body'
 

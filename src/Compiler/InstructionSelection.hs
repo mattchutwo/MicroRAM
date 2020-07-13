@@ -494,7 +494,7 @@ isBlock  (LLVM.BasicBlock name instrs term) = do
   end <- toState $ isTerminator term
   jumpsTo <- toState $ blockJumpsTo term
   name' <- toState $ name2name name
-  return $ BB name' (body ++ end) jumpsTo
+  return $ BB name' body end jumpsTo
 
 
   
