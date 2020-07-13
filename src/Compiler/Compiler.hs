@@ -55,7 +55,7 @@ import Compiler.IRs
 import Compiler.InstructionSelection
 import Compiler.RegisterAlloc
 import Compiler.Stacking
-import Compiler.Sparcity
+import Compiler.Sparsity
 import Compiler.RemoveLabels
 import Compiler.Analysis
 
@@ -70,6 +70,6 @@ compile llvmProg = (return $ prog2unit llvmProg)
   >>= (justCompile instrSelect)
   >>= (justCompile trivialRegisterAlloc) --FIXME remove the trivial
   >>= (justCompile stacking)
-  >>= (justAnalyse (SparcityData <.> sparcity))
+  >>= (justAnalyse (SparsityData <.> sparsity))
   >>= (justCompile removeLabels)
           

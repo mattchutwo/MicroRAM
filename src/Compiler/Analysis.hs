@@ -16,10 +16,10 @@ module Compiler.Analysis
       AnalysisData(..)
     ) where
 
-import Compiler.Sparcity
+import Compiler.Sparsity
 
 data AnalysisPiece =
-  SparcityData Sparcity
+  SparsityData Sparsity
   deriving (Eq, Ord, Read, Show)
 
 type AnalysisData = [AnalysisPiece]

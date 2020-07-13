@@ -1,16 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Compiler.Sparcity (sparcity, Sparcity) where
+module Compiler.Sparsity (sparsity, Sparsity) where
 
 {-
-Module      : Opcode Sparcity Analysis
-Description : Computes the sparcity of each opcode to aleviate the witness generation 
+Module      : Opcode Sparsity Analysis
+Description : Computes the sparsity of each opcode to aleviate the witness generation 
 Maintainer  : santiago@galois.com
 Stability   : experimental
 
-For a given opcode `op` the sparcity value is the MINIMUM distance between two 'op' instructions
+For a given opcode `op` the sparsity value is the MINIMUM distance between two 'op' instructions
 in the EXECUTION of the program.
 
-For any opcode `op`, sparcity is easy to calculate exactly for straight code
+For any opcode `op`, sparsity is easy to calculate exactly for straight code
 (i.e. inside blocks), call it `spar`. However for jumps and function calls we
 must approximate in the following way:
 
@@ -18,9 +18,9 @@ must approximate in the following way:
    Call this `Begspar`  (i.e. how early it aperas on a block)
 2. We compute the minimum distance of the opcode before a jump/call
    Call this `endSpar` (i.e. how late it appears in a block)
-3. `begSpar + endSpar` is the approximation of the sparcity accross jumps
+3. `begSpar + endSpar` is the approximation of the sparsity accross jumps
 
-The overall sparcity of `op` is then approximated by `Min (begSpar+endSpar, spar)`.
+The overall sparsity of `op` is then approximated by `Min (begSpar+endSpar, spar)`.
 
 TODO: We can improve the approximation of a accross jumps by following the
 controll flow graph (in development). However the program can allways make
@@ -85,13 +85,13 @@ instance Num Inf where
 
   fromInteger = Finite . fromInteger
   
--- * Sparcity
--- For a given opcode op the sparcity value is the MINIMUM distance
+-- * Sparsity
+-- For a given opcode op the sparsity value is the MINIMUM distance
 -- between two 'mul' instructions in the EXECUTION of the program.
 
 
--- | We approximate sparcity with this triple
-data OpSparcity = OpSparcity
+-- | We approximate sparsity with this triple
+data OpSparsity = OpSparsity
   { lastSeen :: Maybe Int -- ^ last location where this instruction appeared
   , spar :: Inf      -- ^ Min distance between `op` in straigh code 
   , begSpar :: Inf   -- ^ Min distance from beggining of blocks
@@ -104,8 +104,8 @@ data OpSparcity = OpSparcity
 -- | Works as a label for all instructions of the same "type"
 type InstrsLabel = Instruction' () ()
 
-type Sparcity' = Map.Map InstrsLabel OpSparcity -- intermediate
-type Sparcity = Map.Map InstrsLabel Int
+type Sparsity' = Map.Map InstrsLabel OpSparsity -- intermediate
+type Sparsity = Map.Map InstrsLabel Int
 
 
 
@@ -142,86 +142,86 @@ instrType inst =
     Ianswer _     -> Ianswer ()           
 
 
--- * Computing Sparcity
+-- * Computing Sparsity
 
--- ** Sparcity for instructions
+-- ** Sparsity for instructions
 
 
-setNewEnd loc (OpSparcity (Just lastS) spar begSpar endSpar) =
-  OpSparcity (Just lastS) spar begSpar (min endSpar (Finite $ loc - lastS))
-setNewEnd loc (OpSparcity Nothing spar begSpar endSpar) =
-  OpSparcity Nothing spar begSpar endSpar
+setNewEnd loc (OpSparsity (Just lastS) spar begSpar endSpar) =
+  OpSparsity (Just lastS) spar begSpar (min endSpar (Finite $ loc - lastS))
+setNewEnd loc (OpSparsity Nothing spar begSpar endSpar) =
+  OpSparsity Nothing spar begSpar endSpar
   
-sparcJump location sparc =
+sparsJump location spars =
   fmap forgetLastSeen $
-  fmap (setNewEnd location) sparc
-  where forgetLastSeen (OpSparcity _ spar begSpar endSpar) =
-          (OpSparcity Nothing spar begSpar endSpar)
+  fmap (setNewEnd location) spars
+  where forgetLastSeen (OpSparsity _ spar begSpar endSpar) =
+          (OpSparsity Nothing spar begSpar endSpar)
           
-updateInstrSparc ::
+updateInstrSpars ::
   Int 
   -> InstrsLabel
-  -> (Maybe OpSparcity)
-  -> OpSparcity
-updateInstrSparc location intrL Nothing =
-  OpSparcity (Just location) Infinity (Finite location) Infinity
-updateInstrSparc location intrL (Just (OpSparcity Nothing spar begSpar endSpar)) =
-  OpSparcity (Just location) spar (min begSpar $ Finite location) endSpar
-updateInstrSparc location intrL (Just ( OpSparcity (Just lastSeen) spar begSpar endSpar)) =
-  OpSparcity (Just location) (min spar (Finite $ location - lastSeen)) begSpar endSpar
+  -> (Maybe OpSparsity)
+  -> OpSparsity
+updateInstrSpars location intrL Nothing =
+  OpSparsity (Just location) Infinity (Finite location) Infinity
+updateInstrSpars location intrL (Just (OpSparsity Nothing spar begSpar endSpar)) =
+  OpSparsity (Just location) spar (min begSpar $ Finite location) endSpar
+updateInstrSpars location intrL (Just ( OpSparsity (Just lastSeen) spar begSpar endSpar)) =
+  OpSparsity (Just location) (min spar (Finite $ location - lastSeen)) begSpar endSpar
   
 
 
   
 
-sparcInstr ::
-  Sparcity'
+sparsInstr ::
+  Sparsity'
   -> (Int, MAInstruction r w)
-  -> Sparcity'
+  -> Sparsity'
 -- For jumps, we don't know where we are going, so we must add the "edge effect"
-sparcInstr sparc (location, Ijmp _) = sparcJump location sparc
-sparcInstr sparc (location, Icjmp _) = sparcJump location sparc
-sparcInstr sparc (location, Icnjmp _) = sparcJump location sparc
-sparcInstr sparc (location, instr) =
-  Map.insert instrLabel (updateInstrSparc location instrLabel instrSparc) sparc
+sparsInstr spars (location, Ijmp _) = sparsJump location spars
+sparsInstr spars (location, Icjmp _) = sparsJump location spars
+sparsInstr spars (location, Icnjmp _) = sparsJump location spars
+sparsInstr spars (location, instr) =
+  Map.insert instrLabel (updateInstrSpars location instrLabel instrSpars) spars
   where instrLabel = instrType instr
-        instrSparc = Map.lookup instrLabel sparc
+        instrSpars = Map.lookup instrLabel spars
   
 
 
--- ** Sparcity for Blocks
+-- ** Sparsity for Blocks
 
 -- | Is done in two steps
--- 1. run through the list of instrucitons updateing the sparcity info
--- 2. Set the "End Sparcity" for all instructions in the map
-sparcBlock :: NamedBlock r w -> Sparcity'
-sparcBlock (NBlock _ instrs) =
-  setEndSparc (length instrs) $                 -- second step
-  foldl sparcInstr Map.empty $ enumerate instrs -- first step
-  where setEndSparc lastLoc sparc = fmap (setNewEnd lastLoc) sparc
+-- 1. run through the list of instrucitons updateing the sparsity info
+-- 2. Set the "End Sparsity" for all instructions in the map
+sparsBlock :: NamedBlock r w -> Sparsity'
+sparsBlock (NBlock _ instrs) =
+  setEndSpars (length instrs) $                 -- second step
+  foldl sparsInstr Map.empty $ enumerate instrs -- first step
+  where setEndSpars lastLoc spars = fmap (setNewEnd lastLoc) spars
 
 -- ** TODO: Functions
 -- If we carry the controll flow of functions, we can improve the approximation
--- We merge the sparcity of blocks, only with those adjacent to it (int the right order.
+-- We merge the sparsity of blocks, only with those adjacent to it (int the right order.
 -- We still have "edge effect" at the beggining and end of functions and funciotn
 -- calls (which at this point are just `jmp`s.
 
 
--- ** Sparcity for Full program
--- We just join the sparc maps by:
--- 1. For each instruction get the min value of each  sparc, endSparc and begSparc
--- 2. Compute min (sparc', endSparc' + begSparc')
-sparcity :: MAProgram r w -> Sparcity
-sparcity blocks =
+-- ** Sparsity for Full program
+-- We just join the spars maps by:
+-- 1. For each instruction get the min value of each  spars, endSpars and begSpars
+-- 2. Compute min (spars', endSpars' + begSpars')
+sparsity :: MAProgram r w -> Sparsity
+sparsity blocks =
   -- read the follwoing backwards
-  Map.mapMaybe inf2maybe $       -- remove infinite sparcity (the ones that never appear)
-  Map.map addEdgeEffect $     -- return $ min sparc (endSparc + begSparc)
-  foldr (Map.unionWith mergeSparc) Map.empty -- get the minimum sparcity values for each instruction
-  $ fmap sparcBlock blocks   -- calculate sparcity for each block
-  where mergeSparc (OpSparcity ls1 s1 bs1 es1) (OpSparcity ls2 s2 bs2 es2) =
-          OpSparcity (max ls1 ls2)
+  Map.mapMaybe inf2maybe $       -- remove infinite sparsity (the ones that never appear)
+  Map.map addEdgeEffect $     -- return $ min spars (endSpars + begSpars)
+  foldr (Map.unionWith mergeSpars) Map.empty -- get the minimum sparsity values for each instruction
+  $ fmap sparsBlock blocks   -- calculate sparsity for each block
+  where mergeSpars (OpSparsity ls1 s1 bs1 es1) (OpSparsity ls2 s2 bs2 es2) =
+          OpSparsity (max ls1 ls2)
                      (min s1 s2)
                      (min bs1 bs2)
                      (min es1 es2)
-        addEdgeEffect (OpSparcity ls s bs es) =
+        addEdgeEffect (OpSparsity ls s bs es) =
           min s (bs + es)
