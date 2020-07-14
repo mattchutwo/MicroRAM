@@ -367,7 +367,7 @@ isInstruction (Just ret) (LLVM.Phi typ ins _)  =  toState $ do
 
 isInstruction Nothing (LLVM.Select _ _ _ _)  = return [] -- Select without a name is useless
 isInstruction (Just ret) (LLVM.Select cond op1 op2 _)  =  toStateRTL $ do
-   cond' <- operand2operand op1
+   cond' <- operand2operand cond
    op1' <- operand2operand op1 
    op2' <- operand2operand op2 
    return $ case cond' of

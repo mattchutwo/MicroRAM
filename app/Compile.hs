@@ -68,7 +68,7 @@ data FlagRecord = FlagRecord
   , fromLLVM :: Bool
   , justLLVM :: Bool
   , verbose :: Bool
-  }
+  } deriving (Show)
 
 fr2ClangArgs :: FlagRecord -> ClangArgs
 fr2ClangArgs fr = ClangArgs (fileIn fr) (Just $ llvmFile fr) (optim fr) (verbose fr)
@@ -88,7 +88,7 @@ parseFlag :: Flag -> FlagRecord -> FlagRecord
 parseFlag (LLVMout llvmOut) fr = fr {llvmFile = llvmOut} 
 parseFlag (Optimisation n) fr = fr {optim = n}
 parseFlag (Output outFile) fr = fr {fileOut = outFile}
-parseFlag (FromLLVM) fr = fr {fromLLVM = True}
+parseFlag (FromLLVM) fr = fr {fromLLVM = True, llvmFile = fileIn fr} -- In this case we are reading the fileIn
 parseFlag (JustLLVM) fr = fr {justLLVM = True}
 parseFlag (Verbose) fr = fr {verbose = True}
 parseFlag _ fr = fr
@@ -97,7 +97,7 @@ parseOptions :: String -> [Flag] -> IO FlagRecord
 parseOptions filein flags = do
   name <- stripExtension filein
   let initFR = defaultFlags name suffixIn suffixOut in
-    return $ foldr parseFlag initFR flags 
+    return $ foldr parseFlag initFR flags
   where suffixIn = if FromLLVM `elem` flags then ".ll" else ".c"
         suffixOut = if JustLLVM `elem` flags then ".ll" else ".micro"
 

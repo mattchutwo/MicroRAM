@@ -28,12 +28,15 @@ import Text.Printf
 
 import System.Process
 
+import Util.Util
 -- LLVM
 import qualified LLVM.AST as LLVM
 
 -- Local 
 import Compiler.IRs
 import Compiler.Registers
+import Compiler.CompilationUnit
+
 import MicroRAM.MRAMInterpreter
 import MicroRAM.MicroRAM
 import LLVMutil.LLVMIO
@@ -197,7 +200,8 @@ fromLLVMFile = llvmParse
 fromMRAMFile :: (Read mreg, Regs mreg) => FilePath -> IO (Program mreg Word)
 fromMRAMFile file = do
   contents <- readFile file
-  return $ read contents
+  compilationUnit <- return $ read contents
+  return $ program compilationUnit
 
 runFromFile  :: (Read mreg, Regs mreg) =>
   FilePath -> Tape -> Tape -> IO (Trace mreg)
@@ -216,7 +220,8 @@ summaryFromFile file cs input advice length = do
   
 
 -- Example
-myfile = "programs/fib.micro"
+myfile = "programs/fibCheeky.micro"
+myllvmfile = "programs/fib.ll"
 mram :: IO (Program Name Word)
 mram =  fromMRAMFile "programs/fib.micro"
 
@@ -226,3 +231,26 @@ mram =  fromMRAMFile "programs/fib.micro"
 
 
 -}
+
+
+
+-- * Pretty printing
+
+pprint :: Program Name Word -> String
+pprint prog = concat $ map (\(n,inst) -> show n ++ ". " ++ show inst ++ "\n") $ enumerate prog
+
+pprintFromFile :: FilePath -> IO ()
+pprintFromFile file = do
+  prog <- fromMRAMFile file
+  putStr $ pprint prog
+
+readProg :: String -> Program Name Word
+readProg = read
+
+myCS = defaultCSName {theseRegs = Just
+                      [NewName 0, NewName 1, NewName 2,
+                      Name "0",Name "1",Name "5",Name "6", Name "7", Name "9"]}
+
+--  summaryFromFile myfile defaultCSName [1,2,3,4] [] 100
+
+--p = readProg "[Istore (Const 0) (NewName 0),Iread (NewName 1) (Const 0),Icjmp (Const 6),Iadd (NewName 0) (NewName 0) (Const 1),Istore (Reg (NewName 0)) (NewName 1),Ijmp (Const 1),Imov (Name \"0\") (Reg (NewName 0)),Imov (Name \"1\") (Const 1),Imov (NewName 2) (Const 121),Iadd (NewName 0) (NewName 0) (Const 1),Istore (Reg (NewName 0)) (NewName 2),Iadd (NewName 0) (NewName 0) (Const 1),Istore (Reg (NewName 0)) (NewName 1),Imov (NewName 1) (Reg (NewName 0)),Isub (NewName 0) (NewName 0) (Const 0),Icmpg (Name \"0\") (Const 0),Imov (Name \"3\") (Const 0),Icmov (Name \"3\") (Const 1),Imov (Name \"52\") (Const 0),Icmpe (Name \"3\") (Const 1),Icjmp (Const 22),Ijmp (Const 116),Iadd (Name \"5\") (Name \"0\") (Const 4294967295),Iand (Name \"6\") (Name \"0\") (Const 3),Icmpae (Name \"5\") (Const 3),Imov (Name \"7\") (Const 1),Icmov (Name \"7\") (Const 0),Imov (Name \"29\") (Const 0),Imov (Name \"30\") (Const 0),Imov (Name \"31\") (Const 1),Imov (Name \"32\") (Const 0),Icmpe (Name \"7\") (Const 1),Icjmp (Const 74),Ijmp (Const 34),Isub (Name \"9\") (Name \"0\") (Reg (Name \"6\")),Imov (Name \"11\") (Const 0),Imov (Name \"12\") (Const 1),Imov (Name \"13\") (Const 0),Imov (Name \"14\") (Reg (Name \"9\")),Ijmp (Const 40),Icmpe (Name \"11\") (Const 0),Imov (Name \"15\") (Const 0),Icmov (Name \"15\") (Const 1),Icmpe (Name \"13\") (Const 1),Imov (Name \"16\") (Reg (Name \"12\")),Icmov (Name \"16\") (Reg (Name \"13\")),Imov (Name \"17\") (Reg (Name \"13\")),Iadd (Name \"18\") (Name \"12\") (Reg (Name \"17\")),Icmpe (Name \"11\") (Const 0),Imov (Name \"19\") (Const 0),Icmov (Name \"19\") (Const 1),Icmpe (Name \"16\") (Const 1),Imov (Name \"20\") (Reg (Name \"18\")),Icmov (Name \"20\") (Reg (Name \"16\")),Imov (Name \"21\") (Reg (Name \"16\")),Iadd (Name \"22\") (Name \"18\") (Reg (Name \"21\")),Iadd (Name \"23\") (Name \"22\") (Reg (Name \"20\")),Iadd (Name \"24\") (Name \"23\") (Reg (Name \"22\")),Iadd (Name \"25\") (Name \"11\") (Const 4),Iadd (Name \"26\") (Name \"14\") (Const 4294967292),Icmpe (Name \"26\") (Const 0),Imov (Name \"27\") (Const 0),Icmov (Name \"27\") (Const 1),Imov (Name \"11\") (Reg (Name \"25\")),Imov (Name \"12\") (Reg (Name \"24\")),Imov (Name \"13\") (Reg (Name \"23\")),Imov (Name \"14\") (Reg (Name \"26\")),Imov (Name \"29\") (Reg (Name \"24\")),Imov (Name \"30\") (Reg (Name \"25\")),Imov (Name \"31\") (Reg (Name \"24\")),Imov (Name \"32\") (Reg (Name \"23\")),Icmpe (Name \"27\") (Const 1),Icjmp (Const 74),Ijmp (Const 40),Icmpe (Name \"6\") (Const 0),Imov (Name \"33\") (Const 0),Icmov (Name \"33\") (Const 1),Imov (Name \"35\") (Reg (Name \"30\")),Imov (Name \"36\") (Reg (Name \"31\")),Imov (Name \"37\") (Reg (Name \"32\")),Imov (Name \"38\") (Reg (Name \"6\")),Imov (Name \"47\") (Const 0),Imov (Name \"48\") (Reg (Name \"29\")),Icmpe (Name \"33\") (Const 1),Icjmp (Const 110),Ijmp (Const 86),Icmpae (Name \"35\") (Const 2),Imov (Name \"39\") (Const 1),Icmov (Name \"39\") (Const 0),Iadd (Name \"40\") (Name \"36\") (Reg (Name \"37\")),Icmpe (Name \"37\") (Const 1),Imov (Name \"41\") (Reg (Name \"36\")),Icmov (Name \"41\") (Reg (Name \"37\")),Icmpe (Name \"36\") (Const 1),Imov (Name \"42\") (Reg (Name \"40\")),Icmov (Name \"42\") (Reg (Name \"36\")),Iadd (Name \"43\") (Name \"35\") (Const 1),Iadd (Name \"44\") (Name \"38\") (Const 4294967295),Icmpe (Name \"44\") (Const 0),Imov (Name \"45\") (Const 0),Icmov (Name \"45\") (Const 1),Imov (Name \"35\") (Reg (Name \"43\")),Imov (Name \"36\") (Reg (Name \"42\")),Imov (Name \"37\") (Reg (Name \"41\")),Imov (Name \"38\") (Reg (Name \"44\")),Imov (Name \"47\") (Reg (Name \"39\")),Imov (Name \"48\") (Reg (Name \"40\")),Icmpe (Name \"45\") (Const 1),Icjmp (Const 110),Ijmp (Const 86),Iadd (Name \"49\") (Name \"0\") (Const 4294967295),Icmpe (Name \"49\") (Const 1),Imov (Name \"50\") (Reg (Name \"48\")),Icmov (Name \"50\") (Reg (Name \"49\")),Imov (Name \"52\") (Reg (Name \"50\")),Ijmp (Const 116),Imov (NewName 2) (Reg (Name \"52\")),Imov (NewName 0) (Reg (NewName 1)),Isub (NewName 1) (NewName 1) (Const 1),Iload (NewName 1) (Reg (NewName 1)),Ijmp (Reg (NewName 1)),Ianswer (Reg (NewName 2))]"

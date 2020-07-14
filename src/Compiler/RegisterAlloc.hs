@@ -67,13 +67,13 @@ abstractPhi (IRprog tenv globs code) =
   let (phiMap, code') = abstractPhiCode code in
     (IRprog tenv globs code', phiMap)
 
-  where abstractPhiCode code = foldl abstractPhiFunc (Map.empty, []) code
+  where abstractPhiCode code = foldr abstractPhiFunc (Map.empty, []) code
  
-        abstractPhiFunc (phiMap, funcs) (Function name ret args code) =
-          let (phiMapF, code') = foldl abstractPhiBlock (Map.empty, [])  code in
+        abstractPhiFunc (Function name ret args code) (phiMap, funcs) =
+          let (phiMapF, code') = foldr abstractPhiBlock (Map.empty, [])  code in
             (Map.insert name phiMapF phiMap, Function name ret args code' : funcs)
 
-        abstractPhiBlock (phiMap, blocks) (BB name code term dagd) =
+        abstractPhiBlock (BB name code term dagd) (phiMap, blocks) =
           let (phiMapB, code') = abstractPhiBody code in
             (Map.unionWith (++) phiMapB phiMap, BB name code' term dagd : blocks)
 
