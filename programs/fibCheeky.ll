@@ -9,7 +9,7 @@ define i32 @main(i32, i8** nocapture readnone) local_unnamed_addr #0 {
   br i1 %3, label %4, label %51
 
 4:                                                ; preds = %2
-  %5 = add i32 %0, -1
+  %5 = sub i32 %0, 1
   %6 = and i32 %0, 3
   %7 = icmp ult i32 %5, 3
   br i1 %7, label %28, label %8
@@ -56,14 +56,14 @@ define i32 @main(i32, i8** nocapture readnone) local_unnamed_addr #0 {
   %41 = select i1 %39, i32 %37, i32 %36
   %42 = select i1 %39, i32 %36, i32 %40
   %43 = add nuw nsw i32 %35, 1
-  %44 = add i32 %38, -1
+  %44 = sub i32 %38, 1
   %45 = icmp eq i32 %44, 0
   br i1 %45, label %46, label %34, !llvm.loop !4
 
 46:                                               ; preds = %34, %28
   %47 = phi i1 [ false, %28 ], [ %39, %34 ]
   %48 = phi i32 [ %29, %28 ], [ %40, %34 ]
-  %49 = add i32 %0, -1
+  %49 = sub i32 %0, 1
   %50 = select i1 %47, i32 %49, i32 %48
   br label %51
 

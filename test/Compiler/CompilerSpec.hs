@@ -73,7 +73,7 @@ tests = testGroup "Compiler tests" $
   compileTest
     "Fibonacci loop"
     "programs/fib.ll"
-    100 [1,2,3,4] 2 :
+    300 (take 10 $ repeat 1) 34 :
 --  compileTest "Hello world" "programs/hello.ll" 50 [] 0 :
     []
 

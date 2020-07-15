@@ -15,6 +15,7 @@ module MicroRAM.MRAMInterpreter
 
 import MicroRAM.MicroRAM
 import Data.Bits
+import Data.Word
 import Control.Exception
 import qualified Data.Sequence as Seq
 import qualified Data.Map.Strict as Map
@@ -44,8 +45,8 @@ Notes:
 -- * MicroRAM semantics
 
 type Wrd = Word
-wrdMax = toInteger (maxBound :: Word)
-wrdMin = toInteger (minBound :: Word)
+wrdMax = toInteger (maxBound :: Word32)
+wrdMin = toInteger (minBound :: Word32)
 
 toInt :: Integral a => a -> Int
 toInt x = fromIntegral x
@@ -241,15 +242,15 @@ We use Integers to be homogeneus over all possible types Wrd and because it make
 -}
 
 -- | Binary operations generic.
-bop :: Regs mreg =>
+bop :: (Regs mreg) =>
        State mreg
        -> mreg
        -> Operand mreg Wrd
        -> (Integer -> Integer -> x) -- ^ Binary operation
-       -- -> (Integer -> Bool) -- ^ Set the flag? Is applied to the result of the operation 
        -> x
 bop rs r1 a f = f (toInteger $ get_reg (regs rs) r1) (toInteger $ eval_operand rs a)
 
+  
 -- | Unart operations generic. 
 uop :: Regs mreg =>
        State mreg
@@ -279,6 +280,12 @@ catchZero :: Regs mreg =>
           -> State mreg
 catchZero w = exception (w == 0)
 
+-- | Arithmetic modulo 32 to simulate Int32
+-- This is a "hot fix".
+-- TODO: adapt this based on the type of the instruction (e.g. support Int64)
+modFromInteger x = fromInteger x `mod` 2^32
+
+
 exec_bop :: Regs mreg =>
             State mreg
          -> mreg
@@ -287,7 +294,7 @@ exec_bop :: Regs mreg =>
          -> (Integer -> Integer -> Integer) -- ^ Binary operation
          -> (Integer -> Bool) -- ^ Checks if flag should be set
          -> State mreg 
-exec_bop st r1 r2 a f check = next $ set_flag (check result) $ set_reg r1 (fromInteger result) st
+exec_bop st r1 r2 a f check = next $ set_flag (check result) $ set_reg r1 (modFromInteger result) st
   where result = bop st r2 a f
 
 -- | Evaluate binop, but first check a<>0 

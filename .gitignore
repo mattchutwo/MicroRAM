@@ -10,4 +10,7 @@
 src/Compiler/Try.hs
 src/Backend/Notes
 Cprograms/*.ll
+*/*.nothing
+*/*/*.nothing
 MicroRAM.cabal
+temp/*
