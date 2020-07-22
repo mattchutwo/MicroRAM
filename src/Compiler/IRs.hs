@@ -31,6 +31,24 @@ and adding some functionality such as functions Stack locations etc.
 
 -}
 
+
+
+-- ** Types
+-- | Ty determines the type of something in the stack. Helps us calculate
+-- stack offsets for stack layout
+-- FIXME: For now we assume everything is an int, but the code should be
+--  written genrically over this type so it's easy to change
+data Ty =
+   Tint -- Currently all integers TODO: make it Tint int for all sizes
+  | Tptr Ty 
+  deriving (Show)
+
+-- Determines the relative size of types (relative to a 32bit integer/64bit)
+tySize :: Ty -> Word
+tySize _ = 1
+-- Pointers have the same sizer as Tint
+
+  
 -- ** Generic IR
 -- An IR is made of MRAM instructions plus some new ones
 data IRInstruction metadata regT wrdT irinst =
@@ -141,17 +159,6 @@ type Rprog mdata wrdT = IRprog mdata wrdT $ RFunction mdata wrdT
 -- -------------------------------
 
 -- It's the target language for register allocation: Close to RTL but uses machine registers and stack slots instead of virtual registers.
-
--- | Ty determines the type of something in the stack. Helps us calculate
--- stack offsets for stack layout
--- FIXME: For now we assume everything is an int, but the code should be
---  written genrically over this type so it's easy to change
-data Ty = Tint
-  deriving (Show)
-
--- Determines the relative size of types (relative to a 32bit integer)
-tySize :: Ty -> Word
-tySize _ = 1
 
 
 -- | Slots are abstract representation of locations in the activation record and come in three kinds
