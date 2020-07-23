@@ -33,6 +33,7 @@ import qualified Data.Set as Set
 
 import           Compiler.CompileErrors
 import           Compiler.IRs
+import           Compiler.RegisterAlloc.Liveness
 import qualified MicroRAM.MicroRAM as MRAM
 
 
@@ -415,12 +416,6 @@ getNextInstructionId name = do
 
 -- unflattenBasicBlock :: [BB (Name, Int) inst] -> [BB Name inst]
 
-
--- If the target instruction is Nothing, it's a return edge.
-type LivenessResult instname = Map (instname, Maybe instname) (Set VReg) -- Map VReg [(Loc, Loc)]
-
-livenessAnalysis :: [block] -> Hopefully (LivenessResult name)
-livenessAnalysis blocks = error "TODO"
 
 
 -- -- Returns the set of edges of the interference graph. Edges are tuples between two vertices, where the smaller vertex is first.

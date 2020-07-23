@@ -31,6 +31,7 @@ and adding some functionality such as functions Stack locations etc.
 data IRInstruction metadata regT wrdT irinst =
    MRI (MRAM.MAInstruction regT wrdT) metadata
   | IRI irinst metadata
+  deriving (Show)
 
 data Function nameT paramT blockT =
   Function nameT paramT [paramT] [blockT] deriving (Functor)
@@ -39,7 +40,7 @@ type DAGinfo name = [name]
 -- | Basic blocks:
 -- | it's a list of instructions + all the blocks that it can jump to
 data BB name instrT = BB name [instrT] (DAGinfo name)
-  deriving (Functor)
+  deriving (Show, Functor)
 
 type IRFunction mdata regT wrdT irinstr =
   Function Name Ty (BB Name $ IRInstruction mdata regT wrdT irinstr)
@@ -124,6 +125,7 @@ type Rprog mdata wrdT = IRprog mdata wrdT $ RFunction mdata wrdT
 -- FIXME: For now we assume everything is an int, but the code should be
 --  written genrically over this type so it's easy to change
 data Ty = Tint
+  deriving Show
 
 -- Determines the relative size of types (relative to a 32bit integer)
 tySize :: Ty -> Word
@@ -158,6 +160,7 @@ data LTLInstr' mreg wrdT operand =
     (Maybe mreg) -- ^ return register (gives location)
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
+  deriving Show
   
 type LTLInstr mdata mreg wrdT =
   IRInstruction mdata mreg wrdT (LTLInstr' mreg wrdT $ MAOperand mreg wrdT)

@@ -39,9 +39,11 @@ library
       Compiler.IRs
       Compiler.MRAMMap
       Compiler.RegisterAlloc
+      Compiler.RegisterAlloc.Liveness
       Compiler.RemoveLabels
       Compiler.Stacking
       Data.Graph.Undirected
+      Data.Graph.Directed
       Lib
       LLVMutil.LLVMexamples
       LLVMutil.LLVMIO
@@ -60,7 +62,7 @@ library
       base >=4.7 && <5
     , bytestring
     , containers
-    , fgl
+    , haggle
     , llvm-hs
     , llvm-hs-pure
     , mtl
