@@ -39,11 +39,13 @@ library
       Compiler.IRs
       Compiler.MRAMMap
       Compiler.RegisterAlloc
+      Compiler.RegisterAlloc.Internal
       Compiler.RegisterAlloc.Liveness
       Compiler.RemoveLabels
       Compiler.Stacking
       Data.Graph.Undirected
       Data.Graph.Directed
+      Data.Queue
       Lib
       LLVMutil.LLVMexamples
       LLVMutil.LLVMIO

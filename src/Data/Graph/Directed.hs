@@ -40,3 +40,6 @@ topSortWithLabels = maybe (error "topSort: Invalid DiGraph.") id . topSortWithLa
 
 topSortWithLabels' :: Ord nid => DiGraph nid n e -> Maybe [(nid, n)]
 topSortWithLabels' g = topSort' g >>= mapM (\nid -> (nid,) <$> Map.lookup nid (diGraphVertexLabel g))
+
+-- mapVertexLabel :: (n -> n') -> DiGraph nid n e -> DiGraph nid n' e
+-- mapVertexLabel f g = g { diGraphVertexLabel = fmap f (diGraphVertexLabel g) }
