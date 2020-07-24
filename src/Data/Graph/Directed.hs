@@ -1,4 +1,5 @@
 {-# LANGUAGE TupleSections #-}
+
 module Data.Graph.Directed (
     DiGraph
   , fromEdges
@@ -7,11 +8,11 @@ module Data.Graph.Directed (
   , topSortWithLabels
   ) where
 
-import           Data.Map (Map)
-import qualified Data.Map as Map
 import qualified Data.Graph.Haggle as HGL
 import qualified Data.Graph.Haggle.Algorithms.DFS as HGL
 import qualified Data.Graph.Haggle.VertexMap as HGL
+import           Data.Map (Map)
+import qualified Data.Map as Map
 
 -- Bidirectional graph with labelled nodes.
 data DiGraph nid n e = DiGraph {

@@ -112,7 +112,7 @@ registerAllocFunc registers (LFunction mdata name typ typs stackSize' blocks') =
           lift $ applyColoring coloring blocks
 
 
-    -- Sort registers by spill cost (lowest cost first).
+    -- Sort registers by spill cost (highest cost first).
     sortTemporaries :: LivenessResult instname -> [block] -> [VReg]
     sortTemporaries liveness _blocks = 
       -- TODO: actually compute a spill cost.
