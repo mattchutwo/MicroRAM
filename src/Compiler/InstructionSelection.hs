@@ -33,6 +33,7 @@ import Data.ByteString.UTF8 as BSU
 import Control.Monad.State.Lazy
 
 import qualified LLVM.AST as LLVM
+import qualified LLVM.AST.Typed as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.IntegerPredicate as IntPred
 import qualified LLVM.AST.ParameterAttribute as ParamAtt
@@ -94,8 +95,25 @@ name2Operand (LLVM.UnName number) = return $ Reg $ Name $ any2short number
 --name2Operand _ = assumptError "Unnamed name passed. Unnammed things should not be called."
 
 
+-- | operand2register: takes an LLVM.operand and returns a register:
+-- If the operand is a reference, it just returns that reference.
+-- If the operand is a constant, it stores it in a register and returns that.
+-- If metadata -> error
+operand2register :: LLVM.Operand -> Statefully $ (VReg, [MRAM.MAInstruction Name Word])
+operand2register (LLVM.LocalReference _ nm) = do
+  r <- name2name nm
+  return (r,[])
+operand2register (LLVM.ConstantOperand c) = do
+  c' <- toState $ getConstant c
+  raux <- freshName
+  return (raux,[MRAM.Imov raux (Const c')])
+operand2register _ = toState $ implError "Operand2register can't convert metadata or labels."
+  
+
 type2type (LLVM.IntegerType n) = return Tint -- FIXME check size! 
-type2type (LLVM.PointerType t _) = return Tint -- FIXME enrich typed!
+type2type (LLVM.PointerType t _) = do
+  pointee <- type2type t
+  return $ Tptr $ pointee 
 type2type (LLVM.FunctionType _ _ _) = return Tint -- FIXME enrich typed!
 type2type t = implError $ "Type: " ++ (show t)
 
@@ -374,8 +392,28 @@ isInstruction (Just ret) (LLVM.Select cond op1 op2 _)  =  toStateRTL $ do
      Reg r -> [MRAM.Icmpe r (Const 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
      Const c -> -- compiler optimization should take care of this case. but just in case...
        [if c == 1 then MRAM.Imov ret op1' else MRAM.Imov ret op2']
-       
 
+-- *** GetElementPtr 
+isInstruction Nothing (LLVM.GetElementPtr _ addr inxs _) = return [] -- GEP without a name is useless
+isInstruction (Just ret) (LLVM.GetElementPtr _ addr inxs _) = do
+  --(addr', toReg) <- operand2register ret addr
+  addr' <- toState $ operand2operand addr
+  ty' <- toState $ typeFromOperand addr
+  -- inxs' <- toState $ mapM operand2operand inxs
+  instructions <- isGEP ret ty' addr' inxs
+  return $ map (\instr -> MRI instr ()) instructions
+
+-- ** Extensions
+-- We fit everything in size 32 bits, so extensions are trivial
+isInstruction Nothing (LLVM.SExt _ _  _) = return [] -- without a name is useless
+isInstruction Nothing (LLVM.ZExt _ _  _) = return [] -- without a name is useless
+isInstruction (Just ret) (LLVM.SExt op _ _) = toStateRTL $ do
+  op' <- operand2operand op
+  return $ [MRAM.Imov ret op']
+isInstruction (Just ret) (LLVM.ZExt op _ _) = toStateRTL $ do
+  op' <- operand2operand op
+  return $ [MRAM.Imov ret op']
+  
 -- *** Not supprted instructions (return meaningfull error)
 isInstruction _ instr =  toState $ implError $ "Instruction: " ++ (show instr)
 
@@ -384,6 +422,66 @@ convertPhiInput (op, name) = do
   op' <- operand2operand op
   name' <- name2name name
   return (op', name')
+
+-- ** GetElementPtr
+llvmSize :: LLVM.Type -> Hopefully $ Word
+llvmSize _ = return 1
+
+typeFromOperand :: LLVM.Operand -> Hopefully $ LLVM.Type
+typeFromOperand op = return $ LLVM.typeOf op 
+
+--  | Optimized multiplication by a constant
+-- If the operand is a constant, statically computes the multiplication
+-- If the operand is a register, creates instruction to compute it.
+constantMultiplication ::
+  Word
+  -> MAOperand VReg Word
+  -> Hopefully $ (MAOperand VReg Word, [MRAM.MAInstruction VReg Word])
+constantMultiplication c (Reg r) =
+  return (Reg r, [MRAM.Imull r r (Const c)])
+constantMultiplication c (Const r) =
+  return (Const (c*r),[])
+constantMultiplication _ _ = assumptError "Constant multiplication by Label."
+
+
+-- Type has to bve a pointer
+isGEP ::
+  VReg
+  -> LLVM.Type
+  -> MAOperand VReg Word
+  -> [LLVM.Operand] -- [MAOperand VReg Word]
+  -> Statefully $ [MRAM.MAInstruction VReg Word]
+isGEP _ _ _ [] = toState $ assumptError "Getelementptr called with no indices"
+isGEP ret (LLVM.PointerType refT _) base (inx:inxs) = do
+  tySize <- toState $ llvmSize refT
+  (ri, move_reg) <- operand2register inx
+  inxs' <- toState $ mapM operand2operand inxs
+  continuation <- toState $ isGEP' ret refT  inxs'
+  rtemp <- freshName
+  return $ move_reg ++
+           [MRAM.Imull rtemp ri (Const tySize),
+            MRAM.Iadd ret rtemp base] ++ 
+           continuation
+           
+
+-- After first pass every type has to be an agregate type
+isGEP' ::
+  VReg
+  -> LLVM.Type
+  -> [MAOperand VReg Word]
+  -> Hopefully $ [MRAM.MAInstruction VReg Word]
+isGEP' _ _ [] = return $ []
+isGEP' ret (LLVM.ArrayType elemsN elemsT) (inx:inxs) = do
+  tySize <- llvmSize elemsT
+  (rm, multiplication) <- constantMultiplication tySize inx
+  continuation <- isGEP' ret elemsT inxs
+  return $ multiplication ++
+           -- offset = indes * size type 
+           [MRAM.Iadd ret ret rm] ++
+           continuation
+isGEP' ret (LLVM.StructureType _ types) (inx:inxs) =
+  implError "getelemptr for structs"
+isGEP' _ t _ = assumptError $ "getelemptr for non aggregate type: " ++ show t
 
 
 -- ** Named instructions and instructions lists

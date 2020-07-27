@@ -220,10 +220,10 @@ summaryFromFile file cs input advice length = do
   
 
 -- Example
-myfile = "programs/fib.micro"
-myllvmfile = "programs/fib.ll"
+myfile = "programs/returnInput.micro"
+myllvmfile = "programs/returnInput.ll"
 mram :: IO (Program Name Word)
-mram =  fromMRAMFile "programs/fib.micro"
+mram =  fromMRAMFile "programs/returnInput.micro"
 
 {- | Example
 
@@ -247,9 +247,14 @@ pprintFromFile file = do
 readProg :: String -> Program Name Word
 readProg = read
 
-myCS = defaultCSName {theseRegs = Just
-                      [NewName 0, NewName 1, NewName 2,
-                      Name "0",Name "1",Name "5",Name "6", Name "7", Name "9"]}
+myCS = defaultCSName
+  {theseRegs = Just
+               [NewName 0, NewName 1, NewName 2,
+                 Name "0",
+                 Name "1",Name "2",Name "3", Name "4", Name "5",
+                 Name "6",Name "7",Name "8",Name "9", Name "10",
+                 Name "11",Name "12",Name "13",Name "14", Name "15",
+                 Name "16",Name "17",Name "18",Name "19", Name "20"]}
 
 
 
