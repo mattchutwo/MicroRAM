@@ -8,29 +8,10 @@ import Lib
 import LLVMutil.LLVMutil
 import Compiler.Compiler
 
-
 import Compiler.IRs (Name)
 import MicroRAM.MicroRAM
+import Compiler.CompilationUnit (CompilationUnit(..))
 import MicroRAM.MRAMInterpreter (execAnswer)
-
-
-
-{-import MicroRAM.MRAMInterpreter
-import qualified LLVM.AST as LLVM
-import qualified MicroRAM.MicroRAM as MRAM
-import MicroRAM.MRAMInterpreter
-import LLVM.AST (Named(..))
-import qualified LLVM.AST.Constant as LLVM.Constant
-import qualified LLVM.AST.IntegerPredicate as IntPred
-import GHC.Word as Word
-import qualified Data.ByteString.Char8 as C8
-import qualified Data.ByteString.Short as Short
-import qualified Data.String as String
-import qualified LLVM.AST.Linkage
-import qualified LLVM.AST.Visibility
-import qualified LLVM.AST.CallingConvention
--}
-
 
 import Data.List
 
@@ -58,8 +39,9 @@ parseArgs = map read
           
 microFromFile :: FilePath -> IO ((Program Name Word)) 
 microFromFile file = do
-  contents <- readFile file
-  return $ read contents
+  contents <- readFile file -- Get text from file
+  CompUnit prog _ _ <- return $ read contents -- Parse them 
+  return prog
 
 fromText :: String -> Either () (Program Name Word)
 fromText = read

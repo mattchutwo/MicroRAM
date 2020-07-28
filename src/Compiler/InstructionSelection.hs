@@ -28,6 +28,7 @@ module Compiler.InstructionSelection
     ) where
 
 
+import Data.Word
 import Data.ByteString.Short
 import Data.ByteString.UTF8 as BSU 
 import Control.Monad.State.Lazy
@@ -54,6 +55,9 @@ import qualified MicroRAM.MicroRAM as MRAM
 -}
 
 -- ** Translation between LLVM and RTL "things"
+wrdFromwrd64 :: Word64 -> Word
+wrdFromwrd64 = fromInteger . toInteger
+
 any2short :: Show a => a -> ShortByteString
 any2short n = toShort $ BSU.fromString $ show $ n
 
@@ -61,10 +65,6 @@ name2name (LLVM.Name s) = return $ Name s
 name2name (LLVM.UnName n) = return $ Name $ any2short n
 
 --  implError "Unnamed opareands not supported yet. TODO soon... "
-
-
-toType :: LLVM.Type -> Ty
-toType _ = Tint
 
 
 wrd2integer:: Word -> Integer
@@ -115,6 +115,10 @@ type2type (LLVM.PointerType t _) = do
   pointee <- type2type t
   return $ Tptr $ pointee 
 type2type (LLVM.FunctionType _ _ _) = return Tint -- FIXME enrich typed!
+type2type (LLVM.ArrayType size elemT) = do
+  elemT' <- type2type elemT
+  size' <- return $ wrdFromwrd64 size
+  return $ Tarray size' elemT'
 type2type t = implError $ "Type: " ++ (show t)
 
 
@@ -236,6 +240,8 @@ a <++> b = (++) <$> a <*> b
 
 -- *** Trtanslating Function parameters and types
 
+function2function
+  :: Either a LLVM.Operand -> Hopefully (Name, Ty, [Ty])
 function2function (Left _ ) = implError $ "Inlined assembly not supported"
 function2function (Right (LLVM.LocalReference ty nm)) = do
   nm' <- name2name nm
@@ -248,6 +254,7 @@ function2function (Right (LLVM.LocalReference ty nm)) = do
         functionTypes (LLVM.FunctionType  _ _ True) =
           implError $ "Variable parameters (isVarArg in function call)."
         functionTypes ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
+function2function (Right (LLVM.ConstantOperand c)) = implError $ "Calling a funciton with a constant or a global. You called: " ++ show c
 
 -- | Process parameters into RTL format
 -- WE dump the attributes
@@ -403,7 +410,7 @@ isInstruction (Just ret) (LLVM.GetElementPtr _ addr inxs _) = do
   instructions <- isGEP ret ty' addr' inxs
   return $ map (\instr -> MRI instr ()) instructions
 
--- ** Extensions
+-- ** Conversions
 -- We fit everything in size 32 bits, so extensions are trivial
 isInstruction Nothing (LLVM.SExt _ _  _) = return [] -- without a name is useless
 isInstruction Nothing (LLVM.ZExt _ _  _) = return [] -- without a name is useless
@@ -413,6 +420,11 @@ isInstruction (Just ret) (LLVM.SExt op _ _) = toStateRTL $ do
 isInstruction (Just ret) (LLVM.ZExt op _ _) = toStateRTL $ do
   op' <- operand2operand op
   return $ [MRAM.Imov ret op']
+isInstruction Nothing (LLVM.BitCast _ _ _) = return $ [] -- without a name is useless
+isInstruction (Just ret) (LLVM.BitCast op typ _) = toStateRTL $ do
+  op' <- operand2operand op
+  return $ [MRAM.Imov ret op']
+
   
 -- *** Not supprted instructions (return meaningfull error)
 isInstruction _ instr =  toState $ implError $ "Instruction: " ++ (show instr)
@@ -424,8 +436,34 @@ convertPhiInput (op, name) = do
   return (op', name')
 
 -- ** GetElementPtr
+
+  
 llvmSize :: LLVM.Type -> Hopefully $ Word
-llvmSize _ = return 1
+
+llvmSize LLVM.VoidType = return 0
+-- All int types have same size:
+-- We don't pay extra for size of memory
+llvmSize (LLVM.IntegerType _) = return 1
+llvmSize (LLVM.PointerType _ _) = return 1
+llvmSize (LLVM.FloatingPointType _) = implError "Floating point type."
+llvmSize (LLVM.FunctionType _ _ _) =
+  assumptError "Function type have no size. Or do they? If you get this error. please report."
+llvmSize (LLVM.VectorType _ _) = implError "Vactor type."
+llvmSize (LLVM.StructureType _ _) = implError "Structured type not supported yet. Stay tuned."
+llvmSize (LLVM.ArrayType size elemT) = do
+  elemSize <- llvmSize elemT
+  size' <- return $ wrdFromwrd64 size
+  return $ size' * elemSize
+--  elemSize <- return (size * llvmSize elemT) 
+llvmSize (LLVM.NamedTypeReference name) = implError $ "Named reference: " ++ show name
+
+-- Metadata, labels and token dont have size in memory         
+llvmSize LLVM.MetadataType =
+  assumptError "Metadata type have no size. Or do they? If you get this error. please report."
+llvmSize LLVM.LabelType =
+  assumptError "Metadata type have no size. Or do they? If you get this error. please report."       
+llvmSize LLVM.TokenType =
+  assumptError "Metadata type have no size. Or do they? If you get this error. please report."
 
 typeFromOperand :: LLVM.Operand -> Hopefully $ LLVM.Type
 typeFromOperand op = return $ LLVM.typeOf op 
@@ -610,7 +648,8 @@ isFunction (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ 
     body <- evalStateT (isBlocks code) initState
     params' <- return $ processParams params
     name' <- name2name name
-    return $ Function name' (toType retT) params' body
+    retT' <- type2type retT
+    return $ Function name' retT' params' body
 isFunction other = unreachableError $ show other -- Shoudl be filtered out 
 
 -- | Instruction Selection for all definitions

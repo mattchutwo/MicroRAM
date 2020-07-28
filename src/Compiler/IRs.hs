@@ -41,6 +41,7 @@ and adding some functionality such as functions Stack locations etc.
 data Ty =
    Tint -- Currently all integers TODO: make it Tint int for all sizes
   | Tptr Ty 
+  | Tarray Word Ty 
   deriving (Show)
 
 -- Determines the relative size of types (relative to a 32bit integer/64bit)
