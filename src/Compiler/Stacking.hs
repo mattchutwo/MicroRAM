@@ -227,7 +227,7 @@ findAguments = (MRAM.NBlock (Name "_Find arguments_")
 -- Sends main to the returnBlock
 premain :: Regs mreg => [NamedBlock mreg Word]
 premain =
-  readInput ++
+  findAguments ++
   [MRAM.NBlock Nothing $ Imov ax (Label "_ret_") : push ax]
 
 -- | returnBlock: return lets the program output an answer (when main returns)
