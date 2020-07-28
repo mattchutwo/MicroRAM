@@ -158,7 +158,7 @@ replaceGlobals _ block = return block -- TODO: Replace global
 
 -}
 
--- | Read input:
+-- | Read input: OBSOLETE, We start with an initialized memory
 -- We read the entire input, store it into the stack (almost like in the paper)
 readInput :: Regs mreg => [NamedBlock mreg Word]
 readInput =
@@ -173,6 +173,52 @@ readInput =
   MRAM.NBlock (Just "_End read input_")
   [ Imov argc (Reg sp),
    Imov argv (Const 1)]  :                 -- FIXME passing arguments in registers for trivial reg alloc.
+  []
+
+{- | Find arguments: in the current setup argc and argv are next to each other,
+     and at the end of populated memory. Location 1 points at arc.
+
+    This function puts the arguemnts in the right place (regs 0 and 1 for the trivila register allocator)
+    and sets stack pointer to the right place (pointing at argv).
+
+     Here is how the memory is set up:
+     - All arguemnts, files, configurations, are laid on memory before start
+     - At the top of the memory (highest address) the arguments to main are laid like:
+       + The command line inputs
+       + argv[0..] (pointing at each command line input)
+       + argc
+       + argv (pointing to two mem locations back)
+     - Location 1 is resreved for a pointer to argc
+
+     +Beggining   +
+     |Stack memory|
+     |============|
+     |arg^        +--+  <-- initial sp
+     +------------+  |
++--->|argc        |  |
+|    +------------+  |
+| +--+argv[argc+1]|  |
+| |  |...         |  |
+| +--+arg^[0]     |<-+
+| |  +------------+
+| +->|Comand line |
+|    |arguments   |
+|    +------------+
+|    | files      |
+|    |            |
+|    +------------+
++----+ ptr argc   |
+     +============+
+-}
+
+findAguments :: Regs mreg => [NamedBlock mreg Word]
+findAguments = (MRAM.NBlock (Name "_Find arguments_")
+  [Iload sp (Const 1),  -- Stack pointer points to argc
+   Iload argc (Reg sp), -- Load argc into first argument
+   Iadd sp sp (Const 1),
+   Iload argv (Reg sp), -- Load argc into first argument
+   Iadd sp sp (Const 1)
+  ]  :
   []
 
 -- | Premain:
