@@ -26,6 +26,7 @@ import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Short as BSS
 import           Data.Graph.Undirected (Graph(..))
 import qualified Data.Graph.Undirected as Graph
+import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Set (Set)
@@ -81,9 +82,10 @@ registerAllocFunc registers (LFunction mdata name typ typs stackSize' blocks') =
   let stackSize = stackSize' + raNextStackPosition rast
 
   -- Unflatten basic block?
+  let blocks = unflattenBasicBlock rtlBlocks
       
   -- return $ Function name typ typs blocks'
-  return $ error "TODO" rtlBlocks
+  return $ LFunction mdata name typ typs stackSize blocks
 
   where
     -- registerAllocFunc' :: [BB name inst] -> StateT RAState Hopefully [BB name inst]
@@ -267,8 +269,16 @@ getNextInstructionId name = do
 --     flatten ((instr, iid):instrs) = BB (name, iid) [instr] [(name, iid+1)]:flatten instrs
 
 
--- unflattenBasicBlock :: [BB (Name, Int) inst] -> [BB Name inst]
+unflattenBasicBlock :: [BB (Name, Int) inst] -> [BB Name inst]
+unflattenBasicBlock bbs' = 
+  let bbs = NonEmpty.groupWith (\(BB (name,_) _ _) -> name) bbs' in
+  map (\bbs ->
+      let (BB (name, _) _ dag') = NonEmpty.last bbs in
+      let dag = map fst dag' in
+      let insts = concatMap (\(BB _ insts _) -> insts) bbs in
 
+      BB name insts dag
+    ) bbs
 
 
 -- -- Returns the set of edges of the interference graph. Edges are tuples between two vertices, where the smaller vertex is first.
