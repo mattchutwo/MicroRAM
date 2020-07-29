@@ -47,33 +47,51 @@ tests' = testGroup "Compiler tests" $
         take 375 $ nats
 nats :: [Int] 
 nats = iterate ((+) 1) 0
+
+-- | Create the initial memory from a list of inputs
+initMem :: [String] -> [Word]
+initMem ls = map fromIntegral $
+  let argsAsChars = args2chars ls in
+    let argv_array = getStarts argsAsChars in
+      let argsAsString = concat argsAsChars in
+        argsAsString ++
+        argv_array ++
+        [length argv_array, 2 + length argsAsString]
         
-  
+  where args2chars ls = map (addNull . str2Ascii) ls 
+        addNull ls = (ls ++ [0])
+        str2Ascii ls = map char2Ascii ls
+        char2Ascii ch = fromEnum ch
+        getStarts = getStartsRec 2 []
+
+        getStartsRec _ ret [] = ret
+        getStartsRec n ret (x:ls) =
+          getStartsRec (n+length x) (ret++[n]) ls
+
+emptyInitMem :: [Word]
+emptyInitMem = initMem []
+          
 tests = testGroup "Compiler tests" $
   compileTest
     "Return 42"
     "programs/return42.ll"
-    25 [] 42 :
+    25 emptyInitMem 42 :
   compileTest
     "21 + 21"
     "programs/compute42.ll"
-    70 [] 42 :
+    70 emptyInitMem 42 :
   compileTest
     "Return argc"
     "programs/returnArgc.ll"
-    50 [1,2,3] 3 :
+    50 (initMem ["one","two", "three"]) 3 :
   compileTest
     "Fibonacci loop (not optimized)"
     "programs/fibSlow.ll"
-    375 (take 10 $ repeat 1) 34 :
-  compileTest
-    "Fibonacci loop"
-    "programs/fibCheeky.ll"
-    200 [1,2,3,4] 2 :
+    375 (initMem $ take 10 $ repeat "") 34 :
   compileTest
     "Fibonacci loop"
     "programs/fib.ll"
-    300 (take 10 $ repeat 1) 34 :
+    300  (initMem $ take 10 $ repeat "") 34 :
   compileTest
     "Text into numbers"
     "programs/convertText.ll"
@@ -144,7 +162,7 @@ executionTest testName file input bound =
   step $ show (exec_pc mram (bound) input) 
   step $ show (exec_regs mram (bound) input) 
   step $ show (exec_mem mram (bound) input)  
-  step $ show (exec_tape mram (bound) input) 
+  -- step $ show (exec_tape mram (bound) input) 
   --step $ show (exec_flag mram (bound) input)
   step $ "Return at step " ++ show bound ++ ": " ++ show (exec mram bound input)
   assertEqual "Program returned the wrong value." 0 0
@@ -158,21 +176,21 @@ checkPass (Right c) = return c
 checkPass (Left msg) = assertFailure $ "produced compilation error: " ++ (show msg)
 
 exec :: Regs mreg => MRAM.Program mreg Word -> Int -> [Word] -> Word
-exec prog bound input = answer $ (run input [] prog) !! bound
+exec prog bound input = answer $ (run input prog) !! bound
 
 rmsnd (RMap x m) = m
 
 exec_regs :: MRAM.Program Name Word -> Int -> [Word] -> [(Name, Word)]
-exec_regs prog bound input = Map.toList $ rmsnd $ regs $ (run input [] prog) !! bound
+exec_regs prog bound input = Map.toList $ rmsnd $ regs $ (run input prog) !! bound
 
 exec_mem :: MRAM.Program Name Word -> Int -> [Word] -> [(Word, Word)]
-exec_mem prog bound input = Map.toList $ snd $ mem $ (run input [] prog) !! bound
+exec_mem prog bound input = Map.toList $ snd $ mem $ (run input prog) !! bound
 
-exec_pc prog bound input = pc $ (run input [] prog) !! bound
+exec_pc prog bound input = pc $ (run input prog) !! bound
 
-exec_tape prog bound input = tapes $ (run input [] prog) !! bound
-
-exec_flag prog bound input = flag $ (run input [] prog) !! bound
+--exec_tape prog bound input = tapes $ (run input prog) !! bound
+ 
+exec_flag prog bound input = flag $ (run input prog) !! bound
 
 
 pretyPrint step mram = mapM (\(n,inst) -> step $ (show n) ++ ". " ++ (show inst)) $ enumerate mram

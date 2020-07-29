@@ -26,10 +26,10 @@ k = 5 -- 5 registers
 -- We are treating the first register as the return
 -- To get ouptu to get output provide a program and a number of steps to get the result after that long
 -- Execute gets the trace and then looks at the first register after t steps
-get_trace prog input advice = run input advice prog
-exec prog input advice steps =
-  lookupReg sp (see (get_trace prog input advice) steps) -- this throws an error if there is no register 0
-simpl_exec prog steps = exec prog [] [] steps -- when there are no inputs
+get_trace prog input = run input prog
+exec prog input steps =
+  lookupReg sp (see (get_trace prog input) steps) -- this throws an error if there is no register 0
+simpl_exec prog steps = exec prog [] steps -- when there are no inputs
 
 -- The tester setup
 type Reg = Int
@@ -37,6 +37,8 @@ instance Regs Int where
   sp = 0
   bp = 1
   ax = 2
+  argc = 3
+  argv = 4
   data RMap Int x = RMap x (Map.Map Int x)
   initBank d = RMap d Map.empty
   lookupReg r (RMap d m) = case Map.lookup r m of
@@ -65,7 +67,7 @@ flag_trace t= map flag t
 {- (1+2)*(3+4) = 21
 -}
 
-run' = run [] []
+run' = run []
 prog1 :: Program Reg Word
 prog1 = [Iadd 0 0 (Const 1),
        Iadd 0 0 (Const 2),
@@ -136,7 +138,7 @@ test3 = testProperty "Test fibonacci" $ \n -> (n :: Int) >= 0 ==>
 -- # Test 4: conditional + input
 
 run4:: Word -> Trace Reg
-run4 input = run [input] [] prog4
+run4 input = run [input] prog4
 prog4 :: Program Reg Word
 prog4 = [Iread 1 (Const 0), --
          Icmpg 1 (Const 10), -- 1
@@ -148,28 +150,34 @@ prog4 = [Iread 1 (Const 0), --
         ]
 
 test4 = testProperty "Test a conditional and input" $ \x ->
-   claimEqual (fromIntegral $ exec prog4 [(x::Word)] [] 5) (fromIntegral $ if x>10 then 42 else 77)
+   claimEqual (fromIntegral $ exec prog4 [(x::Word)] 5) (fromIntegral $ if x>10 then 42 else 77)
 
                                                                
 -- # Test 5: sum all input
   {- for i in input
         x =+ i
+
+NOTE: the initial memory contains, the size of the initial memory.
+      so we start at mem=2            
 -}
 
 
 run5:: [Word] -> Trace Reg
-run5 input = run input [] prog5
+run5 input = run input prog5
 prog5 :: Program Reg Word
-prog5 = [Iread 1 (Const 0), --
-         Iadd 0 0 (Reg 1), -- 1
-         Icjmp (Const 4),   -- 2
-         Ijmp (Const 0),    -- 3
-         Ijmp (Const 4)     -- 4
-        ]
+{- Old verison with tapes:
+prog5 = [Iread 1 (Const 0), Iadd 0 0 (Reg 1), Icjmp (Const 4), Ijmp (Const 0), Ijmp (Const 4)]
+-}
+-- New version with input in initial memory.
+prog5 = [Imov 1 (Const 2),
+         Iload 2 (Reg 1),
+         Iadd 0 0 (Reg 2),
+         Iadd 1 1 (Const 1),
+         Ijmp (Const 1)] 
 
 --test5 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
 test5 = testProperty "Test adding a list of inputs" $ \xs ->
-   claimEqual (exec prog5 (xs::[Word]) [] (4* (Prelude.length xs))) (sum xs)
+   claimEqual (exec prog5 (xs::[Word]) (4* (Prelude.length xs))) (sum xs)
 
 
                                                                
@@ -182,7 +190,7 @@ test5 = testProperty "Test adding a list of inputs" $ \xs ->
 
 
 run6:: Int -> Trace Reg
-run6 n = run [] [] prog6
+run6 n = run [] prog6
 failSignal:: Operand Reg Word
 failSignal = (Const 11)
 gotoFail = Ijmp failSignal
