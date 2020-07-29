@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: bbf9c319457e90bc1ad7c896b99d1a4a7519ddf2dca0a8b68460f1e11e8eba74
+-- hash: ed3765a73a591ef69686d107f7186c7671dff47bee3352e2ade3ded9980f1e96
 
 name:           MicroRAM
 version:        0.1.0.0
@@ -43,8 +43,8 @@ library
       Compiler.RegisterAlloc.Liveness
       Compiler.RemoveLabels
       Compiler.Stacking
-      Data.Graph.Undirected
       Data.Graph.Directed
+      Data.Graph.Undirected
       Data.Queue
       Lib
       LLVMutil.LLVMexamples
@@ -88,7 +88,7 @@ executable MicroRAM-compile
     , base >=4.7 && <5
     , bytestring
     , containers
-    , fgl
+    , haggle
     , llvm-hs
     , llvm-hs-pure
     , mtl
@@ -112,7 +112,7 @@ executable MicroRAM-exe
     , base >=4.7 && <5
     , bytestring
     , containers
-    , fgl
+    , haggle
     , llvm-hs
     , llvm-hs-pure
     , mtl
@@ -138,7 +138,7 @@ test-suite circuit-test
     , base >=4.7 && <5
     , bytestring
     , containers
-    , fgl
+    , haggle
     , llvm-hs
     , llvm-hs-pure
     , mtl
@@ -162,7 +162,7 @@ test-suite compiler-test
     , base >=4.7 && <5
     , bytestring
     , containers
-    , fgl
+    , haggle
     , llvm-hs
     , llvm-hs-pure
     , mtl
@@ -185,7 +185,7 @@ test-suite interpreter-test
     , base >=4.7 && <5
     , bytestring
     , containers
-    , fgl
+    , haggle
     , llvm-hs
     , llvm-hs-pure
     , mtl

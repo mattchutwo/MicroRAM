@@ -18,7 +18,7 @@ import           Compiler.RegisterAlloc.Internal
 -- import Debug.Trace
 
 -- If the target instruction is Nothing, it's a return edge.
-type LivenessResult instname = Map (instname, Maybe instname) (Set VReg) -- Map VReg [(Loc, Loc)]
+type LivenessResult instname = Map (instname, instname) (Set VReg) -- Map VReg [(Loc, Loc)]
 
 -- Assumes SSA.
 -- A good resource: https://www.seas.upenn.edu/~cis341/current/lectures/lec22.pdf
@@ -31,14 +31,17 @@ livenessAnalysis blocks = do -- trace (show blocks) $ do
   let vs = reverse $ DiGraph.topSort cfg
 
   -- Compute in and out for each block.
-  -- go mempty mempty vs
-  go $ Queue.fromList vs
+  let (ins, outs) = go mempty mempty $ Queue.fromList vs
 
   -- Build graph. 
-  -- Just union of out and in for the edge in the graph??
+  -- Just intersection of out and in for the edge in the graph??
+  return $ foldr (\(v1, v2) acc -> 
+      let v1out = maybe mempty id $ Map.lookup v1 outs in
+      let v2in = maybe mempty id $ Map.lookup v2 ins in
+      let regs = Set.intersection v1out v2in in
 
-
-  -- trace (show vs) $ error "TODO"
+      Map.insert (v1, v2) regs acc
+    ) mempty $ DiGraph.edges cfg
 
   where
     -- Build CFG (Edges of instruction names?)
@@ -53,16 +56,21 @@ livenessAnalysis blocks = do -- trace (show blocks) $ do
             (useM', defM')
           ) (mempty, mempty) blocks
 
-    go q | Nothing <- Queue.pop q = error "TODO"
-    go q = 
-      -- TODO:
-      --
-      -- let instates[v] = (outstates[v] `union` readRegisters v) \ writeRegisters v
-      -- 
-      -- Check successors of v?
-      -- If not visited, revisit v after?
-    
-      error "TODO"
+    go ins outs q = case Queue.pop q of
+      Nothing -> (ins, outs)
+      Just (q, v) -> 
+        let lookupSet k = maybe mempty id . Map.lookup k in
+        let oldIn = lookupSet v ins in
+
+        let newOut = Set.unions $ map (\v' -> lookupSet v' ins) $ DiGraph.successors cfg v in
+        let outs' = Map.insert v newOut outs in
+
+        let newIn = lookupSet v useM `Set.union` (newOut `Set.difference` lookupSet v defM) in
+        let ins' = Map.insert v newIn ins in
+
+        let q' = if oldIn /= newIn then foldr Queue.push q (DiGraph.predecessors cfg v) else q in
+
+        go ins' outs' q'
     
 
 buildCFG :: Ord name => [BB name inst] -> DiGraph name [inst] ()

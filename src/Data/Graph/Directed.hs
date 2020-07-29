@@ -2,8 +2,11 @@
 
 module Data.Graph.Directed (
     DiGraph
+  , edges
   , fromEdges
+  , predecessors
   , setNodeLabels
+  , successors
   , topSort
   , topSortWithLabels
   ) where
@@ -43,3 +46,28 @@ topSortWithLabels' g = topSort' g >>= mapM (\nid -> (nid,) <$> Map.lookup nid (d
 
 -- mapVertexLabel :: (n -> n') -> DiGraph nid n e -> DiGraph nid n' e
 -- mapVertexLabel f g = g { diGraphVertexLabel = fmap f (diGraphVertexLabel g) }
+
+successors :: Ord nid => DiGraph nid n e -> nid -> [nid]
+successors g nid = maybe (error "successors: Invalid DiGraph.") id $ successors' g nid
+
+successors' :: Ord nid => DiGraph nid n e -> nid -> Maybe [nid]
+successors' (DiGraph g l _) nid = HGL.lookupVertexForLabel nid l >>= mapM (HGL.vertexLabel g) . HGL.successors g
+
+predecessors :: Ord nid => DiGraph nid n e -> nid -> [nid]
+predecessors g nid = maybe (error "predecessors: Invalid DiGraph.") id $ predecessors' g nid
+
+predecessors' :: Ord nid => DiGraph nid n e -> nid -> Maybe [nid]
+predecessors' (DiGraph g l _) nid = HGL.lookupVertexForLabel nid l >>= mapM (HGL.vertexLabel g) . preds g
+  where
+    -- preds = HGL.predecessors -- JP: Digraph doesn't implement this?
+    -- TODO: More efficient way to do this
+    preds g v = map HGL.edgeSource $ filter (\e -> HGL.edgeDest e == v) $ HGL.edges g
+
+edges :: DiGraph nid n e -> [(nid,nid)]
+edges = maybe (error "edges: Invalid DiGraph.") id . edges'
+
+edges' :: DiGraph nid n e -> Maybe [(nid,nid)]
+edges' (DiGraph g l _) = mapM (\e -> (,) <$> toNid (HGL.edgeSource e) <*> toNid (HGL.edgeDest e)) $ HGL.edges g
+  where
+    toNid = HGL.vertexLabel g
+
