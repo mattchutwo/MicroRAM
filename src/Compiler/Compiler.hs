@@ -50,7 +50,7 @@ import qualified Data.Word as Word
 --import Compiler.Assembler
 
 import Compiler.CompilationUnit
-import Compiler.CompileErrors
+import Compiler.Errors
 import Compiler.IRs
 import Compiler.InstructionSelection
 import Compiler.RegisterAlloc

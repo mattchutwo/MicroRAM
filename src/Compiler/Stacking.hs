@@ -55,7 +55,7 @@ import Data.ByteString.Short (ShortByteString)
 import MicroRAM.MicroRAM
 --import qualified MicroRAM.MicroRAM as MRAM
 
-import Compiler.CompileErrors
+import Compiler.Errors
 import Compiler.IRs
 import Compiler.Registers
 import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..)) 

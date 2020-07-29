@@ -8,7 +8,7 @@ Stability   : prototype
 
 -}
 
-module Compiler.CompileErrors
+module Compiler.Errors
     ( Hopefully,
       implError,
       assumptError,

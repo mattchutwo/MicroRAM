@@ -22,7 +22,7 @@ import qualified LLVM.AST.CallingConvention
 
 -- Local Imports
 import Compiler.IRs
-import Compiler.CompileErrors
+import Compiler.Errors
 import Compiler.InstructionSelection
 import LLVMutil.LLVMIO
 

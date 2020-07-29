@@ -18,7 +18,7 @@ import qualified Data.Map as Map
 
 import qualified MicroRAM.MicroRAM as MRAM
 
-import Compiler.CompileErrors
+import Compiler.Errors
 import Compiler.IRs
 
 

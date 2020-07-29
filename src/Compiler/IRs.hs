@@ -16,7 +16,7 @@ import Data.ByteString.Short
 import qualified Data.Map as Map
 
 import Compiler.Registers
-import Compiler.CompileErrors
+import Compiler.Errors
 
 type ($) a b = a b
 

@@ -26,7 +26,7 @@ import qualified Data.Map as Map
 
 -- Compiler imports
 import Compiler.Registers
-import Compiler.CompileErrors
+import Compiler.Errors
 import Compiler.InstructionSelection
 import Compiler.RegisterAlloc
 import Compiler.Stacking

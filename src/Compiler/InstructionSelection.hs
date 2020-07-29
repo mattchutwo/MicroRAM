@@ -39,7 +39,7 @@ import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.IntegerPredicate as IntPred
 import qualified LLVM.AST.ParameterAttribute as ParamAtt
 
-import Compiler.CompileErrors
+import Compiler.Errors
 import Compiler.IRs
 
 import MicroRAM.MicroRAM (Operand'(..), MAOperand) 
