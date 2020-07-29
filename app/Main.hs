@@ -20,7 +20,7 @@ prog1 = [Iadd 0 1 (Const 1), -- x=1
 -- Hardcode 16 registers for now
 k = 16
 -- No input or advice
-input, advice :: Tape
+input, advice :: [Word]
 input = []
 advice = []
 

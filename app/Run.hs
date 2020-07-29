@@ -11,7 +11,7 @@ import Compiler.Compiler
 import Compiler.IRs (Name)
 import MicroRAM.MicroRAM
 import Compiler.CompilationUnit (CompilationUnit(..))
-import MicroRAM.MRAMInterpreter (execAnswer)
+import MicroRAM.MRAMInterpreter (execAnswer, initMem, emptyInitMem)
 
 import Data.List
 
@@ -28,14 +28,15 @@ main = do
                    "Input file needs to be a .micro file: " ++ (show file)
         Just name -> do
           mramProgram <- microFromFile file
+          putStrLn $ "With arguments " ++ show progArgs
           putStrLn $ "Running program " ++ file ++ " for " ++ bound ++ " steps."
-          mramArgs <- return $ parseArgs progArgs
-          result <- return $ execAnswer mramProgram (read bound) mramArgs
+          --mramArgs <- return $ parseArgs progArgs
+          result <- return $ execAnswer mramProgram (read bound) (initMem progArgs)
           putStrLn $ "Result: " ++ show result
           
 
-parseArgs :: [String] -> [Word]
-parseArgs = map read
+--parseArgs :: [String] -> [Word]
+--parseArgs = map read
           
 microFromFile :: FilePath -> IO ((Program Name Word)) 
 microFromFile file = do

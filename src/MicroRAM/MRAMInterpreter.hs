@@ -3,14 +3,15 @@
 {-# LANGUAGE StandaloneDeriving #-}
 module MicroRAM.MRAMInterpreter
   ( Mem,
-    Tape, 
+    --Tape, 
     State(..),
     Prog,
     Trace,
     run,
     execAnswer,
     --init_state,
-    load
+    load,
+    initMem, emptyInitMem -- should this go elsewhere?
     ) where
 
 import MicroRAM.MicroRAM
@@ -96,10 +97,14 @@ init_flag = False
 -- but that is not good to building a (finite) trace
 -- also we want programs that read uninitialized memory to bad
 
+
 type Mem = (Wrd,Map.Map Wrd Wrd)
 
-init_mem :: Mem
-init_mem = (0,Map.empty)
+-- | Initial memory is given as input to the program.
+init_mem :: [Word] -> Mem
+init_mem input = (0,Map.fromList $ zip [0..] extendedInput)
+  where -- | Add the special locations 1 and 0 with null pointer and input size
+    extendedInput = [0 , fromIntegral $ length input] ++ input
 
 store ::  Wrd -> Wrd -> Mem -> Mem
 store x y (d,m)=  (d,Map.insert x y m) 
@@ -110,8 +115,8 @@ load x (d,m)=  case Map.lookup x m of
                  Nothing -> d
 
 
--- *** Tapes
-type Tape = [Wrd]  -- ^read only tape
+-- *** Tapes: OBSOLETE input is passed as initial memory.
+--type Tape = [Wrd]  -- ^read only tape
 
 -- ** Program state State
 {- I don't include the program in the state since it never changes
@@ -124,7 +129,7 @@ data State mreg = State {
   pc :: Pc
   , regs :: RMap mreg Word 
   , mem :: Mem
-  , tapes :: (Tape, Tape)
+  --, tapes :: (Tape, Tape)
   , flag :: Bool
   , bad :: Bool
   , answer :: Word }
@@ -133,12 +138,12 @@ deriving instance (Read (RMap mreg Word)) => Read (State mreg)
 deriving instance (Show (RMap mreg Word)) => Show (State mreg)
 
   
-init_state :: Regs mreg => Tape -> Tape -> State mreg
-init_state t_input t_advice  = State {
+init_state :: Regs mreg => [Word] -> State mreg
+init_state input  = State {
   pc = init_pc
   , regs = initBank 0
-  , mem = init_mem
-  , tapes = (t_input, t_advice)
+  , mem = init_mem input
+  --, tapes = (t_input, t_advice)
   , flag = init_flag
   , bad = init_flag
   , answer = 0
@@ -178,23 +183,23 @@ set_pair::Side -> a -> (a,a) -> (a,a)
 set_pair LeftSide a (_, b)= (a, b)
 set_pair RightSide b (a, _) = (a,b)
 
-get_tape::State mreg -> Side -> Tape
-get_tape st b = get_pair b (tapes st)
+--get_tape::State mreg -> Side -> Tape
+--get_tape st b = get_pair b (tapes st)
 
 to_side:: Wrd -> Maybe Side
 to_side 0 = Just LeftSide
 to_side 1 = Just RightSide
 to_side _ = Nothing
 
-pop::Tape -> Maybe (Wrd, Tape)
-pop (x:tp) = Just (x,tp)
-pop _ = Nothing
+--pop::Tape -> Maybe (Wrd, Tape)
+--pop (x:tp) = Just (x,tp)
+--pop _ = Nothing
 
-set_tape::Side -> Tape -> State mreg -> State mreg
-set_tape sd tp st  =  st {
-  tapes = set_pair sd tp (tapes st)
-  , flag = False -- ^ changing the tape always sets the flag to 0 (as per Tiny RAM semantics)
-}
+--set_tape::Side -> Tape -> State mreg -> State mreg
+--set_tape sd tp st  =  st {
+--  tapes = set_pair sd tp (tapes st)
+--  , flag = False -- ^ changing the tape always sets the flag to 0 (as per Tiny RAM semantics)
+--}
 
 set_answer:: Word -> State mreg -> State mreg
 set_answer ans st  =  st { answer = ans }
@@ -202,15 +207,15 @@ set_answer ans st  =  st { answer = ans }
 -- Pop tape tries to pop a value from tape tp_n and store it in register r
 -- if the tape is empty (or tp_n > 2) set r = 0 and flag = 1
 -- if success set flag = 0
-pop_tape:: Regs mreg => Wrd -> mreg -> State mreg -> State mreg
-pop_tape tp_n r st =
-  case try_pop_tape st tp_n r of
-    Just st' -> set_flag False st'
-    _ -> set_flag True (set_reg r 0 st)
-  where try_pop_tape st tp_n r = do
-          sd <- to_side tp_n
-          (x,tp) <- pop (get_tape st sd)
-          Just $ set_reg r x $ set_tape sd tp st
+--pop_tape:: Regs mreg => Wrd -> mreg -> State mreg -> State mreg
+--pop_tape tp_n r st =
+--  case try_pop_tape st tp_n r of
+--    Just st' -> set_flag False st'
+--    _ -> set_flag True (set_reg r 0 st)
+--  where try_pop_tape st tp_n r = do
+--          sd <- to_side tp_n
+--          (x,tp) <- pop (get_tape st sd)
+--          Just $ set_reg r x $ set_tape sd tp st
 
 next:: State mreg -> State mreg
 next st = set_pc (succ $ pc st) st
@@ -402,7 +407,7 @@ exec (Icnjmp a) st = if not $ flag st then exec_jmp st a else next st
 --Memory operations
 exec (Istore a r1) st = next $ store_mem (eval_operand st a) (get_reg (regs st) r1) st
 exec (Iload r1 a) st = next $ set_reg r1 (load (eval_operand st a) $ (mem st)) st
-exec (Iread r1 a) st = next $ pop_tape (eval_operand st a) r1 st
+exec (Iread r1 a) st = next $ st -- pop_tape (eval_operand st a) r1 st
 
 -- Answer : set answer to ans and loop (pc not incremented)
 exec (Ianswer a) st =
@@ -419,8 +424,8 @@ step prog st = exec (prog !! (toInt $ pc st)) st
 
 -- ** Execution
 type Trace mreg = [State mreg]
-run :: Regs mreg => Tape -> Tape -> Prog mreg -> Trace mreg
-run x w prog = iterate (step prog) $ init_state x w
+run :: Regs mreg => [Word] -> Prog mreg -> Trace mreg
+run inp prog = iterate (step prog) $ init_state inp
 
 -- ** Some facilities to run
 -- Simple getters to explore the trace.
@@ -445,19 +450,49 @@ flag_trace' t= map flag t
 -}
 k = 16
 
-run' n prog = Prelude.take n (run [] [] prog)
+run' n prog = Prelude.take n (run [] prog)
 pc_trace n prog = map pc (run' n prog)
 out_trace n prog = map (\s-> lookupReg 0 (regs s)) (run' n prog)
 flag_trace n prog = map flag (run' n prog)
 
 execute :: Regs mreg => Prog mreg -> Int -> Wrd
-execute prog n = lookupReg sp (regs $ (run [] [] prog) !! n)
+execute prog n = lookupReg sp (regs $ (run [] prog) !! n)
 
-execute_pc prog n = lookupReg sp ((see_regs $ run [] [] prog) n)
+execute_pc prog n = lookupReg sp ((see_regs $ run [] prog) n)
 
-exec_input :: Regs mreg => Prog mreg -> Tape -> Tape -> Int -> Wrd
-exec_input prog x w n = lookupReg sp ((see_regs $ run x w prog) n)
+exec_input :: Regs mreg => Prog mreg -> [Word] -> Int -> Wrd
+exec_input prog inp n = lookupReg sp ((see_regs $ run inp prog) n)
 
 
 execAnswer :: Regs mreg => Prog mreg -> Int -> [Word] -> Word
-execAnswer prog bound input = answer $ (run input [] prog) !! bound
+execAnswer prog bound input = answer $ (run input prog) !! bound
+
+
+
+
+
+
+-- | Create the initial memory from a list of inputs
+-- TODO This seems out of place, but I don't know where to put it
+initMem :: [String] -> [Word]
+initMem ls = map fromIntegral $
+  let argsAsChars = args2chars ("Name":ls) in   -- we fake the "name" of the program.
+    let argv_array = getStarts argsAsChars in
+      let argsAsString = concat argsAsChars in
+        argsAsString ++
+        argv_array ++
+        [length argv_array, 2 + length argsAsString]
+        
+  where args2chars ls = map (addNull . str2Ascii) ls 
+        addNull ls = (ls ++ [0])
+        str2Ascii ls = map char2Ascii ls
+        char2Ascii ch = fromEnum ch
+        getStarts = getStartsRec 2 []
+
+        getStartsRec _ ret [] = ret
+        getStartsRec n ret (x:ls) =
+          getStartsRec (n+length x) (ret++[n]) ls
+
+emptyInitMem :: [Word]
+emptyInitMem = initMem []
+          

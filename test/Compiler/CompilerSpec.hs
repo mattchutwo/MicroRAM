@@ -48,29 +48,6 @@ tests' = testGroup "Compiler tests" $
 nats :: [Int] 
 nats = iterate ((+) 1) 0
 
--- | Create the initial memory from a list of inputs
-initMem :: [String] -> [Word]
-initMem ls = map fromIntegral $
-  let argsAsChars = args2chars ls in
-    let argv_array = getStarts argsAsChars in
-      let argsAsString = concat argsAsChars in
-        argsAsString ++
-        argv_array ++
-        [length argv_array, 2 + length argsAsString]
-        
-  where args2chars ls = map (addNull . str2Ascii) ls 
-        addNull ls = (ls ++ [0])
-        str2Ascii ls = map char2Ascii ls
-        char2Ascii ch = fromEnum ch
-        getStarts = getStartsRec 2 []
-
-        getStartsRec _ ret [] = ret
-        getStartsRec n ret (x:ls) =
-          getStartsRec (n+length x) (ret++[n]) ls
-
-emptyInitMem :: [Word]
-emptyInitMem = initMem []
-          
 tests = testGroup "Compiler tests" $
   compileTest
     "Return 42"
@@ -83,19 +60,19 @@ tests = testGroup "Compiler tests" $
   compileTest
     "Return argc"
     "programs/returnArgc.ll"
-    50 (initMem ["one","two", "three"]) 3 :
+    50 (initMem ["one","two", "three"]) 4 : -- Counts program name as arg
   compileTest
     "Fibonacci loop (not optimized)"
     "programs/fibSlow.ll"
-    375 (initMem $ take 10 $ repeat "") 34 :
+    375 (initMem $ take 10 $ repeat "") 55 : 
   compileTest
     "Fibonacci loop"
     "programs/fib.ll"
-    300  (initMem $ take 10 $ repeat "") 34 :
+    300  (initMem $ take 10 $ repeat "") 55 :
   compileTest
-    "Text into numbers"
-    "programs/convertText.ll"
-    20 [] 123 :
+    "Input text into numbers"
+    "programs/returnInput.ll"
+    80 (initMem ["43"]) 43 :
 --  compileTest "Hello world" "programs/hello.ll" 50 [] 0 :
     []
 

@@ -212,13 +212,13 @@ readInput =
 -}
 
 findAguments :: Regs mreg => [NamedBlock mreg Word]
-findAguments = (MRAM.NBlock (Name "_Find arguments_")
+findAguments = (MRAM.NBlock (Just "_Find arguments_")
   [Iload sp (Const 1),  -- Stack pointer points to argc
    Iload argc (Reg sp), -- Load argc into first argument
    Iadd sp sp (Const 1),
    Iload argv (Reg sp), -- Load argc into first argument
    Iadd sp sp (Const 1)
-  ]  :
+  ]) :
   []
 
 -- | Premain:
