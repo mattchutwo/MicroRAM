@@ -56,21 +56,23 @@ data IRInstruction metadata regT wrdT irinst =
    MRI (MRAM.MAInstruction regT wrdT) metadata
   | IRI irinst metadata
   deriving (Show)
+
 data Function nameT paramT blockT =
   Function nameT paramT [paramT] [blockT] deriving (Show, Functor)
 
 
 
-type DAGinfo = [Name]
+type DAGinfo name = [name]
 -- | Basic blocks:
 --  it's a list of instructions + all the blocks that it can jump to
 --  It separates the body from the instructions of the terminator.
-data BB instrT = BB Name [instrT] [instrT] DAGinfo
+data BB name instrT = BB name [instrT] [instrT] (DAGinfo name)
   deriving (Show,Functor)
 
 type IRFunction mdata regT wrdT irinstr =
-  Function Name Ty (BB $ IRInstruction mdata regT wrdT irinstr)
+  Function Name Ty (BB Name $ IRInstruction mdata regT wrdT irinstr)
  
+
 data Name =
   Name ShortByteString -- | we keep the LLVM names
   | NewName Word         -- | and add some new ones
@@ -102,7 +104,7 @@ type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar 
 data IRprog mdata wrdT funcT = IRprog
   { typeEnv :: TypeEnv
   , globals :: GEnv wrdT
-  , code :: [funcT]
+  , code :: [funcT] -- Previously irProgCode
   } deriving (Show, Functor)
 
 
@@ -161,7 +163,6 @@ type Rprog mdata wrdT = IRprog mdata wrdT $ RFunction mdata wrdT
 
 -- It's the target language for register allocation: Close to RTL but uses machine registers and stack slots instead of virtual registers.
 
-
 -- | Slots are abstract representation of locations in the activation record and come in three kinds
 data Slot =
     Local     -- ^ Used by register allocation to spill pseudo-registers to the stack
@@ -176,6 +177,7 @@ data Loc mreg where
   deriving (Show)
 
 -- | LTL unique instrustions
+-- JP: wrdT is unused. Drop?
 data LTLInstr' mreg wrdT operand =
     Lgetstack Slot Word Ty mreg -- load from the stack into a register
   | Lsetstack mreg Slot Word Ty -- store into the stack from a register
@@ -194,17 +196,18 @@ data LTLInstr' mreg wrdT operand =
   
 type LTLInstr mdata mreg wrdT =
   IRInstruction mdata mreg wrdT (LTLInstr' mreg wrdT $ MAOperand mreg wrdT)
+  
 
 -- data Function nameT paramT blockT =
 --  Function nameT paramT [paramT] [blockT]
 data LFunction mdata mreg wrdT = LFunction {
-  funName :: String -- should this be a special label?
+    funName :: String -- should this be a special label?
   , funMetadata :: mdata
   , retType :: Ty
   , paramTypes :: [Ty]
   , stackSize :: Word
-  , funBody:: [BB $ LTLInstr mdata mreg wrdT]
-} deriving (Show)
+  , funBody:: [BB Name $ LTLInstr mdata mreg wrdT]
+  } deriving (Show)
 
 type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
 
@@ -213,7 +216,7 @@ type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
 rtlToLtl :: forall mdata wrdT . Monoid mdata => Rprog mdata wrdT -> Hopefully $ Lprog mdata VReg wrdT
 rtlToLtl (IRprog tenv globals code) = do
   code' <- mapM convertFunc code
-  return $ IRprog tenv globals $ code'
+  return $ IRprog tenv globals code'
   where
    convertFunc :: RFunction mdata wrdT -> Hopefully $ LFunction mdata VReg wrdT
    convertFunc (Function name retType paramTypes body) = 
@@ -225,7 +228,7 @@ rtlToLtl (IRprog tenv globals code) = do
          body' <- mapM convertBasicBlock body
          return $ LFunction name' mdata retType paramTypes stackSize body' 
 
-   convertBasicBlock :: BB (RTLInstr mdata wrdT) -> Hopefully $ BB (LTLInstr mdata VReg wrdT)
+   convertBasicBlock :: BB name (RTLInstr mdata wrdT) -> Hopefully $ BB name (LTLInstr mdata VReg wrdT)
    convertBasicBlock (BB name instrs term dag) = do
      instrs' <- mapM convertIRInstruction instrs
      term' <- mapM convertIRInstruction term
