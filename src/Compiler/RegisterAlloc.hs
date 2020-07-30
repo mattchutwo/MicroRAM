@@ -60,7 +60,7 @@ registerAlloc rprog = do
     numRegisters = 8
     -- Available registers.
     -- First two registers are reserved.
-    registers = map NewName [2..numRegisters]
+    registers = map NewName [2..numRegisters-1]
 
 -- Register allocator state.
 data RAState = RAState {
