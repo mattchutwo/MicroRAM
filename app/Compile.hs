@@ -16,6 +16,7 @@ import LLVMutil.LLVMutil
 import Compiler.Compiler
 
 
+import Compiler.Errors
 import Compiler.Compiler
 import LLVMutil.LLVMIO
 import Frontend.ClangCaller
@@ -34,12 +35,15 @@ callBackend fr = do
   -- Retrieve program from file
   llvmModule <- llvmParse $ llvmFile fr
   -- Then compile
-  case compile $ llvmModule of
+  handleErrorWith (compile $ llvmModule)
+    (\prog -> writeFile (fileOut fr) $ show prog)
+  
+{-  case compile $ llvmModule of
     Left error -> do
       hPutStrLn stderr ("Backend compilation error: " ++ show error)
       exitWith (ExitFailure 1)
     Right prog -> writeFile (fileOut fr) $ show prog                
-                
+-}                
   
 -- | Extracts the prefix: checkName file 
 removeSuffix :: String -> Maybe String

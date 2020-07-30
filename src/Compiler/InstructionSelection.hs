@@ -119,7 +119,7 @@ type2type (LLVM.ArrayType size elemT) = do
   elemT' <- type2type elemT
   size' <- return $ wrdFromwrd64 size
   return $ Tarray size' elemT'
-type2type t = implError $ "Type: " ++ (show t)
+type2type t = implError $ "Type: \n \t " ++ (show t)
 
 
 -- | toRTL lifts simple MicroRAM instruction into RTL.
@@ -178,7 +178,7 @@ isBinop (Just ret) (LLVM.LocalReference _ name1) op2 bop = do
   a <- operand2operand op2
   return $ [bop ret r1 a]
 isBinop ret op1 op2 _ = implError $
-  "Binary operation with operands other than (register,register) or (register,constant). Tried compiling: " ++ (show (ret,op1,op2)) ++ ". Maybe you tried compiling a term of the form '3*r0'. That's not supported yet. Try 'r0*3'"
+  "Binary operation with operands other than (register,register) or (register,constant). Tried compiling: \n \t " ++ (show (ret,op1,op2)) ++ ". \n \t Maybe you tried compiling a term of the form '3*r0'. That's not supported yet. Try 'r0*3'"
 
 -- ** Comparisons
 {- Unfortunately MRAM always puts a comparisons in the "flag"
@@ -222,7 +222,7 @@ isCompare IntPred.SGT (Reg lhs) rhs = return $ MRAM.Icmpg lhs rhs
 isCompare IntPred.SGE (Reg lhs) rhs = return $ MRAM.Icmpge lhs rhs
 isCompare IntPred.SLT (Reg lhs) rhs = return $ MRAM.Icmpge lhs rhs
 isCompare IntPred.SLE (Reg lhs) rhs = return $ MRAM.Icmpg lhs rhs
-isCompare pred _ _ = implError $ "Unsigned comparisons: " ++ show pred
+isCompare pred _ _ = implError $ "Unsigned comparisons: \n \t" ++ show pred
 
 
 fError = implError "Floatin point arithmetic"
@@ -254,7 +254,7 @@ function2function (Right (LLVM.LocalReference ty nm)) = do
         functionTypes (LLVM.FunctionType  _ _ True) =
           implError $ "Variable parameters (isVarArg in function call)."
         functionTypes ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
-function2function (Right (LLVM.ConstantOperand c)) = implError $ "Calling a funciton with a constant or a global. You called: " ++ show c
+function2function (Right (LLVM.ConstantOperand c)) = implError $ "Calling a funciton with a constant or a global. You called: \n \t" ++ show c
 
 -- | Process parameters into RTL format
 -- WE dump the attributes

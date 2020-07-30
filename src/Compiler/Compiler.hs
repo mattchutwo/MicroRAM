@@ -65,11 +65,11 @@ import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..))
 f <.> g = \x -> return $ f $ g x 
 
 compile :: LLVM.Module
-        -> Hopefully $ CompilationUnit (MRAM.Program Name Word)
+        -> CompilerPassError $ CompilationUnit (MRAM.Program Name Word)
 compile llvmProg = (return $ prog2unit llvmProg)
-  >>= (justCompile instrSelect)
-  >>= (justCompile trivialRegisterAlloc) --FIXME remove the trivial
-  >>= (justCompile stacking)
-  >>= (justAnalyse (SparsityData <.> sparsity))
-  >>= (justCompile removeLabels)
+  >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
+  >>= (tagPass "Instruction Selection" $ justCompile trivialRegisterAlloc) --FIXME
+  >>= (tagPass "Instruction Selection" $ justCompile stacking)
+  >>= (tagPass "Instruction Selection" $ justAnalyse (SparsityData <.> sparsity))
+  >>= (tagPass "Instruction Selection" $ justCompile removeLabels)
           
