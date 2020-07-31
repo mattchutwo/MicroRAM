@@ -11,7 +11,7 @@ import qualified Data.Map as Map
 import           Data.Set (Set)
 import qualified Data.Set as Set
 
-import           Compiler.CompileErrors
+import           Compiler.Errors
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 
@@ -48,10 +48,10 @@ livenessAnalysis blocks = do -- trace (show blocks) $ do
     cfg = buildCFG blocks
 
     -- Compute use and define set for each block.
-    (useM, defM) = foldr (\(BB name insts _) (useM, defM) ->
+    (useM, defM) = foldr (\(BB name insts insts' _) (useM, defM) ->
             -- let useM' = Map.insertWith Set.union name (Set.unions $ map readRegisters insts) useM in
-            let useM' = Map.insert name (Set.unions $ map readRegisters insts) useM in
-            let defM' = Map.insert name (Set.unions $ map writeRegisters insts) defM in
+            let useM' = Map.insert name (Set.unions $ map readRegisters (insts' ++ insts)) useM in
+            let defM' = Map.insert name (Set.unions $ map writeRegisters (insts' ++ insts)) defM in
 
             (useM', defM')
           ) (mempty, mempty) blocks
@@ -73,13 +73,13 @@ livenessAnalysis blocks = do -- trace (show blocks) $ do
         go ins' outs' q'
     
 
-buildCFG :: Ord name => [BB name inst] -> DiGraph name [inst] ()
+buildCFG :: Ord name => [BB name inst] -> DiGraph name ([inst], [inst]) ()
 buildCFG blocks = DiGraph.setNodeLabels nodeLabels $ DiGraph.fromEdges edges
   where
-    edges = concatMap (\(BB name insts names) -> 
+    edges = concatMap (\(BB name _insts _insts' names) -> 
         map (name,) names
       ) blocks
 
     -- JP: We have the invariant that each block has one instruction, so we could return `DiGraph name inst ()` instead.
-    nodeLabels = map (\(BB name insts names) -> (name, insts)) blocks
+    nodeLabels = map (\(BB name insts insts' names) -> (name, (insts, insts'))) blocks
 

@@ -24,15 +24,14 @@ import           Control.Monad.State (runStateT, StateT, get, modify')
 import           Control.Monad.Trans.Class (lift)
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Short as BSS
-import           Data.Graph.Undirected (Graph(..))
+import           Data.Graph.Undirected (Graph)
 import qualified Data.Graph.Undirected as Graph
 import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Map (Map)
 import qualified Data.Map as Map
-import           Data.Set (Set)
 import qualified Data.Set as Set
 
-import           Compiler.CompileErrors
+import           Compiler.Errors
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.RegisterAlloc.Liveness
@@ -50,9 +49,9 @@ registerAlloc rprog = do
   -- Replace `Name "0"` with `Lgetstack Incoming 0 _ _`, ...
 
   -- Run register allocation.
-  code <- mapM (registerAllocFunc registers) $ irProgCode lprog
+  code <- mapM (registerAllocFunc registers) $ code lprog
 
-  return $ lprog {irProgCode = code}
+  return $ lprog {code = code}
 
 
   where
@@ -126,16 +125,22 @@ spillRegister spillReg pos blocks = do
   return $ concat blocks'
   where
     spillBlock :: BB name (LTLInstr mdata VReg wrdT) -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
-    spillBlock (BB (name, iid) insts dag) = do
-      insts' <- mapM spillIRInstruction insts
-      flatten name iid dag $ concat insts'
+    spillBlock (BB (name, iid) insts tInsts dag) = do
+      insts' <- concat <$> mapM spillIRInstruction insts
+      tInsts' <- concat <$> mapM spillIRInstruction tInsts
+      flatten name iid dag insts' tInsts'
 
-    flatten :: Name -> Int -> DAGinfo name -> [LTLInstr mdata VReg wrdT] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
-    flatten name iid dag [] = return []
-    flatten name iid dag [inst] = return [BB (name, iid) [inst] dag]
-    flatten name iid dag (inst:insts) = do
+    flatten :: Name -> Int -> DAGinfo name -> [LTLInstr mdata VReg wrdT] -> [LTLInstr mdata VReg wrdT] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
+    flatten name iid dag [] [] = return []
+    flatten name iid dag [] [inst] = do
+      return [BB (name, iid) [] [inst] dag]
+    flatten name iid dag [] (inst':insts') = do
       iid' <- getNextInstructionId name
-      ((BB (name, iid) [inst] [(name, iid')]):) <$> flatten name iid' dag insts
+      ((BB (name, iid) [] [inst'] [(name, iid')]):) <$> flatten name iid' dag [] insts'
+    flatten name iid dag [inst] [] = return [BB (name, iid) [inst] [] dag]
+    flatten name iid dag (inst:insts) insts' = do
+      iid' <- getNextInstructionId name
+      ((BB (name, iid) [inst] [] [(name, iid')]):) <$> flatten name iid' dag insts insts'
 
 
     -- Assumes SSA.
@@ -181,7 +186,7 @@ applyColoring :: Map VReg VReg -> [BB name (LTLInstr mdata VReg wrdT)] -> Hopefu
 applyColoring coloring = mapM applyBasicBlock
   where
     applyBasicBlock :: BB name (LTLInstr mdata VReg wrdT) -> Hopefully (BB name (LTLInstr mdata VReg wrdT))
-    applyBasicBlock (BB name insts dag) = BB name <$> mapM applyIRInstruction insts <*> pure dag
+    applyBasicBlock (BB name insts insts' dag) = BB name <$> mapM applyIRInstruction insts <*> mapM applyIRInstruction insts' <*> pure dag
 
     applyIRInstruction :: LTLInstr mdata VReg wrdT -> Hopefully (LTLInstr mdata VReg wrdT)
     applyIRInstruction (MRI inst mdata) = MRI <$> applyMRIInstruction inst <*> pure mdata
@@ -239,16 +244,32 @@ applyColoring coloring = mapM applyBasicBlock
 -- Instruction identifiers are not guaranteed to be in order.
 -- The first instruction will always have identifier 0.
 flattenBasicBlock :: BB Name inst -> StateT RAState Hopefully [BB (Name, Int) inst]
-flattenBasicBlock (BB name instrs dag) = flatten instrs
+flattenBasicBlock (BB name instrs instrs' dag) = flatten instrs instrs'
   where
-    flatten [] = return []
-    flatten [instr] = do
+    flatten [] [] = return []
+    flatten [] [instr] = do
       iid <- getNextInstructionId name
       let dag' = map (, 0) dag
-      return [BB (name, iid) [instr] dag']
-    flatten (instr:instrs) = do
+      return [BB (name, iid) [] [instr] dag']
+    flatten [] (instr':instrs') = do
       iid <- getNextInstructionId name
-      (BB (name, iid) [instr] [(name, iid+1)]:) <$> flatten instrs
+      (BB (name, iid) [] [instr'] [(name, iid+1)]:) <$> flatten [] instrs'
+    flatten [instr] [] = do
+      iid <- getNextInstructionId name
+      let dag' = map (, 0) dag
+      return [BB (name, iid) [instr] [] dag']
+    flatten (instr:instrs) instrs' = do
+      iid <- getNextInstructionId name
+      (BB (name, iid) [instr] [] [(name, iid+1)]:) <$> flatten instrs instrs'
+
+    -- flatten [] = return []
+    -- flatten [instr] = do
+    --   iid <- getNextInstructionId name
+    --   let dag' = map (, 0) dag
+    --   return [BB (name, iid) [instr] dag']
+    -- flatten (instr:instrs) = do
+    --   iid <- getNextInstructionId name
+    --   (BB (name, iid) [instr] [(name, iid+1)]:) <$> flatten instrs
 
 getNextInstructionId :: Name -> StateT RAState Hopefully Int
 getNextInstructionId name = do
@@ -270,13 +291,13 @@ getNextInstructionId name = do
 
 unflattenBasicBlock :: [BB (Name, Int) inst] -> [BB Name inst]
 unflattenBasicBlock bbs' = 
-  let bbs = NonEmpty.groupWith (\(BB (name,_) _ _) -> name) bbs' in
+  let bbs = NonEmpty.groupWith (\(BB (name,_) _ _ _) -> name) bbs' in
   map (\bbs ->
-      let (BB (name, _) _ dag') = NonEmpty.last bbs in
+      let (BB (name, _) _ _ dag') = NonEmpty.last bbs in
       let dag = map fst dag' in
-      let insts = concatMap (\(BB _ insts _) -> insts) bbs in
+      let (insts, insts') = unzip $ map (\(BB _ insts insts' _) -> (insts, insts')) $ NonEmpty.toList bbs in
 
-      BB name insts dag
+      BB name (concat insts) (concat insts') dag
     ) bbs
 
 
@@ -306,79 +327,79 @@ computeInterferenceGraph liveness =
 -- FIXME: remove this once registerAlloc is implemented and can be tested!
 
 trivialRegisterAlloc :: Rprog () Word -> Hopefully $ Lprog () VReg Word
-trivialRegisterAlloc = rtlToLtl . replacePhi
+trivialRegisterAlloc = rtlToLtl
 
 
 
 
--- * TRIVIAL PHI REMOVIAL
--- ALL OF THIS SHOULD GO ONCE THE REAL REGISTER ALLOCATION IS READY
--- TODO: delete everything bellow this.
-
-{- | Moves all `Phi`s back to the other block as Imov instruction
-Example:
-If you have `RPhi r2 (r1, block0)` we remove that instruction and add the following at the end of  `block0`: `Imove r2 r1`.
-
-It works in two steps:
-1.  Remove all the phi's and store the info of what register needs to move where, in what block.
-2. Add, at the end of every block, the necessary move instructions calculated in the last step.
-
--}
--- | Map2 is a mpa that takes two keys and returns one value
-type Map2 t1 t2 t3 = Map.Map t1 (Map.Map t2 t3) 
-
-replacePhi :: Rprog () Word -> Rprog () Word
-replacePhi prog = addPhiMoves $ abstractPhi prog
-
--- | removes all occurrences of Phi, and stores the move information in a map
--- (Name,Name) represents the name of the function and the name of the block.
-type AbstractPhiProgram = (Rprog () Word, Map2 Name Name [(VReg, MRAM.MAOperand VReg Word)]) 
-abstractPhi :: Rprog () Word -> AbstractPhiProgram 
-abstractPhi (IRprog tenv globs code) =
-  let (phiMap, code') = abstractPhiCode code in
-    (IRprog tenv globs code', phiMap)
-
-  where abstractPhiCode code = foldr abstractPhiFunc (Map.empty, []) code
- 
-        abstractPhiFunc (Function name ret args code) (phiMap, funcs) =
-          let (phiMapF, code') = foldr abstractPhiBlock (Map.empty, [])  code in
-            (Map.insert name phiMapF phiMap, Function name ret args code' : funcs)
-
-        abstractPhiBlock (BB name code term dagd) (phiMap, blocks) =
-          let (phiMapB, code') = abstractPhiBody code in
-            (Map.unionWith (++) phiMapB phiMap, BB name code' term dagd : blocks)
-
-        abstractPhiBody (IRI (RPhi vreg phiBacks) mdata: codeTl) =
-          let (phiMapB, code') = abstractPhiBody codeTl in
-            (Map.unionWith (++) (turnPhis vreg phiBacks) phiMapB, code') 
-        abstractPhiBody code = (Map.empty,code)
-
-        turnPhis vreg phiBacks = foldr (turnPhi vreg) Map.empty phiBacks
-        turnPhi vreg (val, label) phiMap =
-          Map.insertWith (++) label [(vreg,val)] phiMap 
-        
-
-          
--- | Adds all the abstract PHi information as `Imov` instructions
-addPhiMoves :: AbstractPhiProgram -> Rprog () Word
-addPhiMoves (prog, phiMap) = prog {code = map (addPhiFunc phiMap) $ code prog}
-  where addPhiFunc phiMap (Function name ret args code) =
-          Function name ret args (map (addPhiBlock (Map.lookup name phiMap)) code)
-
-        addPhiBlock ::
-          (Maybe $ Map.Map Name [(VReg, MRAM.MAOperand VReg Word)])
-          -> BB $ RTLInstr () Word
-          -> BB $ RTLInstr () Word
-        addPhiBlock Nothing block = block
-        addPhiBlock (Just phiMap) (BB name code term dagd) =
-          (BB name (code ++ (phiMap2Instructions $ Map.lookup name phiMap)) term dagd)
-
-        phiMap2Instructions ::
-          Maybe [(VReg, MRAM.MAOperand VReg Word)]
-          -> [RTLInstr () Word]
-        phiMap2Instructions Nothing = []
-        phiMap2Instructions (Just ls) = map phiPair2instr ls
-        
-        phiPair2instr (reg, op) = MRI (MRAM.Imov reg op) () 
-        
+-- -- * TRIVIAL PHI REMOVIAL
+-- -- ALL OF THIS SHOULD GO ONCE THE REAL REGISTER ALLOCATION IS READY
+-- -- TODO: delete everything bellow this.
+-- 
+-- {- | Moves all `Phi`s back to the other block as Imov instruction
+-- Example:
+-- If you have `RPhi r2 (r1, block0)` we remove that instruction and add the following at the end of  `block0`: `Imove r2 r1`.
+-- 
+-- It works in two steps:
+-- 1.  Remove all the phi's and store the info of what register needs to move where, in what block.
+-- 2. Add, at the end of every block, the necessary move instructions calculated in the last step.
+-- 
+-- -}
+-- -- | Map2 is a mpa that takes two keys and returns one value
+-- type Map2 t1 t2 t3 = Map.Map t1 (Map.Map t2 t3) 
+-- 
+-- replacePhi :: Rprog () Word -> Rprog () Word
+-- replacePhi prog = addPhiMoves $ abstractPhi prog
+-- 
+-- -- | removes all occurrences of Phi, and stores the move information in a map
+-- -- (Name,Name) represents the name of the function and the name of the block.
+-- type AbstractPhiProgram = (Rprog () Word, Map2 Name Name [(VReg, MRAM.MAOperand VReg Word)]) 
+-- abstractPhi :: Rprog () Word -> AbstractPhiProgram 
+-- abstractPhi (IRprog tenv globs code) =
+--   let (phiMap, code') = abstractPhiCode code in
+--     (IRprog tenv globs code', phiMap)
+-- 
+--   where abstractPhiCode code = foldr abstractPhiFunc (Map.empty, []) code
+--  
+--         abstractPhiFunc (Function name ret args code) (phiMap, funcs) =
+--           let (phiMapF, code') = foldr abstractPhiBlock (Map.empty, [])  code in
+--             (Map.insert name phiMapF phiMap, Function name ret args code' : funcs)
+-- 
+--         abstractPhiBlock (BB name code term dagd) (phiMap, blocks) =
+--           let (phiMapB, code') = abstractPhiBody code in
+--             (Map.unionWith (++) phiMapB phiMap, BB name code' term dagd : blocks)
+-- 
+--         abstractPhiBody (IRI (RPhi vreg phiBacks) mdata: codeTl) =
+--           let (phiMapB, code') = abstractPhiBody codeTl in
+--             (Map.unionWith (++) (turnPhis vreg phiBacks) phiMapB, code') 
+--         abstractPhiBody code = (Map.empty,code)
+-- 
+--         turnPhis vreg phiBacks = foldr (turnPhi vreg) Map.empty phiBacks
+--         turnPhi vreg (val, label) phiMap =
+--           Map.insertWith (++) label [(vreg,val)] phiMap 
+--         
+-- 
+--           
+-- -- | Adds all the abstract PHi information as `Imov` instructions
+-- addPhiMoves :: AbstractPhiProgram -> Rprog () Word
+-- addPhiMoves (prog, phiMap) = prog {code = map (addPhiFunc phiMap) $ code prog}
+--   where addPhiFunc phiMap (Function name ret args code) =
+--           Function name ret args (map (addPhiBlock (Map.lookup name phiMap)) code)
+-- 
+--         addPhiBlock ::
+--           (Maybe $ Map.Map Name [(VReg, MRAM.MAOperand VReg Word)])
+--           -> BB Name $ RTLInstr () Word
+--           -> BB Name $ RTLInstr () Word
+--         addPhiBlock Nothing block = block
+--         addPhiBlock (Just phiMap) (BB name code term dagd) =
+--           (BB name (code ++ (phiMap2Instructions $ Map.lookup name phiMap)) term dagd)
+-- 
+--         phiMap2Instructions ::
+--           Maybe [(VReg, MRAM.MAOperand VReg Word)]
+--           -> [RTLInstr () Word]
+--         phiMap2Instructions Nothing = []
+--         phiMap2Instructions (Just ls) = map phiPair2instr ls
+--         
+--         phiPair2instr (reg, op) = MRI (MRAM.Imov reg op) () 
+--         
 
