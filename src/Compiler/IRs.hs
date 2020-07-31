@@ -17,8 +17,9 @@ import qualified Data.Map as Map
 
 import Compiler.Registers
 import Compiler.Errors
+import Util.Util
 
-type ($) a b = a b
+
 
 {-|
 Module      : Irs
@@ -96,7 +97,7 @@ data GlobalVariable wrdT = GlobalVariable
   { name :: Name
   , isConstant :: Bool
   , gType :: Ty
-  , initializer :: Maybe wrdT
+  , initializer :: Maybe [wrdT]
   } deriving (Show)
 type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"
 data IRprog mdata wrdT funcT = IRprog

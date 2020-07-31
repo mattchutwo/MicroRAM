@@ -55,6 +55,8 @@ import Data.ByteString.Short (ShortByteString)
 import MicroRAM.MicroRAM
 --import qualified MicroRAM.MicroRAM as MRAM
 
+import Control.Monad
+
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.Registers
@@ -115,8 +117,48 @@ smartMovMaybe Nothing _ = []
 smartMovMaybe (Just r) a = smartMov r a
 
 
+-- * Initial Memory
 
--- ** Setting Global Variables
+{-
+
+The initial Memory is passed to the program. Here is how the memory is set up:
+     - All arguemnts, files, configurations, are laid in contiguous memory.
+     - At the top of the memory (highest address) the arguments to main are laid like:
+       + The command line inputs
+       + argv[0..] (pointing at each command line input)
+       + argc
+       + argv (pointing to two mem locations back)
+     - Location 1 is resreved for a pointer to argc
+@
+
+     |            |
+     +------------+                  +-+
+     |arg^        +--+                 |
+     +------------+  |                 |
++--->+argc        |  |                 |
+|    +------------+  |                 |
+| +--+argv[argc+1]|  |                 |
+| |  |...         |  |                 | Initial
+| +--+arg^[0]     +<-+                 | Memory
+| |  +------------+                    |
+| +->+Comand line |                    |
+|    |arguments   |                    |
+|    +------------+                    |
+|    | files      |                    |
+|    |            |                    |
+|    +------------+                    |
++----+ ptr argc   |                    |
+|    +------------+                    |
+     | Null       |                    |
+     +============+                  +-+
+@
+
+We then "Set global variables" (preamble) and run 'premain'
+to set up arguemtns and return address for Main.
+
+-}
+
+-- ** Set global variables
 
 -- | Global environment.
 -- Maps names of global variables to
@@ -130,13 +172,73 @@ type GVEnv = Map.Map ShortByteString Ptr
    2. A map with the locations of the globals, so we can replace their
       values in the code.
 
+  Following up from initial memory it produces the following structure:
+
+@
+     |            |    <-+ preamble sp
+     +------------+
+     | Glogals    |
+     |            |
+     +------------+                  +-+
+     |arg^        +--+                 |
+     +------------+  |                 |
++--->+argc        |  | <-+ preamble bp |
+|    +------------+  |                 |
+| +--+argv[argc+1]|  |                 |
+| |  |...         |  |                 | Initial
+| +--+arg^[0]     +<-+                 | Memory
+| |  +------------+                    |
+| +->+Comand line |                    |
+|    |arguments   |                    |
+|    +------------+                    |
+|    | files      |                    |
+|    |            |                    |
+|    +------------+                    |
++----+ ptr argc   |                    |
+|    +------------+                    |
+     | Null       |                    |
+     +============+                  +-+
+@
+
 
 -}
 
 storeGlobVars ::
+  Regs mreg =>
   GEnv Word
   -> Hopefully $ (GVEnv, NamedBlock mreg Word)
-storeGlobVars _ = return (Map.empty , NBlock Nothing [])
+storeGlobVars [] = return (Map.empty , NBlock Nothing [])
+storeGlobVars ls = do 
+  -- aggregate all gloabls
+  (genvInstr, genvSize) <- foldM storeGlobVar ([],0) ls
+  return (Map.empty , NBlock Nothing genvInstr)
+
+  where storeGlobVar :: Regs mreg =>
+                        ([MAInstruction mreg Word],Word) 
+                        -> GlobalVariable Word
+                        -> Hopefully $ ([MAInstruction mreg Word],Word)
+        storeGlobVar (instrs, location) (GlobalVariable nm isConst typ init) = do
+          newInstrs <- return $ writeGlob init location
+          return (instrs++newInstrs, location + tySize typ)
+        writeGlob :: Regs mreg =>
+                     Maybe [Word]
+                     -> Word -> [MAInstruction mreg Word]
+        writeGlob Nothing _ = []
+        writeGlob (Just []) loc = []
+        writeGlob (Just initial) loc =
+          Iadd sp bp (Const loc) :
+          storeList initial
+        storeList :: Regs mreg =>
+                     [Word] -> [MAInstruction mreg Word]
+        storeList [] = []
+        storeList [c] = [Istore (Const c) sp] 
+        storeList (c:ls) =
+          [Istore (Const c) sp, Iadd sp sp (Const 1)] ++
+          storeList ls
+
+        
+          
+  
 
 -- | replaceGlobals: replaces the invocation of global variables with a constant
 -- with their pointer (pointing at the global's location in memory)
@@ -176,44 +278,50 @@ readInput =
   []
 
 {- | Find arguments: in the current setup argc and argv are next to each other,
-     and at the end of populated memory. Location 1 points at arc.
+     and at the end of initial memory, but before the globals. After
+     the preamble bp should be pointing at 'bp' and 'sp' should point at the top
+     of memory (end of globals).
 
-    This function puts the arguemnts in the right place (regs 0 and 1 for the trivila register allocator)
-    and sets stack pointer to the right place (pointing at argv).
+    This function puts main's arguemnts in the right place (regs 0 and 1 for the
+    trivila register allocator) and sets stack pointer to the right place
+    (return address).
 
-     Here is how the memory is set up:
-     - All arguemnts, files, configurations, are laid on memory before start
-     - At the top of the memory (highest address) the arguments to main are laid like:
-       + The command line inputs
-       + argv[0..] (pointing at each command line input)
-       + argc
-       + argv (pointing to two mem locations back)
-     - Location 1 is resreved for a pointer to argc
-
+    After premain the memory should look like this 
+    (Look at storeGlobVars to see how memory starts)
+       
+@
      +Beggining   +
      |Stack memory|
      |============|
-     |arg^        +--+  <-- initial sp
-     +------------+  |
-+--->|argc        |  |
-|    +------------+  |
-| +--+argv[argc+1]|  |
-| |  |...         |  |
-| +--+arg^[0]     |<-+
-| |  +------------+
-| +->|Comand line |
-|    |arguments   |
-|    +------------+
-|    | files      |
-|    |            |
-|    +------------+
-+----+ ptr argc   |
-     +============+
+     | main return|    <-+ initial sp
+     +------------+
+     | Glogals    |
+     |            |
+     +------------+                  +-+
+     |arg^        +--+                 |
+     +------------+  |                 |
++--->+argc        |  | <-+ initial bp  |
+|    +------------+  |                 |
+| +--+argv[argc+1]|  |                 |
+| |  |...         |  |                 | Initial
+| +--+arg^[0]     +<-+                 | Memory
+| |  +------------+                    |
+| +->+Comand line |                    |
+|    |arguments   |                    |
+|    +------------+                    |
+|    | files      |                    |
+|    |            |                    |
+|    +------------+                    |
++----+ ptr argc   |                    |
+|    +------------+                    |
+     | Null       |                    |
+     +============+                  +-+
+@
 -}
 
 findAguments :: Regs mreg => [NamedBlock mreg Word]
 findAguments = (MRAM.NBlock (Just "_Find arguments_")
-  [Iload sp (Const 1),  -- Stack pointer points to argc
+  [Iload sp (Const 1),  -- Stack pointer points to start of memory
    Iload argc (Reg sp), -- Load argc into first argument
    Iadd sp sp (Const 1),
    Iload argv (Reg sp), -- Load argc into first argument
