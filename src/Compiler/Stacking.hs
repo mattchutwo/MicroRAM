@@ -57,6 +57,9 @@ import MicroRAM.MicroRAM
 
 import Control.Monad
 
+
+import Util.Util
+
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.Registers

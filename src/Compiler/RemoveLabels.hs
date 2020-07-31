@@ -42,6 +42,8 @@ import qualified Data.Map.Strict as Map
 import Data.Traversable
 import Compiler.Errors
 
+import Util.Util
+
 import Compiler.IRs
 import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..)) 
 

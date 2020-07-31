@@ -49,6 +49,8 @@ import qualified Data.Word as Word
 --import Compiler.CodeGenerator
 --import Compiler.Assembler
 
+import Util.Util
+
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.IRs

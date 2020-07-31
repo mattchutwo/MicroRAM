@@ -21,6 +21,8 @@ import qualified MicroRAM.MicroRAM as MRAM
 import Compiler.Errors
 import Compiler.IRs
 
+import Util.Util
+
 
 registerAlloc :: Rprog () Word -> Hopefully $ Lprog () VReg Word
 registerAlloc = undefined
