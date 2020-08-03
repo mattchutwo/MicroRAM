@@ -578,8 +578,21 @@ isTerminator' (LLVM.CondBr (LLVM.LocalReference _ name) name1 name2 _) = do
                     MRAM.Icjmp $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
                     MRAM.Ijmp $ Label (show loc2)]
 isTerminator' (LLVM.CondBr _ name1 name2 _) =
-  assumptError "conditional branching must depend on a register. If you passed a constant prhaps you forgot to run constant propagation. Can't branch on Metadata."
+  assumptError "conditional branching must depend on a register. If you passed a constant perhaps you forgot to run constant propagation. Can't branch on Metadata."
+isTerminator' (LLVM.Switch (LLVM.LocalReference typ reg) deflt dests _ ) = do
+  reg' <- name2name reg
+  deflt' <- name2name deflt
+  switchInstrs <- mapM (isDest reg') dests 
+  returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Reg deflt')]
+  where isDest reg (switch,dest) = do
+          switch' <- getConstant switch
+          dest' <- name2name dest
+          return [MRAM.Icmpe reg (Const switch'), MRAM.Icjmp (Reg dest')]
+          
+isTerminator' (LLVM.Switch op deflt dests _ ) =
+    assumptError $ "Called switch with something that is not a local reference. Perhaps a constant (you should run constant propagation first) or metadata (not supported). /n /t" ++ show op
 
+  
 -- Possible optimisation:
 -- Add just one return block, and have all others jump there.
 isTerminator' (LLVM.Ret (Just ret) md) = do
