@@ -46,5 +46,5 @@ class Ord a => Regs a where
      Needed once reg. alloc. is done.
 -}
 
-data RegisterData = RDempty
+data RegisterData = InfinityRegs | NumRegisters Int
   deriving (Eq, Ord, Read, Show)

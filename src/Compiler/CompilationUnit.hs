@@ -29,7 +29,7 @@ data CompilationUnit prog = CompUnit
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
 prog2unit :: prog -> CompilationUnit prog
-prog2unit p = CompUnit p RDempty [] 
+prog2unit p = CompUnit p InfinityRegs [] 
 
 -- * Lifting operators
 
