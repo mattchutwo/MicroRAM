@@ -13,6 +13,7 @@ module Compiler.IRs where
 import MicroRAM.MicroRAM(MAOperand)
 import qualified MicroRAM.MicroRAM as MRAM
 import Data.ByteString.Short
+
 import qualified Data.Map as Map
 
 import Compiler.Registers
@@ -77,19 +78,24 @@ data Name =
   | NewName Word         -- | and add some new ones
   deriving (Eq, Ord, Read, Show)
 
+--w8 :: Word -> Word8
+--w8 = fromIntegral 
+
 instance Regs Name where
   sp = NewName 0
   bp = NewName 1
   ax = NewName 2
   argc = Name "0" -- Where the first arguemtns to main is passed
   argv = Name "1" -- Where the second arguemtns to main is passed
+  fromWord w 
+    | even w = NewName $ w `div` 2
+    | otherwise = Name $ pack $ [fromIntegral $ (w-1) `div` 2]
   data RMap Name x = RMap x (Map.Map Name x)
   initBank d = RMap d Map.empty
   lookupReg r (RMap d m) = case Map.lookup r m of
                         Just x -> x
                         Nothing -> d
   updateBank r x (RMap d m) = RMap d (Map.insert r x m)
-
 
 type TypeEnv = () -- TODO
 

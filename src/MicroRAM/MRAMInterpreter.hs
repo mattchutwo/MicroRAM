@@ -1,6 +1,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveGeneric #-}
+
 module MicroRAM.MRAMInterpreter
   ( Mem,
     --Tape, 
@@ -12,6 +14,7 @@ module MicroRAM.MRAMInterpreter
     --init_state,
     load,
     initMem, emptyInitMem -- should this go elsewhere?
+  , Advice, renderAdvc
     ) where
 
 import MicroRAM.MicroRAM
@@ -21,6 +24,8 @@ import Control.Exception
 import qualified Data.Sequence as Seq
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!))
+
+import GHC.Generics
 
 import Compiler.Registers
 
@@ -106,7 +111,11 @@ init_mem input = (0,Map.fromList $ zip [0..] extendedInput)
   where -- | Add the special locations 1 and 0 with null pointer and input size
     extendedInput = [0 , fromIntegral $ length input] ++ input
 
-store ::  Wrd -> Wrd -> Mem -> Mem
+store ::
+  Wrd     -- ^ addres
+  -> Wrd  -- ^ value
+  -> Mem
+  -> Mem
 store x y (d,m)=  (d,Map.insert x y m) 
 
 load ::  Wrd -> Mem -> Wrd
@@ -122,13 +131,31 @@ load x (d,m)=  case Map.lookup x m of
 {- I don't include the program in the state since it never changes
 
 -}
+-- | Advice: extra info that is usefull for witness checker generation
+data MemOpType = MOStore | MOLoad
+  deriving (Eq, Read, Show, Generic)
 
+data Advice =
+    MemOp
+    MemOpType  -- ^ read or write
+    Word       -- ^ address
+    Word       -- ^ value
+  | Stutter
+  deriving (Eq, Read, Show, Generic)
+
+
+renderAdvc :: Maybe Advice -> String
+renderAdvc (Just (MemOp MOStore addr v)) = "Store: " ++ show addr ++ "->" ++ show v
+renderAdvc (Just (MemOp MOLoad  addr v)) = "Load: " ++ show addr ++ "->" ++ show v
+renderAdvc (Just Stutter) = "...Stutter..."
+renderAdvc Nothing = "-"
 
 -- | The program state 
 data State mreg = State {
   pc :: Pc
   , regs :: RMap mreg Word 
   , mem :: Mem
+  , advice :: Maybe Advice -- Deleted at the start of each step.
   --, tapes :: (Tape, Tape)
   , flag :: Bool
   , bad :: Bool
@@ -143,6 +170,7 @@ init_state input  = State {
   pc = init_pc
   , regs = initBank 0
   , mem = init_mem input
+  , advice = Nothing
   --, tapes = (t_input, t_advice)
   , flag = init_flag
   , bad = init_flag
@@ -152,10 +180,21 @@ init_state input  = State {
 set_reg:: Regs mreg => mreg -> Wrd -> State mreg -> State mreg
 set_reg r x st = st { regs = updateBank r x (regs st) }
 
+store_advc :: Wrd -> Wrd -> State mreg -> State mreg
+store_advc addr v st = st {advice = Just $ MemOp MOStore addr v } 
+load_advc :: Wrd -> Wrd -> State mreg -> State mreg
+load_advc addr v st = st {advice = Just $ MemOp MOLoad addr v }
+
+
 store_mem::  Wrd -> Wrd -> State mreg -> State mreg
-store_mem r x st = st {
-   mem = store r x (mem st)
-}
+store_mem r x st = store_advc r x $ 
+  st { mem = store r x (mem st)}
+
+load_mem :: Regs mreg => mreg -> Wrd -> State mreg -> State mreg
+load_mem r1 op st =
+  let value = (load op $ (mem st)) in
+    set_reg r1 value $ load_advc op value st
+
 
 set_flag:: Bool -> State mreg  -> State mreg
 set_flag b st = st {
@@ -406,7 +445,8 @@ exec (Icnjmp a) st = if not $ flag st then exec_jmp st a else next st
 
 --Memory operations
 exec (Istore a r1) st = next $ store_mem (eval_operand st a) (get_reg (regs st) r1) st
-exec (Iload r1 a) st = next $ set_reg r1 (load (eval_operand st a) $ (mem st)) st
+exec (Iload r1 a) st =  next $ load_mem  r1 (eval_operand st a) st
+
 exec (Iread r1 a) st = next $ st -- pop_tape (eval_operand st a) r1 st
 
 -- Answer : set answer to ans and loop (pc not incremented)
@@ -415,11 +455,16 @@ exec (Ianswer a) st =
     set_answer ans st   -- Set answer to ans
   --set_reg sp ans st -- sets register 0 (backwards compat. FIXME! )
 
+
+-- | freshAdvice: clear advice before every step 
+freshAdvice :: State mreg -> State mreg
+freshAdvice st = st {advice = Nothing}
+
 -- ** Program step
 type Prog mreg = Program mreg Wrd
 
 step :: Regs mreg => Prog mreg  -> State mreg -> State mreg
-step prog st = exec (prog !! (toInt $ pc st)) st
+step prog st = exec (prog !! (toInt $ pc st)) $ freshAdvice st
 
 
 -- ** Execution
@@ -480,8 +525,9 @@ initMem ls = map fromIntegral $
     let argv_array = getStarts argsAsChars in
       let argsAsString = concat argsAsChars in
         argsAsString ++
-        argv_array ++
-        [length argv_array, 2 + length argsAsString]
+        argv_array ++             -- argv
+        [length argv_array,       -- arg C
+         2 + length argsAsString] -- Points at itself (staring "stack pointer")
         
   where args2chars ls = map (addNull . str2Ascii) ls 
         addNull ls = (ls ++ [0])

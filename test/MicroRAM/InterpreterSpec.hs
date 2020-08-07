@@ -39,6 +39,7 @@ instance Regs Int where
   ax = 2
   argc = 3
   argv = 4
+  fromWord = fromIntegral . toInteger
   data RMap Int x = RMap x (Map.Map Int x)
   initBank d = RMap d Map.empty
   lookupReg r (RMap d m) = case Map.lookup r m of

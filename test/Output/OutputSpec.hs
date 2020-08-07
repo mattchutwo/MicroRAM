@@ -23,15 +23,25 @@ import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm)
 
 import MicroRAM.MicroRAM
 
-instance (Serial m a,Serial m b) => Serial m (Operand a b)
-instance (Serial m a,Serial m b) => Serial m (Instruction a b)
 
 main :: IO ()
 main = defaultMain tests
 
 tests = testGroup "Testing serialising and deserialising roundtrip"
-        [testProgs]
+        [testProgs, testTrace]
+
+-- * Testing Programs
+
+-- instance automatically derived from generics
+instance (Serial m a,Serial m b) => Serial m (Operand a b)
+instance (Serial m a,Serial m b) => Serial m (Instruction a b)
 
 testProgs = testProperty "Serialising programs" $
-        \p -> (p::Instruction Word (Operand Word Word)) == p ==>
-        (fromFlatTerm decode $ toFlatTerm $ encode p) == Right p
+        \p -> (fromFlatTerm decode $ toFlatTerm $ encode p) == Right (p::Instruction Word (Operand Word Word))
+
+-- * Testing Programs
+instance Monad m => Serial m (StateOut)
+
+testTrace = testProperty "Serialising traces" $
+        \p -> (fromFlatTerm decode $ toFlatTerm $ encode p) == Right (p:: StateOut)
+

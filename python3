@@ -1,0 +1,4 @@
+NUL -c import cbor,pprint,sys; pprint.pprint(cbor.load(sys.stdin.buffer))
+\159\130\DC4\244\CAN*\132\EOT\STX\ETX\245\EOT\255 -c import cbor,pprint,sys; pprint.pprint(cbor.load(sys.stdin.buffer))
+\159\130\DC4\244\CAN*\132\EOT\STX\ETX\245\EOT\255 -c import cbor,pprint,sys; pprint.pprint(sys.stdin.buffer)
+\159\130\DC4\244\CAN*\132\EOT\STX\ETX\245\EOT\255 -c import cbor,pprint,sys; pprint.pprint(sys.stdin.buffer)

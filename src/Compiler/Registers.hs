@@ -15,7 +15,8 @@ the compiler to choose the number of registers as well as the classes
 -}
 module Compiler.Registers
     ( Regs(..),
-      RegisterData(..)
+      RegisterData(..),
+      regToList
     ) where
 
 
@@ -28,11 +29,15 @@ class Ord a => Regs a where
   -- Arguments FIXME remove after reg alloc is fixed.
   argc :: a
   argv :: a
+  fromWord :: Word -> a 
   -- Register bank
   data RMap a :: * -> *
   initBank :: b -> RMap a b 
   lookupReg :: a -> RMap a b -> b
   updateBank :: a -> b -> RMap a b -> RMap a b
+
+regToList :: Regs mreg => Word -> RMap mreg b -> [b]
+regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound] 
 
 
 {- | RegisterData : carries info about the registers.
