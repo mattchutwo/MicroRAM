@@ -40,6 +40,7 @@ import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import Control.Monad.State.Lazy
 import Control.Monad.Except
+import           Data.Default
 import qualified Data.List as List
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Short as Short
@@ -68,7 +69,7 @@ compile :: LLVM.Module
         -> CompilerPassError $ CompilationUnit (MRAM.Program Name Word)
 compile llvmProg = (return $ prog2unit llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
-  >>= (tagPass "Instruction Selection" $ justCompile trivialRegisterAlloc) --FIXME
+  >>= (tagPass "Instruction Selection" $ justCompile $ registerAlloc def) --FIXME
   >>= (tagPass "Instruction Selection" $ justCompile stacking)
   >>= (tagPass "Instruction Selection" $ justAnalyse (SparsityData <.> sparsity))
   >>= (tagPass "Instruction Selection" $ justCompile removeLabels)

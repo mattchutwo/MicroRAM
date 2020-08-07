@@ -14,6 +14,7 @@ import qualified LLVM.AST.IntegerPredicate as IntPred
 import GHC.Word as Word
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Short as Short
+import           Data.Default
 import qualified Data.String as String
 import qualified LLVM.AST.Linkage
 import qualified LLVM.AST.Visibility
@@ -101,7 +102,7 @@ compileTest testName file bound input answer =
   rtlModule <- checkPass $ instrSelect llvmModule
   --step $ show rtlModule
   step "Register Allocation "
-  ltlModule <- checkPass $ trivialRegisterAlloc rtlModule
+  ltlModule <- checkPass $ registerAlloc def rtlModule
   --step $ show ltlModule
   step "Stacking "
   asmModule <- checkPass $ stacking ltlModule
@@ -128,7 +129,7 @@ executionTest testName file input bound =
   rtlModule <- checkPass $ instrSelect llvmModule
   --step $ show rtlModule
   --step "Register Allocation "
-  ltlModule <- checkPass $ trivialRegisterAlloc rtlModule
+  ltlModule <- checkPass $ registerAlloc def rtlModule
   --step $ show ltlModule
   --step "Stacking "
   asmModule <- checkPass $ stacking ltlModule

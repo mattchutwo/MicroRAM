@@ -158,25 +158,25 @@ replaceGlobals _ block = return block -- TODO: Replace global
 
 -}
 
--- | Read input: OBSOLETE, We start with an initialized memory
--- We read the entire input, store it into the stack (almost like in the paper)
-readInput :: Regs mreg => [NamedBlock mreg Word]
-readInput =
-  (MRAM.NBlock Nothing
-  [Istore (Const 0) sp]) :                -- 1.
-  MRAM.NBlock (Just "_read input_")
-  [Iread bp (Const 0),                    -- 2.
-    Icjmp (Label "_End read input_"),     -- 3.
-    Iadd sp sp (Const 1),                 -- 4.
-    Istore (Reg sp) bp,                   -- 5.
-    Ijmp (Label "_read input_")]:         -- 6.
-  MRAM.NBlock (Just "_End read input_")
-  [ Imov argc (Reg sp),
-   Imov argv (Const 1)]  :                 -- FIXME passing arguments in registers for trivial reg alloc.
-  []
+-- -- | Read input: OBSOLETE, We start with an initialized memory
+-- -- We read the entire input, store it into the stack (almost like in the paper)
+-- readInput :: Regs mreg => [NamedBlock mreg Word]
+-- readInput =
+--   (MRAM.NBlock Nothing
+--   [Istore (Const 0) sp]) :                -- 1.
+--   MRAM.NBlock (Just "_read input_")
+--   [Iread bp (Const 0),                    -- 2.
+--     Icjmp (Label "_End read input_"),     -- 3.
+--     Iadd sp sp (Const 1),                 -- 4.
+--     Istore (Reg sp) bp,                   -- 5.
+--     Ijmp (Label "_read input_")]:         -- 6.
+--   MRAM.NBlock (Just "_End read input_")
+--   [ Imov argc (Reg sp),
+--    Imov argv (Const 1)]  :                 -- FIXME passing arguments in registers for trivial reg alloc.
+--   []
 
 {- | Find arguments: in the current setup argc and argv are next to each other,
-     and at the end of populated memory. Location 1 points at arc.
+     and at the end of populated memory. Location 1 points at argc.
 
     This function puts the arguemnts in the right place (regs 0 and 1 for the trivila register allocator)
     and sets stack pointer to the right place (pointing at argv).
@@ -188,7 +188,7 @@ readInput =
        + argv[0..] (pointing at each command line input)
        + argc
        + argv (pointing to two mem locations back)
-     - Location 1 is resreved for a pointer to argc
+     - Location 1 is reserved for a pointer to argc
 
      +Beggining   +
      |Stack memory|
@@ -197,9 +197,9 @@ readInput =
      +------------+  |
 +--->|argc        |  |
 |    +------------+  |
-| +--+argv[argc+1]|  |
+| +--+argv[argc-1]|  |
 | |  |...         |  |
-| +--+arg^[0]     |<-+
+| +--+argv[0]     |<-+
 | |  +------------+
 | +->|Comand line |
 |    |arguments   |
@@ -213,11 +213,20 @@ readInput =
 
 findAguments :: Regs mreg => [NamedBlock mreg Word]
 findAguments = (MRAM.NBlock (Just "_Find arguments_")
-  [Iload sp (Const 1),  -- Stack pointer points to argc
-   Iload argc (Reg sp), -- Load argc into first argument
-   Iadd sp sp (Const 1),
-   Iload argv (Reg sp), -- Load argc into first argument
-   Iadd sp sp (Const 1)
+  [ Iload bp (Const 1)    -- Base pointer points to argc
+  , Iload sp (Reg bp)     -- Temporarily load argc into sp.
+  , Isub ax bp (Reg sp)   -- Compute argv (ax = bp - argc). Is this offset correct?
+
+  , Iadd bp bp (Const 1)  -- Push argv to the stack.
+  , Istore (Reg bp) ax
+
+  , Iadd bp bp (Const 1)  -- Push argc to the stack.
+  , Istore (Reg bp) sp
+
+  , Iadd bp bp (Const 2)  -- Leave space for return address and old bp.
+
+  , Imov sp (Reg bp)      -- Set stack pointer.
+  , Iadd sp sp (Const 1)
   ]) :
   []
 
@@ -295,10 +304,16 @@ setResult (Just ret) = smartMov ret ax
 -- | stack only the new instructions
 stackLTLInstr :: Regs mreg => LTLInstr' mreg Word $ MAOperand mreg Word
               -> [MAInstruction mreg Word]
-stackLTLInstr (Lgetstack slot offset typ reg) =
-   [Iadd reg bp (Const offset), Iload reg (Reg reg)]
-stackLTLInstr (Lsetstack reg slot offset typ) =
-   [Iadd reg bp (Const offset), Istore (Reg reg) reg]
+stackLTLInstr (Lgetstack Incoming offset typ reg) =
+   [Isub reg bp (Const (-2-offset)), Iload reg (Reg reg)]
+stackLTLInstr (Lsetstack reg Incoming offset typ) =
+   [Isub reg bp (Const (-2-offset)), Istore (Reg reg) reg]
+
+stackLTLInstr (Lgetstack Local offset typ reg) =
+   [Iadd reg bp (Const offset), Iload reg (Reg reg)]  -- JP: offset+1?
+stackLTLInstr (Lsetstack reg Local offset typ) =
+   [Iadd reg bp (Const offset), Istore (Reg reg) reg] -- JP: offset+1?
+
 stackLTLInstr (LCall typ ret f argsT args) =
   funCallInstructions typ ret f argsT args
 stackLTLInstr (LRet Nothing) = epilogue 

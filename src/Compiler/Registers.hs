@@ -25,9 +25,6 @@ class Ord a => Regs a where
   bp :: a
   -- caller-saved register
   ax :: a
-  -- Arguments FIXME remove after reg alloc is fixed.
-  argc :: a
-  argv :: a
   -- Register bank
   data RMap a :: * -> *
   initBank :: b -> RMap a b 

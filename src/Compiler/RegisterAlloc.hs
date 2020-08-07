@@ -23,12 +23,16 @@ import           Control.Applicative (liftA2)
 import           Control.Monad.State (runStateT, StateT, get, modify')
 import           Control.Monad.Trans.Class (lift)
 import qualified Data.ByteString.Char8 as BSC
+import           Data.ByteString.Internal (c2w)
 import qualified Data.ByteString.Short as BSS
+import           Data.Char (intToDigit)
+import           Data.Default
 import           Data.Graph.Undirected (Graph)
 import qualified Data.Graph.Undirected as Graph
 import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Set (Set)
 import qualified Data.Set as Set
 
 import           Compiler.Errors
@@ -37,25 +41,33 @@ import           Compiler.RegisterAlloc.Internal
 import           Compiler.RegisterAlloc.Liveness
 import qualified MicroRAM.MicroRAM as MRAM
 
+data RegisterAllocOptions = RegisterAllocOptions {
+    registerAllocNumRegisters :: Word
+  }
+
+instance Default RegisterAllocOptions where
+  def = RegisterAllocOptions 8
 
 type Registers = [VReg]
 
-registerAlloc :: Rprog () Word -> Hopefully $ Lprog () VReg Word
-registerAlloc rprog = do
+
+
+registerAlloc :: RegisterAllocOptions -> Rprog () Word -> Hopefully $ Lprog () VReg Word
+registerAlloc (RegisterAllocOptions numRegisters) rprog = do
   -- Convert to ltl.
   lprog <- rtlToLtl rprog
 
   -- JP: Load arguments from stack? 
   -- Replace `Name "0"` with `Lgetstack Incoming 0 _ _`, ...
+  let code' = map initializeFunctionArgs $ code lprog
 
   -- Run register allocation.
-  code <- mapM (registerAllocFunc registers) $ code lprog
+  code <- mapM (registerAllocFunc registers) code'
 
   return $ lprog {code = code}
 
 
   where
-    numRegisters = 8
     -- Available registers.
     -- First two registers are reserved.
     registers = map NewName [2..numRegisters-1]
@@ -67,6 +79,28 @@ data RAState = RAState {
   , raNextInstructionForBlock :: Map Name Int
   -- , raRegisterStackPosition :: Map VReg Word
   }
+
+-- Initialize function arguments according to the calling convention.
+-- Currently, this loads arguments from the stack with `Lgetstack Incoming 0 _ (Name "0")`.
+initializeFunctionArgs :: LFunction () VReg Word -> LFunction () VReg Word
+initializeFunctionArgs (LFunction fname mdata typ typs stackSize blocks) = 
+    let b = BB bname insts [] daginfo in
+    LFunction fname mdata typ typs stackSize $ b:blocks
+  where
+    insts = map (\(typ, i) -> 
+        let inst = Lgetstack Incoming i typ (Name $ wordToBSS i) in
+        IRI inst mempty
+      ) $ zip typs [0..]
+
+    bname = Name $ BSS.toShort $ BSC.pack (fname <> "_args")
+
+    daginfo = case blocks of
+      ((BB name _ _ _):_) -> [name]
+      _ -> []
+
+    -- wordToBSS = BSS.pack . pure . (+48) -- c2w . intToDigit
+    wordToBSS = BSS.toShort . BSC.pack . show -- TODO: Double check this.
+
 
 -- Assumes that instructions are in SSA form.
 registerAllocFunc :: Registers -> LFunction () VReg Word -> Hopefully $ LFunction () VReg Word
@@ -86,19 +120,30 @@ registerAllocFunc registers (LFunction mdata name typ typs stackSize' blocks') =
   return $ LFunction mdata name typ typs stackSize blocks
 
   where
+    -- -- These are for arguments that are passed through registers.
+    -- -- If we change our calling convention, this will need to be updated appropriately. 
+    -- argRegisters =
+    --     let numArgs = length typs in
+    --     Set.fromList $ map (Name . BSS.pack . pure . c2w . intToDigit) [0..(numArgs-1)]
+
+    extractRegisters :: BB name (LTLInstr mdata VReg wrdT) -> Set VReg
+    extractRegisters (BB _ insts insts' _) = Set.unions $ map (\i -> readRegisters i <> writeRegisters i) (insts' ++ insts)
+
+
     -- registerAllocFunc' :: [BB name inst] -> StateT RAState Hopefully [BB name inst]
     registerAllocFunc' blocks = do -- _spilled = do
+      let allRegisters = Set.toList $ Set.unions $ map extractRegisters blocks
 
       liveness <- lift $ livenessAnalysis blocks
 
-      let interferenceGraph = computeInterferenceGraph liveness
+      let interferenceGraph = computeInterferenceGraph liveness allRegisters -- argRegisters
 
       -- TODO: we could coalesce
 
-      -- Sort registers by spill cost (lowest cost first).
-      let sortedTemporaries = sortTemporaries liveness blocks
+      -- -- Sort registers by spill cost (lowest cost first).
+      -- let sortedTemporaries = sortTemporaries liveness blocks
 
-      let registerMappingOrSpilled = Graph.color registers sortedTemporaries interferenceGraph
+      let registerMappingOrSpilled = Graph.color registers interferenceGraph
 
       case registerMappingOrSpilled of
         Left spillReg -> do
@@ -107,20 +152,29 @@ registerAllocFunc registers (LFunction mdata name typ typs stackSize' blocks') =
           modify' $ \(RAState r s m) -> RAState r (s+1) m
 
           -- Spill register.
-          spillRegister spillReg pos blocks
+          let isArg = False -- Set.member spillReg argRegisters
+          blocks' <- spillRegister spillReg isArg pos blocks
+
+          -- Try again after spilling.
+          registerAllocFunc' blocks'
 
         Right coloring ->
           lift $ applyColoring coloring blocks
 
 
-    -- Sort registers by spill cost (highest cost first).
-    sortTemporaries :: LivenessResult instname -> [block] -> [VReg]
-    sortTemporaries liveness _blocks = 
-      -- TODO: actually compute a spill cost.
-      Set.toList $ Set.unions liveness
+    -- -- Sort registers by spill cost (highest cost first).
+    -- -- sortTemporaries :: LivenessResult instname -> [block] -> [VReg]
+    -- sortTemporaries _liveness blocks = 
+    --   -- TODO: actually compute a spill cost.
+    --   -- Set.toList $ Set.unions liveness
+    --   Set.toList $ Set.unions $ map (\(BB _ insts insts' _) -> 
+    --       Set.unions $ map (\i -> Set.union (readRegisters i) (writeRegisters i)) $ insts ++ insts'
+    --     ) blocks
 
-spillRegister :: forall name mdata wrdT . (Monoid mdata, name ~ (Name, Int)) => VReg -> Word -> [BB name (LTLInstr mdata VReg wrdT)] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
-spillRegister spillReg pos blocks = do
+
+
+spillRegister :: forall name mdata wrdT . (Monoid mdata, name ~ (Name, Int)) => VReg -> Bool -> Word -> [BB name (LTLInstr mdata VReg wrdT)] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
+spillRegister spillReg isArg pos blocks = do
   blocks' <- mapM spillBlock blocks
   return $ concat blocks'
   where
@@ -128,7 +182,15 @@ spillRegister spillReg pos blocks = do
     spillBlock (BB (name, iid) insts tInsts dag) = do
       insts' <- concat <$> mapM spillIRInstruction insts
       tInsts' <- concat <$> mapM spillIRInstruction tInsts
-      flatten name iid dag insts' tInsts'
+
+      -- If the spilled register is an argument, prepend a push to the stack.
+      let insts'' = if isArg then  
+              let ty = getTyForRegister spillReg Nothing in
+              let push = IRI (Lsetstack spillReg Local pos ty) mempty in
+              push:insts'
+            else
+              insts'
+      flatten name iid dag insts'' tInsts'
 
     flatten :: Name -> Int -> DAGinfo name -> [LTLInstr mdata VReg wrdT] -> [LTLInstr mdata VReg wrdT] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
     flatten name iid dag [] [] = return []
@@ -153,7 +215,7 @@ spillRegister spillReg pos blocks = do
       let instr' = substituteRegisters (Map.singleton spillReg reg) instr
 
       -- Append push to stack instruction.
-      let ty = getTyForRegister spillReg instr
+      let ty = getTyForRegister spillReg $ Just instr
       let push = IRI (Lsetstack reg Local pos ty) mempty
 
       return [instr', push]
@@ -305,10 +367,12 @@ unflattenBasicBlock bbs' =
 -- -- JP: Take spilled vars too?
 --
 -- Returns the interference graph. 
-computeInterferenceGraph :: LivenessResult instname -> Graph VReg () -- Set (VReg, VReg)
-computeInterferenceGraph liveness = 
+computeInterferenceGraph :: LivenessResult instname -> [VReg] -> Graph VReg () -- Set (VReg, VReg)
+computeInterferenceGraph liveness allRegs = -- argRegs = 
+  -- let cs = argRegs : Map.elems liveness in
   let edges = Map.foldr (\regs acc -> foldr insertEdge acc $ combinations $ Set.toList regs) mempty liveness in
-  Graph.fromEdges $ fmap (\(r1, r2) -> (r1,r2,())) $ Set.toList edges
+  let g = Graph.fromEdges $ fmap (\(r1, r2) -> (r1,r2,())) $ Set.toList edges in
+  foldr (\reg g -> Graph.insertVertex reg g) g allRegs
 
   where
     insertEdge (r1, r2) acc | r1 > r2 = Set.insert (r2, r1) acc

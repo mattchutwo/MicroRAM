@@ -12,6 +12,7 @@ module Compiler.IRs where
 
 import MicroRAM.MicroRAM(MAOperand)
 import qualified MicroRAM.MicroRAM as MRAM
+import qualified Data.ByteString.Char8 as BSC
 import Data.ByteString.Short
 import qualified Data.Map as Map
 
@@ -82,8 +83,6 @@ instance Regs Name where
   sp = NewName 0
   bp = NewName 1
   ax = NewName 2
-  argc = Name "0" -- Where the first arguemtns to main is passed
-  argv = Name "1" -- Where the second arguemtns to main is passed
   data RMap Name x = RMap x (Map.Map Name x)
   initBank d = RMap d Map.empty
   lookupReg r (RMap d m) = case Map.lookup r m of
@@ -219,14 +218,16 @@ rtlToLtl (IRprog tenv globals code) = do
   return $ IRprog tenv globals code'
   where
    convertFunc :: RFunction mdata wrdT -> Hopefully $ LFunction mdata VReg wrdT
-   convertFunc (Function name retType paramTypes body) = 
+   convertFunc (Function name retType paramTypes body) = do
      -- JP: Where should we get the metadata and stack size from?
-     let mdata = mempty in
-     let stackSize = 0 in -- Since nothing is spilled 0
-     let name' = show name in
-       do
-         body' <- mapM convertBasicBlock body
-         return $ LFunction name' mdata retType paramTypes stackSize body' 
+     let mdata = mempty
+     let stackSize = 0 -- Since nothing is spilled 0
+     let name' = case name of
+           Name n -> BSC.unpack $ fromShort n
+           NewName n -> show n
+
+     body' <- mapM convertBasicBlock body
+     return $ LFunction name' mdata retType paramTypes stackSize body' 
 
    convertBasicBlock :: BB name (RTLInstr mdata wrdT) -> Hopefully $ BB name (LTLInstr mdata VReg wrdT)
    convertBasicBlock (BB name instrs term dag) = do

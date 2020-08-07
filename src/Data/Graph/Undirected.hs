@@ -2,8 +2,9 @@
 
 module Data.Graph.Undirected (
     Graph
-  , fromEdges
   , color
+  , fromEdges
+  , insertVertex
   ) where
 
 import qualified Data.Graph.Haggle as HGL
@@ -16,7 +17,14 @@ data Graph nid e = Graph {
   , graphVertexMap :: Map nid HGL.Vertex
   }
 
-fromEdges :: forall n e . Ord n => [(n,n,e)] -> Graph n e
+insertVertex :: Ord n => n -> Graph n e -> Graph n e
+insertVertex n g@(Graph _ vm) | Map.member n vm = g
+insertVertex n (Graph g vm) = 
+  let (v, g') = HGL.insertLabeledVertex g n in
+  let vm' = Map.insert n v vm in
+  Graph g' vm'
+
+fromEdges :: forall n e . Show e => Show n => Ord n => [(n,n,e)] -> Graph n e
 fromEdges edges = Graph graph vmap
 
   where
@@ -42,9 +50,12 @@ fromEdges edges = Graph graph vmap
       | otherwise = error "fromEdges: Invalid Graph."
 
 
--- All nodes in graph must be in `sortedNodes`.
-color :: forall color n e . (Ord color, Ord n) => [color] -> [n] -> Graph n e -> Either n (Map n color)
-color colors' sortedNodes (Graph graph vmap) = go sortedNodes graph
+color :: forall color n e . (Ord color, Ord n, Show n) => [color] -> Graph n e -> Either n (Map n color)
+color colors' (Graph graph vmap) = 
+  -- TODO Sort nodes by some priority for spilling.
+  let sortedNodes = map (vertexToNode graph) $ HGL.vertices graph in
+  go sortedNodes graph
+
   where
     go :: [n] -> HGL.PatriciaTree n e -> Either n (Map n color)
     go sortedNodes graph | HGL.isEmpty graph = Right mempty
@@ -56,7 +67,7 @@ color colors' sortedNodes (Graph graph vmap) = go sortedNodes graph
           spillNode sortedNodes
         Just (n, sortedNodes') ->
           -- Remove it.
-          let graph' = HGL.deleteVertex graph $ nodeToVertex n in
+          let graph' = maybe id (flip HGL.deleteVertex) (nodeToVertexM n) graph in
 
           -- Recursive call.
           case go sortedNodes' graph' of
@@ -72,19 +83,23 @@ color colors' sortedNodes (Graph graph vmap) = go sortedNodes graph
                   Right $ Map.insert n c coloring
 
 
+    -- vertexToNodeM g v = HGL.vertexLabel g v
+
     vertexToNode :: HGL.PatriciaTree n e -> HGL.Vertex -> n
     vertexToNode g v = case HGL.vertexLabel g v of
       Nothing -> error "color: Invalid Graph."
       Just n -> n
 
-    nodeToVertex n = case Map.lookup n vmap of
-      Nothing -> error "color: Invalid Graph."
-      Just v -> v
+    nodeToVertexM n = Map.lookup n vmap
+
+    -- nodeToVertex n = case nodeToVertexM n of
+    --   Nothing -> error $ "color: Invalid Graph." ++ show n
+    --   Just v -> v
 
     findColor :: n -> HGL.PatriciaTree n e -> Map n color -> Maybe color
     findColor n graph coloring = 
       -- Get neighbors.
-      let neighbors = HGL.successors graph $ nodeToVertex n in
+      let neighbors = maybe [] (HGL.successors graph) $ nodeToVertexM n in
 
       -- Convert to their colorings.
       let usedColors = Set.fromList $ maybe (error "color: Unknown coloring.") id $ mapM (flip Map.lookup coloring . vertexToNode graph) neighbors in
@@ -97,11 +112,17 @@ color colors' sortedNodes (Graph graph vmap) = go sortedNodes graph
         []    -> Nothing
 
 
+    -- Find a node with less than k edges.
     findNode []     g = Nothing
-    findNode (n:ns) g = if length (HGL.successors g $ nodeToVertex n) < k then
+    findNode (n:ns) g = case nodeToVertexM n of
+      Nothing ->
+        -- Not in graph, so it has less than k edges.
         Just (n, ns)
-      else
-        (\(n',ns) -> (n', n:ns)) <$> findNode ns g
+      Just v ->
+        if length (HGL.successors g v) < k then
+          Just (n, ns)
+        else
+          (\(n',ns) -> (n', n:ns)) <$> findNode ns g
 
     spillNode (h:_) = Left h
     spillNode _     = error "color: No nodes available to spill."

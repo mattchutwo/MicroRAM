@@ -18,7 +18,7 @@ import           Compiler.RegisterAlloc.Internal
 -- import Debug.Trace
 
 -- If the target instruction is Nothing, it's a return edge.
-type LivenessResult instname = Map (instname, instname) (Set VReg) -- Map VReg [(Loc, Loc)]
+type LivenessResult instname = Map (instname, instname) (Set VReg) -- Could make this a Graph
 
 -- Assumes SSA.
 -- A good resource: https://www.seas.upenn.edu/~cis341/current/lectures/lec22.pdf
@@ -39,8 +39,9 @@ livenessAnalysis blocks = do -- trace (show blocks) $ do
       let v1out = maybe mempty id $ Map.lookup v1 outs in
       let v2in = maybe mempty id $ Map.lookup v2 ins in
       let regs = Set.intersection v1out v2in in
+      let regs' = Set.union (lookupSet v1 defM) regs in -- Include any registers defined in v1.
 
-      Map.insert (v1, v2) regs acc
+      Map.insert (v1, v2) regs' acc
     ) mempty $ DiGraph.edges cfg
 
   where
@@ -56,10 +57,11 @@ livenessAnalysis blocks = do -- trace (show blocks) $ do
             (useM', defM')
           ) (mempty, mempty) blocks
 
+    lookupSet k = maybe mempty id . Map.lookup k
+
     go ins outs q = case Queue.pop q of
       Nothing -> (ins, outs)
       Just (q, v) -> 
-        let lookupSet k = maybe mempty id . Map.lookup k in
         let oldIn = lookupSet v ins in
 
         let newOut = Set.unions $ map (\v' -> lookupSet v' ins) $ DiGraph.successors cfg v in
