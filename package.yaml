@@ -27,7 +27,7 @@ dependencies:
 - mtl
 - bytestring
 - tasty
-- tasty-hunit
+- tasty-quickcheck
 - tasty-smallcheck
 - smallcheck
 - utf8-string
@@ -38,6 +38,7 @@ dependencies:
 - aeson # Remove when not used anymore
 - serialise
 - cborg
+- text
 
 library:
   source-dirs: src

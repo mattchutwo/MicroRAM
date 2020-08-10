@@ -5,8 +5,9 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 {-|
-Module      : JSONFormat
-Description : Format the output of the compiler for JSON
+Module      : CBOR Format
+Description : Format the output of the compiler and interpreter as CBOR
+              to communicate down with the Circuit generator.
 Maintainer  : santiago@galois.com
 Stability   : experimental
 
@@ -23,59 +24,94 @@ import Codec.Serialise
 import Codec.CBOR
 import Codec.CBOR.Decoding
 import Codec.CBOR.Encoding
+import Codec.CBOR.Write
+import qualified Data.ByteString.Lazy                  as L
   
 import Compiler.Sparsity
 import Compiler.CompilationUnit
 import Compiler.Registers
+import Compiler.IRs
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM.MicroRAM
 
--- * Public output
+import qualified Data.Text as TXT 
+import qualified Data.Text.Internal  as TXT
 
--- ** Program 
+import Output.Output
 
--- It is enough to show an instance of `Serialise (Instruction r w)` to get an instance for
--- full programs (given the instance `Serialise a => Serialise [a]`).
+
+-- * Full Output
+
+serialOutput :: Serialise reg => Output reg -> L.ByteString
+serialOutput out = toLazyByteString $ (encode out)
+
+encodeOutput :: Serialise reg => Output reg -> Encoding
+encodeOutput (SecretOutput prog params trc adv initM) =
+  map2CBOR $ 
+  [ ("program", encode prog)
+  , ("params", encode params)
+  , ("trace", encode trc)
+  , ("advice", encode adv)
+  , ("init_mem", encode initM)
+  ]
+encodeOutput (PublicOutput prog params) =
+  map2CBOR $ 
+  [ ("program", encode prog)
+  , ("params", encode params)
+  ]
+
+decodeOutput :: Serialise reg => Decoder s (Output reg)
+decodeOutput = do
+  len <- decodeMapLen
+  case len of
+    5 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode
+    2 -> PublicOutput <$> tagDecode <*> tagDecode
+
+instance Serialise reg => Serialise (Output reg) where 
+    encode = encodeOutput
+    decode = decodeOutput
+
+    
+-- * Utils
 
 deriving instance Generic Int
 deriving instance Generic Word
-
-data OpKind = KReg | KImm
-
-instance Serialise OpKind where
-    encode = undefined
-    decode = undefined
-
-class EncodeAsWord t where
-  toWord :: t -> Word
-  fromWord :: OpKind -> Word -> t
-    
-  kindOfWord :: t -> OpKind
-  
-instance EncodeAsWord Word where
-  toWord w = w
-  fromWord _ w = w
-
-  kindOfWord _ = KReg
-
-{-
-instance (EncodeAsWord regT, EncodeAsWord wrdT) =>  EncodeAsWord (Operand regT wrdT) where
-  toWord (Reg r) = toWord r
-  toWord (Const c) = toWord c
-
-  fromWord KReg r = Reg $ fromWord KReg r
-  fromWord KImm c = Const $ fromWord KImm c
-
-  kindOfWord (Reg r) = KReg
-  kindOfWord (Const r) = KImm
--}
 
 lengthW :: Foldable t => t a -> Word
 lengthW = fromIntegral . length
 
 list2CBOR :: [Encoding] -> Encoding
 list2CBOR ls = foldr (<>) mempty (encodeListLen (lengthW ls) : ls )
+
+tagDecode :: Serialise t => Decoder s t
+tagDecode = decodeString *> decode
+
+map2CBOR :: [(TXT.Text, Encoding)] -> Encoding
+map2CBOR ls =
+     foldr (<>) mempty $ (encodeMapLen len) : map encodeField ls
+    where len = lengthW ls
+
+          encodeField :: (TXT.Text, Encoding) -> Encoding
+          encodeField (str, enc) = encodeString str <> enc
+  
+
+
+-- * Public Output
+-- Public output is generated "statically" (without knowing the input). It can be obtained
+-- by the verifier and the prover and has the following elements:
+-- 1. Program
+-- 2. Parameters
+--    * Number of registers
+--    * Trace length
+--    * Sparcity
+
+
+-- ** Program 
+
+-- It is enough to show an instance of `Serialise (Instruction r w)` to get an instance for
+-- full programs (given the instance `Serialise a => Serialise [a]`).
+
 
 
 encodeOperand' :: (Serialise regT, Serialise wrdT) => Operand regT wrdT -> [Encoding]
@@ -91,8 +127,6 @@ decodeOperand' = do
   case kind of
     False -> Reg <$> decode
     True  -> Const <$> decode
-  
-
 
 decodeOperand :: (Serialise regT, Serialise wrdT) => Decoder s (Operand regT wrdT)
 decodeOperand = do
@@ -105,36 +139,36 @@ decodeOperand = do
 instance (Serialise regT, Serialise wrdT) => Serialise (Operand regT wrdT) where
     encode = encodeOperand
     decode = decodeOperand
-  
+
 
 encodeInstr :: (Serialise regT, Serialise wrdT) => Instruction regT wrdT -> Encoding
-encodeInstr (Iand r1 r2 operand  ) = list2CBOR $ encodeWord  0 : encode r1  : encode r2  : (encodeOperand' operand)
-encodeInstr (Ior r1 r2 operand   ) = list2CBOR $ encodeWord  1 : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Ixor r1 r2 operand  ) = list2CBOR $ encodeWord  2 : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Inot r1 operand     ) = list2CBOR $ encodeWord  3 : encode r1  : encodeNull : (encodeOperand' operand) 
-encodeInstr (Iadd r1 r2 operand  ) = list2CBOR $ encodeWord  4 : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Isub r1 r2 operand  ) = list2CBOR $ encodeWord  5 : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Imull r1 r2 operand ) = list2CBOR $ encodeWord  6 : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Iumulh r1 r2 operand) = list2CBOR $ encodeWord  7 : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Ismulh r1 r2 operand) = list2CBOR $ encodeWord  8 : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Iudiv r1 r2 operand ) = list2CBOR $ encodeWord  9 : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Iumod r1 r2 operand ) = list2CBOR $ encodeWord 10 : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Ishl r1 r2 operand  ) = list2CBOR $ encodeWord 11 : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Ishr r1 r2 operand  ) = list2CBOR $ encodeWord 12 : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Icmpe r2 operand    ) = list2CBOR $ encodeWord 13 : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Icmpa r2 operand    ) = list2CBOR $ encodeWord 14 : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Icmpae r2 operand   ) = list2CBOR $ encodeWord 15 : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Icmpg r2 operand    ) = list2CBOR $ encodeWord 16 : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Icmpge r2 operand   ) = list2CBOR $ encodeWord 17 : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Imov r1 operand     ) = list2CBOR $ encodeWord 18 : encode r1  : encodeNull : (encodeOperand' operand) 
-encodeInstr (Icmov r1 operand    ) = list2CBOR $ encodeWord 19 : encode r1  : encodeNull : (encodeOperand' operand) 
-encodeInstr (Ijmp operand        ) = list2CBOR $ encodeWord 20 : encodeNull : encodeNull : (encodeOperand' operand) 
-encodeInstr (Icjmp operand       ) = list2CBOR $ encodeWord 21 : encodeNull : encodeNull : (encodeOperand' operand) 
-encodeInstr (Icnjmp operand      ) = list2CBOR $ encodeWord 22 : encodeNull : encodeNull : (encodeOperand' operand) 
-encodeInstr (Istore operand r2   ) = list2CBOR $ encodeWord 23 : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Iload r2 operand    ) = list2CBOR $ encodeWord 24 : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Iread r2 operand    ) = list2CBOR $ encodeWord 25 : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Ianswer operand     ) = list2CBOR $ encodeWord 26 : encodeNull : encodeNull : (encodeOperand' operand) 
+encodeInstr (Iand r1 r2 operand  ) = list2CBOR $ encodeString "and"    : encode r1  : encode r2  : (encodeOperand' operand)
+encodeInstr (Ior r1 r2 operand   ) = list2CBOR $ encodeString "or"     : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Ixor r1 r2 operand  ) = list2CBOR $ encodeString "xor"    : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Inot r1 operand     ) = list2CBOR $ encodeString "not"    : encode r1  : encodeNull : (encodeOperand' operand) 
+encodeInstr (Iadd r1 r2 operand  ) = list2CBOR $ encodeString "add"    : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Isub r1 r2 operand  ) = list2CBOR $ encodeString "sub"    : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Imull r1 r2 operand ) = list2CBOR $ encodeString "mull"   : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Iumulh r1 r2 operand) = list2CBOR $ encodeString "umulh"  : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Ismulh r1 r2 operand) = list2CBOR $ encodeString "smulh"  : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Iudiv r1 r2 operand ) = list2CBOR $ encodeString "udiv"   : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Iumod r1 r2 operand ) = list2CBOR $ encodeString "umod"   : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Ishl r1 r2 operand  ) = list2CBOR $ encodeString "shl"    : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Ishr r1 r2 operand  ) = list2CBOR $ encodeString "shr"    : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Icmpe r2 operand    ) = list2CBOR $ encodeString "cmpe"   : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Icmpa r2 operand    ) = list2CBOR $ encodeString "cmpa"   : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Icmpae r2 operand   ) = list2CBOR $ encodeString "cmpae"  : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Icmpg r2 operand    ) = list2CBOR $ encodeString "cmpg"   : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Icmpge r2 operand   ) = list2CBOR $ encodeString "cmpge"  : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Imov r1 operand     ) = list2CBOR $ encodeString "mov"    : encode r1  : encodeNull : (encodeOperand' operand) 
+encodeInstr (Icmov r1 operand    ) = list2CBOR $ encodeString "cmov"   : encode r1  : encodeNull : (encodeOperand' operand) 
+encodeInstr (Ijmp operand        ) = list2CBOR $ encodeString "jmp"    : encodeNull : encodeNull : (encodeOperand' operand) 
+encodeInstr (Icjmp operand       ) = list2CBOR $ encodeString "cjmp"   : encodeNull : encodeNull : (encodeOperand' operand) 
+encodeInstr (Icnjmp operand      ) = list2CBOR $ encodeString "cnjmp"  : encodeNull : encodeNull : (encodeOperand' operand) 
+encodeInstr (Istore operand r2   ) = list2CBOR $ encodeString "store"  : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Iload r2 operand    ) = list2CBOR $ encodeString "load"   : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Iread r2 operand    ) = list2CBOR $ encodeString "read"   : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Ianswer operand     ) = list2CBOR $ encodeString "answer" : encodeNull : encodeNull : (encodeOperand' operand) 
 
 decodeOperands :: (Serialise regT, Serialise wrdT) => Int -> Decoder s ([regT], Operand regT wrdT)
 decodeOperands 0 = fail "invalid number of operands: 0"
@@ -150,35 +184,35 @@ decodeOperands n = do
 decodeInstr :: (Serialise regT, Serialise ops) => Decoder s (Instruction regT ops)
 decodeInstr = do
     _ <- decodeListLen
-    tag <- decodeWord
+    tag <- decodeString
     case tag of 
-      0  -> Iand    <$> decode     <*> decode     <*> decodeOperand' 
-      1  -> Ior     <$> decode     <*> decode     <*> decodeOperand' 
-      2  -> Ixor    <$> decode     <*> decode     <*> decodeOperand' 
-      3  -> Inot    <$> decode     <*  decodeNull <*> decodeOperand' 
-      4  -> Iadd    <$> decode     <*> decode     <*> decodeOperand' 
-      5  -> Isub    <$> decode     <*> decode     <*> decodeOperand' 
-      6  -> Imull   <$> decode     <*> decode     <*> decodeOperand' 
-      7  -> Iumulh  <$> decode     <*> decode     <*> decodeOperand' 
-      8  -> Ismulh  <$> decode     <*> decode     <*> decodeOperand' 
-      9  -> Iudiv   <$> decode     <*> decode     <*> decodeOperand' 
-      10 -> Iumod   <$> decode     <*> decode     <*> decodeOperand' 
-      11 -> Ishl    <$> decode     <*> decode     <*> decodeOperand' 
-      12 -> Ishr    <$> decode     <*> decode     <*> decodeOperand' 
-      13 -> Icmpe   <$  decodeNull <*> decode     <*> decodeOperand' 
-      14 -> Icmpa   <$  decodeNull <*> decode     <*> decodeOperand' 
-      15 -> Icmpae  <$  decodeNull <*> decode     <*> decodeOperand' 
-      16 -> Icmpg   <$  decodeNull <*> decode     <*> decodeOperand' 
-      17 -> Icmpge  <$  decodeNull <*> decode     <*> decodeOperand' 
-      18 -> Imov    <$> decode     <*  decodeNull <*> decodeOperand' 
-      19 -> Icmov   <$> decode     <*  decodeNull <*> decodeOperand' 
-      20 -> Ijmp    <$  decodeNull <*  decodeNull <*> decodeOperand' 
-      21 -> Icjmp   <$  decodeNull <*  decodeNull <*> decodeOperand' 
-      22 -> Icnjmp  <$  decodeNull <*  decodeNull <*> decodeOperand' 
-      23 -> flip Istore  <$  decodeNull <*> decode     <*> decodeOperand' 
-      24 -> Iload   <$  decodeNull <*> decode     <*> decodeOperand' 
-      25 -> Iread   <$  decodeNull <*> decode     <*> decodeOperand' 
-      26 -> Ianswer <$  decodeNull <*  decodeNull <*> decodeOperand' 
+      "and"     -> Iand    <$> decode     <*> decode     <*> decodeOperand' 
+      "or"      -> Ior     <$> decode     <*> decode     <*> decodeOperand' 
+      "xor"     -> Ixor    <$> decode     <*> decode     <*> decodeOperand' 
+      "not"     -> Inot    <$> decode     <*  decodeNull <*> decodeOperand' 
+      "add"     -> Iadd    <$> decode     <*> decode     <*> decodeOperand' 
+      "sub"     -> Isub    <$> decode     <*> decode     <*> decodeOperand' 
+      "mull"    -> Imull   <$> decode     <*> decode     <*> decodeOperand' 
+      "umulh"   -> Iumulh  <$> decode     <*> decode     <*> decodeOperand' 
+      "smulh"   -> Ismulh  <$> decode     <*> decode     <*> decodeOperand' 
+      "udiv"    -> Iudiv   <$> decode     <*> decode     <*> decodeOperand' 
+      "umod"    -> Iumod   <$> decode     <*> decode     <*> decodeOperand' 
+      "shl"     -> Ishl    <$> decode     <*> decode     <*> decodeOperand' 
+      "shr"     -> Ishr    <$> decode     <*> decode     <*> decodeOperand' 
+      "cmpe"    -> Icmpe   <$  decodeNull <*> decode     <*> decodeOperand' 
+      "cmpa"    -> Icmpa   <$  decodeNull <*> decode     <*> decodeOperand' 
+      "cmpae"   -> Icmpae  <$  decodeNull <*> decode     <*> decodeOperand' 
+      "cmpg"    -> Icmpg   <$  decodeNull <*> decode     <*> decodeOperand' 
+      "cmpge"   -> Icmpge  <$  decodeNull <*> decode     <*> decodeOperand' 
+      "mov"     -> Imov    <$> decode     <*  decodeNull <*> decodeOperand' 
+      "cmov"    -> Icmov   <$> decode     <*  decodeNull <*> decodeOperand' 
+      "jmp"     -> Ijmp    <$  decodeNull <*  decodeNull <*> decodeOperand' 
+      "cjmp"    -> Icjmp   <$  decodeNull <*  decodeNull <*> decodeOperand' 
+      "cnjmp"   -> Icnjmp  <$  decodeNull <*  decodeNull <*> decodeOperand' 
+      "store"   -> flip Istore  <$  decodeNull <*> decode     <*> decodeOperand' 
+      "load"    -> Iload   <$  decodeNull <*> decode     <*> decodeOperand' 
+      "read"    -> Iread   <$  decodeNull <*> decode     <*> decodeOperand' 
+      "answer"  -> Ianswer <$  decodeNull <*  decodeNull <*> decodeOperand' 
       _ -> fail $ "invalid instruction encoding. Tag: " ++ show tag ++ "."
   
 instance (Serialise regT, Serialise ops) => Serialise (Instruction regT ops) where
@@ -196,25 +230,63 @@ b = Istore (Reg 0) 0
 y = serialise b
 
 
+-- ** Parameters
+
+encodeInstrKind :: InstrKind -> Encoding
+encodeInstrKind ik = encodeString $ TXT.pack $ show ik
+
+decodeInstrKind :: Decoder s InstrKind
+decodeInstrKind = do
+  txt <- decodeString
+  return $ read $ TXT.unpack txt
+
+instance Serialise InstrKind where
+  encode = encodeInstrKind
+  decode = decodeInstrKind
+
+encodeParams :: CircuitParameters -> Encoding 
+encodeParams (CircuitParameters numRegs len sparc ) = 
+  map2CBOR $
+  [ ("num_regs", encodeWord numRegs)
+  , ("trace_len", encodeWord len)
+  , ("sparcity", encode sparc)
+  ]
+
+decodeParams :: Decoder s CircuitParameters 
+decodeParams = do
+  len <- decodeMapLen
+  case len of
+    3 -> CircuitParameters <$ decodeString <*> decodeWord
+         <* decodeString <*> decodeWord
+         <* decodeString <*> decode
+    _ -> fail $ "invalid parameters encoding. Length should be 3 but found " ++ show len
+
+
+instance Serialise CircuitParameters where
+  encode = encodeParams
+  decode = decodeParams
+
+
+-- * Secret Output
+-- Public output is generated "statically" (without knowing the input). It can be obtained
+-- by the verifier and the prover and has the following elements:
+-- 1. Trace
+-- 2. Advice
+-- 3. Initial Memory
+
+
+
 -- ** Traces 
 
--- | State with only the parts passed to the output.
-
-data StateOut = StateOut
-  { flagOut :: Bool
-  , pcOut   :: Word 
-  , regsOut :: [Word]
-  } deriving (Eq, Show, Generic)
-
-state2out :: Regs mreg => Word -> State mreg -> StateOut
-state2out bound (State pc regs _ _ flag _ _) = StateOut flag pc (regToList bound regs)
+-- *** State Out 
 
 encodeStateOut :: StateOut -> Encoding
 encodeStateOut (StateOut flag pc regs) =
-  encodeMapLen 3
-  <> encodeString "flag" <> encodeBool flag 
-  <> encodeString "pc"   <> encodeWord pc
-  <> encodeString "regs" <> encode regs
+  map2CBOR $
+  [ ("flag", encodeBool flag) 
+  , ("pc", encodeWord pc)
+  , ("regs", encode regs)
+  ]
 
 decodeStateOut :: Decoder s StateOut
 decodeStateOut = do
@@ -230,20 +302,66 @@ instance Serialise StateOut where
   encode = encodeStateOut
 
 
--- Compiler/interpreter output
-type SparcityInfo = Word
+-- ** Advice
+
+encodeMemOpType :: MemOpType -> Encoding
+encodeMemOpType MOStore = encodeBool True
+encodeMemOpType MOLoad = encodeBool False
+
+decodeMemOpType :: Decoder s MemOpType
+decodeMemOpType = do
+  b <- decodeBool
+  return $ if b then MOStore else MOLoad
+
+instance Serialise MemOpType where
+  decode = decodeMemOpType
+  encode = encodeMemOpType
 
 
-data CircuitParameters = CircuitParameters
-  { numRegs :: Word
-  , traceLength :: Word
-  , sparcity :: Map.Map InstrKind SparcityInfo
-  } deriving (Eq, Show, Generic)
-      
-data Output reg  = Output
-  { program :: Program reg Word
-  , parms :: CircuitParameters
-  , advice :: Map.Map Word Advice
-  , trace :: Maybe [StateOut]
-  , initMem :: Maybe [Word]
-  } deriving (Eq, Show, Generic)
+encodeAdvice :: Advice -> Encoding 
+encodeAdvice  (MemOp addr val opTyp) =
+  encodeListLen 4
+  <> encodeString "MemOp"
+  <> encodeWord addr
+  <> encodeWord val
+  <> encode opTyp
+  
+encodeAdvice  Stutter =
+  encodeListLen 1 <>
+  encodeString "Stutter"
+  
+decodeAdvice :: Decoder s Advice
+decodeAdvice = do
+  ln <- decodeListLen
+  name <- decodeString
+  case (ln,name) of
+    (4, "MemOp") -> MemOp <$> decodeWord <*> decodeWord <*> decode
+    (1, "Stutter") -> return Stutter
+
+instance Serialise Advice where
+  decode = decodeAdvice
+  encode = encodeAdvice
+
+
+
+-- ** Initial memory
+
+-- Serialise is derived from lists and Words.
+
+
+
+-- * Patch work
+-- We prove the instance of Words to be serialisable
+-- The hack here is that is not revertible names will go into Word's
+
+encodeName :: Name -> Encoding
+encodeName (Name str) =  encodeWord $ 2 * 3 -- (read $ show str) -- Goes: Short -> String -> Word -> CBOR
+encodeName (NewName x) =  encodeWord $ 1 + 2 * x
+
+decodeName :: Decoder s Name
+decodeName = NewName <$> decodeWord
+
+
+instance Serialise Name where
+  decode = decodeName
+  encode = encodeName

@@ -13,8 +13,9 @@ module MicroRAM.MRAMInterpreter
     execAnswer,
     --init_state,
     load,
-    initMem, emptyInitMem -- should this go elsewhere?
-  , Advice, renderAdvc
+    buildInitMem, emptyInitMem -- should this go elsewhere?
+  , Advice(..), renderAdvc
+  , MemOpType(..)
     ) where
 
 import MicroRAM.MicroRAM
@@ -137,25 +138,27 @@ data MemOpType = MOStore | MOLoad
 
 data Advice =
     MemOp
-    MemOpType  -- ^ read or write
     Word       -- ^ address
     Word       -- ^ value
+    MemOpType  -- ^ read or write
   | Stutter
   deriving (Eq, Read, Show, Generic)
 
 
-renderAdvc :: Maybe Advice -> String
-renderAdvc (Just (MemOp MOStore addr v)) = "Store: " ++ show addr ++ "->" ++ show v
-renderAdvc (Just (MemOp MOLoad  addr v)) = "Load: " ++ show addr ++ "->" ++ show v
-renderAdvc (Just Stutter) = "...Stutter..."
-renderAdvc Nothing = "-"
+
+renderAdvc :: [Advice] -> String
+renderAdvc advs = concat $ map renderAdvc' advs
+  where renderAdvc' :: Advice -> String
+        renderAdvc' (MemOp addr v MOStore) = "Store: " ++ show addr ++ "->" ++ show v
+        renderAdvc' (MemOp  addr v MOLoad) = "Load: " ++ show addr ++ "->" ++ show v
+        renderAdvc' (Stutter) = "...Stutter..."
 
 -- | The program state 
 data State mreg = State {
   pc :: Pc
   , regs :: RMap mreg Word 
   , mem :: Mem
-  , advice :: Maybe Advice -- Deleted at the start of each step.
+  , advice :: [Advice] -- Deleted at the start of each step.
   --, tapes :: (Tape, Tape)
   , flag :: Bool
   , bad :: Bool
@@ -170,7 +173,7 @@ init_state input  = State {
   pc = init_pc
   , regs = initBank 0
   , mem = init_mem input
-  , advice = Nothing
+  , advice = []
   --, tapes = (t_input, t_advice)
   , flag = init_flag
   , bad = init_flag
@@ -181,9 +184,9 @@ set_reg:: Regs mreg => mreg -> Wrd -> State mreg -> State mreg
 set_reg r x st = st { regs = updateBank r x (regs st) }
 
 store_advc :: Wrd -> Wrd -> State mreg -> State mreg
-store_advc addr v st = st {advice = Just $ MemOp MOStore addr v } 
+store_advc addr v st = st {advice = [MemOp addr v MOStore] } 
 load_advc :: Wrd -> Wrd -> State mreg -> State mreg
-load_advc addr v st = st {advice = Just $ MemOp MOLoad addr v }
+load_advc addr v st = st {advice = [MemOp addr v MOLoad] }
 
 
 store_mem::  Wrd -> Wrd -> State mreg -> State mreg
@@ -458,7 +461,7 @@ exec (Ianswer a) st =
 
 -- | freshAdvice: clear advice before every step 
 freshAdvice :: State mreg -> State mreg
-freshAdvice st = st {advice = Nothing}
+freshAdvice st = st {advice = []}
 
 -- ** Program step
 type Prog mreg = Program mreg Wrd
@@ -519,8 +522,8 @@ execAnswer prog bound input = answer $ (run input prog) !! bound
 
 -- | Create the initial memory from a list of inputs
 -- TODO This seems out of place, but I don't know where to put it
-initMem :: [String] -> [Word]
-initMem ls = map fromIntegral $
+buildInitMem :: [String] -> [Word]
+buildInitMem ls = map fromIntegral $
   let argsAsChars = args2chars ("Name":ls) in   -- we fake the "name" of the program.
     let argv_array = getStarts argsAsChars in
       let argsAsString = concat argsAsChars in
@@ -540,5 +543,5 @@ initMem ls = map fromIntegral $
           getStartsRec (n+length x) (ret++[n]) ls
 
 emptyInitMem :: [Word]
-emptyInitMem = initMem []
+emptyInitMem = buildInitMem []
           

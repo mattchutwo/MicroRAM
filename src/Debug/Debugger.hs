@@ -208,7 +208,7 @@ fromMRAMFile :: (Read mreg, Regs mreg) => FilePath -> IO (Program mreg Word)
 fromMRAMFile file = do
   contents <- readFile file
   compilationUnit <- return $ read contents
-  return $ program compilationUnit
+  return $ programCU compilationUnit
 
 runFromFile  :: (Read mreg, Regs mreg) =>
   FilePath -> [Word] -> IO (Trace mreg)

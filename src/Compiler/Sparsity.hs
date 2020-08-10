@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Compiler.Sparsity (sparsity, Sparsity, InstrKind) where
+{-# LANGUAGE DeriveGeneric #-}
+module Compiler.Sparsity (sparsity, Sparsity, InstrKind(..)) where
 
 {-
 Module      : Opcode Sparsity Analysis
@@ -41,6 +42,8 @@ import qualified Data.Map as Map
 
 import Util.Util
 import MicroRAM.MicroRAM
+
+import GHC.Generics
 
 --  Temp
 import Compiler.IRs
@@ -130,11 +133,11 @@ data InstrKind =
   | Kload  
   | Kread  
   | Kanswer
-  -- Generic classes
+  -- Larger kinds
   | KmemOp  -- Memory operations
   | Kalu    -- ALU operations
   | Kjumps  -- Aljump operations
- deriving (Eq, Ord, Read, Show)
+ deriving (Eq, Ord, Read, Show, Generic)
 
 type Sparsity' = Map.Map InstrKind OpSparsity -- intermediate
 type Sparsity = Map.Map InstrKind Int
@@ -215,9 +218,10 @@ sparsInstr spars (location, Ijmp _) = sparsJump location spars
 sparsInstr spars (location, Icjmp _) = sparsJump location spars
 sparsInstr spars (location, Icnjmp _) = sparsJump location spars
 sparsInstr spars (location, instr) =
-  foldr updateKindSparc spars $ instrType instr
-  where updateKindSparc :: InstrKind -> Sparsity' -> Sparsity'
-        updateKindSparc = undefined
+  foldr (updateKindSparc location) spars $ instrType instr
+  where updateKindSparc :: Int -> InstrKind -> Sparsity' -> Sparsity'
+        updateKindSparc loc ik sparc = let oldOpSparc = Map.lookup ik sparc in
+                                       Map.insert ik (updateInstrSpars loc ik oldOpSparc) sparc 
     
 --  Map.insert instrLabel (updateInstrSpars location instrLabel instrSpars) spars
 --  where 

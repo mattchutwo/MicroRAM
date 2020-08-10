@@ -17,3 +17,8 @@ mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
 {-# INLINE mapMaybeM #-}
 mapMaybeM op = foldr f (pure [])
     where f x xs = do x <- op x; case x of Nothing -> xs; Just x -> do xs <- xs; pure $ x:xs
+
+
+-- | take with words
+takeW :: Word -> [a] -> [a]
+takeW w = take (fromEnum w)
