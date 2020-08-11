@@ -39,7 +39,7 @@ To fully process the trivial program `programs/return42.c` do:
 % stack exec compile -- programs/return42.c 25
 ```
 
-Here `300` is the desired length of the trace. This will output the CBOR binary encoding of:
+Here `25` is the desired length of the trace. This will output the CBOR binary encoding of:
 
 * The compiled MicroRAM program  
 * The parameters passed to circuit generations:
