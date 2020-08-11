@@ -140,6 +140,7 @@ data Flag
    | JustMRAM
    | MRAMout (Maybe String)
    -- Interpreter flags
+   | FromMRAM
    | Output String
    -- Check result
    | DoubleCheck
@@ -203,7 +204,7 @@ parseFlag (JustLLVM) fr = fr {end = max LLVMLang $ end fr}
 
 parseFlag (JustMRAM) fr = fr {end = max MRAMLang $ end fr}
 -- Interpreter flags
---parseFlag (FromMRAM) fr = fr {beginning = MRAMLang} -- In this case we are reading the fileIn
+parseFlag (FromMRAM) fr = fr {beginning = MRAMLang} -- In this case we are reading the fileIn
 parseFlag (MRAMout (Just outFile)) fr = fr {mramFile = Just outFile}
 parseFlag (MRAMout Nothing) fr = fr {mramFile = Just $ replaceExtension (fileIn fr) ".micro"}
 
@@ -231,6 +232,7 @@ options =
   , Option []    ["from-llvm"]   (NoArg FromLLVM)           "Compile only with the backend. Compiles from an LLVM file."
   , Option []    ["just-llvm"]   (NoArg JustLLVM)           "Compile only with the frontend. "
   , Option []    ["just-mram","verifier"]   (NoArg JustMRAM)           "Only run the compiler (no interpreter). "
+  , Option []    ["from-mram"]   (NoArg FromMRAM)           "Only run the interpreter from a compiled MicroRAM file."
   , Option ['v'] ["verbose"]     (NoArg Verbose)            "Chatty compiler"
   , Option ['c'] ["double-check"]        (NoArg DoubleCheck)               "check the result"
   , Option ['h'] ["help"]        (NoArg Help)               "Print this help message"

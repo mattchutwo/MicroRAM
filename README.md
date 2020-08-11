@@ -42,7 +42,7 @@ To fully process the trivial program `programs/return42.c` do:
 Here `25` is the desired length of the trace. This will output the CBOR binary encoding of:
 
 * The compiled MicroRAM program  
-* The parameters passed to circuit generations:
+* The parameters passed to circuit generation:
   * Number of registers
   * trace length (i.e. 25)
   * Sparsity information
@@ -72,8 +72,15 @@ With arguments ["1","1","1","1","1","1","1","1","1","1"]
 Running program programs/fib.mic for 400 steps.
 Result: 55
 ```
-
 Returns the 10th fibonacci number. Yay!
+
+Finally, if we are happy with the execution. We can go ahead and generate the secret output (with the oh-so-secret-input "10").
+
+```
+% stack exec compile -- programs/fib.micro 300 1 1 1 1 1 1 1 1 1 1 --from-mram
+```
+
+Here `--from-mram` skips the compiler and only runs the interpreter and the serialisation of the result.
 
 ## Usage
 
@@ -89,6 +96,7 @@ Usage: compile file length [arguments] [options].
            --from-llvm              Compile only with the backend. Compiles from an LLVM file.
            --just-llvm              Compile only with the frontend. 
            --just-mram, --verifier  Only run the compiler (no interpreter). 
+           --from-mram              Only run the interpreter from a compiled MicroRAM file.
   -v       --verbose                Chatty compiler
   -c       --double-check           check the result
   -h       --help                   Print this help message
@@ -96,7 +104,7 @@ Usage: compile file length [arguments] [options].
 
 ## Running the tests
 
-You can also run our test suite loke so:
+You can also run our test suite like so:
 
 ```
 % stack test
