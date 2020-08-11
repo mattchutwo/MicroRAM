@@ -30,6 +30,10 @@ import MicroRAM.MicroRAM
 import Util.Util
 
 
+-- Remove
+import Compiler.IRs
+
+
 -- * Output structures
   
 -- | Output
@@ -88,7 +92,7 @@ data CircuitParameters = CircuitParameters
   , sparcity :: Map.Map InstrKind SparcityInfo
   } deriving (Eq, Show, Generic)
   
-
+ 
 -- ** Traces 
 
 -- *** State
@@ -111,27 +115,29 @@ state2out bound (State pc regs _ _ flag _ _) = StateOut flag pc (regToList bound
 -- * Producing Outputs
 
 -- | Convert the output of the compiler (Compilation Unit) into Output
-buildCircuitParameters trLen regData aData =
+buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed if InfinityRegs doesn't show up here. 
   CircuitParameters (regData2output regData) trLen (analyData2sparc aData)
   where regData2output (NumRegisters n) = fromIntegral n
-        regData2output InfinityRegs = 8 -- FIX ME: Throw exception?
+        regData2output InfinityRegs = regNum -- FIX ME: Throw exception?
 
         analyData2sparc = foldr joinSparcData Map.empty  
         joinSparcData (SparsityData sparc2) spar1 =
           let sparc2' = Map.map fromIntegral sparc2 in  -- Make into Words
             Map.unionWith min sparc2' spar1
 
-compUnit2Output :: CompilationUnit (Program reg Word) -> Output reg
+compUnit2Output :: Regs reg => CompilationUnit (Program reg Word) -> Output reg
 compUnit2Output (CompUnit p trLen regData aData) =
-  let circParams = buildCircuitParameters trLen regData aData in
-  PublicOutput p circParams 
+  let regNum = countRegs p in
+  let circParams = buildCircuitParameters trLen regData aData regNum in
+  PublicOutput p circParams           
 
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).
 -- The input Trace should be an infinite stream which we truncate by the given length.
 secretOutput :: Regs reg => Trace reg -> [Word] -> CompilationUnit (Program reg Word) -> Output reg
 secretOutput tr initM (CompUnit p trLen regData aData) =
-  let circParams = buildCircuitParameters trLen regData aData in
+  let regNum = countRegs p in
+  let circParams = buildCircuitParameters trLen regData aData regNum in
     SecretOutput p circParams
     -- Trace
     (outputTrace trLen tr (numRegs circParams))
@@ -140,15 +146,51 @@ secretOutput tr initM (CompUnit p trLen regData aData) =
     -- initMem
     initM
 
-  where outputTrace len tr regBound = takeW len $ map (state2out regBound) tr
-
-        outputAdvice len tr = foldr joinAdvice Map.empty (takeW len $ zip [0..] tr)
+  where outputAdvice len tr = foldr joinAdvice Map.empty (takeW len $ zip [0..] tr)
         joinAdvice (i,state) adviceMap = case advice state of
                                        [] -> adviceMap
                                        ls -> Map.insert i ls adviceMap
 
-
+outputTrace len tr regBound = takeW len $ map (state2out regBound) tr
 
 fullOutput :: Regs reg => [Word] -> CompilationUnit (Program reg Word) -> Output reg
 fullOutput initM compUnit =
   secretOutput (run initM $ programCU compUnit) initM compUnit 
+
+
+
+
+
+
+
+-- | We only look at what registers are assigned too
+countRegs :: Regs regT => Program regT Word -> Word
+countRegs p = maximum $ map getRegAssign p
+  where getRegAssign (Iand reg1 reg2 operand  ) =  toWord reg1  
+        getRegAssign (Ior reg1 reg2 operand   ) =  toWord reg1 
+        getRegAssign (Ixor reg1 reg2 operand  ) =  toWord reg1 
+        getRegAssign (Inot reg1 operand       ) =  toWord reg1 
+        getRegAssign (Iadd reg1 reg2 operand  ) =  toWord reg1 
+        getRegAssign (Isub reg1 reg2 operand  ) =  toWord reg1 
+        getRegAssign (Imull reg1 reg2 operand ) =  toWord reg1 
+        getRegAssign (Iumulh reg1 reg2 operand) =  toWord reg1 
+        getRegAssign (Ismulh reg1 reg2 operand) =  toWord reg1 
+        getRegAssign (Iudiv reg1 reg2 operand ) =  toWord reg1 
+        getRegAssign (Iumod reg1 reg2 operand ) =  toWord reg1 
+        getRegAssign (Ishl reg1 reg2 operand  ) =  toWord reg1 
+        getRegAssign (Ishr reg1 reg2 operand  ) =  toWord reg1 
+        getRegAssign (Icmpe reg1 operand      ) =  toWord reg1 
+        getRegAssign (Icmpa reg1 operand      ) =  toWord reg1 
+        getRegAssign (Icmpae reg1 operand     ) =  toWord reg1 
+        getRegAssign (Icmpg reg1 operand      ) =  toWord reg1 
+        getRegAssign (Icmpge reg1 operand     ) =  toWord reg1 
+        getRegAssign (Imov reg1 operand       ) =  toWord reg1 
+        getRegAssign (Icmov reg1 operand      ) =  toWord reg1 
+        getRegAssign (Istore operand reg1     ) =  toWord reg1 
+        getRegAssign (Iload reg1 operand      ) =  toWord reg1 
+        getRegAssign (Iread reg1 operand      ) =  toWord reg1 
+        getRegAssign _ =  0 
+
+{-
+b = countRegs [Iload (NewName 0) (Const 1),Iload (Name "0") (Reg (NewName 0)),Iadd (NewName 0) (NewName 0) (Const 1),Iload (Name "1") (Reg (NewName 0)),Iadd (NewName 0) (NewName 0) (Const 1),Imov (NewName 2) (Const 28),Iadd (NewName 0) (NewName 0) (Const 1),Istore (Reg (NewName 0)) (NewName 2),Iadd (NewName 0) (NewName 0) (Const 1),Istore (Reg (NewName 0)) (NewName 1),Imov (NewName 1) (Reg (NewName 0)),Isub (NewName 0) (NewName 0) (Const 0),Imov (Name "1") (Reg (NewName 0)),Iadd (NewName 0) (NewName 0) (Const 1),Imov (Name "2") (Reg (NewName 0)),Iadd (NewName 0) (NewName 0) (Const 1),Imov (NewName 2) (Const 0),Istore (Reg (Name "1")) (NewName 2),Imov (NewName 3) (Const 21),Istore (Reg (Name "2")) (NewName 3),Iload (Name "3") (Reg (Name "2")),Iload (Name "4") (Reg (Name "2")),Iadd (Name "5") (Name "3") (Reg (Name "4")),Imov (NewName 2) (Reg (Name "5")),Imov (NewName 0) (Reg (NewName 1)),Isub (NewName 1) (NewName 1) (Const 1),Iload (NewName 1) (Reg (NewName 1)),Ijmp (Reg (NewName 1)),Ianswer (Reg (NewName 2))]
+-}

@@ -5,7 +5,8 @@ MicroRAM is a random-access machine designed to efficiently do zero knowledge pr
  
  * An ADT implementation of MicroRAM 
  * A interpreter of MicroRAM in Haskell 
- * A compiler from C to MicroRAM
+ * A compiler from C to MicroRAM with custom optimisations
+ * A CBOR serialiser for the output
 
 ## Installing
 
@@ -28,20 +29,48 @@ Clone this repository and build it
 ```
 
 
-## Quick use example:
+## Quick use examples:
 
-To compile and run the program `programs/fib.c` do:
+### Simplest example:
+
+To fully process the trivial program `programs/return42.c` do:
 
 ```
-% stack exec compile programs/fib.c  
+% stack exec compile -- programs/return42.c 25
 ```
 
-This will create the compiled file `programs/fib.micro` which you can run for 400 steps like so ([notice fib takes it's argument in unary, explained bellow](#why-inputs-inunary))
+Here `300` is the desired length of the trace. This will output the CBOR binary encoding of:
+
+* The compiled MicroRAM program  
+* The parameters passed to circuit generations:
+  * Number of registers
+  * trace length (i.e. 25)
+  * Sparsity information
+* Trace of running the program for 25 cycles
+* Circuit advice
+* The input (as initial memory). Here the memory is a trivial string representing the name of the program and no other argument.
+
+
+### Passing arguemnts and running the interpreter:
+
+Lets see another example
+
+```
+% stack exec compile -- programs/fib.c 300 1 1 1 1 1 1 1 1 1 1 -O3 --mram-out -verifier
+```
+Here:
+* 300 is the desired length of the trace
+* `-O3` runs clang with full optimisations
+* `--mram-out` writes the compiled MicroRAM program to `programs/fib.micro`
+* `--verifier` runs the backend in "public mode" so rthe resulting CBOR code only has the compiled program and the parameters (number of registers, trace length and sprsity information).
+
+We can further run the interpreter on the compiled code (explained below): 
 
 ```
 % stack exec run programs/fib.micro 400 1 1 1 1 1 1 1 1 1 1
+With arguments ["1","1","1","1","1","1","1","1","1","1"]
 Running program programs/fib.mic for 400 steps.
-Result: 34
+Result: 55
 ```
 
 Returns the 10th fibonacci number. Yay!
@@ -51,31 +80,19 @@ Returns the 10th fibonacci number. Yay!
 The compiler recognizes the following usage
 
 ```
-Usage: compile [-benstuv] [file ...]
-           --llvm-out=FILE   Save the llvm IR to a file
-  -O[arg]  --optimize[=arg]  Optimization level of the front end
-  -o FILE  --output=FILE     Output to file
-           --from-llvm       Compile only with the backend. Compiles from an LLVM file.
-           --just-llvm       Compile only with the frontend. 
-  -v       --verbose         Chatty compiler
-  -h       --help            Print this help message
+Usage: compile file length [arguments] [options]. 
+ Options: 
+           --llvm-out[=FILE]        Save the llvm IR to file
+           --mram-out[=FILE]        Save the compiled MicroRAM program to file
+  -O[arg]  --optimize[=arg]         Optimization level of the front end
+  -o FILE  --output=FILE            Write ouput to file
+           --from-llvm              Compile only with the backend. Compiles from an LLVM file.
+           --just-llvm              Compile only with the frontend. 
+           --just-mram, --verifier  Only run the compiler (no interpreter). 
+  -v       --verbose                Chatty compiler
+  -c       --double-check           check the result
+  -h       --help                   Print this help message
 ```
-
-Remember that for stack, all arguments go after a `--`. For example, we can compile `fib.c` with full optimizations, saving the intermediate llvm file and customizing the output file:
-
-```
-stack exec compile -- programs/fib.c --llvm-out=programs/fib.ll -oprograms/mysuperfancyfib.micro
-```
-
-**Beware:** if you get too fancy with the optimizations, clang might use instructions we do not support yet. We are working on it. For example
-
-```
-% stack exec compile -- programs/fib.c -O3
-
-  Backend compilation error: Feature not supported by the compiler yet: Phi. Not implemented in the trivial Register allocation.
-```
-
-
 
 ## Running the tests
 
@@ -84,9 +101,6 @@ You can also run our test suite loke so:
 ```
 % stack test
 ```
-
-Some of the tests will fail for now. For example we don't currently support `phi`, so if the front end introduces a `phi` we can't compile. You will see this error in the optimized fibonacci example.
-
 
 ## More details
 

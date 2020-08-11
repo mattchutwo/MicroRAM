@@ -29,6 +29,7 @@ class Ord a => Regs a where
   -- Arguments FIXME remove after reg alloc is fixed.
   argc :: a
   argv :: a
+  toWord :: a -> Word 
   fromWord :: Word -> a 
   -- Register bank
   data RMap a :: * -> *

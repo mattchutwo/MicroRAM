@@ -34,28 +34,46 @@ import Output.CBORFormat
 main = do
   (options, file, len, args) <- getArgs >>= parseArgs
   fr <- parseOptions file len options
+  ifio (beginning fr <= end fr) $ do
+    putStrLn "Nothing to do here. Beginning comes later than end. Did you use -from-mram and -just-llvm? "
+    exitWith ExitSuccess
+  -- --------------
   -- Run Frontend
-  ifio (not $ fromLLVM fr) $ do
+  -- --------------
+  ifio (beginning fr == CLang) $ do
     output <- callClang (fr2ClangArgs fr)
     giveInfo fr output
-  ifio (justLLVM fr) $ exitWith ExitSuccess
+  ifio (end fr >= LLVMLang) $ exitWith ExitSuccess
+  -- --------------
   -- Run Backend
-  giveInfo fr "Running the compiler backend..."
-  microProg <-  callBackend fr
+  -- --------------
+  microProg <-  if (beginning fr >= LLVMLang) then -- Compile or read from file
+                  do
+                    giveInfo fr "Running the compiler backend..."
+                    callBackend fr
+                else
+                  do
+                    flatprog <- readFile $ fileIn fr
+                    return $ read flatprog
+  -- Maybe save the MicroRAM file
   case mramFile fr of 
     Just mramFile -> do
       giveInfo fr $ "Write MicroRAM program to file : " ++ mramFile
       writeFile mramFile $ show microProg
     Nothing -> return ()
-  ifio (justMRAM fr) $ do
+  -- Maybe end here and output public output as CBOR
+  ifio (end fr >= MRAMLang) $ do
     giveInfo fr $ "Output public info."
     output fr $ compUnit2Output microProg -- return public output 
     exitWith ExitSuccess -- Verifier mod ends here
+  -- --------------
   -- Interpreter
+  -- --------------
   giveInfo fr $ "Running the interpreter with inputs: " ++ show args
   mem <- return $ buildInitMem args
   secretOut <- return $ fullOutput mem microProg
   output fr $ secretOut
+  ifio (doubleCheck fr) $ print "Nothing to check"
   
   where output :: FlagRecord -> Output Name -> IO ()
         output fr out = case fileOut fr of
@@ -66,7 +84,7 @@ main = do
         -- if verbose
         giveInfo fr str = ifio (verbose fr) $ putStrLn $ str
             
-  
+ 
       
 callBackend :: FlagRecord -> IO $ CompilationUnit (Program Name Word)
 callBackend fr = do  
@@ -123,22 +141,32 @@ data Flag
    | MRAMout (Maybe String)
    -- Interpreter flags
    | Output String
+   -- Check result
+   | DoubleCheck
    deriving(Eq, Ord)
+
+data Stages =
+   FullOutput
+  | MRAMLang
+  | LLVMLang
+  | CLang
+  deriving (Eq, Ord, Show)
 
 data FlagRecord = FlagRecord
   { verbose :: Bool  
   , fileIn :: String
   , trLen :: Word
+  , beginning :: Stages
   -- Compiler frontend
   , optim :: Int
-  , justLLVM :: Bool
   -- Compiler backend
   , llvmFile :: String -- Defaults to a temporary one if not wanted.
-  , fromLLVM :: Bool
-  , justMRAM :: Bool
   , mramFile :: Maybe String
   -- Interpreter
   , fileOut :: Maybe String
+  , end :: Stages
+  --
+  , doubleCheck :: Bool
   } deriving (Show)
 
 fr2ClangArgs :: FlagRecord -> ClangArgs
@@ -150,35 +178,38 @@ defaultFlags name len=
     False
     name
     len
-    -- 
+    CLang
+    --
     0
-    False
     --
     "temp/temp.ll" -- Default we use to temporarily store compilation FIXME!
-    False
-    False
     Nothing
     --
     Nothing
-    
+    FullOutput
+    --
+    False
 
 parseFlag :: Flag -> FlagRecord -> FlagRecord
 parseFlag (Verbose) fr = fr {verbose = True}
---
+-- Front end flags
 parseFlag (Optimisation n) fr = fr {optim = n}
---
+-- Back end flags 
 parseFlag (LLVMout (Just llvmOut)) fr = fr {llvmFile = llvmOut}
-parseFlag (LLVMout Nothing) fr = fr {llvmFile = replaceExtension (fileIn fr) ".micro"}
+parseFlag (LLVMout Nothing) fr = fr {llvmFile = replaceExtension (fileIn fr) ".ll"}
 
-parseFlag (FromLLVM) fr = fr {fromLLVM = True, llvmFile = fileIn fr} -- In this case we are reading the fileIn
-parseFlag (JustLLVM) fr = fr {justLLVM = True}
+parseFlag (FromLLVM) fr = fr {beginning = LLVMLang, llvmFile = fileIn fr} -- In this case we are reading the fileIn
+parseFlag (JustLLVM) fr = fr {end = max LLVMLang $ end fr}
 
-parseFlag (JustMRAM) fr = fr {justMRAM = True}
---
+parseFlag (JustMRAM) fr = fr {end = max MRAMLang $ end fr}
+-- Interpreter flags
+--parseFlag (FromMRAM) fr = fr {beginning = MRAMLang} -- In this case we are reading the fileIn
 parseFlag (MRAMout (Just outFile)) fr = fr {mramFile = Just outFile}
 parseFlag (MRAMout Nothing) fr = fr {mramFile = Just $ replaceExtension (fileIn fr) ".micro"}
 
 parseFlag (Output outFile) fr = fr {fileOut = Just outFile}
+
+parseFlag (DoubleCheck) fr = fr {doubleCheck = True}
 
 parseFlag _ fr = fr
 
@@ -201,6 +232,7 @@ options =
   , Option []    ["just-llvm"]   (NoArg JustLLVM)           "Compile only with the frontend. "
   , Option []    ["just-mram","verifier"]   (NoArg JustMRAM)           "Only run the compiler (no interpreter). "
   , Option ['v'] ["verbose"]     (NoArg Verbose)            "Chatty compiler"
+  , Option ['c'] ["double-check"]        (NoArg DoubleCheck)               "check the result"
   , Option ['h'] ["help"]        (NoArg Help)               "Print this help message"
   ]
   where readOpimisation Nothing = Optimisation 1

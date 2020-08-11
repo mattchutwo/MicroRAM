@@ -25,6 +25,7 @@ import Codec.CBOR
 import Codec.CBOR.Decoding
 import Codec.CBOR.Encoding
 import Codec.CBOR.Write
+import Codec.CBOR.Read
 import qualified Data.ByteString.Lazy                  as L
   
 import Compiler.Sparsity
@@ -45,6 +46,9 @@ import Output.Output
 
 serialOutput :: Serialise reg => Output reg -> L.ByteString
 serialOutput out = toLazyByteString $ (encode out)
+
+serialInput :: Serialise reg => L.ByteString -> Either DeserialiseFailure (L.ByteString, Output reg)
+serialInput string = deserialiseFromBytes (decodeOutput) string 
 
 encodeOutput :: Serialise reg => Output reg -> Encoding
 encodeOutput (SecretOutput prog params trc adv initM) =
@@ -355,11 +359,12 @@ instance Serialise Advice where
 -- The hack here is that is not revertible names will go into Word's
 
 encodeName :: Name -> Encoding
-encodeName (Name str) =  encodeWord $ 2 * 3 -- (read $ show str) -- Goes: Short -> String -> Word -> CBOR
-encodeName (NewName x) =  encodeWord $ 1 + 2 * x
+encodeName =  encodeWord . toWord
 
 decodeName :: Decoder s Name
-decodeName = NewName <$> decodeWord
+decodeName = do
+  wrd <- decodeWord
+  return $ fromWord wrd 
 
 
 instance Serialise Name where
