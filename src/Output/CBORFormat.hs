@@ -165,8 +165,8 @@ encodeInstr (Ijmp operand        ) = list2CBOR $ encodeString "jmp"    : encodeN
 encodeInstr (Icjmp operand       ) = list2CBOR $ encodeString "cjmp"   : encodeNull : encodeNull : (encodeOperand' operand) 
 encodeInstr (Icnjmp operand      ) = list2CBOR $ encodeString "cnjmp"  : encodeNull : encodeNull : (encodeOperand' operand) 
 encodeInstr (Istore operand r2   ) = list2CBOR $ encodeString "store"  : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Iload r2 operand    ) = list2CBOR $ encodeString "load"   : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Iread r2 operand    ) = list2CBOR $ encodeString "read"   : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Iload r1 operand    ) = list2CBOR $ encodeString "load"   : encode r1  : encodeNull : (encodeOperand' operand)
+encodeInstr (Iread r1 operand    ) = list2CBOR $ encodeString "read"   : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Ianswer operand     ) = list2CBOR $ encodeString "answer" : encodeNull : encodeNull : (encodeOperand' operand) 
 
 decodeOperands :: (Serialise regT, Serialise wrdT) => Int -> Decoder s ([regT], Operand regT wrdT)
@@ -209,8 +209,8 @@ decodeInstr = do
       "cjmp"    -> Icjmp   <$  decodeNull <*  decodeNull <*> decodeOperand' 
       "cnjmp"   -> Icnjmp  <$  decodeNull <*  decodeNull <*> decodeOperand' 
       "store"   -> flip Istore  <$  decodeNull <*> decode     <*> decodeOperand' 
-      "load"    -> Iload   <$  decodeNull <*> decode     <*> decodeOperand' 
-      "read"    -> Iread   <$  decodeNull <*> decode     <*> decodeOperand' 
+      "load"    -> Iload   <$> decode     <*  decodeNull <*> decodeOperand'
+      "read"    -> Iread   <$> decode     <*  decodeNull <*> decodeOperand'
       "answer"  -> Ianswer <$  decodeNull <*  decodeNull <*> decodeOperand' 
       _ -> fail $ "invalid instruction encoding. Tag: " ++ show tag ++ "."
   
