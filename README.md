@@ -89,6 +89,7 @@ The compiler recognizes the following usage
 ```
 Usage: compile file length [arguments] [options]. 
  Options: 
+  -h       --help                   Print this help message
            --llvm-out[=FILE]        Save the llvm IR to file
            --mram-out[=FILE]        Save the compiled MicroRAM program to file
   -O[arg]  --optimize[=arg]         Optimization level of the front end
@@ -98,8 +99,9 @@ Usage: compile file length [arguments] [options].
            --just-mram, --verifier  Only run the compiler (no interpreter). 
            --from-mram              Only run the interpreter from a compiled MicroRAM file.
   -v       --verbose                Chatty compiler
+           --pretty-hex             Pretty print the CBOR output. Won't work if writting to file. 
+           --flat-hex               Output in flat CBOR format. Won't work if writting to file. 
   -c       --double-check           check the result
-  -h       --help                   Print this help message
 ```
 
 ## Running the tests
@@ -112,7 +114,7 @@ You can also run our test suite like so:
 
 ## More details
 
-### Why inputs inunary
+### Why inputs in unary
 
 Well, c programs take only two arguments: ` int argc, char *argv[]`. Our current implementation only supports ints. To avoid dealing with conversions (i.e. `char -> int`) the current hack is to use `argc` as the input. But that's only the number of arguments...
 

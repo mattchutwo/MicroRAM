@@ -78,8 +78,7 @@ main = do
   where output :: FlagRecord -> Output Name -> IO ()
         output fr out = case fileOut fr of
                            Just file -> L.writeFile file $ serialOutput out
-                           Nothing   -> do
-                             putStrLn $ show $ serialOutput out
+                           Nothing   -> putStrLn $ printOutputWithFormat (outFormat fr) out
 
         -- if verbose
         giveInfo fr str = ifio (verbose fr) $ putStrLn $ str
@@ -126,7 +125,6 @@ removeSuffix file =
   else
     Nothing
 
-
 data Flag
  = -- General flags
      Verbose
@@ -142,8 +140,10 @@ data Flag
    -- Interpreter flags
    | FromMRAM
    | Output String
-   -- Check result
+   -- About the result
    | DoubleCheck
+   | FlatFormat
+   | PrettyHex
    deriving(Eq, Ord)
 
 data Stages =
@@ -152,6 +152,7 @@ data Stages =
   | LLVMLang
   | CLang
   deriving (Eq, Ord, Show)
+
 
 data FlagRecord = FlagRecord
   { verbose :: Bool  
@@ -168,6 +169,7 @@ data FlagRecord = FlagRecord
   , end :: Stages
   --
   , doubleCheck :: Bool
+  , outFormat :: OutFormat
   } deriving (Show)
 
 fr2ClangArgs :: FlagRecord -> ClangArgs
@@ -190,6 +192,7 @@ defaultFlags name len=
     FullOutput
     --
     False
+    StdHex
 
 parseFlag :: Flag -> FlagRecord -> FlagRecord
 parseFlag (Verbose) fr = fr {verbose = True}
@@ -212,6 +215,9 @@ parseFlag (Output outFile) fr = fr {fileOut = Just outFile}
 
 parseFlag (DoubleCheck) fr = fr {doubleCheck = True}
 
+parseFlag FlatFormat fr = fr {outFormat = max Flat $ outFormat fr}
+parseFlag PrettyHex fr = fr {outFormat = max PHex $ outFormat fr}
+
 parseFlag _ fr = fr
 
 parseOptions :: String -> Word -> [Flag] -> IO FlagRecord
@@ -225,7 +231,8 @@ parseOptions filein len flags = do
 
 options :: [OptDescr Flag]
 options =
-  [ Option []    ["llvm-out"]    (OptArg LLVMout "FILE")           "Save the llvm IR to file"
+  [ Option ['h'] ["help"]        (NoArg Help)               "Print this help message"
+  , Option []    ["llvm-out"]    (OptArg LLVMout "FILE")           "Save the llvm IR to file"
   , Option []    ["mram-out"]    (OptArg MRAMout "FILE")           "Save the compiled MicroRAM program to file"
   , Option ['O'] ["optimize"]    (OptArg readOpimisation "arg")    "Optimization level of the front end"
   , Option ['o'] ["output"]      (ReqArg Output "FILE")            "Write ouput to file"
@@ -234,8 +241,9 @@ options =
   , Option []    ["just-mram","verifier"]   (NoArg JustMRAM)           "Only run the compiler (no interpreter). "
   , Option []    ["from-mram"]   (NoArg FromMRAM)           "Only run the interpreter from a compiled MicroRAM file."
   , Option ['v'] ["verbose"]     (NoArg Verbose)            "Chatty compiler"
-  , Option ['c'] ["double-check"]        (NoArg DoubleCheck)               "check the result"
-  , Option ['h'] ["help"]        (NoArg Help)               "Print this help message"
+  , Option []    ["pretty-hex"]  (NoArg PrettyHex)               "Pretty print the CBOR output. Won't work if writting to file. "
+  , Option []    ["flat-hex"]    (NoArg FlatFormat)               "Output in flat CBOR format. Won't work if writting to file. "
+  , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)

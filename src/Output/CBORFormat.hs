@@ -16,7 +16,7 @@ Format for compiler units
 -}
 
 module Output.CBORFormat where
-import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm)
+import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm, FlatTerm)
 import qualified Data.Map as Map
 import GHC.Generics
 
@@ -26,6 +26,7 @@ import Codec.CBOR.Decoding
 import Codec.CBOR.Encoding
 import Codec.CBOR.Write
 import Codec.CBOR.Read
+import Codec.CBOR.Pretty
 import qualified Data.ByteString.Lazy                  as L
   
 import Compiler.Sparsity
@@ -43,12 +44,6 @@ import Output.Output
 
 
 -- * Full Output
-
-serialOutput :: Serialise reg => Output reg -> L.ByteString
-serialOutput out = toLazyByteString $ (encode out)
-
-serialInput :: Serialise reg => L.ByteString -> Either DeserialiseFailure (L.ByteString, Output reg)
-serialInput string = deserialiseFromBytes (decodeOutput) string 
 
 encodeOutput :: Serialise reg => Output reg -> Encoding
 encodeOutput (SecretOutput prog params trc adv initM) =
@@ -370,3 +365,29 @@ decodeName = do
 instance Serialise Name where
   decode = decodeName
   encode = encodeName
+
+
+-- * Serialisations and other pretty printing formats
+
+serialOutput :: Serialise reg => Output reg -> L.ByteString
+serialOutput out = toLazyByteString $ (encode out)
+
+serialInput :: Serialise reg => L.ByteString -> Either DeserialiseFailure (L.ByteString, Output reg)
+serialInput string = deserialiseFromBytes (decodeOutput) string 
+
+ppHexOutput :: Serialise reg => Output reg -> String
+ppHexOutput out = prettyHexEnc $ encode out
+
+flatOutput :: Serialise reg => Output reg -> FlatTerm
+flatOutput out = toFlatTerm $ encode out
+
+data OutFormat =
+    StdHex
+  | PHex
+  | Flat
+  deriving (Eq, Ord, Show)
+
+printOutputWithFormat :: Serialise reg => OutFormat -> Output reg -> String
+printOutputWithFormat StdHex = show . serialOutput
+printOutputWithFormat PHex = ppHexOutput
+printOutputWithFormat Flat = show . flatOutput
