@@ -88,6 +88,7 @@ instance Regs Name where
   argc = Name "0" -- Where the first arguemtns to main is passed
   argv = Name "1" -- Where the second arguemtns to main is passed
   fromWord w      -- FIXME this is terribled: depends on read and show! Ugh!
+    | w == 1 = Name "0"
     | even w = NewName $ w `div` 2
     | otherwise = Name $ pack $ read $ show $ digits ((w-1) `div` 2)
   toWord (NewName x) = 2*x

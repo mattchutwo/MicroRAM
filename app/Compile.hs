@@ -57,9 +57,9 @@ main = do
                     return $ read flatprog
   -- Maybe save the MicroRAM file
   case mramFile fr of 
-    Just mramFile -> do
-      giveInfo fr $ "Write MicroRAM program to file : " ++ mramFile
-      writeFile mramFile $ show microProg
+    Just mramFileOut -> do
+      giveInfo fr $ "Write MicroRAM program to file : " ++ mramFileOut
+      writeFile mramFileOut $ show microProg
     Nothing -> return ()
   -- Maybe end here and output public output as CBOR
   ifio (end fr >= MRAMLang) $ do
@@ -225,10 +225,7 @@ parseOptions filein len flags = do
   name <- return $ filein
   let initFR = defaultFlags name len in
     return $ foldr parseFlag initFR flags
-  where suffixIn = if FromLLVM `elem` flags then ".ll" else ".c"
-        suffixOut = if JustLLVM `elem` flags then ".ll" else ".micro"
-
-
+  
 options :: [OptDescr Flag]
 options =
   [ Option ['h'] ["help"]        (NoArg Help)               "Print this help message"
@@ -242,8 +239,7 @@ options =
   , Option []    ["from-mram"]   (NoArg FromMRAM)           "Only run the interpreter from a compiled MicroRAM file."
   , Option ['v'] ["verbose"]     (NoArg Verbose)            "Chatty compiler"
   , Option []    ["pretty-hex"]  (NoArg PrettyHex)               "Pretty print the CBOR output. Won't work if writting to file. "
-  , Option []    ["flat-hex"]    (NoArg FlatFormat)               "Output in flat CBOR format. Won't work if writting to file. "
-  , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
+  , Option []    ["flat-hex"]    (NoArg FlatFormat)               "Output in flat CBOR format. Won't work if writting to file. "  , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)

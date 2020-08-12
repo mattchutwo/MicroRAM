@@ -241,13 +241,11 @@ pprintFromFile file = do
 readProg :: String -> Program Name Word
 readProg = read
 
+firstRegs :: Word -> [Name]
+firstRegs bound = map fromWord [0..bound] 
+
 myCS = defaultCSName
-  {theseRegs = Just
-               [NewName 0, NewName 1, NewName 2,
-                 Name "0",
-                 Name "1",Name "2",Name "3", Name "4", Name "5",
-                 Name "47",Name "48",Name "49",Name "50"
-               ]
+  {theseRegs = Just $ firstRegs 4
   ,theseMem = [0..15]
   ,showAdvice = True}
 
@@ -260,10 +258,10 @@ fromAscii = toEnum
 
 
 -- Example
-myfile = "programs/returnInput.micro" -- "programs/returnInput.micro"
+myfile = "programs/return42.micro" -- "programs/returnInput.micro"
 myllvmfile = "programs/returnInput.ll"
 mram :: IO (Program Name Word)
-mram =  fromMRAMFile "programs/returnInput.micro"
+mram =  fromMRAMFile "test/return42.micro"
 
 {- | Example
 -- summaryFromFile myfile myCS (initMem ["42"]) 50 --emptyInitMem
