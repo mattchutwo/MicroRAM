@@ -183,11 +183,11 @@ type GVEnv = Map.Map ShortByteString Ptr
      | Glogals    |
      |            |
      +------------+                  +-+
-     |arg^        +--+                 |
+     |argv        +--+                 |
      +------------+  |                 |
 +--->+argc        |  | <-+ preamble bp |
 |    +------------+  |                 |
-| +--+argv[argc+1]|  |                 |
+| +--+argv[argc-1]|  |                 |
 | |  |...         |  |                 | Initial
 | +--+arg^[0]     +<-+                 | Memory
 | |  +------------+                    |

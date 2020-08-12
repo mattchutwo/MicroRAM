@@ -59,6 +59,7 @@ data CustomSummary mreg = CS
   , theseMem :: [Word] -- ^ Print this memory locations. Defualt is [0,1,2,3,4]
   , showFlag :: Bool
   , showAnswer :: Bool
+  , showAdvice :: Bool
   }
 
 
@@ -68,7 +69,7 @@ toSummaryMem theseLocations m =
   map (\loc -> load loc m) theseLocations
   
 defaultSummary :: CustomSummary mreg
-defaultSummary = CS True True Nothing True [0..4] True True 
+defaultSummary = CS True True Nothing True [0..4] True True False
   
 defaultCSInt :: CustomSummary Int 
 defaultCSInt = defaultSummary
@@ -92,7 +93,9 @@ data SummaryState = SState {
   , answer_ :: Word
   , regs_ :: ResRegs
   , registers_ :: [Word] -- Custom regs
-  , mem_ :: [Word] }
+  , mem_ :: [Word]
+  , advc_ :: String
+      }
   deriving (Show, G.Generic, Data)
 instance Tabulate (SummaryState ) ExpandWhenNested
 
@@ -112,6 +115,7 @@ toSummaryRegsCustom rmap Nothing = []
 toSummaryRegsCustom rmap (Just regs) =
   map (\r -> lookupReg r rmap) regs
 
+
 toSummary :: Regs mreg => Maybe [mreg] -> [Word] -> State mreg -> SummaryState
 toSummary theseRegs theseMems st  =
   SState 
@@ -121,6 +125,7 @@ toSummary theseRegs theseMems st  =
   , mem_ = toSummaryMem theseMems (mem st) 
   , flag_ = bool2word $ flag st
   , answer_ = answer st
+  , advc_ = renderAdvc $ advice st
   } where bool2word True = 1
           bool2word False = 0
 summary :: Regs mreg =>  Maybe [mreg] -> [Word] -> Trace mreg -> [SummaryState]
@@ -130,7 +135,7 @@ summary theseRegs theseMems t =  map customSummary t
 
 renderSummary
   :: Regs mreg => CustomSummary mreg -> Trace mreg -> Int -> Box
-renderSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer) t n =
+renderSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer sAdvice) t n =
   renderTableWithFlds flds $ take n $ summary custRegs theseMem t
   -- fldDepends checks the customSummary record, and returns the fields that should be shown
   where flds = fldDepends sPC pc_ ++
@@ -138,7 +143,8 @@ renderSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer) t n =
                (fldDepends (sRegs && not sCustRegs) regs_) ++  -- Shows default regs or custom ones. if sCustRegs then registers_ else regs_)
                (fldDepends sMem mem_) ++ 
                (fldDepends sFlag flag_)  ++ 
-               (fldDepends sAnswer answer_)
+               (fldDepends sAnswer answer_) ++ 
+               (fldDepends sAdvice advc_)
         fldDepends cond ret = if cond then [DFld ret] else []
         sCustRegs = case custRegs of
                       Just _ -> True
@@ -147,7 +153,7 @@ renderSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer) t n =
 -- | Pretty prints summary of an execution.                      
 printSummary
   :: Regs mreg => CustomSummary mreg -> Trace mreg -> Int -> IO ()
-printSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer) t n =do
+printSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer sAdvice) t n =do
   printf fldsTxt         -- Hack to get headers (check my issue on the Tabular package!)
   printTableWithFlds flds $ take n $ theSummary
   where theSummary = summary custRegs theseMem t
@@ -157,7 +163,8 @@ printSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer) t n =do
                ++ (fldDepends sAnswer [DFld answer_])
                ++ (fldDepends (sRegs && sCustRegs) [DFld registers_]) 
                ++ (fldDepends (sRegs && not sCustRegs) [DFld regs_])   -- Shows default regs or custom ones. if sCustRegs then registers_ else regs_)
-               ++ (fldDepends sMem [DFld mem_])  
+               ++ (fldDepends sMem [DFld mem_])
+               ++ (fldDepends sAdvice [DFld advc_ ])
         fldDepends cond ret = if cond then ret else []
         sCustRegs = case custRegs of
                       Just _ -> True
@@ -201,7 +208,7 @@ fromMRAMFile :: (Read mreg, Regs mreg) => FilePath -> IO (Program mreg Word)
 fromMRAMFile file = do
   contents <- readFile file
   compilationUnit <- return $ read contents
-  return $ program compilationUnit
+  return $ programCU compilationUnit
 
 runFromFile  :: (Read mreg, Regs mreg) =>
   FilePath -> [Word] -> IO (Trace mreg)
@@ -218,19 +225,6 @@ summaryFromFile file cs input length = do
   trace <- runFromFile file input
   printSummary cs trace length
   
-
--- Example
-myfile = "programs/returnInput.micro" -- "programs/returnInput.micro"
-myllvmfile = "programs/returnInput.ll"
-mram :: IO (Program Name Word)
-mram =  fromMRAMFile "programs/returnInput.micro"
-
-{- | Example
-
-
-
-
--}
 
 
 
@@ -254,11 +248,24 @@ myCS = defaultCSName
                  Name "1",Name "2",Name "3", Name "4", Name "5",
                  Name "47",Name "48",Name "49",Name "50"
                ]
-  ,theseMem = [0..15]}
+  ,theseMem = [0..15]
+  ,showAdvice = True}
 
 
 
 -- TESTING GROUNDS
--- summaryFromFile myfile myCS [1,2,3] [] 50
 fromAscii :: Int -> Char
 fromAscii = toEnum
+
+
+
+-- Example
+myfile = "programs/returnInput.micro" -- "programs/returnInput.micro"
+myllvmfile = "programs/returnInput.ll"
+mram :: IO (Program Name Word)
+mram =  fromMRAMFile "programs/returnInput.micro"
+
+{- | Example
+-- summaryFromFile myfile myCS (initMem ["42"]) 50 --emptyInitMem
+-}
+

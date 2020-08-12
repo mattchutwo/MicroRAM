@@ -31,8 +31,6 @@ registerAlloc = undefined
 
 
 
-
-
 -- * Triviall allocation: we provide a pass that erases the code. Usefull for early testing.
 -- FIXME: remove this once registerAlloc is implemented and can be tested!
 

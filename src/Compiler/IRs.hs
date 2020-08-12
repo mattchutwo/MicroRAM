@@ -13,6 +13,7 @@ module Compiler.IRs where
 import MicroRAM.MicroRAM(MAOperand)
 import qualified MicroRAM.MicroRAM as MRAM
 import Data.ByteString.Short
+
 import qualified Data.Map as Map
 
 import Compiler.Registers
@@ -77,12 +78,20 @@ data Name =
   | NewName Word         -- | and add some new ones
   deriving (Eq, Ord, Read, Show)
 
+--w8 :: Word -> Word8
+--w8 = fromIntegral 
+
 instance Regs Name where
   sp = NewName 0
   bp = NewName 1
   ax = NewName 2
   argc = Name "0" -- Where the first arguemtns to main is passed
   argv = Name "1" -- Where the second arguemtns to main is passed
+  fromWord w      -- FIXME this is terribled: depends on read and show! Ugh!
+    | even w = NewName $ w `div` 2
+    | otherwise = Name $ pack $ read $ show $ digits ((w-1) `div` 2)
+  toWord (NewName x) = 2*x
+  toWord (Name sh) = 1 + (2 * (read $ read $ show sh))
   data RMap Name x = RMap x (Map.Map Name x)
   initBank d = RMap d Map.empty
   lookupReg r (RMap d m) = case Map.lookup r m of
@@ -90,6 +99,13 @@ instance Regs Name where
                         Nothing -> d
   updateBank r x (RMap d m) = RMap d (Map.insert r x m)
 
+--myShort:: ShortByteString
+--myShort = "1234567890"
+
+-- Produces the digits, shifted by 48 (ie. the ASCII representation)
+digits :: Integral x => x -> [x]
+digits 0 = []
+digits x = digits (x `div` 10) ++ [x `mod` 10 + 48] -- ASCII 0 = 0
 
 type TypeEnv = () -- TODO
 
