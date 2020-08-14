@@ -48,6 +48,7 @@ data Ty =
 
 -- Determines the relative size of types (relative to a 32bit integer/64bit)
 tySize :: Ty -> Word
+tySize (Tarray length subTyp) = length * (tySize subTyp)   
 tySize _ = 1
 -- Pointers have the same sizer as Tint
 
@@ -115,6 +116,7 @@ data GlobalVariable wrdT = GlobalVariable
   , isConstant :: Bool
   , gType :: Ty
   , initializer :: Maybe [wrdT]
+  , secret :: Bool
   } deriving (Show)
 type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"
 data IRprog mdata wrdT funcT = IRprog

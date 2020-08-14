@@ -239,7 +239,8 @@ options =
   , Option []    ["from-mram"]   (NoArg FromMRAM)           "Only run the interpreter from a compiled MicroRAM file."
   , Option ['v'] ["verbose"]     (NoArg Verbose)            "Chatty compiler"
   , Option []    ["pretty-hex"]  (NoArg PrettyHex)               "Pretty print the CBOR output. Won't work if writting to file. "
-  , Option []    ["flat-hex"]    (NoArg FlatFormat)               "Output in flat CBOR format. Won't work if writting to file. "  , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
+  , Option []    ["flat-hex"]    (NoArg FlatFormat)               "Output in flat CBOR format. Won't work if writting to file. "
+  , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)

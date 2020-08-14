@@ -722,19 +722,23 @@ isGlobVars defs = mapMaybeM isGlobVar' defs
         isGlobVar' _ = return Nothing
 
 isGlobVar :: LLVM.Global -> Hopefully $ GlobalVariable Word
-isGlobVar (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init _ _ _ _) =
+isGlobVar (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) =
   do
   name' <- name2name name
   typ' <- type2type typ
   init' <- flatInit init
   -- TODO: Want to check init' is the right length?
-  return $ GlobalVariable name' const typ' init'
+  return $ GlobalVariable name' const typ' init' (sectionIsSecret sectn)
   where flatInit :: Maybe LLVM.Constant.Constant ->
                     Hopefully $ Maybe [Word]
         flatInit Nothing = return Nothing
         flatInit (Just const) = do
           const' <- flattenConstant const
           return $ Just const'
+
+        sectionIsSecret (Just "__DATA,__secret") = True
+        sectionIsSecret (Just ".data.secret") = True
+        sectionIsSecret _ = False
 
 flattenConstant :: LLVM.Constant.Constant ->
                    Hopefully [Word]
