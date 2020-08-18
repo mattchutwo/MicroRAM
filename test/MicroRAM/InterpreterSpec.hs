@@ -11,10 +11,11 @@ import Test.Tasty.SmallCheck
 
 
 import Compiler.Registers
+import Compiler.CompilationUnit
 
 import MicroRAM.MicroRAM
 import MicroRAM.MRAMInterpreter
-import Data.Sequence as Seq
+import qualified Data.Sequence as Seq
 import qualified Data.Map as Map
 
 
@@ -23,13 +24,17 @@ main = defaultMain tests
   -- defaultMain (testGroup "Our Library Tests" testSuite) -- testSuit defined at eof
 k = 5 -- 5 registers
 
+trivialCU :: Prog Int -> Word -> [Word] -> CompilationUnit (Prog Int)
+trivialCU prog len input = CompUnit prog len InfinityRegs [] (list2InitMem input)
+
+runProg :: Prog Int -> Word -> [Word] -> Trace Int
+runProg prog len input = run $ trivialCU prog len input
+
 -- We are treating the first register as the return
 -- To get ouptu to get output provide a program and a number of steps to get the result after that long
 -- Execute gets the trace and then looks at the first register after t steps
-get_trace prog input = run input prog
-exec prog input steps =
-  lookupReg sp (see (get_trace prog input) steps) -- this throws an error if there is no register 0
-simpl_exec prog steps = exec prog [] steps -- when there are no inputs
+exec prog steps input = lookupReg sp (see (runProg prog steps input) (fromEnum steps)) -- this throws an error if there is no register 0
+simpl_exec prog steps = exec prog steps [] -- when there are no inputs
 
 -- The tester setup
 type Reg = Int
@@ -69,15 +74,12 @@ flag_trace t= map flag t
 {- (1+2)*(3+4) = 21
 -}
 
-run' = run []
 prog1 :: Program Reg Word
 prog1 = [Iadd 0 0 (Const 1),
        Iadd 0 0 (Const 2),
        Iadd 1 1 (Const 3),
        Iadd 1 1 (Const 4),
        Imull 0 0 (Reg 1)]
-
-run1 = run' prog1
 
 test1 :: TestTree
 test1 = testProperty "Testing (1+2)*(3+4) == 21" $ (simpl_exec prog1 5) == 21
@@ -95,9 +97,7 @@ prog2 :: Program Reg Word
 prog2 = [Iadd 0 0 (Const 1),
        Ijmp (Const 0)]
 
-run2 = run' prog2
-test2_results_list = map ((lookupReg sp) . regs) (Prelude.take 11 run2) ==  [0,1,1,2,2,3,3,4,4,5,5] 
-test2 = testProperty "Test `x++` on a loop" $ \n -> (n :: Int) >= 0 ==> simpl_exec prog2 (2*n) == fromIntegral n
+test2 = testProperty "Test `x++` on a loop" $ \n -> (n :: Word) >= 0 ==> simpl_exec prog2 (2*n) == fromIntegral n
 
 -- # Test 3: fibonacci
 {-
@@ -109,7 +109,7 @@ test2 = testProperty "Test `x++` on a loop" $ \n -> (n :: Int) >= 0 ==> simpl_ex
    } 
 -}
 
-fib_pure :: Int -> Int
+fib_pure :: Word -> Word
 fib_pure 0 = 0
 fib_pure 1 = 1
 fib_pure n = fib_pure (n-1) + fib_pure (n-2) 
@@ -120,8 +120,6 @@ prog3 = [Iadd 0 1 (Const 1), -- x=1
          Iadd 0 0 (Reg 1),  -- x=x+y
          Iadd 1 2 (Const 0),
        Ijmp (Const 1)]
-
-run3 = run' prog3
 
 fibs:: [Word]
 fibs = 0 : 1 : Prelude.zipWith (+) fibs (tail fibs)
@@ -134,13 +132,11 @@ claimEqual a b =
      then Right "OK"
      else Left $ "Got " ++ show a ++ " but expected " ++ show b
 
-test3 = testProperty "Test fibonacci" $ \n -> (n :: Int) >= 0 ==>
-   claimEqual (fromIntegral $ simpl_exec prog3 (1+4*n)) (fib_pure (n+1))
+test3 = testProperty "Test fibonacci" $ \n -> (n :: Word) >= 0 ==>
+   claimEqual (simpl_exec prog3 (1+4*n)) (fib_pure (n+1))
    
 -- # Test 4: conditional + input
 
-run4:: Word -> Trace Reg
-run4 input = run [input] prog4
 prog4 :: Program Reg Word
 prog4 = [Iread 1 (Const 0), --
          Icmpg 1 (Const 10), -- 1
@@ -152,7 +148,7 @@ prog4 = [Iread 1 (Const 0), --
         ]
 
 test4 = testProperty "Test a conditional and input" $ \x ->
-   claimEqual (fromIntegral $ exec prog4 [(x::Word)] 5) (fromIntegral $ if x>10 then 42 else 77)
+   claimEqual (exec prog4 5 [x]) (if (x::Word)>10 then 42 else 77)
 
                                                                
 -- # Test 5: sum all input
@@ -164,8 +160,6 @@ NOTE: the initial memory contains, the size of the initial memory.
 -}
 
 
-run5:: [Word] -> Trace Reg
-run5 input = run input prog5
 prog5 :: Program Reg Word
 {- Old verison with tapes:
 prog5 = [Iread 1 (Const 0), Iadd 0 0 (Reg 1), Icjmp (Const 4), Ijmp (Const 0), Ijmp (Const 4)]
@@ -175,11 +169,16 @@ prog5 = [Imov 1 (Const 2),
          Iload 2 (Reg 1),
          Iadd 0 0 (Reg 2),
          Iadd 1 1 (Const 1),
-         Ijmp (Const 1)] 
+         Ijmp (Const 1)]
+        
+list2InitMem :: [Word] -> InitialMem
+list2InitMem ls = map word2InitSeg $ zip [0..] ls 
+  where word2InitSeg :: (Word,Word) -> InitMemSegment
+        word2InitSeg (loc,val) = InitMemSegment False False loc 1 (Just [val]) 
 
 --test5 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
 test5 = testProperty "Test adding a list of inputs" $ \xs ->
-   claimEqual (exec prog5 (xs::[Word]) (4* (Prelude.length xs))) (sum xs)
+   claimEqual (exec prog5 (4 * (toEnum $ length xs)) xs)  (sum xs)
 
 
                                                                
@@ -191,8 +190,6 @@ test5 = testProperty "Test adding a list of inputs" $ \xs ->
 -}
 
 
-run6:: Int -> Trace Reg
-run6 n = run [] prog6
 failSignal:: Operand Reg Word
 failSignal = (Const 11)
 gotoFail = Ijmp failSignal
@@ -216,6 +213,6 @@ prog6 = [Imov 1 (Const 1),   -- 0. x = 1 // Test 1
 
 --test6 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
 test6 = testProperty "Test over/underflow for adition and substraction"
-        $ \n -> (n :: Int) >= 0 ==> simpl_exec prog6 n /= 42
+        $ \n -> (n :: Word) >= 0 ==> simpl_exec prog6 n /= 42
 
 tests = testGroup "Testing the Interpreter for  MicroRAM" [test1,test2,test3,test4,test5, test6]

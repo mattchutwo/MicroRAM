@@ -62,19 +62,20 @@ data Output reg  =
   SecretOutput
   { program :: Program reg Word
   , params :: CircuitParameters
+  , initMem :: InitialMem
   , trace :: [StateOut]
   , adviceOut :: Map.Map Word [Advice]
-  , initMem :: [Word]
   }
   | PublicOutput
   { program :: Program reg Word
   , params :: CircuitParameters
+  , initMem :: InitialMem
   } deriving (Eq, Show, Generic)
 
 -- | Convert between the two outputs
 mkOutputPublic :: Output reg -> Output reg
-mkOutputPublic (SecretOutput a b _ _ _) = PublicOutput a b
-mkOutputPublic (PublicOutput a b) = PublicOutput a b
+mkOutputPublic (SecretOutput a b c _ _) = PublicOutput a b c
+mkOutputPublic (PublicOutput a b c) = PublicOutput a b c
 
 
 
@@ -126,25 +127,25 @@ buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed 
             Map.unionWith min sparc2' spar1
 
 compUnit2Output :: Regs reg => CompilationUnit (Program reg Word) -> Output reg
-compUnit2Output (CompUnit p trLen regData aData) =
+compUnit2Output (CompUnit p trLen regData aData initMem) =
   let regNum = countRegs p in
   let circParams = buildCircuitParameters trLen regData aData regNum in
-  PublicOutput p circParams           
+  PublicOutput p circParams initMem    
 
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).
 -- The input Trace should be an infinite stream which we truncate by the given length.
-secretOutput :: Regs reg => Trace reg -> [Word] -> CompilationUnit (Program reg Word) -> Output reg
-secretOutput tr initM (CompUnit p trLen regData aData) =
+secretOutput :: Regs reg => Trace reg -> CompilationUnit (Program reg Word) -> Output reg
+secretOutput tr (CompUnit p trLen regData aData initM) =
   let regNum = countRegs p in
   let circParams = buildCircuitParameters trLen regData aData regNum in
     SecretOutput p circParams
-    -- Trace
+    -- initMem
+    initM
+    -- Trace (trace should be trimmed already)
     (outputTrace trLen tr (numRegs circParams))
     -- Advice
     (outputAdvice trLen tr)
-    -- initMem
-    initM
 
   where outputAdvice len tr = foldr joinAdvice Map.empty (takeW len $ zip [0..] tr)
         joinAdvice (i,state) adviceMap = case advice state of
@@ -153,13 +154,10 @@ secretOutput tr initM (CompUnit p trLen regData aData) =
 
 outputTrace len tr regBound = takeW len $ map (state2out regBound) tr
 
-fullOutput :: Regs reg => [Word] -> CompilationUnit (Program reg Word) -> Output reg
-fullOutput initM compUnit =
-  secretOutput (run initM $ programCU compUnit) initM compUnit 
-
-
-
-
+fullOutput :: Regs reg => CompilationUnit (Program reg Word) -> Output reg
+fullOutput compUnit =
+  let mem = flatInitMem $ initM compUnit in 
+  secretOutput (run compUnit) compUnit 
 
 
 

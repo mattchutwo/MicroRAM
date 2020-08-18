@@ -28,7 +28,10 @@ import Data.Map.Strict ((!))
 
 import GHC.Generics
 
+import Util.Util
+
 import Compiler.Registers
+import Compiler.CompilationUnit
 
 {-
 Module      : MRAM Interpreter
@@ -107,10 +110,8 @@ init_flag = False
 type Mem = (Wrd,Map.Map Wrd Wrd)
 
 -- | Initial memory is given as input to the program.
-init_mem :: [Word] -> Mem
-init_mem input = (0,Map.fromList $ zip [0..] extendedInput)
-  where -- | Add the special locations 1 and 0 with null pointer and input size
-    extendedInput = [0 , fromIntegral $ length input] ++ input
+init_mem :: InitialMem -> Mem
+init_mem input = (0,flatInitMem input)
 
 store ::
   Wrd     -- ^ addres
@@ -168,7 +169,7 @@ deriving instance (Read (RMap mreg Word)) => Read (State mreg)
 deriving instance (Show (RMap mreg Word)) => Show (State mreg)
 
   
-init_state :: Regs mreg => [Word] -> State mreg
+init_state :: Regs mreg => InitialMem -> State mreg
 init_state input  = State {
   pc = init_pc
   , regs = initBank 0
@@ -472,8 +473,11 @@ step prog st = exec (prog !! (toInt $ pc st)) $ freshAdvice st
 
 -- ** Execution
 type Trace mreg = [State mreg]
-run :: Regs mreg => [Word] -> Prog mreg -> Trace mreg
-run inp prog = iterate (step prog) $ init_state inp
+run :: Regs mreg => CompilationUnit (Prog mreg) -> Trace mreg
+run (CompUnit prog trLen _ _ initMem) =
+  takeW trLen $ 
+  iterate (step prog) $ init_state initMem
+
 
 -- ** Some facilities to run
 -- Simple getters to explore the trace.
@@ -496,24 +500,24 @@ flag_trace' t= map flag t
 {- As long as we haven't implemented a "return",
    The return value will be stroed in the first register.
 -}
-k = 16
+--k = 16
 
-run' n prog = Prelude.take n (run [] prog)
-pc_trace n prog = map pc (run' n prog)
-out_trace n prog = map (\s-> lookupReg 0 (regs s)) (run' n prog)
-flag_trace n prog = map flag (run' n prog)
+--run' n prog = Prelude.take n (run [] prog)
+--pc_trace n prog = map pc (run' n prog)
+--out_trace n prog = map (\s-> lookupReg 0 (regs s)) (run' n prog)
+--flag_trace n prog = map flag (run' n prog)
 
-execute :: Regs mreg => Prog mreg -> Int -> Wrd
-execute prog n = lookupReg sp (regs $ (run [] prog) !! n)
+--execute :: Regs mreg => Prog mreg -> Int -> Wrd
+--execute prog n = lookupReg sp (regs $ (run [] prog) !! n)
 
-execute_pc prog n = lookupReg sp ((see_regs $ run [] prog) n)
+--execute_pc prog n = lookupReg sp ((see_regs $ run [] prog) n)
 
-exec_input :: Regs mreg => Prog mreg -> [Word] -> Int -> Wrd
-exec_input prog inp n = lookupReg sp ((see_regs $ run inp prog) n)
+--exec_input :: Regs mreg => Prog mreg -> [Word] -> Int -> Wrd
+--exec_input prog inp n = lookupReg sp ((see_regs $ run inp prog) n)
 
 
-execAnswer :: Regs mreg => Prog mreg -> Int -> [Word] -> Word
-execAnswer prog bound input = answer $ (run input prog) !! bound
+execAnswer :: Regs mreg => CompilationUnit (Prog mreg) -> Word
+execAnswer compUnit = answer $ last $ run compUnit
 
 
 

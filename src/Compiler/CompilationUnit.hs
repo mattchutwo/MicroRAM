@@ -15,6 +15,8 @@ compilations units.
 
 -}
 
+import qualified Data.Map as Map
+
 import Util.Util
 
 import Compiler.Registers
@@ -26,7 +28,7 @@ data CompilationUnit prog = CompUnit
   , traceLen :: Word
   , regData :: RegisterData
   , aData   :: AnalysisData
-  , initMem   :: InitialMem
+  , initM   :: InitialMem
   }
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
@@ -67,8 +69,18 @@ data InitMemSegment = InitMemSegment
   { isSecret :: Bool
   , isReadOnly :: Bool
   , location :: Word
-  , length :: Word
+  , segmentLen :: Word
   , content :: Maybe [Word]
   } deriving (Eq, Ord, Read, Show)
 
 type InitialMem = [InitMemSegment]
+
+
+flatInitMem :: InitialMem -> Map.Map Word Word
+flatInitMem = foldr initSegment Map.empty
+  where initSegment :: InitMemSegment -> Map.Map Word Word -> Map.Map Word Word
+        initSegment (InitMemSegment _ _ _ _ Nothing) = id
+        initSegment (InitMemSegment _ _ loc _ (Just content)) =
+          Map.union $ Map.fromList $
+          -- Map with the new content
+          zip [loc..] content

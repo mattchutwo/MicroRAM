@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeOperators #-}
 module Run where
 
 import Data.Foldable (toList)
@@ -5,6 +7,8 @@ import Data.List (intercalate)
 import System.Environment
 
 import Lib
+
+import Util.Util
 import LLVMutil.LLVMutil
 import Compiler.Compiler
 
@@ -19,29 +23,31 @@ main = do
   args <- getArgs
   case args of
     [] -> putStrLn $ "No filename provided"
-    [file] -> do
-      prog <- microFromFile file
-      putStrLn $ show prog
-    (file:bound:progArgs) ->
+    [file] -> 
       case removeSuffix file of
         Nothing -> putStrLn $
                    "Input file needs to be a .micro file: " ++ (show file)
         Just name -> do
-          mramProgram <- microFromFile file
-          putStrLn $ "With arguments " ++ show progArgs
-          putStrLn $ "Running program " ++ file ++ " for " ++ bound ++ " steps."
+          compUnit <- compUnitFromFile file
+          putStrLn $ "Running program " ++ file ++ " for " ++
+            (show $ traceLen compUnit) ++ " steps."
           --mramArgs <- return $ parseArgs progArgs
-          result <- return $ execAnswer mramProgram (read bound) (buildInitMem progArgs)
+          result <- return $ execAnswer compUnit
           putStrLn $ "Result: " ++ show result
           
 
 --parseArgs :: [String] -> [Word]
 --parseArgs = map read
-          
+
+compUnitFromFile :: FilePath -> IO $ CompilationUnit (Program Name Word) 
+compUnitFromFile file = do
+  contents <- readFile file -- Get text from file
+  return $ read contents -- Parse them       
+            
 microFromFile :: FilePath -> IO (Program Name Word) 
 microFromFile file = do
   contents <- readFile file -- Get text from file
-  CompUnit prog _ _ _ <- return $ read contents -- Parse them 
+  CompUnit prog _ _ _ _ <- return $ read contents -- Parse them 
   return prog
 
 fromText :: String -> Either () (Program Name Word)

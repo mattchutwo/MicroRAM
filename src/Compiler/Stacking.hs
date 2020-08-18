@@ -188,7 +188,7 @@ storeGlobVars ls = do
                         ([MAInstruction mreg Word],Word) 
                         -> GlobalVariable Word
                         -> Hopefully $ ([MAInstruction mreg Word],Word)
-        storeGlobVar (instrs, location) (GlobalVariable nm isConst typ init) = do
+        storeGlobVar (instrs, location) (GlobalVariable nm isConst typ init secret) = do
           newInstrs <- return $ writeGlob init location
           return (instrs++newInstrs, location + tySize typ)
         writeGlob :: Regs mreg =>
