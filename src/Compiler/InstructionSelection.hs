@@ -66,6 +66,12 @@ any2short n = toShort $ BSU.fromString $ show $ n
 name2name (LLVM.Name s) = return $ Name s
 name2name (LLVM.UnName n) = return $ Name $ any2short n
 
+-- | For Global names we just use strings.
+-- Should we use Names insted?
+gName2String :: LLVM.Name -> String
+gName2String = show
+
+
 --  implError "Unnamed opareands not supported yet. TODO soon... "
 
 
@@ -77,15 +83,16 @@ integer2wrd x
   | x >= (wrd2integer minBound) && x <= (wrd2integer maxBound) = return $ fromInteger x
   | otherwise = otherError $ "Literal out of bounds: " ++ (show x) ++ ". Bounds " ++ (show (wrd2integer minBound, wrd2integer maxBound)) 
   
-getConstant :: LLVM.Constant.Constant -> Hopefully $ Word
-getConstant (LLVM.Constant.Int _ val) = integer2wrd val
-getConstant (LLVM.Constant.Undef typ) = return $ 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
+getConstant :: LLVM.Constant.Constant -> Hopefully $ MAOperand VReg Word
+getConstant (LLVM.Constant.Int _ val) = Const <$> integer2wrd val
+getConstant (LLVM.Constant.Undef typ) = return $ Const 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
+getConstant (LLVM.Constant.GlobalReference typ name) = return $ Glob $ gName2String name
 getConstant consT = otherError $
   "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions)" ++ (show consT)
 
 
 operand2operand :: LLVM.Operand -> Hopefully $ MAOperand VReg Word
-operand2operand (LLVM.ConstantOperand c) = Const <$> getConstant c
+operand2operand (LLVM.ConstantOperand c) = getConstant c
 operand2operand (LLVM.LocalReference _ name) = do
   name' <- (name2name name)
   return $ Reg name'
@@ -108,7 +115,7 @@ operand2register (LLVM.LocalReference _ nm) = do
 operand2register (LLVM.ConstantOperand c) = do
   c' <- toState $ getConstant c
   raux <- freshName
-  return (raux,[MRAM.Imov raux (Const c')])
+  return (raux,[MRAM.Imov raux c'])
 operand2register _ = toState $ implError "Operand2register can't convert metadata or labels."
   
 
@@ -587,7 +594,7 @@ isTerminator' (LLVM.Switch (LLVM.LocalReference typ reg) deflt dests _ ) = do
   where isDest reg (switch,dest) = do
           switch' <- getConstant switch
           dest' <- name2name dest
-          return [MRAM.Icmpe reg (Const switch'), MRAM.Icjmp (Reg dest')]
+          return [MRAM.Icmpe reg switch', MRAM.Icjmp (Reg dest')]
           
 isTerminator' (LLVM.Switch op deflt dests _ ) =
     assumptError $ "Called switch with something that is not a local reference. Perhaps a constant (you should run constant propagation first) or metadata (not supported). /n /t" ++ show op
@@ -724,11 +731,10 @@ isGlobVars defs = mapMaybeM isGlobVar' defs
 isGlobVar :: LLVM.Global -> Hopefully $ GlobalVariable Word
 isGlobVar (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) =
   do
-  name' <- name2name name
   typ' <- type2type typ
   init' <- flatInit init
   -- TODO: Want to check init' is the right length?
-  return $ GlobalVariable name' const typ' init' (sectionIsSecret sectn)
+  return $ GlobalVariable (gName2String name) const typ' init' (sectionIsSecret sectn)
   where flatInit :: Maybe LLVM.Constant.Constant ->
                     Hopefully $ Maybe [Word]
         flatInit Nothing = return Nothing
@@ -742,7 +748,7 @@ isGlobVar (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) =
 
 flattenConstant :: LLVM.Constant.Constant ->
                    Hopefully [Word]
-flattenConstant (LLVM.Constant.Int _ n) = return $ [0]
+flattenConstant (LLVM.Constant.Int _ n) = return $ [fromInteger n]
                         
 
 

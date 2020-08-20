@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -549,3 +550,34 @@ buildInitMem ls = map fromIntegral $
 emptyInitMem :: [Word]
 emptyInitMem = buildInitMem []
           
+
+
+
+-- Testing grounds
+
+{-
+prog1 :: Program Int Word
+prog1 = [Iadd 0 0 (Const 1),
+       Iadd 0 0 (Const 2),
+       Iadd 1 1 (Const 3),
+       Iadd 1 1 (Const 4),
+       Imull 0 0 (Reg 1)]
+myCU len = CompUnit prog1 len InfinityRegs [] []
+
+instance Regs Int where
+  sp = 0
+  bp = 1
+  ax = 2
+  argc = 3
+  argv = 4
+  fromWord = fromIntegral . toInteger
+  toWord = fromIntegral
+  data RMap Int x = RMap x (Map.Map Int x)
+  initBank d = RMap d Map.empty
+  lookupReg r (RMap d m) = case Map.lookup r m of
+                        Just x -> x
+                        Nothing -> d
+  updateBank r x (RMap d m) = RMap d (Map.insert r x m)
+
+
+-}

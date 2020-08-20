@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -33,8 +34,10 @@ runProg prog len input = run $ trivialCU prog len input
 -- We are treating the first register as the return
 -- To get ouptu to get output provide a program and a number of steps to get the result after that long
 -- Execute gets the trace and then looks at the first register after t steps
-exec prog steps input = lookupReg sp (see (runProg prog steps input) (fromEnum steps)) -- this throws an error if there is no register 0
+exec prog steps input = lookupReg sp (seeRegs (runProg prog (steps+1) input) (fromEnum steps)) -- this throws an error if there is no register 0
 simpl_exec prog steps = exec prog steps [] -- when there are no inputs
+seeRegs:: Trace mreg -> Int -> RMap mreg Word
+seeRegs t n = regs (t !! n)
 
 -- The tester setup
 type Reg = Int
@@ -55,9 +58,6 @@ instance Regs Int where
 
 get_regs :: State mreg -> RMap mreg Word
 get_regs = regs
-
-see:: Trace mreg -> Int -> RMap mreg Word
-see t n = regs (t !! n)
 
 reg_trace::Trace mreg -> [RMap mreg Word]
 reg_trace t= map regs t
@@ -82,7 +82,7 @@ prog1 = [Iadd 0 0 (Const 1),
        Imull 0 0 (Reg 1)]
 
 test1 :: TestTree
-test1 = testProperty "Testing (1+2)*(3+4) == 21" $ (simpl_exec prog1 5) == 21
+test1 = testProperty ("Testing (1+2)*(3+4) == 21.")  $ (simpl_exec prog1 5) == 21
 
 
 
@@ -165,7 +165,7 @@ prog5 :: Program Reg Word
 prog5 = [Iread 1 (Const 0), Iadd 0 0 (Reg 1), Icjmp (Const 4), Ijmp (Const 0), Ijmp (Const 4)]
 -}
 -- New version with input in initial memory.
-prog5 = [Imov 1 (Const 2),
+prog5 = [Imov 1 (Const 0),
          Iload 2 (Reg 1),
          Iadd 0 0 (Reg 2),
          Iadd 1 1 (Const 1),

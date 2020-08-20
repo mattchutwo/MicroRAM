@@ -66,7 +66,7 @@ decodeOutput = do
   len <- decodeMapLen
   case len of
     5 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode
-    2 -> PublicOutput <$> tagDecode <*> tagDecode  <*> tagDecode
+    3 -> PublicOutput <$> tagDecode <*> tagDecode  <*> tagDecode
 
 instance Serialise reg => Serialise (Output reg) where 
     encode = encodeOutput
@@ -291,7 +291,7 @@ decodeInitMemSegment = do
     case len of
       4 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> (return Nothing)
       5 -> InitMemSegment <$> tagDecode <*> tagDecode <*>
-           tagDecode <*> tagDecode <*> do {content <- decode; return $ Just content} 
+           tagDecode <*> tagDecode <*> do { content <- tagDecode; return $ Just content} 
       _ -> fail $ "invalid state encoding. Length should be 4 or 5 but found " ++ show len
 
 instance Serialise InitMemSegment where
@@ -423,3 +423,14 @@ printOutputWithFormat :: Serialise reg => OutFormat -> Output reg -> String
 printOutputWithFormat StdHex = show . serialOutput
 printOutputWithFormat PHex = ppHexOutput
 printOutputWithFormat Flat = show . flatOutput
+
+
+c :: Output Word
+c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
+                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}]}
+
+d :: Output Word
+d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
+                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}],
+                   trace = [], adviceOut = Map.empty}
+ 

@@ -17,10 +17,9 @@ import qualified Data.Map as Map
 
 import Compiler.Registers
 import Compiler.Sparsity
+import Compiler.CompilationUnit
 import Output.CBORFormat
 import Output.Output
-
-
 
 import Codec.Serialise
 import Codec.CBOR
@@ -145,10 +144,15 @@ testAdvice = testProperty "Serialising advice" $
         
 
 -- * Testing Output
+instance Arbitrary InitMemSegment where
+  arbitrary = InitMemSegment  <$> arbitrary <*> arbitrary <*>
+              arbitrary <*> arbitrary <*> arbitrary
+    
+
 instance Arbitrary reg => Arbitrary (Output reg) where
   arbitrary = oneof
     [ SecretOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    , PublicOutput  <$> arbitrary <*> arbitrary
+    , PublicOutput  <$> arbitrary <*> arbitrary <*> arbitrary
     ]
 
 testOutput = testProperty "Serialising full outputs" $

@@ -1,4 +1,6 @@
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
 {-|
 Module      : Globals
 Description : MARAM -> MARAM
@@ -12,7 +14,7 @@ location in memory.
 
 -}
 module Compiler.Globals
-    ( globals, 
+    ( replaceGlobals, 
     ) where
 
 import qualified Data.Map as Map
@@ -25,6 +27,7 @@ import Compiler.Errors
 import Compiler.IRs
 import Compiler.Registers
 
+import MicroRAM.MicroRAM
 
 {- | Lay global variables in memory. Done in two steps:
 
@@ -35,27 +38,27 @@ import Compiler.Registers
    the real location of the variable in memory.
 
 -}
-gloabls :: Regs mreg =>
+replaceGlobals :: Regs mreg =>
         CompilationUnit (Lprog () mreg Word)
         -> Hopefully $ CompilationUnit (Lprog () mreg Word)
-gloabls (CompUnit prog tr regs aData _ ) = do
-  (prog', initMem) <- gloabls' prog
+replaceGlobals (CompUnit prog tr regs aData _ ) = do
+  (prog', initMem) <- globals' prog
   return $ CompUnit prog' tr regs aData initMem
 
-gloabls' :: Regs mreg => Lprog () mreg Word
+globals' :: Regs mreg => Lprog () mreg Word
          -> Hopefully $ (Lprog () mreg Word, InitialMem)
-gloabls' (IRprog tenv genv prog) = do
+globals' (IRprog tenv genv prog) = do
   (initMem, globalMap) <- return $ memoryFromGlobals genv
   prog' <- raplaceGlobals globalMap prog
   return (IRprog tenv genv prog', initMem)
 
--- * Building initial memory and the `globalMap`N
-memoryFromGlobals :: GEnv Word -> (InitialMem, Map.Map Name Word)
+-- * Building initial memory and the `globalMap`
+memoryFromGlobals :: GEnv Word -> (InitialMem, Map.Map String Word)
 memoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg  
   where memoryFromGlobal ::
           GlobalVariable Word
-          -> (InitialMem, Map.Map Name Word)
-          -> (InitialMem, Map.Map Name Word)
+          -> (InitialMem, Map.Map String Word)
+          -> (InitialMem, Map.Map String Word)
         memoryFromGlobal (GlobalVariable name isConst gTy init secret) (initMem, gMap) =
           let newLoc = newLocation initMem in
           let newSegment = InitMemSegment secret isConst newLoc (tySize gTy) init in
@@ -69,22 +72,17 @@ memoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg
 -- * Replace global variables with pointers to the initial memeory
 raplaceGlobals ::
   Regs mreg =>
-  Map.Map Name Word
-  -> [LFunction mdata mreg wrdT]
-  -> Hopefully $ [LFunction mdata mreg wrdT] 
-raplaceGlobals gmap = mapM (raplaceGlobalsFunc gmap)
-  where raplaceGlobalsFunc ::
+  Map.Map String Word
+  -> [LFunction mdata mreg Word]
+  -> Hopefully $ [LFunction mdata mreg Word] 
+raplaceGlobals gmap = mapM $ traverseOpLFun $ raplaceGlobalsOperands gmap
+  where raplaceGlobalsOperands :: 
           Regs mreg =>
-          Map.Map Name Word
-          -> LFunction mdata mreg wrdT
-          -> Hopefully $ LFunction mdata mreg wrdT
-        raplaceGlobalsFunc gMap func = do
-          blocks <- mapM (raplaceGlobalsBlock gMap) (funBody func) 
-          return $ func {funBody = blocks }
-        
-        raplaceGlobalsBlock ::
-          Regs mreg =>
-          Map.Map Name Word
-          -> BB $ LTLInstr mdata mreg wrdT
-          -> Hopefully $ BB (LTLInstr mdata mreg wrdT)  
-        raplaceGlobalsBlock gMap = undefined
+          Map.Map String Word
+          -> MAOperand mreg Word
+          -> Hopefully $ MAOperand mreg Word
+        raplaceGlobalsOperands gmap (Glob name) =
+          case Map.lookup name gmap of
+            Just gptr -> return $ Const gptr
+            _ -> assumptError $ "Global not found in the environment: " ++ name
+        raplaceGlobalsOperands _ op = return op

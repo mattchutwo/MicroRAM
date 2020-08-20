@@ -30,6 +30,7 @@ dependencies:
 - tasty-hunit
 - tasty-quickcheck
 - tasty-smallcheck
+- QuickCheck
 - smallcheck
 - utf8-string
 - process
