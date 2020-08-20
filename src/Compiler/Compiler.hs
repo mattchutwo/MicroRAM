@@ -50,6 +50,8 @@ import qualified Data.Word as Word
 --import Compiler.CodeGenerator
 --import Compiler.Assembler
 
+import Util.Util
+
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.IRs
@@ -65,9 +67,9 @@ import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..))
 (<.>) :: Monad m => (b -> c) -> (a -> b) -> a -> m c
 f <.> g = \x -> return $ f $ g x 
 
-compile :: LLVM.Module
+compile :: Word -> LLVM.Module
         -> CompilerPassError $ CompilationUnit (MRAM.Program Name Word)
-compile llvmProg = (return $ prog2unit llvmProg)
+compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Instruction Selection" $ justCompile $ registerAlloc def) --FIXME
   >>= (tagPass "Instruction Selection" $ justCompile stacking)

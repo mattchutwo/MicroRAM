@@ -79,9 +79,9 @@ tagProg pass (Right a) = CompilerOK a
 tagPass :: String -> (a -> Hopefully b) -> (a -> CompilerPassError b)
 tagPass passName pass prog = tagProg passName (pass prog)
 
-handleErrorWith :: CompilerPassError a -> (a -> IO ()) -> IO ()
-handleErrorWith (CompilerError pass error) _ = do
+handleErrorWith :: CompilerPassError a -> IO a
+handleErrorWith (CompilerError pass error) = do
   hPutStr stderr ("Backend compilation error while doing " ++ pass ++
                   ":\n \n \t" ++ show error)
   exitWith (ExitFailure 1)
-handleErrorWith (CompilerOK a) f = f a
+handleErrorWith (CompilerOK a) = return a

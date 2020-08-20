@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Compiler.Sparsity (sparsity, Sparsity) where
+{-# LANGUAGE DeriveGeneric #-}
+module Compiler.Sparsity (sparsity, Sparsity, InstrKind(..)) where
 
 {-
 Module      : Opcode Sparsity Analysis
@@ -41,6 +42,8 @@ import qualified Data.Map as Map
 
 import Util.Util
 import MicroRAM.MicroRAM
+
+import GHC.Generics
 
 --  Temp
 import Compiler.IRs
@@ -102,44 +105,76 @@ data OpSparsity = OpSparsity
 -- * Instruction labels.
 
 -- | Works as a label for all instructions of the same "type"
-type InstrsLabel = Instruction' () ()
+data InstrKind =
+  Kand   
+  | Kor    
+  | Kxor   
+  | Knot   
+  | Kadd   
+  | Ksub   
+  | Kmull  
+  | Kumulh 
+  | Ksmulh 
+  | Kudiv  
+  | Kumod  
+  | Kshl   
+  | Kshr   
+  | Kcmpe  
+  | Kcmpa  
+  | Kcmpae 
+  | Kcmpg  
+  | Kcmpge 
+  | Kmov   
+  | Kcmov  
+  | Kjmp   
+  | Kcjmp  
+  | Kcnjmp 
+  | Kstore 
+  | Kload  
+  | Kread  
+  | Kanswer
+  -- Larger kinds
+  | KmemOp  -- Memory operations
+  | Kalu    -- ALU operations
+  | Kjumps  -- Aljump operations
+ deriving (Eq, Ord, Read, Show, Generic)
 
-type Sparsity' = Map.Map InstrsLabel OpSparsity -- intermediate
-type Sparsity = Map.Map InstrsLabel Int
+type Sparsity' = Map.Map InstrKind OpSparsity -- intermediate
+type Sparsity = Map.Map InstrKind Int
 
 
 
--- TODO: There probably is a better way to do this 
-instrType :: Instruction' r w -> InstrsLabel
+-- TODO: There probably is a better way to dos this 
+instrType :: Instruction' r w -> [InstrKind]
 instrType inst =
   case inst of
-    Iand _ _ _    -> Iand () () ()      
-    Ior _ _ _     -> Ior () () ()    
-    Ixor _ _ _    -> Ixor () () ()   
-    Inot _ _      -> Inot () ()        
-    Iadd _ _ _    -> Iadd () () ()   
-    Isub _ _ _    -> Isub () () ()   
-    Imull _ _ _   -> Imull () () ()  
-    Iumulh _ _ _  -> Iumulh () () () 
-    Ismulh _ _ _  -> Ismulh () () () 
-    Iudiv _ _ _   -> Iudiv () () ()  
-    Iumod _ _ _   -> Iumod () () ()  
-    Ishl _ _ _    -> Ishl () () ()   
-    Ishr _ _ _    -> Ishr () () ()   
-    Icmpe _ _     -> Icmpe () ()       
-    Icmpa _ _     -> Icmpa () ()       
-    Icmpae _ _    -> Icmpae () ()      
-    Icmpg _ _     -> Icmpg () ()       
-    Icmpge _ _    -> Icmpge () ()      
-    Imov _ _      -> Imov () ()        
-    Icmov _ _     -> Icmov () ()       
-    Ijmp _        -> Ijmp ()             
-    Icjmp _       -> Icjmp ()            
-    Icnjmp _      -> Icnjmp ()           
-    Istore _ _    -> Istore () ()      
-    Iload _ _     -> Iload () ()       
-    Iread _ _     -> Iread () ()       
-    Ianswer _     -> Ianswer ()           
+    Iand _ _ _    -> [Kand   , Kalu]
+    Ior _ _ _     -> [Kor    , Kalu]
+    Ixor _ _ _    -> [Kxor   , Kalu]
+    Inot _ _      -> [Knot   , Kalu]     
+    Iadd _ _ _    -> [Kadd   , Kalu]
+    Isub _ _ _    -> [Ksub   , Kalu]
+    Imull _ _ _   -> [Kmull  , Kalu]
+    Iumulh _ _ _  -> [Kumulh , Kalu]
+    Ismulh _ _ _  -> [Ksmulh , Kalu]
+    Iudiv _ _ _   -> [Kudiv  , Kalu]
+    Iumod _ _ _   -> [Kumod  , Kalu]
+    Ishl _ _ _    -> [Kshl   , Kalu]
+    Ishr _ _ _    -> [Kshr   , Kalu]
+    Icmpe _ _     -> [Kcmpe  , Kalu]     
+    Icmpa _ _     -> [Kcmpa  , Kalu]     
+    Icmpae _ _    -> [Kcmpae , Kalu]     
+    Icmpg _ _     -> [Kcmpg  , Kalu]     
+    Icmpge _ _    -> [Kcmpge , Kalu]     
+    Imov _ _      -> [Kmov   , Kalu]     
+    Icmov _ _     -> [Kcmov  , Kalu]     
+    Ijmp _        -> [Kjmp  , Kjumps]          
+    Icjmp _       -> [Kcjmp , Kjumps]          
+    Icnjmp _      -> [Kcnjmp, Kjumps]          
+    Istore _ _    -> [Kstore , KmemOp]     
+    Iload _ _     -> [Kload  , KmemOp]     
+    Iread _ _     -> [Kread  ]     
+    Ianswer _     -> [Kanswer]           
 
 
 -- * Computing Sparsity
@@ -160,7 +195,7 @@ sparsJump location spars =
           
 updateInstrSpars ::
   Int 
-  -> InstrsLabel
+  -> InstrKind
   -> (Maybe OpSparsity)
   -> OpSparsity
 updateInstrSpars location intrL Nothing =
@@ -183,9 +218,14 @@ sparsInstr spars (location, Ijmp _) = sparsJump location spars
 sparsInstr spars (location, Icjmp _) = sparsJump location spars
 sparsInstr spars (location, Icnjmp _) = sparsJump location spars
 sparsInstr spars (location, instr) =
-  Map.insert instrLabel (updateInstrSpars location instrLabel instrSpars) spars
-  where instrLabel = instrType instr
-        instrSpars = Map.lookup instrLabel spars
+  foldr (updateKindSparc location) spars $ instrType instr
+  where updateKindSparc :: Int -> InstrKind -> Sparsity' -> Sparsity'
+        updateKindSparc loc ik sparc = let oldOpSparc = Map.lookup ik sparc in
+                                       Map.insert ik (updateInstrSpars loc ik oldOpSparc) sparc 
+    
+--  Map.insert instrLabel (updateInstrSpars location instrLabel instrSpars) spars
+--  where 
+--        instrSpars = Map.lookup instrLabel spars
   
 
 

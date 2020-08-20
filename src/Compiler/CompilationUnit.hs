@@ -22,14 +22,15 @@ import Compiler.Analysis
 
 -- | The Compilation Unit
 data CompilationUnit prog = CompUnit
-  { program :: prog
+  { programCU :: prog
+  , traceLen :: Word
   , regData :: RegisterData
   , aData   :: AnalysisData
   }
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
-prog2unit :: prog -> CompilationUnit prog
-prog2unit p = CompUnit p RDempty [] 
+prog2unit :: Word -> prog -> CompilationUnit prog
+prog2unit len p = CompUnit p len InfinityRegs [] 
 
 -- * Lifting operators
 
@@ -45,17 +46,17 @@ informedCompile :: Monad m =>
   (progS -> AnalysisData -> m progT)
   -> CompilationUnit progS
   -> m $ CompilationUnit progT
-informedCompile pass (CompUnit prog rdata adata) = do
+informedCompile pass (CompUnit prog trLen rdata adata) = do
   p' <- pass prog adata
-  return $ CompUnit p' rdata adata
+  return $ CompUnit p' trLen rdata adata
   
 -- | Just Analyse, lift passes that don't modify the code.
 justAnalyse :: Monad m  =>
   (prog  -> m AnalysisPiece)
   -> CompilationUnit prog
   -> m $ CompilationUnit prog
-justAnalyse analysis (CompUnit prog rdata adata) = do
+justAnalyse analysis (CompUnit prog trLen rdata adata) = do
   a' <-  analysis prog
-  return $ CompUnit prog rdata (a' : adata)
+  return $ CompUnit prog trLen rdata (a' : adata)
 
 

@@ -11,7 +11,7 @@ import Compiler.Compiler
 import Compiler.IRs (Name)
 import MicroRAM.MicroRAM
 import Compiler.CompilationUnit (CompilationUnit(..))
-import MicroRAM.MRAMInterpreter (execAnswer, initMem, emptyInitMem)
+import MicroRAM.MRAMInterpreter (execAnswer, buildInitMem, emptyInitMem)
 
 import Data.List
 
@@ -31,17 +31,17 @@ main = do
           putStrLn $ "With arguments " ++ show progArgs
           putStrLn $ "Running program " ++ file ++ " for " ++ bound ++ " steps."
           --mramArgs <- return $ parseArgs progArgs
-          result <- return $ execAnswer mramProgram (read bound) (initMem progArgs)
+          result <- return $ execAnswer mramProgram (read bound) (buildInitMem progArgs)
           putStrLn $ "Result: " ++ show result
           
 
 --parseArgs :: [String] -> [Word]
 --parseArgs = map read
           
-microFromFile :: FilePath -> IO ((Program Name Word)) 
+microFromFile :: FilePath -> IO (Program Name Word) 
 microFromFile file = do
   contents <- readFile file -- Get text from file
-  CompUnit prog _ _ <- return $ read contents -- Parse them 
+  CompUnit prog _ _ _ <- return $ read contents -- Parse them 
   return prog
 
 fromText :: String -> Either () (Program Name Word)

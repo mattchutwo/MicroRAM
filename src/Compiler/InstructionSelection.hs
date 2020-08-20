@@ -32,6 +32,7 @@ import Data.Word
 import Data.ByteString.Short
 import Data.ByteString.UTF8 as BSU 
 import Control.Monad.State.Lazy
+import Control.Monad
 
 import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Typed as LLVM
@@ -41,6 +42,7 @@ import qualified LLVM.AST.ParameterAttribute as ParamAtt
 
 import Compiler.Errors
 import Compiler.IRs
+import Util.Util
 
 import MicroRAM.MicroRAM (Operand'(..), MAOperand) 
 import qualified MicroRAM.MicroRAM as MRAM
@@ -576,8 +578,21 @@ isTerminator' (LLVM.CondBr (LLVM.LocalReference _ name) name1 name2 _) = do
                     MRAM.Icjmp $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
                     MRAM.Ijmp $ Label (show loc2)]
 isTerminator' (LLVM.CondBr _ name1 name2 _) =
-  assumptError "conditional branching must depend on a register. If you passed a constant prhaps you forgot to run constant propagation. Can't branch on Metadata."
+  assumptError "conditional branching must depend on a register. If you passed a constant perhaps you forgot to run constant propagation. Can't branch on Metadata."
+isTerminator' (LLVM.Switch (LLVM.LocalReference typ reg) deflt dests _ ) = do
+  reg' <- name2name reg
+  deflt' <- name2name deflt
+  switchInstrs <- mapM (isDest reg') dests 
+  returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Reg deflt')]
+  where isDest reg (switch,dest) = do
+          switch' <- getConstant switch
+          dest' <- name2name dest
+          return [MRAM.Icmpe reg (Const switch'), MRAM.Icjmp (Reg dest')]
+          
+isTerminator' (LLVM.Switch op deflt dests _ ) =
+    assumptError $ "Called switch with something that is not a local reference. Perhaps a constant (you should run constant propagation first) or metadata (not supported). /n /t" ++ show op
 
+  
 -- Possible optimisation:
 -- Add just one return block, and have all others jump there.
 isTerminator' (LLVM.Ret (Just ret) md) = do
@@ -586,7 +601,7 @@ isTerminator' (LLVM.Ret (Just ret) md) = do
 isTerminator' (LLVM.Ret Nothing _) =
   return $ [IRI (RRet Nothing) ()]
 
-isTerminator' term = implError $ "Terminator not yet supported" ++ (show term)
+isTerminator' term = implError $ "Terminator not yet supported. \n \t" ++ (show term)
 
 
 -- | blockJumpsTo : Calculates all the blocks that this block might jump to.
@@ -698,9 +713,34 @@ checkDiscardedDefs defs = do
 isTypeDefs :: [LLVM.Definition] -> Hopefully $ TypeEnv
 isTypeDefs _ = return ()
 
-
+-- | Turns a Global variable into its descriptor.
 isGlobVars :: [LLVM.Definition] -> Hopefully $ GEnv Word
-isGlobVars _ = return []
+isGlobVars defs = mapMaybeM isGlobVar' defs
+  where isGlobVar' (LLVM.GlobalDefinition g) = do
+          flatGVar <- isGlobVar g
+          return $ Just flatGVar 
+        isGlobVar' _ = return Nothing
+
+isGlobVar :: LLVM.Global -> Hopefully $ GlobalVariable Word
+isGlobVar (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init _ _ _ _) =
+  do
+  name' <- name2name name
+  typ' <- type2type typ
+  init' <- flatInit init
+  -- TODO: Want to check init' is the right length?
+  return $ GlobalVariable name' const typ' init'
+  where flatInit :: Maybe LLVM.Constant.Constant ->
+                    Hopefully $ Maybe [Word]
+        flatInit Nothing = return Nothing
+        flatInit (Just const) = do
+          const' <- flattenConstant const
+          return $ Just const'
+
+flattenConstant :: LLVM.Constant.Constant ->
+                   Hopefully [Word]
+flattenConstant (LLVM.Constant.Int _ n) = return $ [0]
+                        
+
 
 isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
 isFuncAttributes _ = return () 

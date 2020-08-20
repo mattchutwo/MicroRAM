@@ -28,15 +28,20 @@ dependencies:
 - llvm-hs
 - mtl
 - bytestring
+- smallcheck
 - tasty
-- tasty-hunit
+- tasty-quickcheck
 - tasty-smallcheck
 - transformers
 - utf8-string
 - process
 - split
-- pptable
+- pptable # Pretty print Trace
 - boxes
+- aeson # Remove when not used anymore
+- serialise
+- cborg
+- text
 
 library:
   source-dirs: src
@@ -101,17 +106,31 @@ tests:
     - tasty
     - tasty-hunit
     - tasty-smallcheck
-  circuit-test:
-    main:                CircuitSpec.hs
-    source-dirs:         test/Circuit
+  ouput-test:
+    main:                OutputSpec.hs
+    source-dirs:         test/Output
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
-    - -main-is Circuit.CircuitSpec
+    - -main-is Output.OutputSpec
     dependencies:
     - MicroRAM
     - tasty
     - tasty-hunit
     - tasty-smallcheck
   
+#  circuit-test:
+#    main:                CircuitSpec.hs
+#    source-dirs:         test/Circuit
+#    ghc-options:
+#    - -threaded
+#    - -rtsopts
+#    - -with-rtsopts=-N
+#    - -main-is Circuit.CircuitSpec
+#    dependencies:
+#    - MicroRAM
+#    - tasty
+#    - tasty-hunit
+#    - tasty-smallcheck
+

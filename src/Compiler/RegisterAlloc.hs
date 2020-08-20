@@ -40,6 +40,7 @@ import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.RegisterAlloc.Liveness
 import qualified MicroRAM.MicroRAM as MRAM
+import           Util.Util
 
 data RegisterAllocOptions = RegisterAllocOptions {
     registerAllocNumRegisters :: Word
@@ -65,7 +66,6 @@ registerAlloc (RegisterAllocOptions numRegisters) rprog = do
   code <- mapM (registerAllocFunc registers) code'
 
   return $ lprog {code = code}
-
 
   where
     -- Available registers.
