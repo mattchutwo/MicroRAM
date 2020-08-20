@@ -338,7 +338,8 @@ findAguments = (MRAM.NBlock (Just "_Find arguments_")
 
   , Imov sp (Reg bp)      -- Set stack pointer.
   , Iadd sp sp (Const 1)
-  ])
+  ]) :
+  []
 
   -- [Iload sp (Const 1),  -- Stack pointer points to start of memory
   --  Iload argc (Reg sp), -- Load argc into first argument
