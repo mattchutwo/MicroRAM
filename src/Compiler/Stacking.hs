@@ -30,8 +30,9 @@ This pass lays out the stack in memory in two steps:
      +-----------------+
      | Return address  |
      +-----------------+ 
-     | Function        | 
-     | arguments       |
+     | Function   arg1 | 
+     | arguments  arg2 |
+     |            ...  |  
      +=================+
      | Caller frame    |
      |                 |
@@ -301,13 +302,13 @@ replaceGlobals _ block = return block -- TODO: Replace global
      | Glogals    |
      |            |
      +------------+                  +-+
-     |arg^        +--+                 |
+     |argv        +--+                 |
      +------------+  |                 |
 +--->+argc        |  | <-+ initial bp  |
 |    +------------+  |                 |
-| +--+argv[argc+1]|  |                 |
+| +--+argv[argc-1]|  |                 |
 | |  |...         |  |                 | Initial
-| +--+arg^[0]     +<-+                 | Memory
+| +--+argv[0]     +<-+                 | Memory
 | |  +------------+                    |
 | +->+Comand line |                    |
 |    |arguments   |                    |
@@ -322,8 +323,8 @@ replaceGlobals _ block = return block -- TODO: Replace global
 @
 -}
 
-findAguments :: Regs mreg => [NamedBlock mreg Word]
-findAguments = (MRAM.NBlock (Just "_Find arguments_")
+findArguments :: Regs mreg => [NamedBlock mreg Word]
+findArguments = (MRAM.NBlock (Just "_Find arguments_")
   [ Iload bp (Const 1)    -- Base pointer points to argc
   , Iload sp (Reg bp)     -- Temporarily load argc into sp.
   , Isub ax bp (Reg sp)   -- Compute argv (ax = bp - argc). Is this offset correct?
@@ -355,7 +356,7 @@ findAguments = (MRAM.NBlock (Just "_Find arguments_")
 -- Sends main to the returnBlock
 premain :: Regs mreg => [NamedBlock mreg Word]
 premain =
-  findAguments ++
+  findArguments ++
   [MRAM.NBlock Nothing $ Imov ax (Label "_ret_") : push ax]
 
 -- | returnBlock: return lets the program output an answer (when main returns)
