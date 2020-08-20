@@ -5,15 +5,16 @@ Transform the arguemnts from char* to int and return.
 
 *******************************************************************************/
 
+static char SECRET_NUMBER[] __attribute__((section("__DATA,__secret"))) = "42";
+
 int
-main (int argc, char *argv[])
+main ()
 {
   int i = 0;
   int res=0;
   char* str;
-  if (argc < 2) return 0;
   
-  str = argv[1];
+  str = SECRET_NUMBER;
   for (int i = 0; str[i] != '\0'; ++i) {
     res = res * 10 + str[i] - '0'; 
   }

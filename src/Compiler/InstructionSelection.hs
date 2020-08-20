@@ -749,6 +749,13 @@ isGlobVar (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) =
 flattenConstant :: LLVM.Constant.Constant ->
                    Hopefully [Word]
 flattenConstant (LLVM.Constant.Int _ n) = return $ [fromInteger n]
+flattenConstant (LLVM.Constant.Null typ) = return $ [0]
+flattenConstant (LLVM.Constant.Array typ cnts) = do
+  cnts' <- mapM flattenConstant cnts
+  return $ concat cnts'
+flattenConstant cnt = assumptError $ "Constant not supportet for flattening: \n " ++
+                      show cnt
+                        
                         
 
 

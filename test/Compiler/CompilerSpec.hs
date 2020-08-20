@@ -63,15 +63,15 @@ tests = testGroup "Compiler tests" $
   compileTest
     "Fibonacci loop (not optimized)"
     "test/programs/fibSlow.ll"
-    375 55 : 
+    375 34 : 
   compileTest
     "Fibonacci loop"
     "test/programs/fib.ll"
-    300 55 :
-  compileTest
+    375 34 :
+{-  compileTest
     "Input text into numbers"
     "test/programs/returnInput.ll"
-    80 43 : --
+    80 42 : -}
 --  compileTest "Hello world" "test/programs/hello.ll" 50 [] 0 :
     []
 

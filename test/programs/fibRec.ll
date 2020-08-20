@@ -27,9 +27,9 @@ define i32 @fibbonacci(i32) local_unnamed_addr #0 {
 }
 
 ; Function Attrs: nounwind readnone ssp uwtable
-define i32 @main(i32, i8** nocapture readnone) local_unnamed_addr #0 {
-  %3 = tail call i32 @fibbonacci(i32 %0)
-  ret i32 %3
+define i32 @main() local_unnamed_addr #0 {
+  %1 = tail call i32 @fibbonacci(i32 10)
+  ret i32 %1
 }
 
 attributes #0 = { nounwind readnone ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
