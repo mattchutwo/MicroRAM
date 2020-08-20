@@ -32,7 +32,7 @@ import Output.CBORFormat
 
 
 main = do
-  (options, file, len, args) <- getArgs >>= parseArgs
+  (options, file, len) <- getArgs >>= parseArgs
   fr <- parseOptions file len options
   ifio (beginning fr <= end fr) $ do
     putStrLn "Nothing to do here. Beginning comes later than end. Did you use -from-mram and -just-llvm? "
@@ -69,9 +69,7 @@ main = do
   -- --------------
   -- Interpreter
   -- --------------
-  giveInfo fr $ "Running the interpreter with inputs: " ++ show args
-  mem <- return $ buildInitMem args
-  secretOut <- return $ fullOutput mem microProg
+  secretOut <- return $ fullOutput microProg
   output fr $ secretOut
   ifio (doubleCheck fr) $ print "Nothing to check"
   
@@ -90,8 +88,13 @@ callBackend fr = do
   -- Retrieve program from file
   llvmModule <- llvmParse $ llvmFile fr
   -- Then compile
-  compiledProg <- handleErrorWith (compile (trLen fr) llvmModule)
-  return compiledProg
+  case trLen fr of
+    Nothing -> do
+      putStrLn $ "Found no trace, can't compile."
+      exitWith ExitSuccess
+    Just trLength -> do
+      compiledProg <- handleErrorWith (compile trLength llvmModule)
+      return compiledProg
 
 -- | Extracts the prefix: checkName file
 splitExtension :: String -> (String,String)
@@ -157,11 +160,11 @@ data Stages =
 data FlagRecord = FlagRecord
   { verbose :: Bool  
   , fileIn :: String
-  , trLen :: Word
   , beginning :: Stages
   -- Compiler frontend
   , optim :: Int
   -- Compiler backend
+  , trLen :: Maybe Word
   , llvmFile :: String -- Defaults to a temporary one if not wanted.
   , mramFile :: Maybe String
   -- Interpreter
@@ -175,16 +178,16 @@ data FlagRecord = FlagRecord
 fr2ClangArgs :: FlagRecord -> ClangArgs
 fr2ClangArgs fr = ClangArgs (fileIn fr) (Just $ llvmFile fr) (optim fr) (verbose fr)
 
-defaultFlags :: String -> Word -> FlagRecord
-defaultFlags name len=
+defaultFlags :: String -> Maybe Word -> FlagRecord
+defaultFlags name len =
   FlagRecord
     False
     name
-    len
     CLang
     --
     0
     --
+    len 
     "temp/temp.ll" -- Default we use to temporarily store compilation FIXME!
     Nothing
     --
@@ -220,7 +223,7 @@ parseFlag PrettyHex fr = fr {outFormat = max PHex $ outFormat fr}
 
 parseFlag _ fr = fr
 
-parseOptions :: String -> Word -> [Flag] -> IO FlagRecord
+parseOptions :: String -> Maybe Word -> [Flag] -> IO FlagRecord
 parseOptions filein len flags = do
   name <- return $ filein
   let initFR = defaultFlags name len in
@@ -239,30 +242,34 @@ options =
   , Option []    ["from-mram"]   (NoArg FromMRAM)           "Only run the interpreter from a compiled MicroRAM file."
   , Option ['v'] ["verbose"]     (NoArg Verbose)            "Chatty compiler"
   , Option []    ["pretty-hex"]  (NoArg PrettyHex)               "Pretty print the CBOR output. Won't work if writting to file. "
-  , Option []    ["flat-hex"]    (NoArg FlatFormat)               "Output in flat CBOR format. Won't work if writting to file. "  , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
+  , Option []    ["flat-hex"]    (NoArg FlatFormat)               "Output in flat CBOR format. Won't work if writting to file. "
+  , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)
 
 
-parseArgs :: [String] -> IO ([Flag], String, Word, [String])
+parseArgs :: [String] -> IO ([Flag], String, Maybe Word)
 parseArgs argv = 
   case getOpt Permute options argv of
-
-        (opts,(fs:len:args),[]) -> do
+        (opts,fs:maybeLength,[]) -> do
           -- there can only be one file
           ifio (Help `elem` opts) $ do
             hPutStrLn stderr (usageInfo header options)
             exitWith ExitSuccess
-          return (nub opts, fs, read len, args)
-        (_,args,[]) -> do
-          hPutStrLn stderr ("Need input file and trace length. \n Arguments provided: " ++ show args ++ "\n" ++ usageInfo header options) 
-          exitWith (ExitFailure 1)
+          myLength <- getLength maybeLength
+          return (nub opts, fs, myLength)
         (_,_,errs)      -> do
           hPutStrLn stderr (concat errs ++ usageInfo header options)
           exitWith (ExitFailure 1)
 
         where header = "Usage: compile file length [arguments] [options]. \n Options: "
 
+              getLength [] = return $ Nothing
+              getLength [len] = return $ Just $ read len
+              getLength args = do
+                hPutStrLn stderr ("The only arguments should be a file name and a trace length. \n" ++
+                                  "Arguments provided beyond file name: " ++ show args ++ "\n" ++ usageInfo header options) 
+                exitWith (ExitFailure 1)
 ifio :: Bool -> IO () -> IO ()
 ifio cond thing = if cond then thing else return ()

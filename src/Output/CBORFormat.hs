@@ -46,18 +46,19 @@ import Output.Output
 -- * Full Output
 
 encodeOutput :: Serialise reg => Output reg -> Encoding
-encodeOutput (SecretOutput prog params trc adv initM) =
+encodeOutput (SecretOutput prog params initM trc adv) =
   map2CBOR $ 
   [ ("program", encode prog)
   , ("params", encode params)
+  , ("init_mem", encode initM)
   , ("trace", encode trc)
   , ("advice", encode adv)
-  , ("init_mem", encode initM)
   ]
-encodeOutput (PublicOutput prog params) =
+encodeOutput (PublicOutput prog params initM) =
   map2CBOR $ 
   [ ("program", encode prog)
   , ("params", encode params)
+  , ("init_mem", encode initM)
   ]
 
 decodeOutput :: Serialise reg => Decoder s (Output reg)
@@ -65,7 +66,7 @@ decodeOutput = do
   len <- decodeMapLen
   case len of
     5 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode
-    2 -> PublicOutput <$> tagDecode <*> tagDecode
+    3 -> PublicOutput <$> tagDecode <*> tagDecode  <*> tagDecode
 
 instance Serialise reg => Serialise (Output reg) where 
     encode = encodeOutput
@@ -266,6 +267,37 @@ instance Serialise CircuitParameters where
   decode = decodeParams
 
 
+-- ** Initial Mem
+-- Some parts of this are public and some private
+
+
+encodeInitMemSegment :: InitMemSegment -> Encoding
+encodeInitMemSegment (InitMemSegment secret read start len datas) =
+  map2CBOR $
+  [ ("secret", encodeBool secret) 
+  , ("read_only", encodeBool read)
+  , ("start", encode start)
+  , ("len", encode len)
+  ] ++  encodeMaybeContent datas
+
+encodeMaybeContent :: Maybe [Word] -> [(TXT.Text,Encoding)]
+encodeMaybeContent Nothing = []
+encodeMaybeContent (Just content) = return $ ("data",encode content)
+
+
+decodeInitMemSegment :: Decoder s InitMemSegment
+decodeInitMemSegment = do
+    len <- decodeMapLen
+    case len of
+      4 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> (return Nothing)
+      5 -> InitMemSegment <$> tagDecode <*> tagDecode <*>
+           tagDecode <*> tagDecode <*> do { content <- tagDecode; return $ Just content} 
+      _ -> fail $ "invalid state encoding. Length should be 4 or 5 but found " ++ show len
+
+instance Serialise InitMemSegment where
+  decode = decodeInitMemSegment
+  encode = encodeInitMemSegment
+
 -- * Secret Output
 -- Public output is generated "statically" (without knowing the input). It can be obtained
 -- by the verifier and the prover and has the following elements:
@@ -391,3 +423,14 @@ printOutputWithFormat :: Serialise reg => OutFormat -> Output reg -> String
 printOutputWithFormat StdHex = show . serialOutput
 printOutputWithFormat PHex = ppHexOutput
 printOutputWithFormat Flat = show . flatOutput
+
+
+c :: Output Word
+c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
+                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}]}
+
+d :: Output Word
+d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
+                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}],
+                   trace = [], adviceOut = Map.empty}
+ 

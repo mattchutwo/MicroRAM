@@ -108,6 +108,7 @@ readRegistersOperand :: Ord reg => MRAM.MAOperand reg wrdT -> Set reg
 readRegistersOperand (MRAM.Reg r) = Set.singleton r
 readRegistersOperand (MRAM.Const w) = mempty
 readRegistersOperand (MRAM.Label s) = mempty
+readRegistersOperand (MRAM.Glob _ ) = mempty
 readRegistersOperand MRAM.HereLabel = mempty
 
 

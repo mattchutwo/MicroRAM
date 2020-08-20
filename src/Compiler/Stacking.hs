@@ -5,13 +5,15 @@ Description : LTL -> MARAM
 Maintainer  : 
 Stability   : 
 
-This pass lays out the stack in memory in two steps:
+This pass lays out the stack in memory. The register allocator
+deals with the stack abstractly issuing `Lgetstack`, `Lsetstack`, `LAlloc`,
+this pass transforms those instructions into real stack manipulations.
 
-1. Writes global variables to memory (in the 'prestack').
-   Then replaces all ocurrences of the global variable with the
-   value of its pointer.
-2. Allocates stack variables replacing the first definition with
-   an alloc and other accesses with store and loads. 
+Moreover this pass adds the necessart instructions from stack frame
+creation/destruction on function call/return.
+
+(Note that global variables are passed as initial memory to the cricuit generator.
+ see Compiler/Globals.hs for details)
 
 
     Stack layout during function execution
@@ -123,43 +125,9 @@ smartMovMaybe (Just r) a = smartMov r a
 
 -- * Initial Memory
 
-{-
-
-The initial Memory is passed to the program. Here is how the memory is set up:
-     - All arguemnts, files, configurations, are laid in contiguous memory.
-     - At the top of the memory (highest address) the arguments to main are laid like:
-       + The command line inputs
-       + argv[0..] (pointing at each command line input)
-       + argc
-       + argv (pointing to two mem locations back)
-     - Location 1 is resreved for a pointer to argc
-@
-
-     |            |
-     +------------+                  +-+
-     |arg^        +--+                 |
-     +------------+  |                 |
-+--->+argc        |  |                 |
-|    +------------+  |                 |
-| +--+argv[argc+1]|  |                 |
-| |  |...         |  |                 | Initial
-| +--+arg^[0]     +<-+                 | Memory
-| |  +------------+                    |
-| +->+Comand line |                    |
-|    |arguments   |                    |
-|    +------------+                    |
-|    | files      |                    |
-|    |            |                    |
-|    +------------+                    |
-+----+ ptr argc   |                    |
-|    +------------+                    |
-     | Null       |                    |
-     +============+                  +-+
-@
-
-We then "Set global variables" (preamble) and run 'premain'
-to set up arguemtns and return address for Main.
-
+{- Initial memory is created in Compiler/Globals.hs and contains all the globals.
+   We don't allow inputs, but can simulate input by passing globals that can't be
+   constant-propagated.
 -}
 
 -- ** Set global variables
@@ -207,7 +175,7 @@ type GVEnv = Map.Map ShortByteString Ptr
 
 -}
 
-storeGlobVars ::
+storeGlobVars :: -- Or preamble
   Regs mreg =>
   GEnv Word
   -> Hopefully $ (GVEnv, NamedBlock mreg Word)
@@ -221,7 +189,7 @@ storeGlobVars ls = do
                         ([MAInstruction mreg Word],Word) 
                         -> GlobalVariable Word
                         -> Hopefully $ ([MAInstruction mreg Word],Word)
-        storeGlobVar (instrs, location) (GlobalVariable nm isConst typ init) = do
+        storeGlobVar (instrs, location) (GlobalVariable nm isConst typ init secret) = do
           newInstrs <- return $ writeGlob init location
           return (instrs++newInstrs, location + tySize typ)
         writeGlob :: Regs mreg =>

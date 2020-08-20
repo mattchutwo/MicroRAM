@@ -57,6 +57,7 @@ import Compiler.Errors
 import Compiler.IRs
 import Compiler.InstructionSelection
 import Compiler.RegisterAlloc
+import Compiler.Globals
 import Compiler.Stacking
 import Compiler.Sparsity
 import Compiler.RemoveLabels
@@ -71,8 +72,9 @@ compile :: Word -> LLVM.Module
         -> CompilerPassError $ CompilationUnit (MRAM.Program Name Word)
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
-  >>= (tagPass "Instruction Selection" $ justCompile $ registerAlloc def) --FIXME
-  >>= (tagPass "Instruction Selection" $ justCompile stacking)
-  >>= (tagPass "Instruction Selection" $ justAnalyse (SparsityData <.> sparsity))
-  >>= (tagPass "Instruction Selection" $ justCompile removeLabels)
+  >>= (tagPass "Register Allocation" $ justCompile $ registerAlloc def)
+  >>= (tagPass "Remove Globals" $ replaceGlobals)
+  >>= (tagPass "Stacking" $ justCompile stacking)
+  >>= (tagPass "Computing Sparsity" $ justAnalyse (SparsityData <.> sparsity))
+  >>= (tagPass "Removing labels" $ justCompile removeLabels)
           

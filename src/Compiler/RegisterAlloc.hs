@@ -299,6 +299,7 @@ applyColoring coloring = mapM applyBasicBlock
     applyOperand (MRAM.Reg r)   = MRAM.Reg <$> applyVReg r
     applyOperand (MRAM.Const w) = return $ MRAM.Const w
     applyOperand (MRAM.Label s) = return $ MRAM.Label s
+    applyOperand (MRAM.Glob s) = return $ MRAM.Glob s
     applyOperand MRAM.HereLabel = return $ MRAM.HereLabel
 
 

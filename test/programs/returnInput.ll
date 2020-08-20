@@ -3,38 +3,58 @@ source_filename = "programs/returnInput.c"
 target datalayout = "e-m:o-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-apple-macosx10.15.0"
 
-; Function Attrs: norecurse nounwind readonly ssp uwtable
-define i32 @main(i32, i8** nocapture readonly) local_unnamed_addr #0 {
-  %3 = icmp slt i32 %0, 2
-  br i1 %3, label %21, label %4
+@SECRET_NUMBER = internal global [3 x i8] c"42\00", section "__DATA,__secret", align 1
 
-4:                                                ; preds = %2
-  %5 = getelementptr inbounds i8*, i8** %1, i64 1
-  %6 = load i8*, i8** %5, align 8, !tbaa !4
-  %7 = load i8, i8* %6, align 1, !tbaa !8
-  %8 = icmp eq i8 %7, 0
-  br i1 %8, label %21, label %9
+; Function Attrs: noinline nounwind optnone ssp uwtable
+define i32 @main() #0 {
+  %1 = alloca i32, align 4
+  %2 = alloca i32, align 4
+  %3 = alloca i32, align 4
+  %4 = alloca i8*, align 8
+  %5 = alloca i32, align 4
+  store i32 0, i32* %1, align 4
+  store i32 0, i32* %2, align 4
+  store i32 0, i32* %3, align 4
+  store i8* getelementptr inbounds ([3 x i8], [3 x i8]* @SECRET_NUMBER, i64 0, i64 0), i8** %4, align 8
+  store i32 0, i32* %5, align 4
+  br label %6
 
-9:                                                ; preds = %4, %9
-  %10 = phi i64 [ %17, %9 ], [ 0, %4 ]
-  %11 = phi i8 [ %19, %9 ], [ %7, %4 ]
-  %12 = phi i32 [ %16, %9 ], [ 0, %4 ]
-  %13 = sext i8 %11 to i32
-  %14 = mul nsw i32 %12, 10
-  %15 = add i32 %14, -48
-  %16 = add i32 %15, %13
-  %17 = add nuw i64 %10, 1
-  %18 = getelementptr inbounds i8, i8* %6, i64 %17
-  %19 = load i8, i8* %18, align 1, !tbaa !8
-  %20 = icmp eq i8 %19, 0
-  br i1 %20, label %21, label %9
+6:                                                ; preds = %25, %0
+  %7 = load i8*, i8** %4, align 8
+  %8 = load i32, i32* %5, align 4
+  %9 = sext i32 %8 to i64
+  %10 = getelementptr inbounds i8, i8* %7, i64 %9
+  %11 = load i8, i8* %10, align 1
+  %12 = sext i8 %11 to i32
+  %13 = icmp ne i32 %12, 0
+  br i1 %13, label %14, label %28
 
-21:                                               ; preds = %9, %4, %2
-  %22 = phi i32 [ 0, %2 ], [ 0, %4 ], [ %16, %9 ]
-  ret i32 %22
+14:                                               ; preds = %6
+  %15 = load i32, i32* %3, align 4
+  %16 = mul nsw i32 %15, 10
+  %17 = load i8*, i8** %4, align 8
+  %18 = load i32, i32* %5, align 4
+  %19 = sext i32 %18 to i64
+  %20 = getelementptr inbounds i8, i8* %17, i64 %19
+  %21 = load i8, i8* %20, align 1
+  %22 = sext i8 %21 to i32
+  %23 = add nsw i32 %16, %22
+  %24 = sub nsw i32 %23, 48
+  store i32 %24, i32* %3, align 4
+  br label %25
+
+25:                                               ; preds = %14
+  %26 = load i32, i32* %5, align 4
+  %27 = add nsw i32 %26, 1
+  store i32 %27, i32* %5, align 4
+  br label %6
+
+28:                                               ; preds = %6
+  %29 = load i32, i32* %3, align 4
+  ret i32 %29
 }
 
-attributes #0 = { norecurse nounwind readonly ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #0 = { noinline nounwind optnone ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
 
 !llvm.module.flags = !{!0, !1, !2}
 !llvm.ident = !{!3}
@@ -43,8 +63,3 @@ attributes #0 = { norecurse nounwind readonly ssp uwtable "correctly-rounded-div
 !1 = !{i32 1, !"wchar_size", i32 4}
 !2 = !{i32 7, !"PIC Level", i32 2}
 !3 = !{!"Apple clang version 11.0.3 (clang-1103.0.32.29)"}
-!4 = !{!5, !5, i64 0}
-!5 = !{!"any pointer", !6, i64 0}
-!6 = !{!"omnipotent char", !7, i64 0}
-!7 = !{!"Simple C/C++ TBAA"}
-!8 = !{!6, !6, i64 0}

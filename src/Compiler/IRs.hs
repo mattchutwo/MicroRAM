@@ -49,6 +49,7 @@ data Ty =
 
 -- Determines the relative size of types (relative to a 32bit integer/64bit)
 tySize :: Ty -> Word
+tySize (Tarray length subTyp) = length * (tySize subTyp)   
 tySize _ = 1
 -- Pointers have the same sizer as Tint
 
@@ -58,10 +59,19 @@ tySize _ = 1
 data IRInstruction metadata regT wrdT irinst =
    MRI (MRAM.MAInstruction regT wrdT) metadata
   | IRI irinst metadata
-  deriving (Show)
-
+  deriving (Show,Functor, Foldable, Traversable)
 data Function nameT paramT blockT =
   Function nameT paramT [paramT] [blockT] deriving (Show, Functor)
+
+-- | Traverse the IR instruction changing operands  
+traverseOpIRInstr :: (Traversable irinst, Applicative f) =>
+  (MAOperand regT wrdT -> f (MAOperand regT wrdT'))
+  -> IRInstruction metadata regT wrdT (irinst $ MAOperand regT wrdT)
+  -> f (IRInstruction metadata regT wrdT' (irinst $ MAOperand regT wrdT'))
+traverseOpIRInstr fop (MRI maInstr metadata) = 
+  MRI <$> (traverse fop maInstr) <*> (pure metadata) 
+traverseOpIRInstr fop (IRI irinst metadata) = 
+  IRI <$> (traverse fop irinst) <*> (pure metadata)
 
 
 
@@ -70,7 +80,14 @@ type DAGinfo name = [name]
 --  it's a list of instructions + all the blocks that it can jump to
 --  It separates the body from the instructions of the terminator.
 data BB name instrT = BB name [instrT] [instrT] (DAGinfo name)
-  deriving (Show,Functor)
+  deriving (Show,Functor, Foldable, Traversable)
+
+-- | Traverse the Basic Blocks changing operands  
+traverseOpBB :: (Applicative f) =>
+  (MAOperand regT wrdT -> f (MAOperand regT wrdT))
+  -> BB name $ LTLInstr mdata regT wrdT
+  -> f (BB name $ LTLInstr mdata regT wrdT)
+traverseOpBB fop = traverse (traverseOpLTLInstr fop)  
 
 type IRFunction mdata regT wrdT irinstr =
   Function Name Ty (BB Name $ IRInstruction mdata regT wrdT irinstr)
@@ -113,18 +130,25 @@ digits x = digits (x `div` 10) ++ [x `mod` 10 + 48] -- ASCII 0 = 0
 
 type TypeEnv = () -- TODO
 
+
+-- | Translate LLVM Names into strings
+-- We use show, but this might add dependencies.
+-- Should we just carry a shortString instead?
+-- Moved to Instruction Selection
+
 data GlobalVariable wrdT = GlobalVariable
-  { name :: Name
+  { name :: String -- Optimize?
   , isConstant :: Bool
   , gType :: Ty
   , initializer :: Maybe [wrdT]
+  , secret :: Bool
   } deriving (Show)
 type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"
 data IRprog mdata wrdT funcT = IRprog
   { typeEnv :: TypeEnv
   , globals :: GEnv wrdT
-  , code :: [funcT] -- Previously irProgCode
-  } deriving (Show, Functor)
+  , code :: [funcT]
+  } deriving (Show, Functor, Foldable, Traversable)
 
 
 
@@ -162,6 +186,12 @@ data RTLInstr' operand =
     
 type RTLInstr mdata wrdT = IRInstruction mdata VReg wrdT (RTLInstr' $ MAOperand VReg wrdT)
 
+-- |  Traverse the RTL instruction changing operands  
+traverseOpRTLInstr :: (Applicative f) =>
+  (MAOperand regT wrdT -> f (MAOperand regT wrdT))
+  -> LTLInstr metadata regT wrdT
+  -> f (LTLInstr metadata regT wrdT)
+traverseOpRTLInstr = traverseOpIRInstr
 
 type RFunction mdata wrdT =
   IRFunction mdata VReg wrdT (RTLInstr' $ MAOperand VReg wrdT)
@@ -211,11 +241,22 @@ data LTLInstr' mreg wrdT operand =
     (Maybe mreg) -- ^ return register (gives location)
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
-  deriving (Show)
+  deriving (Show, Functor, Foldable, Traversable)
   
 type LTLInstr mdata mreg wrdT =
   IRInstruction mdata mreg wrdT (LTLInstr' mreg wrdT $ MAOperand mreg wrdT)
   
+
+
+-- |  Traverse the LTL instruction changing operands  
+traverseOpLTLInstr :: (Applicative f) =>
+  (MAOperand regT wrdT -> f (MAOperand regT wrdT))
+  -> LTLInstr metadata regT wrdT
+  -> f (LTLInstr metadata regT wrdT)
+traverseOpLTLInstr = traverseOpIRInstr
+
+
+
 
 -- data Function nameT paramT blockT =
 --  Function nameT paramT [paramT] [blockT]
@@ -228,7 +269,24 @@ data LFunction mdata mreg wrdT = LFunction {
   , funBody:: [BB Name $ LTLInstr mdata mreg wrdT]
   } deriving (Show)
 
+-- | Traverse the LTL functions and replacing operands 
+traverseOpLFun :: (Applicative f) =>
+  (MAOperand regT wrdT -> f (MAOperand regT wrdT))
+  -> LFunction mdata regT wrdT
+  -> f $ LFunction mdata regT wrdT
+traverseOpLFun fop lf = (\body -> lf {funBody = body}) <$>
+                        traverseOpBBs fop (funBody lf)
+  where traverseOpBBs fop = traverse (traverseOpBB fop)
+
 type Lprog mdata mreg wrdT = IRprog mdata wrdT $ LFunction mdata mreg wrdT
+
+
+-- | Traverse the LTL Program and replacing operands
+traverseOpLprog :: (Applicative f) =>
+  (MAOperand regT wrdT -> f (MAOperand regT wrdT))
+  -> Lprog mdata regT wrdT
+  -> f $ Lprog mdata regT wrdT
+traverseOpLprog fop = traverse (traverseOpLFun fop)
 
 
 -- Converts a RTL program to a LTL program.

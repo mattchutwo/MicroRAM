@@ -30,9 +30,12 @@ dependencies:
 - bytestring
 - smallcheck
 - tasty
+- tasty-hunit
 - tasty-quickcheck
 - tasty-smallcheck
 - transformers
+- QuickCheck
+- smallcheck
 - utf8-string
 - process
 - split

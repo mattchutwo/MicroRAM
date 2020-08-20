@@ -209,25 +209,26 @@ PC   Flag  Ansr   Regs                                Mem
 fromLLVMFile :: FilePath -> IO LLVM.Module
 fromLLVMFile = llvmParse
 
-fromMRAMFile :: (Read mreg, Regs mreg) => FilePath -> IO (Program mreg Word)
+fromMRAMFile :: (Read mreg, Regs mreg) =>
+                FilePath
+             -> IO $ CompilationUnit (Program mreg Word)
 fromMRAMFile file = do
   contents <- readFile file
-  compilationUnit <- return $ read contents
-  return $ programCU compilationUnit
-
+  return $ read contents
+  
 runFromFile  :: (Read mreg, Regs mreg) =>
-  FilePath -> [Word] -> IO (Trace mreg)
-runFromFile file input = do
+  FilePath -> IO (Trace mreg)
+runFromFile file = do
   prog <- fromMRAMFile file
-  return $ run input prog
+  return $ run prog
   
 summaryFromFile ::
   (Read mreg, Regs mreg) =>
   FilePath ->
   CustomSummary mreg ->
-  [Word] -> Int -> IO ()
-summaryFromFile file cs input length = do
-  trace <- runFromFile file input
+  Int -> IO ()
+summaryFromFile file cs length = do
+  trace <- runFromFile file
   printSummary cs trace length
   
 
@@ -235,8 +236,10 @@ summaryFromFile file cs input length = do
 
 -- * Pretty printing
 
-pprint :: Program Name Word -> String
-pprint prog = concat $ map (\(n,inst) -> show n ++ ". " ++ show inst ++ "\n") $ enumerate prog
+pprint :: CompilationUnit (Program Name Word) -> String
+pprint compUnit =
+  let prog = programCU compUnit in
+  concat $ map (\(n,inst) -> show n ++ ". " ++ show inst ++ "\n") $ enumerate prog
 
 pprintFromFile :: FilePath -> IO ()
 pprintFromFile file = do
@@ -263,13 +266,13 @@ fromAscii = toEnum
 
 
 -- Example
-myfile = "programs/return42.micro" -- "programs/returnInput.micro"
+myfile = "programs/fib.micro" -- "programs/returnInput.micro"
 myllvmfile = "programs/returnInput.ll"
-mram :: IO (Program Name Word)
+mram :: IO $ CompilationUnit (Program Name Word)
 mram =  fromMRAMFile "test/return42.micro"
 
 {- | Example
--- summaryFromFile myfile myCS (initMem ["42"]) 50 --emptyInitMem
+-- summaryFromFile myfile myCS 300 --emptyInitMem
 -}
 
 jpProg = do

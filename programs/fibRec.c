@@ -3,6 +3,7 @@
                             Recursive fibonacci.
 
 *******************************************************************************/
+static int SECRET_NUMBER __attribute__((section("__DATA,__secret"))) = 10;
 
 int fibbonacci(int n) {
    if(n == 0){
@@ -14,6 +15,6 @@ int fibbonacci(int n) {
    }
 }
 
-int main(int argc, char *argv[]) {
-   return fibbonacci(argc);
+int main() {
+   return fibbonacci(SECRET_NUMBER);
 }
