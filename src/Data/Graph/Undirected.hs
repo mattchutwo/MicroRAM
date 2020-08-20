@@ -99,7 +99,7 @@ color colors' (Graph graph vmap) =
     findColor :: n -> HGL.PatriciaTree n e -> Map n color -> Maybe color
     findColor n graph coloring = 
       -- Get neighbors.
-      let neighbors = maybe [] (HGL.successors graph) $ nodeToVertexM n in
+      let neighbors = maybe [] (\v -> HGL.successors graph v ++ HGL.predecessors graph v) $ nodeToVertexM n in
 
       -- Convert to their colorings.
       let usedColors = Set.fromList $ maybe (error "color: Unknown coloring.") id $ mapM (flip Map.lookup coloring . vertexToNode graph) neighbors in
