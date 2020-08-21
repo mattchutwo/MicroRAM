@@ -9,7 +9,7 @@ This pass lays out the stack in memory. The register allocator
 deals with the stack abstractly issuing `Lgetstack`, `Lsetstack`, `LAlloc`,
 this pass transforms those instructions into real stack manipulations.
 
-Moreover this pass adds the necessart instructions from stack frame
+mMoreover this pass adds the necessart instructions from stack frame
 creation/destruction on function call/return.
 
 (Note that global variables are passed as initial memory to the cricuit generator.
@@ -19,15 +19,15 @@ creation/destruction on function call/return.
     Stack layout during function execution
 
      |                 |
-     +=================+ 
-     | Local variables | <- SP
+     +=================+ <- SP 
+     | Local variables |
      |                 |
      |                 |
      +-----------------+
      | Spilled         |
      | variables       |
      |                 |  
-     +-----------------+
+     +-----------------+ 
      | Old BP          | <- BP
      +-----------------+
      | Return address  |
@@ -88,9 +88,10 @@ ax = NewName 2
 -}
 
 -- ** Usefull snipets
+-- sp points at the next free stack location
 push, pop :: Regs mreg => mreg -> [MAInstruction mreg Word]
-push r = [Iadd sp sp (Const 1),Istore (Reg sp) r]
-pop r = [Iload r (Reg sp), Isub  sp sp (Const 1)]
+push r = [Istore (Reg sp) r,Iadd sp sp (Const 1)]
+pop r = [Isub  sp sp (Const 1),Iload r (Reg sp)]
 
 -- | pushOperand sometimes we want to push a constant
 -- Notice here we use ax. This can only be done at funciton entry
@@ -342,7 +343,7 @@ returnBlock = MRAM.NBlock (Just "_ret_") [Ianswer (Reg ax)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => Word -> [MAInstruction mreg Word]
 prologue size =
-    (push bp) ++ [Imov bp (Reg sp)] -- Isub sp sp (Const size)] -- This old Isub is wrong? TODO: REMOVE
+    (Istore (Reg sp) bp): [Imov bp (Reg sp), Iadd sp sp (Const $ size + 1)] 
 
 
 -- | epilogue: deallocate the stack, then jump to return address
@@ -398,12 +399,14 @@ stackLTLInstr :: Regs mreg => LTLInstr' mreg Word $ MAOperand mreg Word
 stackLTLInstr (Lgetstack Incoming offset typ reg) =
    [Isub reg bp (Const (2 + offset)), Iload reg (Reg reg)]
 stackLTLInstr (Lsetstack reg Incoming offset typ) =
-   [Isub reg bp (Const (2 + offset)), Istore (Reg reg) reg]
+   [ Isub bp bp (Const (2 + offset)), Istore (Reg bp) reg
+   , Iadd bp bp (Const (2 + offset))]
 
 stackLTLInstr (Lgetstack Local offset typ reg) =
-   [Iadd reg bp (Const offset), Iload reg (Reg reg)]  -- JP: offset+1?
+   [Iadd reg bp (Const $ offset + 1), Iload reg (Reg reg)]  -- JP: offset+1?
 stackLTLInstr (Lsetstack reg Local offset typ) =
-   [Iadd reg bp (Const offset), Istore (Reg reg) reg] -- JP: offset+1?
+   [ Iadd bp bp (Const $ offset + 1), Istore (Reg bp) reg
+   , Isub bp bp (Const $ offset + 1)] -- JP: offset+1?
 
 stackLTLInstr (LCall typ ret f argsT args) =
   funCallInstructions typ ret f argsT args

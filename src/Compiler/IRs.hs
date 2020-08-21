@@ -114,7 +114,7 @@ instance Regs Name where
   toWord (NewName x) = 2*x
   toWord (Name sh) = 1 + (2 * (read $ read $ show sh))
   data RMap Name x = RMap x (Map.Map Name x)
-  initBank d = RMap d Map.empty
+  initBank d init = RMap d $ (Map.fromList [(sp,init),(bp,init)])
   lookupReg r (RMap d m) = case Map.lookup r m of
                         Just x -> x
                         Nothing -> d
