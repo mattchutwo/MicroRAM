@@ -16,9 +16,6 @@ module Compiler.Errors
       assumptError,
       otherError,
 
-      CompilerPassError,
-      pattern CompilerOK,
-      pattern CompilerError,
       tagProg,
       tagPass,
       handleErrorWith
@@ -53,11 +50,6 @@ implError msg = Left $ NotImpl msg
 assumptError msg = Left $ CompilerAssumption msg
 otherError msg = Left $ OtherError msg
 
-
-type CompilerPassError = Hopefully
-
-pattern CompilerOK x = Right x
-pattern CompilerError loc e = Left (ErrorAt loc e)
 
 tagProg :: String -> Hopefully a -> Hopefully a
 tagProg pass (Left err) = Left $ ErrorAt pass err
