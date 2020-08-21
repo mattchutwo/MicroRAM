@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 {-|
 Module      : Compiler Errsrs
@@ -14,12 +15,14 @@ module Compiler.Errors
       implError,
       assumptError,
       otherError,
-      
+
       CompilerPassError,
+      pattern CompilerOK,
+      pattern CompilerError,
       tagProg,
       tagPass,
       handleErrorWith
-      
+
     ) where
 
 import Control.Monad.State.Lazy
@@ -33,55 +36,38 @@ data CmplError =
   NotImpl String      -- Feature not implemented
   | CompilerAssumption String   -- Compiler assumption broken
   | OtherError String   -- Other error, stores the problem description.
+  | ErrorAt String CmplError    -- An error at a particular location.
 
--- | Converts Error to a readable message.
-instance Show CmplError where
-  show (NotImpl msg) =
-      "Feature not supported by the compiler yet: " ++ msg
-  show (CompilerAssumption msg) = "Compiler assumption broken: " ++ msg
-  show (OtherError msg) = msg
+describeError :: CmplError -> String
+describeError (ErrorAt loc e) = "while running " ++ loc ++ ": " ++ describeError e
+describeError (NotImpl msg) = "feature not yet implemented: " ++ msg
+describeError (CompilerAssumption msg) = "compiler assumption violated: " ++ msg
+describeError (OtherError msg) = msg
 
 type Hopefully = Either CmplError
-ok :: a -> Hopefully a
-ok result = Right result
+ok :: Monad m => a -> m a
+ok = return
+
 implError, assumptError, otherError :: String -> Hopefully b
 implError msg = Left $ NotImpl msg
 assumptError msg = Left $ CompilerAssumption msg
 otherError msg = Left $ OtherError msg
 
-data CompilerPassError a =
-  CompilerOK a
-  | CompilerError
-    String -- ^ The compiler pass
-    CmplError
-  deriving Functor
-    
-instance Applicative CompilerPassError where
-  pure a = (CompilerOK a)
-  
-  CompilerOK f <*> CompilerOK a = CompilerOK $ f a
-  CompilerError a b <*> _ = CompilerError a b
-  _ <*> CompilerError a b = CompilerError a b
-  
-instance Monad CompilerPassError where
-  (CompilerOK a) >>= f = f a
-  CompilerError p e >>= _ = CompilerError p e
 
+type CompilerPassError = Hopefully
 
-  a >> b = b
+pattern CompilerOK x = Right x
+pattern CompilerError loc e = Left (ErrorAt loc e)
 
-  return a = CompilerOK a
+tagProg :: String -> Hopefully a -> Hopefully a
+tagProg pass (Left err) = Left $ ErrorAt pass err
+tagProg _ (Right a) = Right a
 
-tagProg :: String -> Hopefully a -> CompilerPassError a
-tagProg pass (Left err) = CompilerError pass err
-tagProg pass (Right a) = CompilerOK a
-
-tagPass :: String -> (a -> Hopefully b) -> (a -> CompilerPassError b)
+tagPass :: String -> (a -> Hopefully b) -> (a -> Hopefully b)
 tagPass passName pass prog = tagProg passName (pass prog)
 
-handleErrorWith :: CompilerPassError a -> IO a
-handleErrorWith (CompilerError pass error) = do
-  hPutStr stderr ("Backend compilation error while doing " ++ pass ++
-                  ":\n \n \t" ++ show error)
+handleErrorWith :: Hopefully a -> IO a
+handleErrorWith (Left e) = do
+  hPutStr stderr ("Backend compilation error: " ++ describeError e)
   exitWith (ExitFailure 1)
-handleErrorWith (CompilerOK a) = return a
+handleErrorWith (Right a) = return a
