@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 {-|
 Module      : Instruction Selection
@@ -32,6 +33,7 @@ import Data.Word
 import Data.ByteString.Short
 import Data.ByteString.UTF8 as BSU 
 import Control.Monad
+import Control.Monad.Except
 import Control.Monad.State.Lazy
 import Control.Monad.Trans
 
@@ -110,7 +112,7 @@ operand2register (LLVM.ConstantOperand c) = do
   c' <- lift $ getConstant c
   raux <- freshName
   return (raux,[MRAM.Imov raux (Const c')])
-operand2register _ = lift $ implError "Operand2register can't convert metadata or labels."
+operand2register _ = implError "Operand2register can't convert metadata or labels."
   
 
 type2type (LLVM.IntegerType n) = return Tint -- FIXME check size! 
@@ -220,7 +222,9 @@ isCompare IntPred.SLE (Reg lhs) rhs = return $ MRAM.Icmpg lhs rhs
 isCompare pred _ _ = implError $ "Unsigned comparisons: \n \t" ++ show pred
 
 
+fError :: MonadError CmplError m => m a
 fError = implError "Floatin point arithmetic"
+uError :: MonadError CmplError m => m a
 uError = implError "unsigned operations"
 
 
@@ -279,23 +283,23 @@ isInstruction ret (LLVM.Sub _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MR
 -- Mul
 isInstruction ret (LLVM.Mul _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Imull
 -- SDiv
-isInstruction ret (LLVM.SDiv _ _ o1 o2 ) = lift $ implError "Signed division ius hard! SDiv"
+isInstruction ret (LLVM.SDiv _ _ o1 o2 ) = implError "Signed division ius hard! SDiv"
 -- SRem
-isInstruction ret (LLVM.SRem o1 o2 _) = lift $ implError "Signed division ius hard! SRem"
+isInstruction ret (LLVM.SRem o1 o2 _) = implError "Signed division ius hard! SRem"
 
 
 
 -- *** Floating Point 
 -- FAdd
-isInstruction ret (LLVM.FAdd _ o1 o2 _) = lift $ implError "Fast Multiplication FMul"
+isInstruction ret (LLVM.FAdd _ o1 o2 _) = implError "Fast Multiplication FMul"
 -- FSub
-isInstruction ret (LLVM.FSub _ o1 o2 _) =  lift $ implError "Fast Multiplication FMul"
+isInstruction ret (LLVM.FSub _ o1 o2 _) =  implError "Fast Multiplication FMul"
 -- FMul
-isInstruction ret (LLVM.FMul _ o1 o2 _) =  lift $ implError "Fast Multiplication FMul"
+isInstruction ret (LLVM.FMul _ o1 o2 _) =  implError "Fast Multiplication FMul"
 -- FDiv
-isInstruction ret (LLVM.FDiv _ o1 o2 _) =  lift $ implError "Fast Division FDiv"
+isInstruction ret (LLVM.FDiv _ o1 o2 _) =  implError "Fast Division FDiv"
 -- FRem
-isInstruction ret (LLVM.FRem _ o1 o2 _) = lift $ fError
+isInstruction ret (LLVM.FRem _ o1 o2 _) = fError
 
 -- *** Unsigned operations
 -- UDiv
@@ -310,7 +314,7 @@ isInstruction ret (LLVM.Shl _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MR
 -- LShr
 isInstruction ret (LLVM.LShr _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ishr
 -- AShr
-isInstruction ret (LLVM.AShr _ o1 o2 _) =  lift $ implError "Arithmetic shift right AShr"
+isInstruction ret (LLVM.AShr _ o1 o2 _) =  implError "Arithmetic shift right AShr"
 
 -- *** Logical
 --And
@@ -422,7 +426,7 @@ isInstruction (Just ret) (LLVM.BitCast op typ _) = lift $ toRTL <$> do
 
   
 -- *** Not supprted instructions (return meaningfull error)
-isInstruction _ instr =  lift $ implError $ "Instruction: " ++ (show instr)
+isInstruction _ instr =  implError $ "Instruction: " ++ (show instr)
 
 convertPhiInput :: (LLVM.Operand, LLVM.Name) -> Hopefully $ (MAOperand VReg Word, Name)
 convertPhiInput (op, name) = do
@@ -484,7 +488,7 @@ isGEP ::
   -> MAOperand VReg Word
   -> [LLVM.Operand] -- [MAOperand VReg Word]
   -> Statefully $ [MRAM.MAInstruction VReg Word]
-isGEP _ _ _ [] = lift $ assumptError "Getelementptr called with no indices"
+isGEP _ _ _ [] = assumptError "Getelementptr called with no indices"
 isGEP ret (LLVM.PointerType refT _) base (inx:inxs) = do
   tySize <- lift $ llvmSize refT
   (ri, move_reg) <- operand2register inx

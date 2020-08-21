@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 {-|
 Module      : Compiler Errsrs
@@ -15,6 +16,8 @@ module Compiler.Errors
       implError,
       assumptError,
       otherError,
+
+      CmplError,
 
       tagProg,
       tagPass,
@@ -45,10 +48,12 @@ type Hopefully = Either CmplError
 ok :: Monad m => a -> m a
 ok = return
 
-implError, assumptError, otherError :: String -> Hopefully b
-implError msg = Left $ NotImpl msg
-assumptError msg = Left $ CompilerAssumption msg
-otherError msg = Left $ OtherError msg
+implError :: MonadError CmplError m => String -> m b
+implError msg = throwError $ NotImpl msg
+assumptError :: MonadError CmplError m => String -> m b
+assumptError msg = throwError $ CompilerAssumption msg
+otherError :: MonadError CmplError m => String -> m b
+otherError msg = throwError $ OtherError msg
 
 
 tagProg :: String -> Hopefully a -> Hopefully a
