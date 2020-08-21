@@ -250,10 +250,10 @@ readProg :: String -> Program Name Word
 readProg = read
 
 firstRegs :: Word -> [Name]
-firstRegs bound = map fromWord [0..bound] 
+firstRegs bound = map fromWord $ map (2*) [0..bound] 
 
 myCS = defaultCSName
-  {theseRegs = Just $ firstRegs 4
+  {theseRegs = Just $ firstRegs 7
   ,theseMem = [0..15]
   ,showAdvice = True}
 
@@ -266,7 +266,8 @@ fromAscii = toEnum
 
 
 -- Example
-myfile = "programs/return42.micro" -- "programs/returnInput.micro"
+myfile = "programs/fib.micro" -- "programs/returnInput.micro"
+pprintMyFile = pprintFromFile myfile
 myllvmfile = "programs/returnInput.ll"
 mram :: IO $ CompilationUnit (Program Name Word)
 mram =  fromMRAMFile "test/return42.micro"

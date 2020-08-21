@@ -342,7 +342,7 @@ returnBlock = MRAM.NBlock (Just "_ret_") [Ianswer (Reg ax)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => Word -> [MAInstruction mreg Word]
 prologue size =
-    (push bp) ++ [Imov bp (Reg sp), Isub sp sp (Const size)]
+    (push bp) ++ [Imov bp (Reg sp)] -- Isub sp sp (Const size)] -- This old Isub is wrong? TODO: REMOVE
 
 
 -- | epilogue: deallocate the stack, then jump to return address
@@ -396,9 +396,9 @@ setResult (Just ret) = smartMov ret ax
 stackLTLInstr :: Regs mreg => LTLInstr' mreg Word $ MAOperand mreg Word
               -> [MAInstruction mreg Word]
 stackLTLInstr (Lgetstack Incoming offset typ reg) =
-   [Isub reg bp (Const (-2-offset)), Iload reg (Reg reg)]
+   [Isub reg bp (Const (2 + offset)), Iload reg (Reg reg)]
 stackLTLInstr (Lsetstack reg Incoming offset typ) =
-   [Isub reg bp (Const (-2-offset)), Istore (Reg reg) reg]
+   [Isub reg bp (Const (2 + offset)), Istore (Reg reg) reg]
 
 stackLTLInstr (Lgetstack Local offset typ reg) =
    [Iadd reg bp (Const offset), Iload reg (Reg reg)]  -- JP: offset+1?
