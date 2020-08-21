@@ -45,8 +45,6 @@ describeError (CompilerAssumption msg) = "compiler assumption violated: " ++ msg
 describeError (OtherError msg) = msg
 
 type Hopefully = Either CmplError
-ok :: Monad m => a -> m a
-ok = return
 
 implError :: MonadError CmplError m => String -> m b
 implError msg = throwError $ NotImpl msg
