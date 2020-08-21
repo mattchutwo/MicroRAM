@@ -175,6 +175,8 @@ type GVEnv = Map.Map ShortByteString Ptr
 
 -}
 
+
+-- | Not used anymore
 storeGlobVars :: -- Or preamble
   Regs mreg =>
   GEnv Word
@@ -221,7 +223,7 @@ replaceGlobalsInstr = undefined
 
 -- | replaceGlobals : replace globals with their actual ptr value
 -- 
-replaceGlobals _ block = return block -- TODO: Replace global
+-- replaceGlobals _ block = return block -- THIS IS DONE IN A DIFFERENT PASS Compiler/Globals.hs
 
 
 -- ** Pre-main:
@@ -318,13 +320,14 @@ findArguments = (MRAM.NBlock (Just "_Find arguments_")
   -- ]) :
   -- []
 
--- | Premain:
+-- | Premain: NOT USED ANYMORE
+-- NEW: no arguments to main!
 -- This is a pseudofunction, that sets up return address for main.
 -- Stores the input in memory.
 -- Sends main to the returnBlock
 premain :: Regs mreg => [NamedBlock mreg Word]
 premain =
-  findArguments ++
+  --findArguments ++
   [MRAM.NBlock Nothing $ Imov ax (Label "_ret_") : push ax]
 
 -- | returnBlock: return lets the program output an answer (when main returns)
@@ -430,12 +433,10 @@ stackInstr (IRI instr _) = stackLTLInstr instr
 
 stackBlock
   :: Regs mreg
-  => GVEnv
-  -> (BB Name $ LTLInstr () mreg Word)
+  => (BB Name $ LTLInstr () mreg Word)
   -> Hopefully (NamedBlock mreg Word)
-stackBlock genv (BB name body term _ ) = do
+stackBlock (BB name body term _ ) = do
   body' <- return $ map stackInstr (body++term)
-  body'' <- replaceGlobals genv body'
   return $ NBlock (Just $ show name) $ concat body'
 
 name2string :: Name -> String
@@ -445,17 +446,18 @@ name2string (NewName st) = "NewName:"++(show st)
 -- | Translating funcitons
 stackFunction
   :: Regs mreg =>
-  GVEnv
-  -> LFunction () mreg Word
+  LFunction () mreg Word
   -> Hopefully $ [NamedBlock mreg Word]
-stackFunction genv (LFunction name mdata retT argT size code) = do
+stackFunction (LFunction name mdata retT argT size code) = do
   prologueBlock <- return $ NBlock (Just name) $ prologue size
-  codeBlocks <- mapM (stackBlock genv) code
+  codeBlocks <- mapM stackBlock code
   return $ prologueBlock : codeBlocks
   
   
 stacking :: Regs mreg => Lprog () mreg Word -> Hopefully $ MAProgram mreg Word
-stacking (IRprog tenv globals functions) = do
-  (genv, preamble) <- storeGlobVars globals
-  functions' <- mapM (stackFunction genv) functions
-  return $ preamble : premain ++ (concat functions') ++ [returnBlock]
+stacking (IRprog _ _ functions) = do
+  -- (genv, preamble) <- storeGlobVars globals -- Globs are passed in initial mem now
+  functions' <- mapM stackFunction functions
+  return $
+    premain ++ -- No arguemnts passed!
+    (concat functions') ++ [returnBlock]
