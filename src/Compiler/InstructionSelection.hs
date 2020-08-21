@@ -107,10 +107,10 @@ operand2register (LLVM.LocalReference _ nm) = do
   r <- name2name nm
   return (r,[])
 operand2register (LLVM.ConstantOperand c) = do
-  c' <- toState $ getConstant c
+  c' <- lift $ getConstant c
   raux <- freshName
   return (raux,[MRAM.Imov raux (Const c')])
-operand2register _ = toState $ implError "Operand2register can't convert metadata or labels."
+operand2register _ = lift $ implError "Operand2register can't convert metadata or labels."
   
 
 type2type (LLVM.IntegerType n) = return Tint -- FIXME check size! 
@@ -129,14 +129,8 @@ type2type t = implError $ "Type: \n \t " ++ (show t)
 toRTL :: [MRAM.MAInstruction VReg Word] -> [RTLInstr () Word]
 toRTL = map  $ \x -> MRI x ()
 
-toStateRTL x = toState $ toRTL <$> x
-
 returnRTL :: Monad m => [MRAM.MAInstruction VReg Word] -> m [RTLInstr () Word]
 returnRTL = return . toRTL
-
--- TODO: remove
-returnStateRTL :: Monad m => [MRAM.MAInstruction VReg Word] -> m [RTLInstr () Word]
-returnStateRTL = returnRTL
 
 -- ** State
 -- We create a state to create new variables
@@ -153,10 +147,6 @@ freshName = do
 
 evalStatefully :: Statefully t -> Hopefully t
 evalStatefully ts = evalStateT ts initState
-
--- TODO: remove
-toState :: Hopefully a -> Statefully a
-toState = lift
 
 -- ** Instruction selection
 
@@ -283,52 +273,52 @@ isInstruction :: Maybe VReg -> LLVM.Instruction -> Statefully $ [RTLInstr () Wor
 -- *** Arithmetic
 
 -- Add
-isInstruction ret (LLVM.Add _ _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Iadd
+isInstruction ret (LLVM.Add _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iadd
 -- Sub
-isInstruction ret (LLVM.Sub _ _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Isub
+isInstruction ret (LLVM.Sub _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Isub
 -- Mul
-isInstruction ret (LLVM.Mul _ _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Imull
+isInstruction ret (LLVM.Mul _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Imull
 -- SDiv
-isInstruction ret (LLVM.SDiv _ _ o1 o2 ) = toState $ implError "Signed division ius hard! SDiv"
+isInstruction ret (LLVM.SDiv _ _ o1 o2 ) = lift $ implError "Signed division ius hard! SDiv"
 -- SRem
-isInstruction ret (LLVM.SRem o1 o2 _) = toState $ implError "Signed division ius hard! SRem"
+isInstruction ret (LLVM.SRem o1 o2 _) = lift $ implError "Signed division ius hard! SRem"
 
 
 
 -- *** Floating Point 
 -- FAdd
-isInstruction ret (LLVM.FAdd _ o1 o2 _) = toState $ implError "Fast Multiplication FMul"
+isInstruction ret (LLVM.FAdd _ o1 o2 _) = lift $ implError "Fast Multiplication FMul"
 -- FSub
-isInstruction ret (LLVM.FSub _ o1 o2 _) =  toState $ implError "Fast Multiplication FMul"
+isInstruction ret (LLVM.FSub _ o1 o2 _) =  lift $ implError "Fast Multiplication FMul"
 -- FMul
-isInstruction ret (LLVM.FMul _ o1 o2 _) =  toState $ implError "Fast Multiplication FMul"
+isInstruction ret (LLVM.FMul _ o1 o2 _) =  lift $ implError "Fast Multiplication FMul"
 -- FDiv
-isInstruction ret (LLVM.FDiv _ o1 o2 _) =  toState $ implError "Fast Division FDiv"
+isInstruction ret (LLVM.FDiv _ o1 o2 _) =  lift $ implError "Fast Division FDiv"
 -- FRem
-isInstruction ret (LLVM.FRem _ o1 o2 _) = toState $ fError
+isInstruction ret (LLVM.FRem _ o1 o2 _) = lift $ fError
 
 -- *** Unsigned operations
 -- UDiv
-isInstruction ret (LLVM.UDiv _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Iudiv -- this is easy
+isInstruction ret (LLVM.UDiv _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iudiv -- this is easy
 -- URem
-isInstruction ret (LLVM.URem o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Iumod -- this is eay
+isInstruction ret (LLVM.URem o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iumod -- this is eay
 
 
 -- *** Shift operations
 -- Shl
-isInstruction ret (LLVM.Shl _ _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Ishl
+isInstruction ret (LLVM.Shl _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ishl
 -- LShr
-isInstruction ret (LLVM.LShr _ o1 o2 _) = toState $ toRTL <$> isBinop ret o1 o2 MRAM.Ishr
+isInstruction ret (LLVM.LShr _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ishr
 -- AShr
-isInstruction ret (LLVM.AShr _ o1 o2 _) =  toState $ implError "Arithmetic shift right AShr"
+isInstruction ret (LLVM.AShr _ o1 o2 _) =  lift $ implError "Arithmetic shift right AShr"
 
 -- *** Logical
 --And
-isInstruction ret (LLVM.And o1 o2 _) =  toState $ toRTL <$> isBinop ret o1 o2 MRAM.Iand
+isInstruction ret (LLVM.And o1 o2 _) =  lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iand
 --Or
-isInstruction ret (LLVM.Or o1 o2 _) =  toState $ toRTL <$> isBinop ret o1 o2 MRAM.Ior
+isInstruction ret (LLVM.Or o1 o2 _) =  lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ior
 --Xor
-isInstruction ret (LLVM.Xor o1 o2 _) =  toState $ toRTL <$> isBinop ret o1 o2 MRAM.Ixor
+isInstruction ret (LLVM.Xor o1 o2 _) =  lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ixor
 
 -- *** Memory operations
 -- Alloca
@@ -338,7 +328,7 @@ isInstruction ret (LLVM.Xor o1 o2 _) =  toState $ toRTL <$> isBinop ret o1 o2 MR
    Also the current granularity of our memory is per word so ptr arithmetic and alignment are trivial. -}
 isInstruction ret (LLVM.Alloca a Nothing b c) =
   isInstruction ret (LLVM.Alloca a (Just constOne) b c) --NumElements is defaulted to be one. 
-isInstruction ret (LLVM.Alloca ty (Just size) _ _) = toState $ do
+isInstruction ret (LLVM.Alloca ty (Just size) _ _) = lift $ do
   ty' <- type2type ty
   size' <- operand2operand size
   return [IRI (RAlloc ret ty' size') ()]
@@ -347,7 +337,7 @@ isInstruction ret (LLVM.Alloca ty (Just size) _ _) = toState $ do
 
 -- Load
 isInstruction Nothing (LLVM.Load _ _ _ _ _) = return [] -- Optimization reconside if we care about atomics
-isInstruction (Just ret) (LLVM.Load _ n _ _ _) = toState $ do 
+isInstruction (Just ret) (LLVM.Load _ n _ _ _) = lift $ do 
   a <- operand2operand n
   returnRTL $ (MRAM.Iload ret a) : []
     
@@ -361,8 +351,8 @@ isInstruction (Just ret) (LLVM.Load _ n _ _ _) = toState $ do
 -}
 
 isInstruction _ (LLVM.Store _ adr cont _ _ _) = do
-  cont' <- toState $ operand2operand cont
-  adr' <- toState $ operand2operand adr
+  cont' <- lift $ operand2operand cont
+  adr' <- lift $ operand2operand adr
   ret <- storer adr' cont'
   returnRTL ret
 
@@ -374,8 +364,8 @@ isInstruction _ (LLVM.Store _ adr cont _ _ _) = do
    register allocator can actually use the flag as it was intended...
 -}
 
-isInstruction Nothing (LLVM.ICmp pred op1 op2 _) =  toState $ return [] -- Optimization
-isInstruction (Just ret) (LLVM.ICmp pred op1 op2 _) = toState $ do
+isInstruction Nothing (LLVM.ICmp pred op1 op2 _) =  lift $ return [] -- Optimization
+isInstruction (Just ret) (LLVM.ICmp pred op1 op2 _) = lift $ do
   lhs <- operand2operand op1
   rhs <- operand2operand op2
   comp' <- isCompare pred lhs rhs -- Do the comparison
@@ -384,19 +374,19 @@ isInstruction (Just ret) (LLVM.ICmp pred op1 op2 _) = toState $ do
 
                         
 -- *** Function Call 
-isInstruction ret (LLVM.Call _ _ _ f args _ _ ) = toState $  do
+isInstruction ret (LLVM.Call _ _ _ f args _ _ ) = lift $  do
   (f',retT,paramT) <- function2function f
   args' <- params2params args paramT
   return [IRI (RCall retT ret (Reg f') paramT args') ()]
 
 -- *** Phi
 isInstruction Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
-isInstruction (Just ret) (LLVM.Phi typ ins _)  =  toState $ do
+isInstruction (Just ret) (LLVM.Phi typ ins _)  =  lift $ do
   ins' <- mapM convertPhiInput ins
   return $ [IRI (RPhi ret ins') ()]
 
 isInstruction Nothing (LLVM.Select _ _ _ _)  = return [] -- Select without a name is useless
-isInstruction (Just ret) (LLVM.Select cond op1 op2 _)  =  toStateRTL $ do
+isInstruction (Just ret) (LLVM.Select cond op1 op2 _)  =  lift $ toRTL <$> do
    cond' <- operand2operand cond
    op1' <- operand2operand op1 
    op2' <- operand2operand op2 
@@ -409,9 +399,9 @@ isInstruction (Just ret) (LLVM.Select cond op1 op2 _)  =  toStateRTL $ do
 isInstruction Nothing (LLVM.GetElementPtr _ addr inxs _) = return [] -- GEP without a name is useless
 isInstruction (Just ret) (LLVM.GetElementPtr _ addr inxs _) = do
   --(addr', toReg) <- operand2register ret addr
-  addr' <- toState $ operand2operand addr
-  ty' <- toState $ typeFromOperand addr
-  -- inxs' <- toState $ mapM operand2operand inxs
+  addr' <- lift $ operand2operand addr
+  ty' <- lift $ typeFromOperand addr
+  -- inxs' <- lift $ mapM operand2operand inxs
   instructions <- isGEP ret ty' addr' inxs
   return $ map (\instr -> MRI instr ()) instructions
 
@@ -419,20 +409,20 @@ isInstruction (Just ret) (LLVM.GetElementPtr _ addr inxs _) = do
 -- We fit everything in size 32 bits, so extensions are trivial
 isInstruction Nothing (LLVM.SExt _ _  _) = return [] -- without a name is useless
 isInstruction Nothing (LLVM.ZExt _ _  _) = return [] -- without a name is useless
-isInstruction (Just ret) (LLVM.SExt op _ _) = toStateRTL $ do
+isInstruction (Just ret) (LLVM.SExt op _ _) = lift $ toRTL <$> do
   op' <- operand2operand op
   return $ [MRAM.Imov ret op']
-isInstruction (Just ret) (LLVM.ZExt op _ _) = toStateRTL $ do
+isInstruction (Just ret) (LLVM.ZExt op _ _) = lift $ toRTL <$> do
   op' <- operand2operand op
   return $ [MRAM.Imov ret op']
 isInstruction Nothing (LLVM.BitCast _ _ _) = return $ [] -- without a name is useless
-isInstruction (Just ret) (LLVM.BitCast op typ _) = toStateRTL $ do
+isInstruction (Just ret) (LLVM.BitCast op typ _) = lift $ toRTL <$> do
   op' <- operand2operand op
   return $ [MRAM.Imov ret op']
 
   
 -- *** Not supprted instructions (return meaningfull error)
-isInstruction _ instr =  toState $ implError $ "Instruction: " ++ (show instr)
+isInstruction _ instr =  lift $ implError $ "Instruction: " ++ (show instr)
 
 convertPhiInput :: (LLVM.Operand, LLVM.Name) -> Hopefully $ (MAOperand VReg Word, Name)
 convertPhiInput (op, name) = do
@@ -494,12 +484,12 @@ isGEP ::
   -> MAOperand VReg Word
   -> [LLVM.Operand] -- [MAOperand VReg Word]
   -> Statefully $ [MRAM.MAInstruction VReg Word]
-isGEP _ _ _ [] = toState $ assumptError "Getelementptr called with no indices"
+isGEP _ _ _ [] = lift $ assumptError "Getelementptr called with no indices"
 isGEP ret (LLVM.PointerType refT _) base (inx:inxs) = do
-  tySize <- toState $ llvmSize refT
+  tySize <- lift $ llvmSize refT
   (ri, move_reg) <- operand2register inx
-  inxs' <- toState $ mapM operand2operand inxs
-  continuation <- toState $ isGEP' ret refT  inxs'
+  inxs' <- lift $ mapM operand2operand inxs
+  continuation <- lift $ isGEP' ret refT  inxs'
   rtemp <- freshName
   return $ move_reg ++
            [MRAM.Imull rtemp ri (Const tySize),
@@ -645,9 +635,9 @@ blockJumpsTo term = do
 isBlock:: LLVM.BasicBlock -> Statefully (BB $ RTLInstr () Word)
 isBlock  (LLVM.BasicBlock name instrs term) = do
   body <- isInstrs instrs
-  end <- toState $ isTerminator term
-  jumpsTo <- toState $ blockJumpsTo term
-  name' <- toState $ name2name name
+  end <- lift $ isTerminator term
+  jumpsTo <- lift $ blockJumpsTo term
+  name' <- lift $ name2name name
   return $ BB name' body end jumpsTo
 
 
