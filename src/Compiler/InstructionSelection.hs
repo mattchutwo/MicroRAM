@@ -31,8 +31,9 @@ module Compiler.InstructionSelection
 import Data.Word
 import Data.ByteString.Short
 import Data.ByteString.UTF8 as BSU 
-import Control.Monad.State.Lazy
 import Control.Monad
+import Control.Monad.State.Lazy
+import Control.Monad.Trans
 
 import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Typed as LLVM
@@ -133,7 +134,9 @@ toStateRTL x = toState $ toRTL <$> x
 returnRTL :: Monad m => [MRAM.MAInstruction VReg Word] -> m [RTLInstr () Word]
 returnRTL = return . toRTL
 
-returnStateRTL x = toState  $ returnRTL x
+-- TODO: remove
+returnStateRTL :: Monad m => [MRAM.MAInstruction VReg Word] -> m [RTLInstr () Word]
+returnStateRTL = returnRTL
 
 -- ** State
 -- We create a state to create new variables
@@ -151,9 +154,9 @@ freshName = do
 evalStatefully :: Statefully t -> Hopefully t
 evalStatefully ts = evalStateT ts initState
 
+-- TODO: remove
 toState :: Hopefully a -> Statefully a
-toState (Left x) = StateT (\_ -> Left x)
-toState (Right x) = StateT (\s -> Right (x,s))
+toState = lift
 
 -- ** Instruction selection
 
