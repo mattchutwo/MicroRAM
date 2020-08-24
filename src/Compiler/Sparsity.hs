@@ -145,7 +145,7 @@ type Sparsity = Map.Map InstrKind Int
 
 
 -- TODO: There probably is a better way to dos this 
-instrType :: Instruction' r w -> [InstrKind]
+instrType :: Instruction' r o1 o2 -> [InstrKind]
 instrType inst =
   case inst of
     Iand _ _ _    -> [Kand   , Kalu]

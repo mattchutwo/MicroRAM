@@ -139,47 +139,48 @@ instance (Read regT, Read wrdT) => Read (Operand' 'Post regT wrdT) where
 
 
 -- | TinyRAM Instructions
-data Instruction' regT operand =
+data Instruction' regT operand1 operand2 =
    -- Bit Operations
-  Iand regT regT operand     -- ^ compute bitwise AND of [rj] and [A] and store result in ri
-  | Ior regT regT operand    -- ^ compute bitwise OR of [rj] and [A] and store result in ri
-  | Ixor regT regT operand   -- ^ compute bitwise XOR of [rj] and [A] and store result in ri
-  | Inot regT operand        -- ^ compute bitwise NOT of [A] and store result in ri
+  Iand regT operand1 operand2     -- ^ compute bitwise AND of [rj] and [A] and store result in ri
+  | Ior regT operand1 operand2    -- ^ compute bitwise OR of [rj] and [A] and store result in ri
+  | Ixor regT operand1 operand2   -- ^ compute bitwise XOR of [rj] and [A] and store result in ri
+  | Inot regT operand2        -- ^ compute bitwise NOT of [A] and store result in ri
   -- Integer Operations
-  | Iadd regT regT operand   -- ^ compute [rj]u + [A]u and store result in ri
-  | Isub regT regT operand   -- ^ compute [rj]u − [A]u and store result in ri
-  | Imull regT regT operand  -- ^ compute [rj]u × [A]u and store least significant bits of result in ri
-  | Iumulh regT regT operand -- ^ compute [rj]u × [A]u and store most significant bits of result in ri
-  | Ismulh regT regT operand -- ^ compute [rj]s × [A]s and store most significant bits of result in ri 
-  | Iudiv regT regT operand  -- ^ compute quotient of [rj ]u /[A]u and store result in ri
-  | Iumod regT regT operand  -- ^ compute remainder of [rj ]u /[A]u and store result in ri
+  | Iadd regT operand1 operand2   -- ^ compute [rj]u + [A]u and store result in ri
+  | Isub regT operand1 operand2   -- ^ compute [rj]u − [A]u and store result in ri
+  | Imull regT operand1 operand2  -- ^ compute [rj]u × [A]u and store least significant bits of result in ri
+  | Iumulh regT operand1 operand2 -- ^ compute [rj]u × [A]u and store most significant bits of result in ri
+  | Ismulh regT operand1 operand2 -- ^ compute [rj]s × [A]s and store most significant bits of result in ri 
+  | Iudiv regT operand1 operand2  -- ^ compute quotient of [rj ]u /[A]u and store result in ri
+  | Iumod regT operand1 operand2  -- ^ compute remainder of [rj ]u /[A]u and store result in ri
   -- Shift operations
-  | Ishl regT regT operand   -- ^ shift [rj] by [A]u bits to the left and store result in ri
-  | Ishr regT regT operand   -- ^ shift [rj] by [A]u bits to the right and store result in ri
+  | Ishl regT operand1 operand2   -- ^ shift [rj] by [A]u bits to the left and store result in ri
+  | Ishr regT operand1 operand2   -- ^ shift [rj] by [A]u bits to the right and store result in ri
   -- Compare Operations          
-  | Icmpe regT operand       -- ^ none (“compare equal”)
-  | Icmpa regT operand       -- ^ none (“compare above”, unsigned)
-  | Icmpae regT operand      -- ^ none (“compare above or equal”, unsigned)
-  | Icmpg regT operand       -- ^ none (“compare greater”, signed)
-  | Icmpge regT operand      -- ^ none (“compare greater or equal”, signed)
+  | Icmpe operand1 operand2       -- ^ none (“compare equal”)
+  | Icmpa operand1 operand2       -- ^ none (“compare above”, unsigned)
+  | Icmpae operand1 operand2      -- ^ none (“compare above or equal”, unsigned)
+  | Icmpg operand1 operand2       -- ^ none (“compare greater”, signed)
+  | Icmpge operand1 operand2      -- ^ none (“compare greater or equal”, signed)
   -- Move operations             
-  | Imov regT operand        -- ^  store [A] in ri
-  | Icmov regT operand       -- ^  iff lag=1, store [A] in ri
+  | Imov regT operand2        -- ^  store [A] in ri
+  | Icmov regT operand2       -- ^  iff lag=1, store [A] in ri
   -- Jump operations             
-  | Ijmp operand             -- ^  set pc to [A]
-  | Icjmp operand            -- ^  if flag = 1, set pc to [A] (else increment pc as usual)
-  | Icnjmp operand           -- ^  if flag = 0, set pc to [A] (else increment pc as usual)
+  | Ijmp operand2             -- ^  set pc to [A]
+  | Icjmp operand2            -- ^  if flag = 1, set pc to [A] (else increment pc as usual)
+  | Icnjmp operand2           -- ^  if flag = 0, set pc to [A] (else increment pc as usual)
   -- Memory operations           
-  | Istore operand regT      -- ^  store [ri] at memory address [A]u
-  | Iload regT operand       -- ^  store the content of memory address [A]u into ri 
-  | Iread regT operand       -- ^  if the [A]u-th tape has remaining words then consume the next word,
+  | Istore operand2 operand1      -- ^  store [ri] at memory address [A]u
+  | Iload regT operand2       -- ^  store the content of memory address [A]u into ri 
+  | Iread regT operand2       -- ^  if the [A]u-th tape has remaining words then consume the next word,
                              -- ^  store it in ri, and set flag = 0; otherwise store 0W in ri and set flag = 1
-  | Ianswer operand          -- ^  stall or halt (and the return value is [A]u)
+  | Ianswer operand2          -- ^  stall or halt (and the return value is [A]u)
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
 -- ** MicroAssembly
 type MAOperand regT wrdT = Operand' 'Pre regT wrdT
-type MAInstruction regT wrdT = Instruction' regT (MAOperand regT wrdT)
+type MAInstruction regT wrdT = Instruction' regT regT (MAOperand regT wrdT)
+type MA2Instruction regT wrdT = Instruction' regT (MAOperand regT wrdT) (MAOperand regT wrdT)
 
 data NamedBlock r w = NBlock (Maybe String) [MAInstruction r w]
   deriving (Eq, Ord, Read, Show)
@@ -190,7 +191,7 @@ type MAProgram r w = [NamedBlock r w] -- These are MicroASM programs
 -- ** MicroRAM
 type Operand regT wrdT = Operand' 'Post regT wrdT
 
-type Instruction regT wrdT = Instruction' regT (Operand regT wrdT)
+type Instruction regT wrdT = Instruction' regT regT (Operand regT wrdT)
 
 type Program r w = [Instruction r w]
 
