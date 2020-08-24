@@ -13,6 +13,7 @@
 module MicroRAM.MicroRAM
 ( Instruction'(..),
   MAInstruction,
+  MA2Instruction,
   Instruction,
   NamedBlock(NBlock),
   MAProgram,
@@ -180,6 +181,7 @@ data Instruction' regT operand1 operand2 =
 -- ** MicroAssembly
 type MAOperand regT wrdT = Operand' 'Pre regT wrdT
 type MAInstruction regT wrdT = Instruction' regT regT (MAOperand regT wrdT)
+-- Two-operand MicroASM instruction (normal MAInstruction is register + operand)
 type MA2Instruction regT wrdT = Instruction' regT (MAOperand regT wrdT) (MAOperand regT wrdT)
 
 data NamedBlock r w = NBlock (Maybe String) [MAInstruction r w]

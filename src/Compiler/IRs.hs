@@ -53,9 +53,31 @@ tySize (Tarray length subTyp) = length * (tySize subTyp)
 tySize _ = 1
 -- Pointers have the same sizer as Tint
 
-  
--- ** Generic IR
--- An IR is made of MRAM instructions plus some new ones
+
+-- ** MicroIR
+-- High-level IR based on MicroRAM.  Includes MicroRAM instructions with
+-- support for extended operand kinds and two non-register operands per
+-- instruction (normal MicroRAM requires one operand to be a register), as well
+-- as extended high-level instructions (`RTLInstr'`).
+
+data MIRInstruction metadata regT wrdT =
+  MirM (MRAM.MA2Instruction regT wrdT) metadata
+  | MirI (RTLInstr' (MAOperand regT wrdT)) metadata
+  deriving (Show)
+
+type MIRInstr metadata wrdT = MIRInstruction metadata VReg wrdT
+
+type MIRFunction metadata wrdT =
+  Function Name Ty (BB Name $ MIRInstr metadata wrdT)
+
+type MIRprog metadata wrdT =
+  IRprog metadata wrdT (MIRFunction metadata wrdT)
+
+
+
+-- ** Generic low-level IR
+-- An IR is made of standard (register-and-operand) MRAM instructions plus some
+-- new ones
 data IRInstruction metadata regT wrdT irinst =
    MRI (MRAM.MAInstruction regT wrdT) metadata
   | IRI irinst metadata
