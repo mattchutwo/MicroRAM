@@ -60,8 +60,14 @@ data IRInstruction metadata regT wrdT irinst =
    MRI (MRAM.MAInstruction regT wrdT) metadata
   | IRI irinst metadata
   deriving (Show,Functor, Foldable, Traversable)
-data Function nameT paramT blockT =
-  Function nameT paramT [paramT] [blockT] deriving (Show, Functor)
+data Function nameT paramT blockT = Function
+  { funcName :: nameT
+  , funcRetTy :: paramT
+  , funcArgTys :: [paramT]
+  , funcBlocks :: [blockT]
+  , funcNextReg :: Word
+  }
+  deriving (Show, Functor)
 
 -- | Traverse the IR instruction changing operands  
 traverseOpIRInstr :: (Traversable irinst, Applicative f) =>
@@ -296,7 +302,7 @@ rtlToLtl (IRprog tenv globals code) = do
   return $ IRprog tenv globals code'
   where
    convertFunc :: RFunction mdata wrdT -> Hopefully $ LFunction mdata VReg wrdT
-   convertFunc (Function name retType paramTypes body) = do
+   convertFunc (Function name retType paramTypes body _nextReg) = do
      -- JP: Where should we get the metadata and stack size from?
      let mdata = mempty
      let stackSize = 0 -- Since nothing is spilled 0

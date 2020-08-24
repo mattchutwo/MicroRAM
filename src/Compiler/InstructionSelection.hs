@@ -154,9 +154,6 @@ freshName = do
   put (n + 1)
   return $ NewName n
 
-evalStatefully :: Statefully t -> Hopefully t
-evalStatefully ts = evalStateT ts initState
-
 -- ** Instruction selection
 
 -- | Instruction Generation
@@ -665,11 +662,11 @@ processParams (params, _) = map (\_ -> Tint) params
 isFunction :: LLVM.Definition -> Hopefully $ RFunction () Word
 isFunction (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
   do
-    body <- evalStateT (isBlocks code) initState
+    (body, nextReg) <- runStateT (isBlocks code) initState
     params' <- return $ processParams params
     name' <- name2name name
     retT' <- type2type retT
-    return $ Function name' retT' params' body  
+    return $ Function name' retT' params' body nextReg
 isFunction other = unreachableError $ show other -- Shoudl be filtered out 
   
 -- | Instruction Selection for all definitions
