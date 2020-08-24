@@ -266,14 +266,14 @@ fromAscii = toEnum
 
 
 -- Example
-myfile = "programs/fib.micro" -- "programs/returnInput.micro"
+myfile = "programs/factRec.micro" -- "programs/returnInput.micro"
 pprintMyFile = pprintFromFile myfile
 myllvmfile = "programs/returnInput.ll"
 mram :: IO $ CompilationUnit (Program Name Word)
 mram =  fromMRAMFile "test/return42.micro"
 
 {- | Example
--- summaryFromFile myfile myCS 300 --emptyInitMem
+-- summaryFromFile myfile myCS 300
 -}
 
 jpProg = do

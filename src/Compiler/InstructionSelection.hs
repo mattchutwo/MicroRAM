@@ -66,8 +66,13 @@ wrdFromwrd64 = fromInteger . toInteger
 any2short :: Show a => a -> ShortByteString
 any2short n = toShort $ BSU.fromString $ show $ n
 
+name2name :: Monad m => LLVM.Name -> m Name
 name2name (LLVM.Name s) = return $ Name s
 name2name (LLVM.UnName n) = return $ Name $ any2short n
+
+name2label :: Monad m => LLVM.Name -> m $ MAOperand VReg Word
+name2label nm = Label <$> show <$> name2name nm
+
 
 -- | For Global names we just use strings.
 -- Should we use Names insted?
@@ -253,15 +258,23 @@ function2function (Right (LLVM.LocalReference ty nm)) = do
   nm' <- name2name nm
   (retT', paramT') <- functionTypes ty
   return (Reg nm',retT',paramT')
-  where functionTypes (LLVM.FunctionType retTy argTys False) = do
-          retT' <- type2type retTy
-          paramT' <- mapM type2type argTys
-          return (retT',paramT')
-        functionTypes (LLVM.FunctionType  _ _ True) =
-          implError $ "Variable parameters (isVarArg in function call)."
-        functionTypes ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
+function2function (Right (LLVM.ConstantOperand (LLVM.Constant.GlobalReference ty nm))) = do
+  lbl <- name2label nm
+  (retT', paramT') <- functionPtrTypes ty
+  return (lbl,retT',paramT')
+  where functionPtrTypes :: LLVM.Type -> Hopefully (Ty, [Ty])
+        functionPtrTypes (LLVM.PointerType funTy _) = functionTypes funTy
+        functionPtrTypes ty = implError $ "Function pointer type expected found "  ++ show ty ++ " instead." 
 function2function (Right (LLVM.ConstantOperand c)) =
-  implError $ "Calling a function with a constant or a global. You called: \n \t" ++ show c
+  implError $ "Calling a function with a constant. You called: \n \t" ++ show c
+functionTypes :: LLVM.Type -> Hopefully (Ty, [Ty])
+functionTypes (LLVM.FunctionType retTy argTys False) = do
+  retT' <- type2type retTy
+  paramT' <- mapM type2type argTys
+  return (retT',paramT')
+functionTypes (LLVM.FunctionType  _ _ True) =
+  implError $ "Variable parameters (isVarArg in function call)."
+functionTypes ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
 
 -- | Process parameters into RTL format
 -- WE dump the attributes
@@ -389,7 +402,7 @@ isInstruction (Just ret) (LLVM.ICmp pred op1 op2 _) = lift $ do
 isInstruction ret (LLVM.Call _ _ _ f args _ _ ) = lift $  do
   (f',retT,paramT) <- function2function f
   args' <- params2params args paramT
-  return [IRI (RCall retT ret (Reg f') paramT args') ()]
+  return [IRI (RCall retT ret f' paramT args') ()]
 
 -- *** Phi
 isInstruction Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
@@ -669,9 +682,9 @@ isFunction (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ 
     params' <- return $ processParams params
     name' <- name2name name
     retT' <- type2type retT
-    return $ Function name' retT' params' ((funcLabel name'):body)
+    return $ Function name' retT' params' body  
 isFunction other = unreachableError $ show other -- Shoudl be filtered out 
-
+  
 -- | Instruction Selection for all definitions
 -- We create filters to separate the definitions into categories.
 -- Then process each category of definition separatedly

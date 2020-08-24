@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-|
 Module      : Stacking
@@ -327,9 +328,13 @@ findArguments = (MRAM.NBlock (Just "_Find arguments_")
 -- Stores the input in memory.
 -- Sends main to the returnBlock
 premain :: Regs mreg => [NamedBlock mreg Word]
-premain =
+premain = return $
   --findArguments ++
-  [MRAM.NBlock Nothing $ Imov ax (Label "_ret_") : push ax]
+  MRAM.NBlock Nothing $ Imov ax (Label "_ret_") : (push ax) ++
+  Istore (Reg sp) bp :  -- Store "old" base pointer 
+  Imov bp (Reg sp) :    -- set base pointer to the stack pointer
+  callMain              -- jump to main
+  where callMain = return $ Ijmp $ Label $ show $ Name "main"
 
 -- | returnBlock: return lets the program output an answer (when main returns)
 returnBlock :: Regs mreg => NamedBlock mreg Word
@@ -343,19 +348,17 @@ returnBlock = MRAM.NBlock (Just "_ret_") [Ianswer (Reg ax)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => Word -> [MAInstruction mreg Word]
 prologue size =
-    (Istore (Reg sp) bp): [Imov bp (Reg sp), Iadd sp sp (Const $ size + 1)] 
+    [Iadd sp sp (Const $ size + 1)] 
 
 
 -- | epilogue: deallocate the stack, then jump to return address
 epilogue :: Regs mreg => [MAInstruction mreg Word]
 epilogue =
-  -- restore the old stack pointer (bp is popped by the caller)
-  Imov sp (Reg bp) :
-  -- load return address and jump (remember return is passed in ax, so we use bp here)
-  -- bp = sp point at the old bp and the return address is one bellow. 
-  Isub bp bp (Const 1) :
-  Iload bp (Reg bp) : 
-  [Ijmp (Reg bp)]
+  -- Sp is uselles at this point so we use to calculate return adress
+  -- remember return value is passed in ax and bp is marking the old stack 
+  Isub sp bp (Const 1) :
+  Iload sp (Reg sp) : 
+  [Ijmp (Reg sp)]
 
 
 -- ** Function calls:
@@ -375,12 +378,16 @@ funCallInstructions _ ret f _ args =
   -- Mant architectures store arguemnts backwards, we don't
   pushN args ++
   -- Push return addres
-    [Imov ax HereLabel, Iadd ax ax (Const 2)] ++ push ax ++
+    [Imov ax HereLabel,
+     Iadd ax ax (Const 6) -- FIXME: The compiler should do this addition
+    ] ++ push ax ++
+    [Istore (Reg sp) bp, Imov bp (Reg sp)] ++ -- Set new stack frame (sp is increased in the function)
   -- Run function 
     Ijmp f :
-  -- The function should return to the this next instruciton
+  -- The function should return to this next instruciton
   -- restore the base pointer (right before this is used to compute return address)
-  pop bp ++
+  Imov sp (Reg bp): -- get old sp 
+  Iload bp (Reg sp) :         -- get old bp
   -- remove arguments and return address from the stack
   (popN (fromIntegral $ (length args) + 1)) ++
   -- move the return value (allways returns to ax)
