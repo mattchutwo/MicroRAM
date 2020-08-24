@@ -15,12 +15,12 @@ module Compiler.Errors
     ( Hopefully,
       implError,
       assumptError,
+      progError,
       otherError,
 
       CmplError,
       describeError,
 
-      
       tag, tagPass,
       handleErrorWith
 
@@ -38,22 +38,25 @@ import System.IO
 data CmplError =
   NotImpl String                -- ^ Feature not implemented
   | CompilerAssumption String   -- ^ Compiler assumption broken
+  | ProgError String            -- ^ A problem with the user's program
   | OtherError String           -- ^ Other error, stores the problem description.
   | ErrorAt String CmplError    -- ^ An error at a particular location.
 
 describeError :: CmplError -> String
-describeError (ErrorAt loc e) = "while running " ++ loc ++ ": " ++ describeError e
+describeError (ErrorAt loc e) = loc ++ ": " ++ describeError e
 describeError (NotImpl msg) = "feature not yet implemented: " ++ msg
 describeError (CompilerAssumption msg) = "compiler assumption violated: " ++ msg
+describeError (ProgError msg) = "invalid program: " ++ msg
 describeError (OtherError msg) = msg
 
 -- | Monad for passing custom compiler errors. 
 type Hopefully = Either CmplError
 
 -- | Shorthands for common errors
-implError, assumptError, otherError :: MonadError CmplError m => String -> m b
+implError, assumptError, progError, otherError :: MonadError CmplError m => String -> m b
 implError msg = throwError $ NotImpl msg
 assumptError msg = throwError $ CompilerAssumption msg
+progError msg = throwError $ ProgError msg
 otherError msg = throwError $ OtherError msg
 
 -- | Tags a possible error with a location 
