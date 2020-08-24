@@ -643,7 +643,7 @@ blockJumpsTo term = do
 
 
 -- instruction selection for blocks
-isBlock:: LLVM.BasicBlock -> Statefully (BB $ RTLInstr () Word)
+isBlock:: LLVM.BasicBlock -> Statefully (BB Name $ RTLInstr () Word)
 isBlock  (LLVM.BasicBlock name instrs term) = do
   body <- isInstrs instrs
   end <- lift $ isTerminator term
@@ -653,7 +653,7 @@ isBlock  (LLVM.BasicBlock name instrs term) = do
 
 
   
-isBlocks :: [LLVM.BasicBlock] -> Statefully [BB $ RTLInstr () Word]
+isBlocks :: [LLVM.BasicBlock] -> Statefully [BB Name $ RTLInstr () Word]
 isBlocks = mapM isBlock
 
 processParams :: ([LLVM.Parameter], Bool) -> [Ty]

@@ -26,14 +26,13 @@ class Ord a => Regs a where
   bp :: a
   -- caller-saved register
   ax :: a
-  -- Arguments FIXME remove after reg alloc is fixed.
-  argc :: a
-  argv :: a
+  -- argc :: a
+  -- argv :: a
   toWord :: a -> Word 
   fromWord :: Word -> a 
   -- Register bank
   data RMap a :: * -> *
-  initBank :: b -> RMap a b 
+  initBank :: b -> b -> RMap a b -- Takes default and sp/bp value 
   lookupReg :: a -> RMap a b -> b
   updateBank :: a -> b -> RMap a b -> RMap a b
 

@@ -22,6 +22,10 @@ passes/IRs:
     +----v----+
     |   LTL   |
     +---------+
+         | Globals in memory
+    +----v----+
+    |   LTL   |
+    +---------+
          | Stacking
     +----v----+
     |   Asm   |
@@ -40,6 +44,7 @@ import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import Control.Monad.State.Lazy
 import Control.Monad.Except
+import           Data.Default
 import qualified Data.List as List
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Short as Short
@@ -71,7 +76,7 @@ compile :: Word -> LLVM.Module
         -> Hopefully $ CompilationUnit (MRAM.Program Name Word)
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
-  >>= (tagPass "Register Allocation" $ justCompile trivialRegisterAlloc) --FIXME
+  >>= (tagPass "Register Allocation" $ justCompile $ registerAlloc def)
   >>= (tagPass "Remove Globals" $ replaceGlobals)
   >>= (tagPass "Stacking" $ justCompile stacking)
   >>= (tagPass "Computing Sparsity" $ justAnalyse (SparsityData <.> sparsity))

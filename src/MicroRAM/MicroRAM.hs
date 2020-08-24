@@ -92,7 +92,7 @@ import GHC.Generics -- Helps testing
 import GHC.Read
 import Text.Read.Lex
 import Text.ParserCombinators.ReadPrec
-import Data.ByteString.Short
+
 
 
 -- * The MicroRAM language(s)
@@ -113,18 +113,18 @@ data Phase = Pre | Post
 data Operand' phase regT wrdT where
   Reg :: regT -> Operand' phase regT wrdT
   Const :: wrdT -> Operand' phase regT wrdT
-  Label :: String -> Operand' Pre regT wrdT
-  Glob ::  String -> Operand' Pre regT wrdT
-  HereLabel :: Operand' Pre regT wrdT
+  Label :: String -> Operand' 'Pre regT wrdT
+  Glob ::  String -> Operand' 'Pre regT wrdT
+  HereLabel :: Operand' 'Pre regT wrdT
   
 deriving instance (Eq regT, Eq wrdT) => Eq (Operand' phase regT wrdT)
 deriving instance (Ord regT, Ord wrdT) => Ord (Operand' phase regT wrdT)
-deriving instance (Read regT, Read wrdT) => Read (Operand' Pre regT wrdT)
+deriving instance (Read regT, Read wrdT) => Read (Operand' 'Pre regT wrdT)
 deriving instance (Show regT, Show wrdT) => Show (Operand' phase regT wrdT)
 
 -- | Reading Operands
 -- Generated using --ddump-derived 
-instance (Read regT, Read wrdT) => Read (Operand' Post regT wrdT) where
+instance (Read regT, Read wrdT) => Read (Operand' 'Post regT wrdT) where
     readPrec
       = parens (do expectP (Ident "Reg")
                    a1_a1rK <- step readPrec
@@ -178,7 +178,7 @@ data Instruction' regT operand =
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
 -- ** MicroAssembly
-type MAOperand regT wrdT = Operand' Pre regT wrdT
+type MAOperand regT wrdT = Operand' 'Pre regT wrdT
 type MAInstruction regT wrdT = Instruction' regT (MAOperand regT wrdT)
 
 data NamedBlock r w = NBlock (Maybe String) [MAInstruction r w]
@@ -188,14 +188,8 @@ type MAProgram r w = [NamedBlock r w] -- These are MicroASM programs
 
   
 -- ** MicroRAM
-type Operand regT wrdT = Operand' Post regT wrdT
+type Operand regT wrdT = Operand' 'Post regT wrdT
 
-data Operand'' regT wrdT = 
-  Reg' regT
-  | Const' wrdT
-
-
-  
 type Instruction regT wrdT = Instruction' regT (Operand regT wrdT)
 
 type Program r w = [Instruction r w]
@@ -218,7 +212,7 @@ class OpTraversable (t :: * -> * -> *) where
   mapOp = traverseOp
 
 traverseOpInst :: Applicative f =>
-    (Operand' Post a b -> f (Operand' Post a b')) -> Instruction a b -> f (Instruction a b')
+    (Operand' 'Post a b -> f (Operand' 'Post a b')) -> Instruction a b -> f (Instruction a b')
 traverseOpInst fOp inst = traverse fOp inst
 
 

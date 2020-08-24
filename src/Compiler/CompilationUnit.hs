@@ -84,3 +84,7 @@ flatInitMem = foldr initSegment Map.empty
           Map.union $ Map.fromList $
           -- Map with the new content
           zip [loc..] content
+
+lengthInitMem :: InitialMem -> Word
+lengthInitMem = foldl (\tip seg -> max tip (segTip seg)) 0
+  where segTip (InitMemSegment _ _ loc len _) = loc + len

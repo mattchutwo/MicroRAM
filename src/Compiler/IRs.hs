@@ -12,6 +12,7 @@ module Compiler.IRs where
 
 import MicroRAM.MicroRAM(MAOperand)
 import qualified MicroRAM.MicroRAM as MRAM
+import qualified Data.ByteString.Char8 as BSC
 import Data.ByteString.Short
 
 import qualified Data.Map as Map
@@ -74,23 +75,24 @@ traverseOpIRInstr fop (IRI irinst metadata) =
 
 
 
-type DAGinfo = [Name]
+type DAGinfo name = [name]
 -- | Basic blocks:
 --  it's a list of instructions + all the blocks that it can jump to
 --  It separates the body from the instructions of the terminator.
-data BB instrT = BB Name [instrT] [instrT] DAGinfo
+data BB name instrT = BB name [instrT] [instrT] (DAGinfo name)
   deriving (Show,Functor, Foldable, Traversable)
 
 -- | Traverse the Basic Blocks changing operands  
 traverseOpBB :: (Applicative f) =>
   (MAOperand regT wrdT -> f (MAOperand regT wrdT))
-  -> BB $ LTLInstr mdata regT wrdT
-  -> f (BB $ LTLInstr mdata regT wrdT)
+  -> BB name $ LTLInstr mdata regT wrdT
+  -> f (BB name $ LTLInstr mdata regT wrdT)
 traverseOpBB fop = traverse (traverseOpLTLInstr fop)  
 
 type IRFunction mdata regT wrdT irinstr =
-  Function Name Ty (BB $ IRInstruction mdata regT wrdT irinstr)
+  Function Name Ty (BB Name $ IRInstruction mdata regT wrdT irinstr)
  
+
 data Name =
   Name ShortByteString -- | we keep the LLVM names
   | NewName Word         -- | and add some new ones
@@ -103,8 +105,8 @@ instance Regs Name where
   sp = NewName 0
   bp = NewName 1
   ax = NewName 2
-  argc = Name "0" -- Where the first arguemtns to main is passed
-  argv = Name "1" -- Where the second arguemtns to main is passed
+  -- argc = Name "0" -- Where the first arguemtns to main is passed
+  -- argv = Name "1" -- Where the second arguemtns to main is passed
   fromWord w      -- FIXME this is terribled: depends on read and show! Ugh!
     | w == 1 = Name "0"
     | even w = NewName $ w `div` 2
@@ -112,7 +114,7 @@ instance Regs Name where
   toWord (NewName x) = 2*x
   toWord (Name sh) = 1 + (2 * (read $ read $ show sh))
   data RMap Name x = RMap x (Map.Map Name x)
-  initBank d = RMap d Map.empty
+  initBank d init = RMap d $ (Map.fromList [(sp,init),(bp,init)])
   lookupReg r (RMap d m) = case Map.lookup r m of
                         Just x -> x
                         Nothing -> d
@@ -210,7 +212,6 @@ type Rprog mdata wrdT = IRprog mdata wrdT $ RFunction mdata wrdT
 
 -- It's the target language for register allocation: Close to RTL but uses machine registers and stack slots instead of virtual registers.
 
-
 -- | Slots are abstract representation of locations in the activation record and come in three kinds
 data Slot =
     Local     -- ^ Used by register allocation to spill pseudo-registers to the stack
@@ -225,6 +226,7 @@ data Loc mreg where
   deriving (Show)
 
 -- | LTL unique instrustions
+-- JP: wrdT is unused. Drop?
 data LTLInstr' mreg wrdT operand =
     Lgetstack Slot Word Ty mreg -- load from the stack into a register
   | Lsetstack mreg Slot Word Ty -- store into the stack from a register
@@ -243,6 +245,7 @@ data LTLInstr' mreg wrdT operand =
   
 type LTLInstr mdata mreg wrdT =
   IRInstruction mdata mreg wrdT (LTLInstr' mreg wrdT $ MAOperand mreg wrdT)
+  
 
 
 -- |  Traverse the LTL instruction changing operands  
@@ -258,13 +261,13 @@ traverseOpLTLInstr = traverseOpIRInstr
 -- data Function nameT paramT blockT =
 --  Function nameT paramT [paramT] [blockT]
 data LFunction mdata mreg wrdT = LFunction {
-  funName :: String -- should this be a special label?
+    funName :: String -- should this be a special label?
   , funMetadata :: mdata
   , retType :: Ty
   , paramTypes :: [Ty]
   , stackSize :: Word
-  , funBody:: [BB $ LTLInstr mdata mreg wrdT]
-} deriving (Show)
+  , funBody:: [BB Name $ LTLInstr mdata mreg wrdT]
+  } deriving (Show)
 
 -- | Traverse the LTL functions and replacing operands 
 traverseOpLFun :: (Applicative f) =>
@@ -290,19 +293,21 @@ traverseOpLprog fop = traverse (traverseOpLFun fop)
 rtlToLtl :: forall mdata wrdT . Monoid mdata => Rprog mdata wrdT -> Hopefully $ Lprog mdata VReg wrdT
 rtlToLtl (IRprog tenv globals code) = do
   code' <- mapM convertFunc code
-  return $ IRprog tenv globals $ code'
+  return $ IRprog tenv globals code'
   where
    convertFunc :: RFunction mdata wrdT -> Hopefully $ LFunction mdata VReg wrdT
-   convertFunc (Function name retType paramTypes body) = 
+   convertFunc (Function name retType paramTypes body) = do
      -- JP: Where should we get the metadata and stack size from?
-     let mdata = mempty in
-     let stackSize = 0 in -- Since nothing is spilled 0
-     let name' = show name in
-       do
-         body' <- mapM convertBasicBlock body
-         return $ LFunction name' mdata retType paramTypes stackSize body' 
+     let mdata = mempty
+     let stackSize = 0 -- Since nothing is spilled 0
+     let name' = case name of
+           Name n -> BSC.unpack $ fromShort n
+           NewName n -> show n
 
-   convertBasicBlock :: BB (RTLInstr mdata wrdT) -> Hopefully $ BB (LTLInstr mdata VReg wrdT)
+     body' <- mapM convertBasicBlock body
+     return $ LFunction name' mdata retType paramTypes stackSize body' 
+
+   convertBasicBlock :: BB name (RTLInstr mdata wrdT) -> Hopefully $ BB name (LTLInstr mdata VReg wrdT)
    convertBasicBlock (BB name instrs term dag) = do
      instrs' <- mapM convertIRInstruction instrs
      term' <- mapM convertIRInstruction term

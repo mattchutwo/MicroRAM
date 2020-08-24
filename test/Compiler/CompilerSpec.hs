@@ -14,6 +14,7 @@ import qualified LLVM.AST.IntegerPredicate as IntPred
 import GHC.Word as Word
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Short as Short
+import           Data.Default
 import qualified Data.String as String
 import qualified LLVM.AST.Linkage
 import qualified LLVM.AST.Visibility
@@ -63,11 +64,11 @@ tests = testGroup "Compiler tests" $
   compileTest
     "Fibonacci loop (not optimized)"
     "test/programs/fibSlow.ll"
-    375 34 : 
+    420 34 : 
   compileTest
     "Fibonacci loop"
     "test/programs/fib.ll"
-    375 34 :
+    420 34 :
 {-  compileTest
     "Input text into numbers"
     "test/programs/returnInput.ll"
@@ -121,11 +122,11 @@ compileTest' file len verb= do
   --putStrLn $ show llvmModule
   putStrLn "Instruction selection "
   rtlModule <- checkPass $ instrSelect llvmModule
-  --putStrLn $ show rtlModule
-  putStrLn "Register Allocation "
-  ltlModule <- checkPass $ trivialRegisterAlloc rtlModule
-  --putStrLn $ show ltlModule
-  putStrLn "Stacking "
+  --step $ show rtlModule
+  step "Register Allocation "
+  ltlModule <- checkPass $ registerAlloc def rtlModule
+  --step $ show ltlModule
+  step "Stacking "
   asmModule <- checkPass $ stacking ltlModule
   --putStrLn $ show asmModule 
   putStrLn "Removing Labels"
@@ -150,7 +151,7 @@ executionTest testName file input bound =
   rtlModule <- checkPass $ instrSelect llvmModule
   --step $ show rtlModule
   --step "Register Allocation "
-  ltlModule <- checkPass $ trivialRegisterAlloc rtlModule
+  ltlModule <- checkPass $ registerAlloc def rtlModule
   --step $ show ltlModule
   --step "Stacking "
   asmModule <- checkPass $ stacking ltlModule

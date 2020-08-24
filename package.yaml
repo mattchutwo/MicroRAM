@@ -22,14 +22,18 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - containers
+- data-default
+- haggle
 - llvm-hs-pure
 - llvm-hs
 - mtl
 - bytestring
+- smallcheck
 - tasty
 - tasty-hunit
 - tasty-quickcheck
 - tasty-smallcheck
+- transformers
 - QuickCheck
 - smallcheck
 - utf8-string
@@ -44,6 +48,7 @@ dependencies:
 
 library:
   source-dirs: src
+  ghc-options: -Wno-name-shadowing # -Wall
 
 executables:
   MicroRAM-exe:
@@ -117,7 +122,7 @@ tests:
     - tasty
     - tasty-hunit
     - tasty-smallcheck
-
+  
 #  circuit-test:
 #    main:                CircuitSpec.hs
 #    source-dirs:         test/Circuit
@@ -131,4 +136,4 @@ tests:
 #    - tasty
 #    - tasty-hunit
 #    - tasty-smallcheck
-  
+

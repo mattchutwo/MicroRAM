@@ -21,6 +21,7 @@ module Debug.Debugger where
 
 import qualified GHC.Generics as G
 import Data.Data
+import Data.Default
 
 import Text.PrettyPrint.Tabulate
 import Text.PrettyPrint.Boxes
@@ -33,9 +34,13 @@ import Util.Util
 import qualified LLVM.AST as LLVM
 
 -- Local 
-import Compiler.IRs
-import Compiler.Registers
 import Compiler.CompilationUnit
+import Compiler.InstructionSelection
+import Compiler.IRs
+import Compiler.RegisterAlloc
+import Compiler.Registers
+import Compiler.RemoveLabels
+import Compiler.Stacking
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM.MicroRAM
@@ -245,10 +250,10 @@ readProg :: String -> Program Name Word
 readProg = read
 
 firstRegs :: Word -> [Name]
-firstRegs bound = map fromWord [0..bound] 
+firstRegs bound = map fromWord $ map (2*) [0..bound] 
 
 myCS = defaultCSName
-  {theseRegs = Just $ firstRegs 4
+  {theseRegs = Just $ firstRegs 7
   ,theseMem = [0..15]
   ,showAdvice = True}
 
@@ -262,6 +267,7 @@ fromAscii = toEnum
 
 -- Example
 myfile = "programs/fib.micro" -- "programs/returnInput.micro"
+pprintMyFile = pprintFromFile myfile
 myllvmfile = "programs/returnInput.ll"
 mram :: IO $ CompilationUnit (Program Name Word)
 mram =  fromMRAMFile "test/return42.micro"
@@ -269,4 +275,14 @@ mram =  fromMRAMFile "test/return42.micro"
 {- | Example
 -- summaryFromFile myfile myCS 300 --emptyInitMem
 -}
+
+jpProg = do
+    m <- fromLLVMFile "test/programs/returnArgc.ll"
+    return $ either undefined id ( instrSelect m >>= registerAlloc def >>= stacking >>= removeLabels)
+cs = defaultSummary {theseMem = [0..27]}
+inp = buildInitMem ["one","two", "three"]
+
+-- m' <- jpProg
+-- putStrLn $ pprint m'
+-- printSummary cs (run inp m') 28
 

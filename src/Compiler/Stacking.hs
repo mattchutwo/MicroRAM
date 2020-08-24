@@ -9,7 +9,7 @@ This pass lays out the stack in memory. The register allocator
 deals with the stack abstractly issuing `Lgetstack`, `Lsetstack`, `LAlloc`,
 this pass transforms those instructions into real stack manipulations.
 
-Moreover this pass adds the necessart instructions from stack frame
+mMoreover this pass adds the necessart instructions from stack frame
 creation/destruction on function call/return.
 
 (Note that global variables are passed as initial memory to the cricuit generator.
@@ -19,21 +19,22 @@ creation/destruction on function call/return.
     Stack layout during function execution
 
      |                 |
-     +=================+ 
-     | Local variables | <- SP
+     +=================+ <- SP 
+     | Local variables |
      |                 |
      |                 |
      +-----------------+
      | Spilled         |
      | variables       |
      |                 |  
-     +-----------------+
+     +-----------------+ 
      | Old BP          | <- BP
      +-----------------+
      | Return address  |
      +-----------------+ 
-     | Function        | 
-     | arguments       |
+     | Function   arg1 | 
+     | arguments  arg2 |
+     |            ...  |  
      +=================+
      | Caller frame    |
      |                 |
@@ -87,9 +88,10 @@ ax = NewName 2
 -}
 
 -- ** Usefull snipets
+-- sp points at the next free stack location
 push, pop :: Regs mreg => mreg -> [MAInstruction mreg Word]
-push r = [Iadd sp sp (Const 1),Istore (Reg sp) r]
-pop r = [Iload r (Reg sp), Isub  sp sp (Const 1)]
+push r = [Istore (Reg sp) r,Iadd sp sp (Const 1)]
+pop r = [Isub  sp sp (Const 1),Iload r (Reg sp)]
 
 -- | pushOperand sometimes we want to push a constant
 -- Notice here we use ax. This can only be done at funciton entry
@@ -174,6 +176,8 @@ type GVEnv = Map.Map ShortByteString Ptr
 
 -}
 
+
+-- | Not used anymore
 storeGlobVars :: -- Or preamble
   Regs mreg =>
   GEnv Word
@@ -220,7 +224,7 @@ replaceGlobalsInstr = undefined
 
 -- | replaceGlobals : replace globals with their actual ptr value
 -- 
-replaceGlobals _ block = return block -- TODO: Replace global
+-- replaceGlobals _ block = return block -- THIS IS DONE IN A DIFFERENT PASS Compiler/Globals.hs
 
 
 -- ** Pre-main:
@@ -231,22 +235,22 @@ replaceGlobals _ block = return block -- TODO: Replace global
 
 -}
 
--- | Read input: OBSOLETE, We start with an initialized memory
--- We read the entire input, store it into the stack (almost like in the paper)
-readInput :: Regs mreg => [NamedBlock mreg Word]
-readInput =
-  (MRAM.NBlock Nothing
-  [Istore (Const 0) sp]) :                -- 1.
-  MRAM.NBlock (Just "_read input_")
-  [Iread bp (Const 0),                    -- 2.
-    Icjmp (Label "_End read input_"),     -- 3.
-    Iadd sp sp (Const 1),                 -- 4.
-    Istore (Reg sp) bp,                   -- 5.
-    Ijmp (Label "_read input_")]:         -- 6.
-  MRAM.NBlock (Just "_End read input_")
-  [ Imov argc (Reg sp),
-   Imov argv (Const 1)]  :                 -- FIXME passing arguments in registers for trivial reg alloc.
-  []
+-- -- | Read input: OBSOLETE, We start with an initialized memory
+-- -- We read the entire input, store it into the stack (almost like in the paper)
+-- readInput :: Regs mreg => [NamedBlock mreg Word]
+-- readInput =
+--   (MRAM.NBlock Nothing
+--   [Istore (Const 0) sp]) :                -- 1.
+--   MRAM.NBlock (Just "_read input_")
+--   [Iread bp (Const 0),                    -- 2.
+--     Icjmp (Label "_End read input_"),     -- 3.
+--     Iadd sp sp (Const 1),                 -- 4.
+--     Istore (Reg sp) bp,                   -- 5.
+--     Ijmp (Label "_read input_")]:         -- 6.
+--   MRAM.NBlock (Just "_End read input_")
+--   [ Imov argc (Reg sp),
+--    Imov argv (Const 1)]  :                 -- FIXME passing arguments in registers for trivial reg alloc.
+--   []
 
 {- | Find arguments: in the current setup argc and argv are next to each other,
      and at the end of initial memory, but before the globals. After
@@ -269,13 +273,13 @@ readInput =
      | Glogals    |
      |            |
      +------------+                  +-+
-     |arg^        +--+                 |
+     |argv        +--+                 |
      +------------+  |                 |
 +--->+argc        |  | <-+ initial bp  |
 |    +------------+  |                 |
-| +--+argv[argc+1]|  |                 |
+| +--+argv[argc-1]|  |                 |
 | |  |...         |  |                 | Initial
-| +--+arg^[0]     +<-+                 | Memory
+| +--+argv[0]     +<-+                 | Memory
 | |  +------------+                    |
 | +->+Comand line |                    |
 |    |arguments   |                    |
@@ -290,23 +294,41 @@ readInput =
 @
 -}
 
-findAguments :: Regs mreg => [NamedBlock mreg Word]
-findAguments = (MRAM.NBlock (Just "_Find arguments_")
-  [Iload sp (Const 1),  -- Stack pointer points to start of memory
-   Iload argc (Reg sp), -- Load argc into first argument
-   Iadd sp sp (Const 1),
-   Iload argv (Reg sp), -- Load argc into first argument
-   Iadd sp sp (Const 1)
+findArguments :: Regs mreg => [NamedBlock mreg Word]
+findArguments = (MRAM.NBlock (Just "_Find arguments_")
+  [ Iload bp (Const 1)    -- Base pointer points to argc
+  , Iload sp (Reg bp)     -- Temporarily load argc into sp.
+  , Isub ax bp (Reg sp)   -- Compute argv (ax = bp - argc). Is this offset correct?
+
+  , Iadd bp bp (Const 1)  -- Push argv to the stack.
+  , Istore (Reg bp) ax
+
+  , Iadd bp bp (Const 1)  -- Push argc to the stack.
+  , Istore (Reg bp) sp
+
+  , Iadd bp bp (Const 2)  -- Leave space for return address and old bp.
+
+  , Imov sp (Reg bp)      -- Set stack pointer.
+  , Iadd sp sp (Const 1)
   ]) :
   []
 
--- | Premain:
+  -- [Iload sp (Const 1),  -- Stack pointer points to start of memory
+  --  Iload argc (Reg sp), -- Load argc into first argument
+  --  Iadd sp sp (Const 1),
+  --  Iload argv (Reg sp), -- Load argc into first argument
+  --  Iadd sp sp (Const 1)
+  -- ]) :
+  -- []
+
+-- | Premain: NOT USED ANYMORE
+-- NEW: no arguments to main!
 -- This is a pseudofunction, that sets up return address for main.
 -- Stores the input in memory.
 -- Sends main to the returnBlock
 premain :: Regs mreg => [NamedBlock mreg Word]
 premain =
-  findAguments ++
+  --findArguments ++
   [MRAM.NBlock Nothing $ Imov ax (Label "_ret_") : push ax]
 
 -- | returnBlock: return lets the program output an answer (when main returns)
@@ -321,7 +343,7 @@ returnBlock = MRAM.NBlock (Just "_ret_") [Ianswer (Reg ax)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => Word -> [MAInstruction mreg Word]
 prologue size =
-    (push bp) ++ [Imov bp (Reg sp), Isub sp sp (Const size)]
+    (Istore (Reg sp) bp): [Imov bp (Reg sp), Iadd sp sp (Const $ size + 1)] 
 
 
 -- | epilogue: deallocate the stack, then jump to return address
@@ -374,10 +396,18 @@ setResult (Just ret) = smartMov ret ax
 -- | stack only the new instructions
 stackLTLInstr :: Regs mreg => LTLInstr' mreg Word $ MAOperand mreg Word
               -> [MAInstruction mreg Word]
-stackLTLInstr (Lgetstack slot offset typ reg) =
-   [Iadd reg bp (Const offset), Iload reg (Reg reg)]
-stackLTLInstr (Lsetstack reg slot offset typ) =
-   [Iadd reg bp (Const offset), Istore (Reg reg) reg]
+stackLTLInstr (Lgetstack Incoming offset typ reg) =
+   [Isub reg bp (Const (2 + offset)), Iload reg (Reg reg)]
+stackLTLInstr (Lsetstack reg Incoming offset typ) =
+   [ Isub bp bp (Const (2 + offset)), Istore (Reg bp) reg
+   , Iadd bp bp (Const (2 + offset))]
+
+stackLTLInstr (Lgetstack Local offset typ reg) =
+   [Iadd reg bp (Const $ offset + 1), Iload reg (Reg reg)]  -- JP: offset+1?
+stackLTLInstr (Lsetstack reg Local offset typ) =
+   [ Iadd bp bp (Const $ offset + 1), Istore (Reg bp) reg
+   , Isub bp bp (Const $ offset + 1)] -- JP: offset+1?
+
 stackLTLInstr (LCall typ ret f argsT args) =
   funCallInstructions typ ret f argsT args
 stackLTLInstr (LRet Nothing) = epilogue 
@@ -405,13 +435,11 @@ stackInstr (IRI instr _) = stackLTLInstr instr
 
 
 stackBlock
-  :: Regs mreg =>
-  GVEnv
-  -> (BB $ LTLInstr () mreg Word)
+  :: Regs mreg
+  => (BB Name $ LTLInstr () mreg Word)
   -> Hopefully (NamedBlock mreg Word)
-stackBlock genv (BB name body term _ ) = do
+stackBlock (BB name body term _ ) = do
   body' <- return $ map stackInstr (body++term)
-  body'' <- replaceGlobals genv body'
   return $ NBlock (Just $ show name) $ concat body'
 
 name2string :: Name -> String
@@ -421,17 +449,18 @@ name2string (NewName st) = "NewName:"++(show st)
 -- | Translating funcitons
 stackFunction
   :: Regs mreg =>
-  GVEnv
-  -> LFunction () mreg Word
+  LFunction () mreg Word
   -> Hopefully $ [NamedBlock mreg Word]
-stackFunction genv (LFunction name mdata retT argT size code) = do
+stackFunction (LFunction name mdata retT argT size code) = do
   prologueBlock <- return $ NBlock (Just name) $ prologue size
-  codeBlocks <- mapM (stackBlock genv) code
+  codeBlocks <- mapM stackBlock code
   return $ prologueBlock : codeBlocks
   
   
 stacking :: Regs mreg => Lprog () mreg Word -> Hopefully $ MAProgram mreg Word
-stacking (IRprog tenv globals functions) = do
-  (genv, preamble) <- storeGlobVars globals
-  functions' <- mapM (stackFunction genv) functions
-  return $ preamble : premain ++ (concat functions') ++ [returnBlock]
+stacking (IRprog _ _ functions) = do
+  -- (genv, preamble) <- storeGlobVars globals -- Globs are passed in initial mem now
+  functions' <- mapM stackFunction functions
+  return $
+    premain ++ -- No arguemnts passed!
+    (concat functions') ++ [returnBlock]
