@@ -22,6 +22,10 @@ passes/IRs:
     +----v----+
     |   LTL   |
     +---------+
+         | Globals in memory
+    +----v----+
+    |   LTL   |
+    +---------+
          | Stacking
     +----v----+
     |   Asm   |

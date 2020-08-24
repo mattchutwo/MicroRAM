@@ -64,11 +64,11 @@ tests = testGroup "Compiler tests" $
   compileTest
     "Fibonacci loop (not optimized)"
     "test/programs/fibSlow.ll"
-    375 34 : 
+    420 34 : 
   compileTest
     "Fibonacci loop"
     "test/programs/fib.ll"
-    375 34 :
+    420 34 :
 {-  compileTest
     "Input text into numbers"
     "test/programs/returnInput.ll"
