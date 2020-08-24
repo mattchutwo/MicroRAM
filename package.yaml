@@ -45,6 +45,8 @@ dependencies:
 - serialise
 - cborg
 - text
+- filepath
+- directory
 
 library:
   source-dirs: src
