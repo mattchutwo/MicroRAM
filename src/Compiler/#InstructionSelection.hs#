@@ -670,8 +670,9 @@ isFunction (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ 
     name' <- name2name name
     retT' <- type2type retT
     return $ Function name' retT' params' ((funcLabel name'):body)
+      where funcLabel name = BB name [] []  
 isFunction other = unreachableError $ show other -- Shoudl be filtered out 
-
+  
 -- | Instruction Selection for all definitions
 -- We create filters to separate the definitions into categories.
 -- Then process each category of definition separatedly
