@@ -68,7 +68,7 @@ import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..))
 f <.> g = \x -> return $ f $ g x 
 
 compile :: Word -> LLVM.Module
-        -> CompilerPassError $ CompilationUnit (MRAM.Program Name Word)
+        -> Hopefully $ CompilationUnit (MRAM.Program Name Word)
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Register Allocation" $ justCompile trivialRegisterAlloc) --FIXME

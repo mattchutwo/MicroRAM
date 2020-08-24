@@ -118,8 +118,13 @@ operand2register (LLVM.LocalReference _ nm) = do
 operand2register (LLVM.ConstantOperand c) = do
   c' <- lift $ getConstant c
   raux <- freshName
+<<<<<<< HEAD
   return (raux,[MRAM.Imov raux c'])
+operand2register _ = toState $ implError "Operand2register can't convert metadata or labels."
+=======
+  return (raux,[MRAM.Imov raux (Const c')])
 operand2register _ = implError "Operand2register can't convert metadata or labels."
+>>>>>>> b0b6d5209b2c5a5e52621ed9411458973db9a0fb
   
 
 type2type (LLVM.IntegerType n) = return Tint -- FIXME check size! 
