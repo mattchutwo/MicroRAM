@@ -389,7 +389,7 @@ isInstruction (Just ret) (LLVM.ICmp pred op1 op2 _) = lift $ do
 isInstruction ret (LLVM.Call _ _ _ f args _ _ ) = lift $  do
   (f',retT,paramT) <- function2function f
   args' <- params2params args paramT
-  return [IRI (RCall retT ret (Reg f') paramT args') ()]
+  return [IRI (RCall retT ret f' paramT args') ()]
 
 -- *** Phi
 isInstruction Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
@@ -669,9 +669,9 @@ isFunction (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ 
     params' <- return $ processParams params
     name' <- name2name name
     retT' <- type2type retT
-    return $ Function name' retT' params' ((funcLabel name'):body)
+    return $ Function name' retT' params' body  
 isFunction other = unreachableError $ show other -- Shoudl be filtered out 
-
+  
 -- | Instruction Selection for all definitions
 -- We create filters to separate the definitions into categories.
 -- Then process each category of definition separatedly
