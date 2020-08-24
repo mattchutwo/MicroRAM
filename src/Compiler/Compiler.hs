@@ -51,9 +51,6 @@ import qualified Data.ByteString.Short as Short
 import qualified Data.Sequence as Seq (lookup, fromList)
 import qualified Data.Word as Word
 
---import Compiler.CodeGenerator
---import Compiler.Assembler
-
 import Util.Util
 
 import Compiler.CompilationUnit
