@@ -3,7 +3,7 @@
                             Recursive fibonacci.
 
 *******************************************************************************/
-static int SECRET_NUMBER __attribute__((section("__DATA,__secret"))) = 10;
+static int SECRET_NUMBER __attribute__((section("__DATA,__secret"))) = 2;
 
 int fibbonacci(int n) {
    if(n == 0){

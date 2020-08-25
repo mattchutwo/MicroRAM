@@ -74,9 +74,9 @@ tests = testGroup "Compiler tests" $
     "test/programs/callingConventions.ll"
     70 42 : 
   compileTest
-    "Fibonacci with recursive calls"
-    "test/programs/fibRec.ll"
-    600 34 :
+    "Factorial with recursive calls"
+    "test/programs/factRec.ll"
+    600 120 :
   {-  compileTest
     "Input text into numbers"
     "test/programs/returnInput.ll"

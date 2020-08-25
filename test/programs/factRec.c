@@ -3,13 +3,13 @@
                             Recursive factorial.
 
 *******************************************************************************/
-static int SECRET_NUMBER __attribute__((section("__DATA,__secret"))) = 5;
+static int SECRET_NUMBER __attribute__((section("__DATA,__secret"))) = 2;
 
 int factorial(int n) {
    if(n == 0){
-      return 1;
+      return 21;
    } else if(n == 1) {
-      return 1;
+      return 42;
    } else {
      return (n*factorial(n-1));
    }

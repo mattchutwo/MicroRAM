@@ -11,15 +11,16 @@ import qualified Data.Map as Map
 import           Data.Set (Set)
 import qualified Data.Set as Set
 
+import           Compiler.Registers
 import           Compiler.IRs
 import qualified MicroRAM.MicroRAM as MRAM
 
 -- Retrieve the write registers of an instruction.
-writeRegisters :: Ord reg => LTLInstr mdata reg wrdT -> Set reg
+writeRegisters :: (Regs reg, Ord reg) => LTLInstr mdata reg wrdT -> Set reg
 writeRegisters (MRI inst mdata) = writeRegistersMRIInstruction inst
 writeRegisters (IRI inst mdata) = writeRegistersLTLInstruction inst
 
-writeRegistersMRIInstruction :: Ord reg => MRAM.MAInstruction reg wrdT -> Set reg
+writeRegistersMRIInstruction :: (Ord reg) => MRAM.MAInstruction reg wrdT -> Set reg
 writeRegistersMRIInstruction (MRAM.Iand r1 r2 op) = Set.singleton r1
 writeRegistersMRIInstruction (MRAM.Ior r1 r2 op) = Set.singleton r1
 writeRegistersMRIInstruction (MRAM.Ixor r1 r2 op) = Set.singleton r1
@@ -48,10 +49,10 @@ writeRegistersMRIInstruction (MRAM.Iload r1 op) = Set.singleton r1
 writeRegistersMRIInstruction (MRAM.Iread r1 op) = Set.singleton r1
 writeRegistersMRIInstruction (MRAM.Ianswer op) = mempty
 
-writeRegistersLTLInstruction :: Ord reg => LTLInstr' reg mdata (MRAM.MAOperand reg wrdT) -> Set reg
+writeRegistersLTLInstruction :: (Regs reg, Ord reg) => LTLInstr' reg mdata (MRAM.MAOperand reg wrdT) -> Set reg
 writeRegistersLTLInstruction (Lgetstack s w t r1) = Set.singleton r1
 writeRegistersLTLInstruction (Lsetstack r1 s w t) = mempty
-writeRegistersLTLInstruction (LCall t mr op ts ops) = maybe mempty Set.singleton mr
+writeRegistersLTLInstruction (LCall t mr op ts ops) = maybe mempty Set.singleton mr <> Set.singleton ax 
 writeRegistersLTLInstruction (LRet mo) = mempty
 writeRegistersLTLInstruction (LAlloc mr t op) = maybe mempty Set.singleton mr
 

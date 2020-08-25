@@ -266,7 +266,7 @@ fromAscii = toEnum
 
 
 -- Example
-myfile = "programs/callingConventions.micro" -- "programs/returnInput.micro"
+myfile = "programs/factRec.micro" -- "programs/returnInput.micro"
 pprintMyFile = pprintFromFile myfile
 myllvmfile = "programs/returnInput.ll"
 mram :: IO $ CompilationUnit (Program Name Word)
