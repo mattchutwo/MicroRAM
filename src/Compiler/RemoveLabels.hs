@@ -113,14 +113,14 @@ translateOperand _ loc (HereLabel) = Right $ Const loc
 
 translatePair:: Monad m =>
   (w -> a -> m b) ->
-  (Instruction' regT a, w) ->
-  m (Instruction' regT b)
+  (Instruction' regT regT a, w) ->
+  m (Instruction' regT regT b)
 translatePair f (inst,w) = mapM (f w) inst
 
 translateProgram:: Monad m =>
   (w -> a -> m b) ->
-  [(Instruction' regT a, w)] ->
-  m [(Instruction' regT b)]
+  [(Instruction' regT regT a, w)] ->
+  m [(Instruction' regT regT b)]
 translateProgram f = mapM (translatePair f)
 
 replaceLabels:: LabelMap -> [MAInstruction regT Wrd] -> Hopefully $ Program regT Wrd

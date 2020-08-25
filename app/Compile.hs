@@ -1,8 +1,10 @@
 {-# LANGUAGE TypeOperators #-}
 module Compile where
 
-import System.Environment
 import System.Console.GetOpt
+import System.Directory
+import System.Environment
+import System.FilePath
 import System.IO
 import System.Exit
 import qualified Data.ByteString.Lazy                  as L
@@ -41,6 +43,8 @@ main = do
   -- Run Frontend
   -- --------------
   ifio (beginning fr == CLang) $ do
+    -- Clang will error out if the output path is in a nonexistent directory.
+    createDirectoryIfMissing True $ takeDirectory $ llvmFile fr
     output <- callClang (fr2ClangArgs fr)
     giveInfo fr output
   ifio (end fr >= LLVMLang) $ exitWith ExitSuccess
@@ -95,38 +99,6 @@ callBackend fr = do
     Just trLength -> do
       compiledProg <- handleErrorWith (compile trLength llvmModule)
       return compiledProg
-
--- | Extracts the prefix: checkName file
-splitExtension :: String -> (String,String)
-splitExtension file = mapTuple reverse $ splitPrefixExt (reverse file)
-  where mapTuple f (a, b) = (f a, f b)
-
-        splitPrefixExt :: String -> (String,String)
-        splitPrefixExt file = case splitPrefixExtRec file of
-                                (ls,[]) -> ([],ls) -- this case has no extension!
-                                other -> other
-        
-
-        splitPrefixExtRec :: String -> (String,String)
-        splitPrefixExtRec [] = ([],[])
-        splitPrefixExtRec (x:xs) =
-          if x == '.' then ([],xs) else
-            let (ext', file) = splitPrefixExt xs in (x:ext', file)
-
-stripExtension :: String -> String
-stripExtension file = let (_,bareFile) = splitExtension file in bareFile
-
-replaceExtension :: String -> String -> String
-replaceExtension file ext = (stripExtension file) ++ ext
-           
-        
-
-removeSuffix :: String -> Maybe String
-removeSuffix file =
-  if isSuffixOf ".c" file then
-    Just $ take ((length file) - 2) file
-  else
-    Nothing
 
 data Flag
  = -- General flags

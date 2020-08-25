@@ -222,7 +222,7 @@ instance (Serialise regT, Serialise ops) => Serialise (Instruction regT ops) whe
 {- Quick test:-}
 a :: Program Word Word
 a = [Istore (Reg 77) 1, Ijmp (Reg 42),Iadd 2 3 (Const 4)]
-x :: Either String (Instruction' Word (Operand Word Word))
+x :: Either String (Instruction' Word Word (Operand Word Word))
 x = fromFlatTerm decode $ toFlatTerm $ encode a
 
 b :: Instruction Word Word
