@@ -57,6 +57,7 @@ import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.InstructionSelection
+import Compiler.Legalize
 import Compiler.RegisterAlloc
 import Compiler.Globals
 import Compiler.Stacking
@@ -73,6 +74,7 @@ compile :: Word -> LLVM.Module
         -> Hopefully $ CompilationUnit (MRAM.Program Name Word)
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
+  >>= (tagPass "Legalize Instructions" $ justCompile legalize)
   >>= (tagPass "Register Allocation" $ justCompile $ registerAlloc def)
   >>= (tagPass "Remove Globals" $ replaceGlobals)
   >>= (tagPass "Stacking" $ justCompile stacking)

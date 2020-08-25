@@ -37,6 +37,7 @@ import qualified LLVM.AST as LLVM
 import Compiler.CompilationUnit
 import Compiler.InstructionSelection
 import Compiler.IRs
+import Compiler.Legalize
 import Compiler.RegisterAlloc
 import Compiler.Registers
 import Compiler.RemoveLabels
@@ -278,7 +279,12 @@ mram =  fromMRAMFile "test/return42.micro"
 
 jpProg = do
     m <- fromLLVMFile "test/programs/returnArgc.ll"
-    return $ either undefined id ( instrSelect m >>= registerAlloc def >>= stacking >>= removeLabels)
+    return $ either undefined id $
+      instrSelect m
+      >>= legalize
+      >>= registerAlloc def
+      >>= stacking
+      >>= removeLabels
 cs = defaultSummary {theseMem = [0..27]}
 inp = buildInitMem ["one","two", "three"]
 
