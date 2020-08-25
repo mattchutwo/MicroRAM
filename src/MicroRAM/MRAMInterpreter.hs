@@ -43,13 +43,12 @@ import Compiler.CompilationUnit
 
 -- * Utility
 
-type Wrd = MWord
-wrdMax,_wrdMin :: Integer
-wrdMax = toInteger (maxBound :: Wrd)
-_wrdMin = toInteger (minBound :: Wrd)
+wrdMax, _wrdMin :: Integer
+wrdMax = toInteger (maxBound :: MWord)
+_wrdMin = toInteger (minBound :: MWord)
 
 wrdSize :: Int
-wrdSize = finiteBitSize (0 :: Wrd)
+wrdSize = finiteBitSize (0 :: MWord)
 
 wrdModulus :: Integer
 wrdModulus = 1 `shift` wrdSize
@@ -59,7 +58,7 @@ toInt x = fromIntegral x
 
 -- Most significant bit depends on implementation
 -- If it's int then msb is the positive/negative marker
-msb :: Wrd -> Bool 
+msb :: MWord -> Bool 
 msb x = testBit x (wrdSize - 1)
 
 -- Some binary operations that are representation dependent
@@ -82,7 +81,7 @@ smulh r1 r2 = (r1' * r2') `quot` wrdModulus
 
 
 -- The Program Counter is a special register, represented separatedly 
-type Pc = Wrd
+type Pc = MWord
 init_pc :: Pc
 init_pc = 0
 
@@ -101,12 +100,12 @@ init_flag = False
 
 -- | Memory
 -- Memory used to be
--- > Mem::Wrd -> Wrd 
+-- > Mem::MWord -> MWord 
 -- but that is not good to building a (finite) trace
 -- also we want programs that read uninitialized memory to bad
 
 
-type Mem =  (Wrd,Map.Map Wrd Wrd)
+type Mem = (MWord,Map.Map MWord MWord)
 
 -- | Initial memory is given as input to the program.
 init_mem :: InitialMem -> Mem
@@ -114,20 +113,20 @@ init_mem input = (0,flatInitMem input)
 
 -- | Write to a location in memory
 store ::
-  Wrd     -- ^ addres
-  -> Wrd  -- ^ value
+  MWord     -- ^ addres
+  -> MWord  -- ^ value
   -> Mem
   -> Mem
 store x y (d,m)=  (d,Map.insert x y m) 
 
 -- | Read from a location in memory
-load ::  Wrd -> Mem -> Wrd
+load ::  MWord -> Mem -> MWord
 load x (d,m)=  case Map.lookup x m of
                  Just y -> y
                  Nothing -> d
 
 -- *** Tapes: OBSOLETE input is passed as initial memory.
---type Tape = [Wrd]  -- ^read only tape
+--type Tape = [MWord]  -- ^read only tape
 
 -- ** Program state State
 {- I don't include the program in the state since it never changes
@@ -203,24 +202,24 @@ getFromSt getter = do{ st <- get; return $ getter st }
 setRegBank:: Regs mreg => RegBank mreg MWord -> ExecSt mreg ()
 setRegBank regBank = changeSt (\st -> st {regs = regBank})
 
-set_reg:: Regs mreg => mreg -> Wrd -> ExecSt mreg ()
+set_reg:: Regs mreg => mreg -> MWord -> ExecSt mreg ()
 set_reg r x = do
   st <- get
   setRegBank $ updateBank r x (regs st)
 
-store_advc :: Wrd -> Wrd -> ExecSt mreg ()
+store_advc :: MWord -> MWord -> ExecSt mreg ()
 store_advc addr v = changeSt (\st -> st {advice = [MemOp addr v MOStore]})
 
-load_advc :: Wrd -> Wrd -> ExecSt mreg ()
+load_advc :: MWord -> MWord -> ExecSt mreg ()
 load_advc addr v = changeSt (\st -> st {advice = [MemOp addr v MOLoad]})
 
-store_mem::  Wrd -> Wrd -> ExecSt mreg ()
+store_mem::  MWord -> MWord -> ExecSt mreg ()
 store_mem r x = do
   st <- get
   put $ st { mem = store r x (mem st)}
   store_advc r x
   
-load_mem :: Regs mreg => mreg -> Wrd -> ExecSt mreg ()
+load_mem :: Regs mreg => mreg -> MWord -> ExecSt mreg ()
 load_mem r1 op = do
   st <- get
   value <- return $ load op $ (mem st) 
@@ -230,7 +229,7 @@ load_mem r1 op = do
 set_flag :: Bool -> ExecSt mreg ()
 set_flag b = changeSt (\st -> st { flag = b})
 
-set_pc:: Wrd -> ExecSt mreg ()
+set_pc:: MWord -> ExecSt mreg ()
 set_pc pc'= changeSt (\st ->  st {pc = pc'})
 
 -- Turn on the bad flag
@@ -259,7 +258,7 @@ next = do
 get_bank :: ExecSt mreg (RegBank mreg MWord)
 get_bank = getFromSt regs
 
-get_reg :: Regs mreg => mreg -> ExecSt mreg Wrd
+get_reg :: Regs mreg => mreg -> ExecSt mreg MWord
 get_reg r = do
   rs <- get_bank
   case lookupReg r rs of
@@ -273,25 +272,25 @@ get_pc :: ExecSt mreg Pc
 get_pc = getFromSt pc
  
 -- | Gets operand wether it's a register or a constant or a PC
-eval_operand :: Regs mreg => Operand mreg Wrd -> ExecSt mreg Wrd
+eval_operand :: Regs mreg => Operand mreg MWord -> ExecSt mreg MWord
 eval_operand (Reg r) = get_reg r
 eval_operand (Const w) = return w
 
 -- *** unary and binart operations
 {- The way we computeto do binary/unary operations we do the following steps:
-   1 - Compute the operands (results are type Wrd)
+   1 - Compute the operands (results are type MWord)
    2 - Transforms the operands to Integer
    3 - Compute the operation over the integers
-   4 - Transform the result to Wrd and store it in the return register
+   4 - Transform the result to MWord and store it in the return register
    5 - Set the flag, if the given condition is satisfied over the result
 
-We use Integers to be homogeneus over all possible types Wrd and because it makes checking under/overflow easier
+We use Integers to be homogeneus over all possible types MWord and because it makes checking under/overflow easier
 -}
 
 -- | Binary operations generic.
 bop :: (Regs mreg) =>
        mreg
-       -> Operand mreg Wrd
+       -> Operand mreg MWord
        -> (Integer -> Integer -> x) -- ^ Binary operation
        -> ExecSt mreg x
 bop r1 a f = do
@@ -302,7 +301,7 @@ bop r1 a f = do
   
 -- | Unart operations generic. 
 uop :: Regs mreg =>
-       Operand mreg Wrd
+       Operand mreg MWord
        -> (Integer -> x)
        -> ExecSt mreg x
 uop a f = do
@@ -323,7 +322,7 @@ exception True r _ = do
   set_flag True
   set_reg r 0
 catchZero :: Regs mreg =>
-             Wrd
+             MWord
            -> mreg
           -> ExecSt mreg () -- ^ continuation
           -> ExecSt mreg ()
@@ -331,7 +330,7 @@ catchZero w = exception (w == 0)
 exec_bop :: Regs mreg =>
             mreg
          -> mreg
-         -> Operand mreg Wrd
+         -> Operand mreg MWord
          -> (Integer -> Integer -> Integer) -- ^ Binary operation
          -> (Integer -> Bool) -- ^ Checks if flag should be set
          -> ExecSt mreg () 
@@ -346,7 +345,7 @@ execBopCatchZero ::
   Regs mreg =>
   mreg
   -> mreg
-  -> Operand mreg Wrd
+  -> Operand mreg MWord
   -> (Integer -> Integer -> Integer) -- ^ Binary operation
   -> ExecSt mreg ()
 execBopCatchZero r1 r2 a f = do
@@ -358,7 +357,7 @@ execBopCatchZero r1 r2 a f = do
 
 exec_uop :: Regs mreg =>
             mreg
-         -> Operand mreg Wrd
+         -> Operand mreg MWord
          -> (Integer -> Integer) -- ^ Unary operatio
          -> (Integer -> Bool) -- ^ Checks if flag should be set
          -> ExecSt mreg ()
@@ -383,14 +382,14 @@ trivialCheck :: Integer -> Bool
 trivialCheck _ = True
 
 -- compute most/less significant digit
-lsb :: Wrd -> Bool
+lsb :: MWord -> Bool
 lsb x = 0 == x `mod` 2
                  
 -- *** Conditionals Util
 
 exec_cnd :: Regs mreg =>
   mreg
-  -> Operand mreg Wrd
+  -> Operand mreg MWord
   -> (Integer -> Integer -> Bool)
   -> ExecSt mreg ()
 exec_cnd r1 a f = do
@@ -401,7 +400,7 @@ exec_cnd r1 a f = do
 -- *** Jump util
 
 exec_jmp
-  :: Regs mreg => Operand mreg Wrd -> ExecSt mreg ()
+  :: Regs mreg => Operand mreg MWord -> ExecSt mreg ()
 exec_jmp a = do
   a' <-  eval_operand a
   set_pc a'
@@ -412,7 +411,7 @@ ifFlagExec kt kf = do
   fl <- get_flag
   if fl then kt else kf
   
-exec :: Regs mreg => Instruction mreg Wrd -> ExecSt mreg ()
+exec :: Regs mreg => Instruction mreg MWord -> ExecSt mreg ()
 exec (Iand r1 r2 a) = exec_bop r1 r2 a (.&.) isZero
 exec (Ior r1 r2 a)  = exec_bop r1 r2 a (.|.) isZero
 exec (Ixor r1 r2 a) = exec_bop r1 r2 a xor isZero
@@ -482,7 +481,7 @@ freshAdvice :: ExecSt mreg ()
 freshAdvice = changeSt (\st -> st {advice = []})
 
 -- ** Program step
-type Prog mreg = Program mreg Wrd
+type Prog mreg = Program mreg MWord
 
 step :: Regs mreg => Prog mreg  -> ExecSt mreg (ExecutionState mreg)
 step prog = do
