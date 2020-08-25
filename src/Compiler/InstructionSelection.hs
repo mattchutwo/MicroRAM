@@ -107,21 +107,6 @@ name2Operand (LLVM.UnName number) = return $ Reg $ Name $ any2short number
 --name2Operand _ = assumptError "Unnamed name passed. Unnammed things should not be called."
 
 
--- | operand2register: takes an LLVM.operand and returns a register:
--- If the operand is a reference, it just returns that reference.
--- If the operand is a constant, it stores it in a register and returns that.
--- If metadata -> error
-operand2register :: LLVM.Operand -> Statefully $ (VReg, [MRAM.MA2Instruction Name Word])
-operand2register (LLVM.LocalReference _ nm) = do
-  r <- name2name nm
-  return (r,[])
-operand2register (LLVM.ConstantOperand c) = do
-  c' <- lift $ getConstant c
-  raux <- freshName
-  return (raux,[MRAM.Imov raux c'])
-operand2register _ = implError "Operand2register can't convert metadata or labels."
-  
-
 type2type (LLVM.IntegerType n) = return Tint -- FIXME check size! 
 type2type (LLVM.PointerType t _) = do
   pointee <- type2type t
@@ -172,16 +157,10 @@ isBinop ::
   -> BinopInstruction
   -> Hopefully $ [MRAM.MA2Instruction VReg Word]
 isBinop Nothing _ _ _ = Right $ [] --  without return is a noop
-isBinop _ (LLVM.ConstantOperand _) (LLVM.ConstantOperand _) _ =
-  assumptError $
-  "Two constants in a binop. Did you forget to run constant propagation?"
-isBinop (Just ret) (LLVM.LocalReference _ name1) op2 bop = do
-  r1 <- name2name name1
-  a <- operand2operand op2
-  -- TODO support all operand kinds
-  return $ [bop ret (Reg r1) a]
-isBinop ret op1 op2 _ = implError $
-  "Binary operation with operands other than (register,register) or (register,constant). Tried compiling: \n \t " ++ (show (ret,op1,op2)) ++ ". \n \t Maybe you tried compiling a term of the form '3*r0'. That's not supported yet. Try 'r0*3'"
+isBinop (Just ret) op1 op2 bop = do
+  a <- operand2operand op1
+  b <- operand2operand op2
+  return $ [bop ret a b]
 
 -- ** Comparisons
 {- Unfortunately MRAM always puts a comparisons in the "flag"
@@ -265,16 +244,6 @@ params2params params paramsT = do
   params' <- mapM (operand2operand . fst) params -- fst dumps the attributes
   return params' 
 
--- | Storing memory
--- MicroRAM does not suppor storing constants.
--- For storing a constant we need to move it to a register and then store.
--- TODO remove this
-storer loc cont'@(Reg reg)  =
-  return [MRAM.Istore loc (Reg reg)]
-storer loc cont'@(Const val) = do
-  temp <- freshName
-  return [MRAM.Imov temp cont', MRAM.Istore loc (Reg temp)]
-
 
 -- | Instruction Selection for single LLVM instructions 
 isInstruction :: Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr () Word]
@@ -355,8 +324,7 @@ isInstruction (Just ret) (LLVM.Load _ n _ _ _) = lift $ do
 isInstruction _ (LLVM.Store _ adr cont _ _ _) = do
   cont' <- lift $ operand2operand cont
   adr' <- lift $ operand2operand adr
-  ret <- storer adr' cont'
-  returnRTL ret
+  returnRTL [MRAM.Istore adr' cont']
 
 
 -- *** Compare
@@ -397,7 +365,6 @@ isInstruction (Just ret) (LLVM.Select cond op1 op2 _)  =  lift $ toRTL <$> do
 -- *** GetElementPtr 
 isInstruction Nothing (LLVM.GetElementPtr _ addr inxs _) = return [] -- GEP without a name is useless
 isInstruction (Just ret) (LLVM.GetElementPtr _ addr inxs _) = do
-  --(addr', toReg) <- operand2register ret addr
   addr' <- lift $ operand2operand addr
   ty' <- lift $ typeFromOperand addr
   -- inxs' <- lift $ mapM operand2operand inxs
@@ -468,14 +435,14 @@ typeFromOperand op = return $ LLVM.typeOf op
 constantMultiplication ::
   Word
   -> MAOperand VReg Word
-  -> Hopefully $ (MAOperand VReg Word, [MRAM.MA2Instruction VReg Word])
+  -> Statefully $ (MAOperand VReg Word, [MRAM.MA2Instruction VReg Word])
 -- TODO switch to Statefully monad so we can generate a fresh register here
 -- TODO support all operand kinds
-constantMultiplication c (Reg r) =
-  return (Reg r, [MRAM.Imull r (Reg r) (Const c)])
 constantMultiplication c (Const r) =
   return (Const (c*r),[])
-constantMultiplication _ _ = assumptError "Constant multiplication by Label."
+constantMultiplication c x = do
+  rd <- freshName
+  return (Reg rd, [MRAM.Imull rd x (Const c)])
 
 
 -- Type has to bve a pointer
@@ -488,12 +455,11 @@ isGEP ::
 isGEP _ _ _ [] = assumptError "Getelementptr called with no indices"
 isGEP ret (LLVM.PointerType refT _) base (inx:inxs) = do
   tySize <- lift $ llvmSize refT
-  (ri, move_reg) <- operand2register inx
+  inxOp <- lift $ operand2operand inx
   inxs' <- lift $ mapM operand2operand inxs
-  continuation <- lift $ isGEP' ret refT  inxs'
+  continuation <- isGEP' ret refT  inxs'
   rtemp <- freshName
-  return $ move_reg ++
-           [MRAM.Imull rtemp (Reg ri) (Const tySize),
+  return $ [MRAM.Imull rtemp inxOp (Const tySize),
             MRAM.Iadd ret (Reg rtemp) base] ++
            continuation
            
@@ -503,10 +469,10 @@ isGEP' ::
   VReg
   -> LLVM.Type
   -> [MAOperand VReg Word]
-  -> Hopefully $ [MRAM.MA2Instruction VReg Word]
+  -> Statefully $ [MRAM.MA2Instruction VReg Word]
 isGEP' _ _ [] = return $ []
 isGEP' ret (LLVM.ArrayType elemsN elemsT) (inx:inxs) = do
-  tySize <- llvmSize elemsT
+  tySize <- lift $ llvmSize elemsT
   (rm, multiplication) <- constantMultiplication tySize inx
   continuation <- isGEP' ret elemsT inxs
   return $ multiplication ++
@@ -562,29 +528,22 @@ isTerminator' :: LLVM.Terminator -> Hopefully $ [MIRInstr () Word]
 isTerminator' (LLVM.Br name _) = do
   name' <- name2name name
   returnRTL $ [MRAM.Ijmp $ Label (show name')] -- FIXME: This works but it's a hack. Think about labels.
--- TODO allow arbitrary conditional expressions here
-isTerminator' (LLVM.CondBr (LLVM.LocalReference _ name) name1 name2 _) = do
-  r1 <- name2name name
+isTerminator' (LLVM.CondBr cond name1 name2 _) = do
+  cond' <- operand2operand cond
   loc1 <- name2name name1
   loc2 <- name2name name2 
-  returnRTL $ [MRAM.Icmpe (Reg r1) (Const 1),
+  returnRTL $ [MRAM.Icmpe cond' (Const 1),
                     MRAM.Icjmp $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
                     MRAM.Ijmp $ Label (show loc2)]
-isTerminator' (LLVM.CondBr _ name1 name2 _) =
-  assumptError "conditional branching must depend on a register. If you passed a constant perhaps you forgot to run constant propagation. Can't branch on Metadata."
--- TODO allow arbitrary conditional expressions here
-isTerminator' (LLVM.Switch (LLVM.LocalReference typ reg) deflt dests _ ) = do
-  reg' <- name2name reg
+isTerminator' (LLVM.Switch cond deflt dests _ ) = do
+  cond' <- operand2operand cond
   deflt' <- name2name deflt
-  switchInstrs <- mapM (isDest reg') dests 
+  switchInstrs <- mapM (isDest cond') dests
   returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Reg deflt')]
-  where isDest reg (switch,dest) = do
+  where isDest cond' (switch,dest) = do
           switch' <- getConstant switch
           dest' <- name2name dest
-          return [MRAM.Icmpe (Reg reg) switch', MRAM.Icjmp (Reg dest')]
-          
-isTerminator' (LLVM.Switch op deflt dests _ ) =
-    assumptError $ "Called switch with something that is not a local reference. Perhaps a constant (you should run constant propagation first) or metadata (not supported). /n /t" ++ show op
+          return [MRAM.Icmpe cond' switch', MRAM.Icjmp (Reg dest')]
 
   
 -- Possible optimisation:
