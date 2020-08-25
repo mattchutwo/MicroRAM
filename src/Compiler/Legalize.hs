@@ -113,16 +113,22 @@ legalizeInstr' :: MIRInstr m w -> Statefully m w (RTLInstr m w)
 legalizeInstr' (MirI i m) = return $ IRI i m
 legalizeInstr' (MirM i m) = do
   i' <- case i of
-    -- TODO: swap operands of symmetric ops if the second is Reg
+    Iand rd o1 (Reg r2) -> return $ Iand rd r2 o1
     Iand rd o1 o2 -> Iand rd <$> op2reg o1 <*> pure o2
+    Ior rd o1 (Reg r2) -> return $ Ior rd r2 o1
     Ior rd o1 o2 -> Ior rd <$> op2reg o1 <*> pure o2
+    Ixor rd o1 (Reg r2) -> return $ Ixor rd r2 o1
     Ixor rd o1 o2 -> Ixor rd <$> op2reg o1 <*> pure o2
     Inot rd o2 -> return $ Inot rd o2
 
+    Iadd rd o1 (Reg r2) -> return $ Iadd rd r2 o1
     Iadd rd o1 o2 -> Iadd rd <$> op2reg o1 <*> pure o2
     Isub rd o1 o2 -> Isub rd <$> op2reg o1 <*> pure o2
+    Imull rd o1 (Reg r2) -> return $ Imull rd r2 o1
     Imull rd o1 o2 -> Imull rd <$> op2reg o1 <*> pure o2
+    Iumulh rd o1 (Reg r2) -> return $ Iumulh rd r2 o1
     Iumulh rd o1 o2 -> Iumulh rd <$> op2reg o1 <*> pure o2
+    Ismulh rd o1 (Reg r2) -> return $ Ismulh rd r2 o1
     Ismulh rd o1 o2 -> Ismulh rd <$> op2reg o1 <*> pure o2
     Iudiv rd o1 o2 -> Iudiv rd <$> op2reg o1 <*> pure o2
     Iumod rd o1 o2 -> Iumod rd <$> op2reg o1 <*> pure o2
@@ -130,6 +136,7 @@ legalizeInstr' (MirM i m) = do
     Ishl rd o1 o2 -> Ishl rd <$> op2reg o1 <*> pure o2
     Ishr rd o1 o2 -> Ishr rd <$> op2reg o1 <*> pure o2
 
+    Icmpe o1 (Reg r2) -> return $ Icmpe r2 o1
     Icmpe o1 o2 -> Icmpe <$> op2reg o1 <*> pure o2
     Icmpa o1 o2 -> Icmpa <$> op2reg o1 <*> pure o2
     Icmpae o1 o2 -> Icmpae <$> op2reg o1 <*> pure o2
