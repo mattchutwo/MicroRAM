@@ -55,7 +55,8 @@ Notes:
 
 -- * MicroRAM semantics
 
-type Wrd = Word
+type Wrd = MWord
+-- TODO: Word32 -> MWord
 wrdMax = toInteger (maxBound :: Word32)
 wrdMin = toInteger (minBound :: Word32)
 
@@ -140,8 +141,8 @@ data MemOpType = MOStore | MOLoad
 
 data Advice =
     MemOp
-    Word       -- ^ address
-    Word       -- ^ value
+    MWord      -- ^ address
+    MWord      -- ^ value
     MemOpType  -- ^ read or write
   | Stutter
   deriving (Eq, Read, Show, Generic)
@@ -158,16 +159,16 @@ renderAdvc advs = concat $ map renderAdvc' advs
 -- | The program state 
 data State mreg = State {
   pc :: Pc
-  , regs :: RMap mreg Word 
+  , regs :: RMap mreg MWord
   , mem :: Mem
   , advice :: [Advice] -- Deleted at the start of each step.
   --, tapes :: (Tape, Tape)
   , flag :: Bool
   , bad :: Bool
-  , answer :: Word }
+  , answer :: MWord }
 
-deriving instance (Read (RMap mreg Word)) => Read (State mreg)
-deriving instance (Show (RMap mreg Word)) => Show (State mreg)
+deriving instance (Read (RMap mreg MWord)) => Read (State mreg)
+deriving instance (Show (RMap mreg MWord)) => Show (State mreg)
 
   
 init_state :: Regs mreg => InitialMem -> State mreg
@@ -245,7 +246,7 @@ to_side _ = Nothing
 --  , flag = False -- ^ changing the tape always sets the flag to 0 (as per Tiny RAM semantics)
 --}
 
-set_answer:: Word -> State mreg -> State mreg
+set_answer:: MWord -> State mreg -> State mreg
 set_answer ans st  =  st { answer = ans }
 
 -- Pop tape tries to pop a value from tape tp_n and store it in register r
@@ -269,7 +270,7 @@ next st = set_pc (succ $ pc st) st
 -- ** Utility evaluators
 
 -- | Register getters (from a set register set)
-get_reg :: Regs mreg => RMap mreg Word -> mreg -> Wrd
+get_reg :: Regs mreg => RMap mreg MWord -> mreg -> Wrd
 get_reg rs r = lookupReg r rs
 
 eval_reg st r = get_reg (regs st) r
@@ -332,6 +333,7 @@ catchZero w = exception (w == 0)
 -- | Arithmetic modulo 32 to simulate Int32
 -- This is a "hot fix".
 -- TODO: adapt this based on the type of the instruction (e.g. support Int64)
+-- TODO: 32 -> width of MWord in bits
 modFromInteger x = fromInteger x `mod` 2^32
 
 
@@ -482,13 +484,13 @@ run (CompUnit prog trLen _ _ initMem) =
 
 -- ** Some facilities to run
 -- Simple getters to explore the trace.
-get_regs :: State mreg -> RMap mreg Word
+get_regs :: State mreg -> RMap mreg MWord
 get_regs = regs
 
-see_regs:: Trace mreg -> Int -> RMap mreg Word
+see_regs:: Trace mreg -> Int -> RMap mreg MWord
 see_regs t n = regs (t !! n)
 
-reg_trace::Trace mreg -> [RMap mreg Word]
+reg_trace::Trace mreg -> [RMap mreg MWord]
 reg_trace t = map regs t
 
 pc_trace'::Trace mreg -> [Wrd]
@@ -517,7 +519,7 @@ flag_trace' t= map flag t
 --exec_input prog inp n = lookupReg sp ((see_regs $ run inp prog) n)
 
 
-execAnswer :: Regs mreg => CompilationUnit (Prog mreg) -> Word
+execAnswer :: Regs mreg => CompilationUnit (Prog mreg) -> MWord
 execAnswer compUnit = answer $ last $ run compUnit
 
 
@@ -527,7 +529,7 @@ execAnswer compUnit = answer $ last $ run compUnit
 
 -- | Create the initial memory from a list of inputs
 -- TODO This seems out of place, but I don't know where to put it
-buildInitMem :: [String] -> [Word]
+buildInitMem :: [String] -> [MWord]
 buildInitMem ls = map fromIntegral $
   let argsAsChars = args2chars ("Name":ls) in   -- we fake the "name" of the program.
     let argv_array = getStarts argsAsChars in
@@ -547,7 +549,7 @@ buildInitMem ls = map fromIntegral $
         getStartsRec n ret (x:ls) =
           getStartsRec (n+length x) (ret++[n]) ls
 
-emptyInitMem :: [Word]
+emptyInitMem :: [MWord]
 emptyInitMem = buildInitMem []
           
 
@@ -556,7 +558,7 @@ emptyInitMem = buildInitMem []
 -- Testing grounds
 
 {-
-prog1 :: Program Int Word
+prog1 :: Program Int MWord
 prog1 = [Iadd 0 0 (Const 1),
        Iadd 0 0 (Const 2),
        Iadd 1 1 (Const 3),

@@ -60,14 +60,14 @@ import Compiler.IRs
 
 data Output reg  =
   SecretOutput
-  { program :: Program reg Word
+  { program :: Program reg MWord
   , params :: CircuitParameters
   , initMem :: InitialMem
   , trace :: [StateOut]
-  , adviceOut :: Map.Map Word [Advice]
+  , adviceOut :: Map.Map MWord [Advice]
   }
   | PublicOutput
-  { program :: Program reg Word
+  { program :: Program reg MWord
   , params :: CircuitParameters
   , initMem :: InitialMem
   } deriving (Eq, Show, Generic)
@@ -81,7 +81,7 @@ mkOutputPublic (PublicOutput a b c) = PublicOutput a b c
 
 
 -- ** Program
--- The program output is just `Program Word Word`
+-- The program output is just `Program Word MWord`
 
 
 -- ** Parameters
@@ -102,8 +102,8 @@ data CircuitParameters = CircuitParameters
 
 data StateOut = StateOut
   { flagOut :: Bool
-  , pcOut   :: Word 
-  , regsOut :: [Word]
+  , pcOut   :: MWord
+  , regsOut :: [MWord]
   } deriving (Eq, Show, Generic)
 
 state2out :: Regs mreg => Word -> State mreg -> StateOut
@@ -126,7 +126,7 @@ buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed 
           let sparc2' = Map.map fromIntegral sparc2 in  -- Make into Words
             Map.unionWith min sparc2' spar1
 
-compUnit2Output :: Regs reg => CompilationUnit (Program reg Word) -> Output reg
+compUnit2Output :: Regs reg => CompilationUnit (Program reg MWord) -> Output reg
 compUnit2Output (CompUnit p trLen regData aData initMem) =
   let regNum = countRegs p in
   let circParams = buildCircuitParameters trLen regData aData regNum in
@@ -135,7 +135,7 @@ compUnit2Output (CompUnit p trLen regData aData initMem) =
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).
 -- The input Trace should be an infinite stream which we truncate by the given length.
-secretOutput :: Regs reg => Trace reg -> CompilationUnit (Program reg Word) -> Output reg
+secretOutput :: Regs reg => Trace reg -> CompilationUnit (Program reg MWord) -> Output reg
 secretOutput tr (CompUnit p trLen regData aData initM) =
   let regNum = countRegs p in
   let circParams = buildCircuitParameters trLen regData aData regNum in
@@ -154,7 +154,7 @@ secretOutput tr (CompUnit p trLen regData aData initM) =
 
 outputTrace len tr regBound = takeW len $ map (state2out regBound) tr
 
-fullOutput :: Regs reg => CompilationUnit (Program reg Word) -> Output reg
+fullOutput :: Regs reg => CompilationUnit (Program reg MWord) -> Output reg
 fullOutput compUnit =
   let mem = flatInitMem $ initM compUnit in 
   secretOutput (run compUnit) compUnit 
@@ -162,7 +162,7 @@ fullOutput compUnit =
 
 
 -- | We only look at what registers are assigned too
-countRegs :: Regs regT => Program regT Word -> Word
+countRegs :: Regs regT => Program regT MWord -> Word
 countRegs p = maximum $ map getRegAssign p
   where getRegAssign (Iand reg1 reg2 operand  ) =  toWord reg1  
         getRegAssign (Ior reg1 reg2 operand   ) =  toWord reg1 

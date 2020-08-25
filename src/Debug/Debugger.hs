@@ -62,7 +62,7 @@ data CustomSummary mreg = CS
   , showRegs :: Bool
   , theseRegs :: Maybe [mreg] -- ^ Show these registers. Default is sp, bp, ax.
   , showMem :: Bool
-  , theseMem :: [Word] -- ^ Print this memory locations. Defualt is [0,1,2,3,4]
+  , theseMem :: [MWord] -- ^ Print this memory locations. Defualt is [0,1,2,3,4]
   , showFlag :: Bool
   , showAnswer :: Bool
   , showAdvice :: Bool
@@ -70,7 +70,7 @@ data CustomSummary mreg = CS
 
 
 memSummarySize = 5
-toSummaryMem :: [Word] -> Mem -> [Word]
+toSummaryMem :: [MWord] -> Mem -> [MWord]
 toSummaryMem theseLocations m =
   map (\loc -> load loc m) theseLocations
   
@@ -86,20 +86,20 @@ defaultCSName = defaultSummary
 
 -- | Reserved regs
 data ResRegs = RRs
-  { esp :: Word
-  , ebp :: Word
-  , eax :: Word }
+  { esp :: MWord
+  , ebp :: MWord
+  , eax :: MWord }
   deriving (Show, G.Generic, Data)
 instance Tabulate ResRegs ExpandWhenNested
 instance CellValueFormatter ResRegs
 
 data SummaryState = SState {
-  pc_ :: Word
-  , flag_ :: Word
-  , answer_ :: Word
+  pc_ :: MWord
+  , flag_ :: MWord
+  , answer_ :: MWord
   , regs_ :: ResRegs
-  , registers_ :: [Word] -- Custom regs
-  , mem_ :: [Word]
+  , registers_ :: [MWord] -- Custom regs
+  , mem_ :: [MWord]
   , advc_ :: String
       }
   deriving (Show, G.Generic, Data)
@@ -107,22 +107,24 @@ instance Tabulate (SummaryState ) ExpandWhenNested
 
 instance CellValueFormatter Word
 instance CellValueFormatter [Word]
+instance CellValueFormatter MWord
+instance CellValueFormatter [MWord]
 
 
-toSummaryRegs :: Regs mreg => RMap mreg Word -> ResRegs
+toSummaryRegs :: Regs mreg => RMap mreg MWord -> ResRegs
 toSummaryRegs rmap =
   RRs
   (lookupReg sp rmap)
   (lookupReg bp rmap)
   (lookupReg ax rmap)
 
-toSummaryRegsCustom :: Regs mreg => RMap mreg Word -> Maybe [mreg] -> [Word]
+toSummaryRegsCustom :: Regs mreg => RMap mreg MWord -> Maybe [mreg] -> [MWord]
 toSummaryRegsCustom rmap Nothing = []
 toSummaryRegsCustom rmap (Just regs) =
   map (\r -> lookupReg r rmap) regs
 
 
-toSummary :: Regs mreg => Maybe [mreg] -> [Word] -> State mreg -> SummaryState
+toSummary :: Regs mreg => Maybe [mreg] -> [MWord] -> State mreg -> SummaryState
 toSummary theseRegs theseMems st  =
   SState 
   { pc_ = pc st
@@ -134,7 +136,7 @@ toSummary theseRegs theseMems st  =
   , advc_ = renderAdvc $ advice st
   } where bool2word True = 1
           bool2word False = 0
-summary :: Regs mreg =>  Maybe [mreg] -> [Word] -> Trace mreg -> [SummaryState]
+summary :: Regs mreg =>  Maybe [mreg] -> [MWord] -> Trace mreg -> [SummaryState]
 summary theseRegs theseMems t =  map customSummary t
   where customSummary = toSummary theseRegs theseMems 
 
@@ -212,7 +214,7 @@ fromLLVMFile = llvmParse
 
 fromMRAMFile :: (Read mreg, Regs mreg) =>
                 FilePath
-             -> IO $ CompilationUnit (Program mreg Word)
+             -> IO $ CompilationUnit (Program mreg MWord)
 fromMRAMFile file = do
   contents <- readFile file
   return $ read contents
@@ -237,7 +239,7 @@ summaryFromFile file cs length = do
 
 -- * Pretty printing
 
-pprint :: CompilationUnit (Program Name Word) -> String
+pprint :: CompilationUnit (Program Name MWord) -> String
 pprint compUnit =
   let prog = programCU compUnit in
   concat $ map (\(n,inst) -> show n ++ ". " ++ show inst ++ "\n") $ enumerate prog
@@ -247,7 +249,7 @@ pprintFromFile file = do
   prog <- fromMRAMFile file
   putStr $ pprint prog
 
-readProg :: String -> Program Name Word
+readProg :: String -> Program Name MWord
 readProg = read
 
 firstRegs :: Word -> [Name]
@@ -270,7 +272,7 @@ fromAscii = toEnum
 myfile = "programs/fib.micro" -- "programs/returnInput.micro"
 pprintMyFile = pprintFromFile myfile
 myllvmfile = "programs/returnInput.ll"
-mram :: IO $ CompilationUnit (Program Name Word)
+mram :: IO $ CompilationUnit (Program Name MWord)
 mram =  fromMRAMFile "test/return42.micro"
 
 {- | Example

@@ -28,7 +28,7 @@ import Codec.CBOR.Write
 import Codec.CBOR.Read
 import Codec.CBOR.Pretty
 import qualified Data.ByteString.Lazy                  as L
-  
+
 import Compiler.Sparsity
 import Compiler.CompilationUnit
 import Compiler.Registers
@@ -220,12 +220,12 @@ instance (Serialise regT, Serialise ops) => Serialise (Instruction regT ops) whe
     decode = decodeInstr
 
 {- Quick test:-}
-a :: Program Word Word
+a :: Program Word MWord
 a = [Istore (Reg 77) 1, Ijmp (Reg 42),Iadd 2 3 (Const 4)]
-x :: Either String (Instruction' Word Word (Operand Word Word))
+x :: Either String (Instruction' Word Word (Operand Word MWord))
 x = fromFlatTerm decode $ toFlatTerm $ encode a
 
-b :: Instruction Word Word
+b :: Instruction Word MWord
 b = Istore (Reg 0) 0
 y = serialise b
 
@@ -280,7 +280,7 @@ encodeInitMemSegment (InitMemSegment secret read start len datas) =
   , ("len", encode len)
   ] ++  encodeMaybeContent datas
 
-encodeMaybeContent :: Maybe [Word] -> [(TXT.Text,Encoding)]
+encodeMaybeContent :: Maybe [MWord] -> [(TXT.Text,Encoding)]
 encodeMaybeContent Nothing = []
 encodeMaybeContent (Just content) = return $ ("data",encode content)
 
@@ -315,7 +315,7 @@ encodeStateOut :: StateOut -> Encoding
 encodeStateOut (StateOut flag pc regs) =
   map2CBOR $
   [ ("flag", encodeBool flag) 
-  , ("pc", encodeWord pc)
+  , ("pc", encode pc)
   , ("regs", encode regs)
   ]
 
@@ -324,7 +324,7 @@ decodeStateOut = do
     len <- decodeMapLen
     case len of
       3 -> StateOut <$ decodeString <*> decodeBool
-                    <* decodeString <*> decodeWord
+                    <* decodeString <*> decode
                     <* decodeString <*> decode
       _ -> fail $ "invalid state encoding. Length should be 3 but found " ++ show len
 
@@ -353,8 +353,8 @@ encodeAdvice :: Advice -> Encoding
 encodeAdvice  (MemOp addr val opTyp) =
   encodeListLen 4
   <> encodeString "MemOp"
-  <> encodeWord addr
-  <> encodeWord val
+  <> encode addr
+  <> encode val
   <> encode opTyp
   
 encodeAdvice  Stutter =
@@ -366,7 +366,7 @@ decodeAdvice = do
   ln <- decodeListLen
   name <- decodeString
   case (ln,name) of
-    (4, "MemOp") -> MemOp <$> decodeWord <*> decodeWord <*> decode
+    (4, "MemOp") -> MemOp <$> decode <*> decode <*> decode
     (1, "Stutter") -> return Stutter
 
 instance Serialise Advice where

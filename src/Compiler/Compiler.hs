@@ -65,13 +65,14 @@ import Compiler.Sparsity
 import Compiler.RemoveLabels
 import Compiler.Analysis
 
+import MicroRAM.MicroRAM (MWord)
 import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..)) 
 
 (<.>) :: Monad m => (b -> c) -> (a -> b) -> a -> m c
 f <.> g = \x -> return $ f $ g x 
 
 compile :: Word -> LLVM.Module
-        -> Hopefully $ CompilationUnit (MRAM.Program Name Word)
+        -> Hopefully $ CompilationUnit (MRAM.Program Name MWord)
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Legalize Instructions" $ justCompile legalize)

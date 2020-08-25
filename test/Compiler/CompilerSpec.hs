@@ -24,6 +24,7 @@ import qualified Data.Map as Map
 
 --import InstructionSelectionSpec
 
+import MicroRAM.MicroRAM (MWord)
 
 -- Compiler imports
 import Compiler.Registers
@@ -89,7 +90,7 @@ compileTest ::
   String
   -> FilePath
   -> Word -- ^ Length
-  -> Word  -- ^ return value
+  -> MWord  -- ^ return value
   -> TestTree
 compileTest name file len ret = 
   testProperty name $ 
@@ -101,7 +102,7 @@ compileTest' ::
   FilePath
   -> Word -- ^ Length
   -> Bool -- ^ verbose
-  -> IO Word -- TestTree
+  -> IO MWord -- TestTree
 compileTest' file len verb= do
   llvmProg <- llvmParse file
   mramProg <- handleErrorWith $ compile len llvmProg

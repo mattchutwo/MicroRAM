@@ -48,6 +48,7 @@ import Compiler.IRs
 import Util.Util
 
 import MicroRAM.MicroRAM (Operand'(..), MAOperand) 
+import           MicroRAM.MicroRAM (MWord)
 import qualified MicroRAM.MicroRAM as MRAM
 
 {-| Notes on this instruction generation :
@@ -78,15 +79,15 @@ gName2String = show
 --  implError "Unnamed opareands not supported yet. TODO soon... "
 
 
-wrd2integer:: Word -> Integer
+wrd2integer:: MWord -> Integer
 wrd2integer x = fromIntegral x
 
-integer2wrd:: Integer -> Hopefully $ Word
+integer2wrd:: Integer -> Hopefully $ MWord
 integer2wrd x
   | x >= (wrd2integer minBound) && x <= (wrd2integer maxBound) = return $ fromInteger x
   | otherwise = otherError $ "Literal out of bounds: " ++ (show x) ++ ". Bounds " ++ (show (wrd2integer minBound, wrd2integer maxBound)) 
   
-getConstant :: LLVM.Constant.Constant -> Hopefully $ MAOperand VReg Word
+getConstant :: LLVM.Constant.Constant -> Hopefully $ MAOperand VReg MWord
 getConstant (LLVM.Constant.Int _ val) = Const <$> integer2wrd val
 getConstant (LLVM.Constant.Undef typ) = return $ Const 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
 getConstant (LLVM.Constant.GlobalReference typ name) = return $ Glob $ gName2String name
@@ -94,14 +95,14 @@ getConstant consT = otherError $
   "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions)" ++ (show consT)
 
 
-operand2operand :: LLVM.Operand -> Hopefully $ MAOperand VReg Word
+operand2operand :: LLVM.Operand -> Hopefully $ MAOperand VReg MWord
 operand2operand (LLVM.ConstantOperand c) = getConstant c
 operand2operand (LLVM.LocalReference _ name) = do
   name' <- (name2name name)
   return $ Reg name'
 operand2operand _ = implError "operand, probably metadata"
 
-name2Operand :: LLVM.Name -> Hopefully $ MRAM.MAOperand VReg Word
+name2Operand :: LLVM.Name -> Hopefully $ MRAM.MAOperand VReg MWord
 name2Operand (LLVM.Name name) = return $ Reg $ Name name
 name2Operand (LLVM.UnName number) = return $ Reg $ Name $ any2short number
 --name2Operand _ = assumptError "Unnamed name passed. Unnammed things should not be called."
@@ -120,10 +121,10 @@ type2type t = implError $ "Type: \n \t " ++ (show t)
 
 
 -- | toRTL lifts simple MicroRAM instruction into RTL.
-toRTL :: [MRAM.MA2Instruction VReg Word] -> [MIRInstr () Word]
+toRTL :: [MRAM.MA2Instruction VReg MWord] -> [MIRInstr () MWord]
 toRTL = map  $ \x -> MirM x ()
 
-returnRTL :: Monad m => [MRAM.MA2Instruction VReg Word] -> m [MIRInstr () Word]
+returnRTL :: Monad m => [MRAM.MA2Instruction VReg MWord] -> m [MIRInstr () MWord]
 returnRTL = return . toRTL
 
 -- ** State
@@ -148,14 +149,14 @@ freshName = do
 --isInstrs = undefined
 
 -- |I
-type BinopInstruction = VReg -> MRAM.MAOperand VReg Word -> MRAM.MAOperand VReg Word ->
-  MRAM.MA2Instruction VReg Word
+type BinopInstruction = VReg -> MRAM.MAOperand VReg MWord -> MRAM.MAOperand VReg MWord ->
+  MRAM.MA2Instruction VReg MWord
 isBinop ::
   Maybe VReg
   -> LLVM.Operand
   -> LLVM.Operand
   -> BinopInstruction
-  -> Hopefully $ [MRAM.MA2Instruction VReg Word]
+  -> Hopefully $ [MRAM.MA2Instruction VReg MWord]
 isBinop Nothing _ _ _ = Right $ [] --  without return is a noop
 isBinop (Just ret) op1 op2 bop = do
   a <- operand2operand op1
@@ -176,7 +177,7 @@ cmptTail_neg ret = return [MRAM.Imov ret (Const 1), MRAM.Icmov ret (Const 0)] --
 
 -- | cmptTail:
 -- Describe if the comparison is computed directly or it's negation 
-cmptTail :: IntPred.IntegerPredicate -> VReg -> Hopefully [MRAM.MA2Instruction VReg Word]
+cmptTail :: IntPred.IntegerPredicate -> VReg -> Hopefully [MRAM.MA2Instruction VReg MWord]
 cmptTail IntPred.EQ = cmptTail_pos -- This values allow to flip the result
 cmptTail IntPred.NE = cmptTail_neg 
 cmptTail IntPred.UGT = cmptTail_pos
@@ -221,7 +222,7 @@ a <++> b = (++) <$> a <*> b
 -- *** Trtanslating Function parameters and types
 
 function2function
-  :: Either a LLVM.Operand -> Hopefully (MAOperand VReg Word, Ty, [Ty])
+  :: Either a LLVM.Operand -> Hopefully (MAOperand VReg MWord, Ty, [Ty])
 function2function (Left _ ) = implError $ "Inlined assembly not supported"
 function2function (Right (LLVM.LocalReference ty nm)) = do
   nm' <- name2name nm
@@ -246,7 +247,7 @@ params2params params paramsT = do
 
 
 -- | Instruction Selection for single LLVM instructions 
-isInstruction :: Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr () Word]
+isInstruction :: Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr () MWord]
 -- *** Arithmetic
 
 -- Add
@@ -390,7 +391,7 @@ isInstruction (Just ret) (LLVM.BitCast op typ _) = lift $ toRTL <$> do
 -- *** Not supprted instructions (return meaningfull error)
 isInstruction _ instr =  implError $ "Instruction: " ++ (show instr)
 
-convertPhiInput :: (LLVM.Operand, LLVM.Name) -> Hopefully $ (MAOperand VReg Word, Name)
+convertPhiInput :: (LLVM.Operand, LLVM.Name) -> Hopefully $ (MAOperand VReg MWord, Name)
 convertPhiInput (op, name) = do
   op' <- operand2operand op
   name' <- name2name name
@@ -433,9 +434,9 @@ typeFromOperand op = return $ LLVM.typeOf op
 -- If the operand is a constant, statically computes the multiplication
 -- If the operand is a register, creates instruction to compute it.
 constantMultiplication ::
-  Word
-  -> MAOperand VReg Word
-  -> Statefully $ (MAOperand VReg Word, [MRAM.MA2Instruction VReg Word])
+  MWord
+  -> MAOperand VReg MWord
+  -> Statefully $ (MAOperand VReg MWord, [MRAM.MA2Instruction VReg MWord])
 -- TODO switch to Statefully monad so we can generate a fresh register here
 -- TODO support all operand kinds
 constantMultiplication c (Const r) =
@@ -449,9 +450,9 @@ constantMultiplication c x = do
 isGEP ::
   VReg
   -> LLVM.Type
-  -> MAOperand VReg Word
-  -> [LLVM.Operand] -- [MAOperand VReg Word]
-  -> Statefully $ [MRAM.MA2Instruction VReg Word]
+  -> MAOperand VReg MWord
+  -> [LLVM.Operand]
+  -> Statefully $ [MRAM.MA2Instruction VReg MWord]
 isGEP _ _ _ [] = assumptError "Getelementptr called with no indices"
 isGEP ret (LLVM.PointerType refT _) base (inx:inxs) = do
   tySize <- lift $ llvmSize refT
@@ -459,7 +460,7 @@ isGEP ret (LLVM.PointerType refT _) base (inx:inxs) = do
   inxs' <- lift $ mapM operand2operand inxs
   continuation <- isGEP' ret refT  inxs'
   rtemp <- freshName
-  return $ [MRAM.Imull rtemp inxOp (Const tySize),
+  return $ [MRAM.Imull rtemp inxOp (Const $ fromIntegral tySize),
             MRAM.Iadd ret (Reg rtemp) base] ++
            continuation
            
@@ -468,12 +469,12 @@ isGEP ret (LLVM.PointerType refT _) base (inx:inxs) = do
 isGEP' ::
   VReg
   -> LLVM.Type
-  -> [MAOperand VReg Word]
-  -> Statefully $ [MRAM.MA2Instruction VReg Word]
+  -> [MAOperand VReg MWord]
+  -> Statefully $ [MRAM.MA2Instruction VReg MWord]
 isGEP' _ _ [] = return $ []
 isGEP' ret (LLVM.ArrayType elemsN elemsT) (inx:inxs) = do
   tySize <- lift $ llvmSize elemsT
-  (rm, multiplication) <- constantMultiplication tySize inx
+  (rm, multiplication) <- constantMultiplication (fromIntegral tySize) inx
   continuation <- isGEP' ret elemsT inxs
   return $ multiplication ++
            -- offset = indes * size type 
@@ -486,13 +487,13 @@ isGEP' _ t _ = assumptError $ "getelemptr for non aggregate type: " ++ show t
 
 -- ** Named instructions and instructions lists
 
-isNInstruction :: LLVM.Named LLVM.Instruction -> Statefully $ [MIRInstr () Word]
+isNInstruction :: LLVM.Named LLVM.Instruction -> Statefully $ [MIRInstr () MWord]
 isNInstruction (LLVM.Do instr) = isInstruction Nothing instr
 isNInstruction (name LLVM.:= instr) = let ret = name2name name in
                                                   (\ret -> isInstruction (Just ret) instr) =<< ret
 isInstrs
   :: [LLVM.Named LLVM.Instruction]
-     -> Statefully $ [MIRInstr () Word]
+     -> Statefully $ [MIRInstr () MWord]
 isInstrs [] = return []
 isInstrs instrs = do
   instrs' <- mapM isNInstruction instrs
@@ -514,7 +515,7 @@ isInstrs instrs = do
 
 -- | Instruction Generation for terminators
 -- We ignore the name of terminators
-isTerminator :: LLVM.Named LLVM.Terminator -> Hopefully $ [MIRInstr () Word]
+isTerminator :: LLVM.Named LLVM.Terminator -> Hopefully $ [MIRInstr () MWord]
 isTerminator (name LLVM.:= term) = do
   termInstr <- isTerminator' term
   return $ termInstr
@@ -524,7 +525,7 @@ isTerminator (LLVM.Do term) = do
   
 -- Branching
 
-isTerminator' :: LLVM.Terminator -> Hopefully $ [MIRInstr () Word]
+isTerminator' :: LLVM.Terminator -> Hopefully $ [MIRInstr () MWord]
 isTerminator' (LLVM.Br name _) = do
   name' <- name2name name
   returnRTL $ [MRAM.Ijmp $ Label (show name')] -- FIXME: This works but it's a hack. Think about labels.
@@ -592,7 +593,7 @@ blockJumpsTo term = do
 
 
 -- instruction selection for blocks
-isBlock:: LLVM.BasicBlock -> Statefully (BB Name $ MIRInstr () Word)
+isBlock:: LLVM.BasicBlock -> Statefully (BB Name $ MIRInstr () MWord)
 isBlock  (LLVM.BasicBlock name instrs term) = do
   body <- isInstrs instrs
   end <- lift $ isTerminator term
@@ -602,7 +603,7 @@ isBlock  (LLVM.BasicBlock name instrs term) = do
 
 
   
-isBlocks :: [LLVM.BasicBlock] -> Statefully [BB Name $ MIRInstr () Word]
+isBlocks :: [LLVM.BasicBlock] -> Statefully [BB Name $ MIRInstr () MWord]
 isBlocks = mapM isBlock
 
 processParams :: ([LLVM.Parameter], Bool) -> [Ty]
@@ -610,7 +611,7 @@ processParams (params, _) = map (\_ -> Tint) params
 
 -- | Instruction generation for Functions
 
-isFunction :: LLVM.Definition -> Hopefully $ MIRFunction () Word
+isFunction :: LLVM.Definition -> Hopefully $ MIRFunction () MWord
 isFunction (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
   do
     (body, nextReg) <- runStateT (isBlocks code) initState
@@ -667,14 +668,14 @@ isTypeDefs :: [LLVM.Definition] -> Hopefully $ TypeEnv
 isTypeDefs _ = return ()
 
 -- | Turns a Global variable into its descriptor.
-isGlobVars :: [LLVM.Definition] -> Hopefully $ GEnv Word
+isGlobVars :: [LLVM.Definition] -> Hopefully $ GEnv MWord
 isGlobVars defs = mapMaybeM isGlobVar' defs
   where isGlobVar' (LLVM.GlobalDefinition g) = do
           flatGVar <- isGlobVar g
           return $ Just flatGVar 
         isGlobVar' _ = return Nothing
 
-isGlobVar :: LLVM.Global -> Hopefully $ GlobalVariable Word
+isGlobVar :: LLVM.Global -> Hopefully $ GlobalVariable MWord
 isGlobVar (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) =
   do
   typ' <- type2type typ
@@ -682,7 +683,7 @@ isGlobVar (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) =
   -- TODO: Want to check init' is the right length?
   return $ GlobalVariable (gName2String name) const typ' init' (sectionIsSecret sectn)
   where flatInit :: Maybe LLVM.Constant.Constant ->
-                    Hopefully $ Maybe [Word]
+                    Hopefully $ Maybe [MWord]
         flatInit Nothing = return Nothing
         flatInit (Just const) = do
           const' <- flattenConstant const
@@ -693,7 +694,7 @@ isGlobVar (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) =
         sectionIsSecret _ = False
 
 flattenConstant :: LLVM.Constant.Constant ->
-                   Hopefully [Word]
+                   Hopefully [MWord]
 flattenConstant (LLVM.Constant.Int _ n) = return $ [fromInteger n]
 flattenConstant (LLVM.Constant.Null typ) = return $ [0]
 flattenConstant (LLVM.Constant.Array typ cnts) = do
@@ -708,7 +709,7 @@ flattenConstant cnt = assumptError $ "Constant not supportet for flattening: \n 
 isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
 isFuncAttributes _ = return () 
 
-isDefs :: [LLVM.Definition] -> Hopefully $ MIRprog () Word
+isDefs :: [LLVM.Definition] -> Hopefully $ MIRprog () MWord
 isDefs defs = do
   typeDefs <- isTypeDefs $ filter itIsTypeDef defs
   globVars <- isGlobVars $ filter itIsGlobVar defs
@@ -718,6 +719,6 @@ isDefs defs = do
   return $ IRprog typeDefs globVars funcs
   
 -- | Instruction selection generates an RTL Program
-instrSelect :: LLVM.Module -> Hopefully $ MIRprog () Word
+instrSelect :: LLVM.Module -> Hopefully $ MIRprog () MWord
 instrSelect (LLVM.Module _ _ _ _ defs) = isDefs defs
 

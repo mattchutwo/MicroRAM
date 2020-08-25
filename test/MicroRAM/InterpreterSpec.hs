@@ -10,7 +10,6 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.SmallCheck
 
-
 import Compiler.Registers
 import Compiler.CompilationUnit
 
@@ -25,18 +24,19 @@ main = defaultMain tests
   -- defaultMain (testGroup "Our Library Tests" testSuite) -- testSuit defined at eof
 k = 5 -- 5 registers
 
-trivialCU :: Prog Int -> Word -> [Word] -> CompilationUnit (Prog Int)
+trivialCU :: Prog Int -> Word -> [MWord] -> CompilationUnit (Prog Int)
 trivialCU prog len input = CompUnit prog len InfinityRegs [] (list2InitMem input)
 
-runProg :: Prog Int -> Word -> [Word] -> Trace Int
+runProg :: Prog Int -> Word -> [MWord] -> Trace Int
 runProg prog len input = run $ trivialCU prog len input
 
 -- We are treating the first register as the return
 -- To get ouptu to get output provide a program and a number of steps to get the result after that long
 -- Execute gets the trace and then looks at the first register after t steps
 exec prog steps input = lookupReg sp (seeRegs (runProg prog (steps+1) input) (fromEnum steps)) -- this throws an error if there is no register 0
+simpl_exec :: Prog Int -> Word -> MWord
 simpl_exec prog steps = exec prog steps [] -- when there are no inputs
-seeRegs:: Trace mreg -> Int -> RMap mreg Word
+seeRegs:: Trace mreg -> Int -> RMap mreg MWord
 seeRegs t n = regs (t !! n)
 
 -- The tester setup
@@ -56,13 +56,13 @@ instance Regs Int where
                         Nothing -> d
   updateBank r x (RMap d m) = RMap d (Map.insert r x m)
 
-get_regs :: State mreg -> RMap mreg Word
+get_regs :: State mreg -> RMap mreg MWord
 get_regs = regs
 
-reg_trace::Trace mreg -> [RMap mreg Word]
+reg_trace::Trace mreg -> [RMap mreg MWord]
 reg_trace t= map regs t
 
-pc_trace::Trace Reg -> [Word]
+pc_trace::Trace Reg -> [MWord]
 pc_trace t= map pc t
 
 flag_trace::Trace Reg -> [Bool]
@@ -74,7 +74,7 @@ flag_trace t= map flag t
 {- (1+2)*(3+4) = 21
 -}
 
-prog1 :: Program Reg Word
+prog1 :: Program Reg MWord
 prog1 = [Iadd 0 0 (Const 1),
        Iadd 0 0 (Const 2),
        Iadd 1 1 (Const 3),
@@ -93,7 +93,7 @@ test1 = testProperty ("Testing (1+2)*(3+4) == 21.")  $ (simpl_exec prog1 5) == 2
    } 
 -}
 
-prog2 :: Program Reg Word
+prog2 :: Program Reg MWord
 prog2 = [Iadd 0 0 (Const 1),
        Ijmp (Const 0)]
 
@@ -109,21 +109,21 @@ test2 = testProperty "Test `x++` on a loop" $ \n -> (n :: Word) >= 0 ==> simpl_e
    } 
 -}
 
-fib_pure :: Word -> Word
+fib_pure :: Word -> MWord
 fib_pure 0 = 0
 fib_pure 1 = 1
 fib_pure n = fib_pure (n-1) + fib_pure (n-2) 
 
-prog3 :: Program Reg Word
+prog3 :: Program Reg MWord
 prog3 = [Iadd 0 1 (Const 1), -- x=1
          Iadd 2 0 (Const 0), -- z=x
          Iadd 0 0 (Reg 1),  -- x=x+y
          Iadd 1 2 (Const 0),
        Ijmp (Const 1)]
 
-fibs:: [Word]
+fibs:: [MWord]
 fibs = 0 : 1 : Prelude.zipWith (+) fibs (tail fibs)
-fib::Int -> Word
+fib::Int -> MWord
 fib n = fibs !! n
 
 claimEqual :: (Eq a, Show a) => a -> a -> Either String String
@@ -137,7 +137,7 @@ test3 = testProperty "Test fibonacci" $ \n -> (n :: Word) >= 0 ==>
    
 -- # Test 4: conditional + input
 
-prog4 :: Program Reg Word
+prog4 :: Program Reg MWord
 prog4 = [Iread 1 (Const 0), --
          Icmpg 1 (Const 10), -- 1
          Icjmp (Const 5),    -- 2 
@@ -148,7 +148,7 @@ prog4 = [Iread 1 (Const 0), --
         ]
 
 test4 = testProperty "Test a conditional and input" $ \x ->
-   claimEqual (exec prog4 5 [x]) (if (x::Word)>10 then 42 else 77)
+   claimEqual (exec prog4 5 [x]) (if x>10 then 42 else 77)
 
                                                                
 -- # Test 5: sum all input
@@ -160,7 +160,7 @@ NOTE: the initial memory contains, the size of the initial memory.
 -}
 
 
-prog5 :: Program Reg Word
+prog5 :: Program Reg MWord
 {- Old verison with tapes:
 prog5 = [Iread 1 (Const 0), Iadd 0 0 (Reg 1), Icjmp (Const 4), Ijmp (Const 0), Ijmp (Const 4)]
 -}
@@ -171,9 +171,9 @@ prog5 = [Imov 1 (Const 0),
          Iadd 1 1 (Const 1),
          Ijmp (Const 1)]
         
-list2InitMem :: [Word] -> InitialMem
+list2InitMem :: [MWord] -> InitialMem
 list2InitMem ls = map word2InitSeg $ zip [0..] ls 
-  where word2InitSeg :: (Word,Word) -> InitMemSegment
+  where word2InitSeg :: (MWord,MWord) -> InitMemSegment
         word2InitSeg (loc,val) = InitMemSegment False False loc 1 (Just [val]) 
 
 --test5 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
@@ -190,12 +190,12 @@ test5 = testProperty "Test adding a list of inputs" $ \xs ->
 -}
 
 
-failSignal:: Operand Reg Word
+failSignal:: Operand Reg MWord
 failSignal = (Const 11)
 gotoFail = Ijmp failSignal
 cGotoFail = Icjmp failSignal
 
-prog6 :: Program Reg Word
+prog6 :: Program Reg MWord
 prog6 = [Imov 1 (Const 1),   -- 0. x = 1 // Test 1
          Isub 1 1 (Const 2), -- 1. x = x - 2 (should underflow)
          Icjmp  (Const 4),   -- 2. goto Test 2

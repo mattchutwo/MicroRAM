@@ -3,6 +3,7 @@ module Util.Util where
   
 import Control.Monad.State.Lazy
 import Control.Monad.Except
+import Data.Word
 
 type ($) a b = a b
 

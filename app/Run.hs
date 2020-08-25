@@ -39,18 +39,18 @@ main = do
 --parseArgs :: [String] -> [Word]
 --parseArgs = map read
 
-compUnitFromFile :: FilePath -> IO $ CompilationUnit (Program Name Word) 
+compUnitFromFile :: FilePath -> IO $ CompilationUnit (Program Name MWord)
 compUnitFromFile file = do
   contents <- readFile file -- Get text from file
   return $ read contents -- Parse them       
             
-microFromFile :: FilePath -> IO (Program Name Word) 
+microFromFile :: FilePath -> IO (Program Name MWord)
 microFromFile file = do
   contents <- readFile file -- Get text from file
   CompUnit prog _ _ _ _ <- return $ read contents -- Parse them 
   return prog
 
-fromText :: String -> Either () (Program Name Word)
+fromText :: String -> Either () (Program Name MWord)
 fromText = read
 
 -- | Extracts the prefix: checkName file 

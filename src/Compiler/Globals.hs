@@ -39,32 +39,32 @@ import MicroRAM.MicroRAM
 
 -}
 replaceGlobals :: Regs mreg =>
-        CompilationUnit (Lprog () mreg Word)
-        -> Hopefully $ CompilationUnit (Lprog () mreg Word)
+        CompilationUnit (Lprog () mreg MWord)
+        -> Hopefully $ CompilationUnit (Lprog () mreg MWord)
 replaceGlobals (CompUnit prog tr regs aData _ ) = do
   (prog', initMem) <- globals' prog
   return $ CompUnit prog' tr regs aData initMem
 
-globals' :: Regs mreg => Lprog () mreg Word
-         -> Hopefully $ (Lprog () mreg Word, InitialMem)
+globals' :: Regs mreg => Lprog () mreg MWord
+         -> Hopefully $ (Lprog () mreg MWord, InitialMem)
 globals' (IRprog tenv genv prog) = do
   (initMem, globalMap) <- return $ memoryFromGlobals genv
   prog' <- raplaceGlobals globalMap prog
   return (IRprog tenv genv prog', initMem)
 
 -- * Building initial memory and the `globalMap`
-memoryFromGlobals :: GEnv Word -> (InitialMem, Map.Map String Word)
+memoryFromGlobals :: GEnv MWord -> (InitialMem, Map.Map String MWord)
 memoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg  
   where memoryFromGlobal ::
-          GlobalVariable Word
-          -> (InitialMem, Map.Map String Word)
-          -> (InitialMem, Map.Map String Word)
+          GlobalVariable MWord
+          -> (InitialMem, Map.Map String MWord)
+          -> (InitialMem, Map.Map String MWord)
         memoryFromGlobal (GlobalVariable name isConst gTy init secret) (initMem, gMap) =
           let newLoc = newLocation initMem in
-          let newSegment = InitMemSegment secret isConst newLoc (tySize gTy) init in
+          let newSegment = InitMemSegment secret isConst newLoc (fromIntegral $ tySize gTy) init in
           (newSegment:initMem, Map.insert name newLoc gMap)
           
-        newLocation :: InitialMem -> Word
+        newLocation :: InitialMem -> MWord
         newLocation [] = 0
         newLocation (InitMemSegment _ _ loc len _:_) = loc + len
           
@@ -72,15 +72,15 @@ memoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg
 -- * Replace global variables with pointers to the initial memeory
 raplaceGlobals ::
   Regs mreg =>
-  Map.Map String Word
-  -> [LFunction mdata mreg Word]
-  -> Hopefully $ [LFunction mdata mreg Word] 
+  Map.Map String MWord
+  -> [LFunction mdata mreg MWord]
+  -> Hopefully $ [LFunction mdata mreg MWord] 
 raplaceGlobals gmap = mapM $ traverseOpLFun $ raplaceGlobalsOperands gmap
   where raplaceGlobalsOperands :: 
           Regs mreg =>
-          Map.Map String Word
-          -> MAOperand mreg Word
-          -> Hopefully $ MAOperand mreg Word
+          Map.Map String MWord
+          -> MAOperand mreg MWord
+          -> Hopefully $ MAOperand mreg MWord
         raplaceGlobalsOperands gmap (Glob name) =
           case Map.lookup name gmap of
             Just gptr -> return $ Const gptr
