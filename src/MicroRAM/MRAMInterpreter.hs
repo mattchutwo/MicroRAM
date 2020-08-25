@@ -56,9 +56,14 @@ Notes:
 -- * MicroRAM semantics
 
 type Wrd = MWord
--- TODO: Word32 -> MWord
-wrdMax = toInteger (maxBound :: Word32)
-wrdMin = toInteger (minBound :: Word32)
+wrdMax = toInteger (maxBound :: Wrd)
+wrdMin = toInteger (minBound :: Wrd)
+
+wrdSize :: Int
+wrdSize = finiteBitSize (0 :: Wrd)
+
+wrdModulus :: Integer
+wrdModulus = 1 `shift` wrdSize
 
 toInt :: Integral a => a -> Int
 toInt x = fromIntegral x
@@ -66,19 +71,19 @@ toInt x = fromIntegral x
 -- Most significant bit depends on implementation
 -- If it's int then msb is the positive/negative marker
 msb :: Wrd -> Bool 
-msb x = x > (maxBound `quot` 2)
+msb x = testBit x (wrdSize - 1)
 
 -- Some binary operations that are representation dependent
 
 -- | Multiply and take the most significant bits.
 umulh :: Integer -> Integer -> Integer
-umulh r1 r2 = (r1 * r2) `quot` (wrdMax +1) -- this quotient removes the first W bits
+umulh r1 r2 = (r1 * r2) `quot` wrdModulus -- this quotient removes the first W bits
 
 -- | Multiply SIGNED and take the most significant bits.
 -- We convert the operands through Int to interpret them as signed.
 -- Then Multiply, then take the most significant bits  
 smulh :: Integer -> Integer -> Integer
-smulh r1 r2 = (r1' * r2') `quot` (wrdMax + 1)
+smulh r1 r2 = (r1' * r2') `quot` wrdModulus
   where r1' = toInteger $ toInt r1 -- By converting through Int, int's interpreted as signed.
         r2' = toInteger $ toInt r2  -- By converting through Int, int's interpreted as signed.
 
@@ -330,12 +335,6 @@ catchZero :: Regs mreg =>
           -> State mreg
 catchZero w = exception (w == 0)
 
--- | Arithmetic modulo 32 to simulate Int32
--- This is a "hot fix".
--- TODO: adapt this based on the type of the instruction (e.g. support Int64)
--- TODO: 32 -> width of MWord in bits
-modFromInteger x = fromInteger x `mod` 2^32
-
 
 exec_bop :: Regs mreg =>
             State mreg
@@ -345,7 +344,7 @@ exec_bop :: Regs mreg =>
          -> (Integer -> Integer -> Integer) -- ^ Binary operation
          -> (Integer -> Bool) -- ^ Checks if flag should be set
          -> State mreg 
-exec_bop st r1 r2 a f check = next $ set_flag (check result) $ set_reg r1 (modFromInteger result) st
+exec_bop st r1 r2 a f check = next $ set_flag (check result) $ set_reg r1 (fromInteger result) st
   where result = bop st r2 a f
 
 -- | Evaluate binop, but first check a<>0 
