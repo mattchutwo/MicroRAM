@@ -66,10 +66,18 @@ tests = testGroup "Compiler tests" $
     "test/programs/fibSlow.ll"
     420 34 : 
   compileTest
-    "Fibonacci loop"
-    "test/programs/fib.ll"
-    420 34 :
-{-  compileTest
+    "Easy function call"
+    "test/programs/easyFunction.ll"
+    60 42 : 
+  compileTest
+    "More easy function calls"
+    "test/programs/callingConventions.ll"
+    70 42 : 
+  compileTest
+    "Fibonacci with recursive calls"
+    "test/programs/fibRec.ll"
+    600 34 :
+  {-  compileTest
     "Input text into numbers"
     "test/programs/returnInput.ll"
     80 42 : -}
