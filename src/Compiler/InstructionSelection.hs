@@ -31,7 +31,8 @@ module Compiler.InstructionSelection
 
 import Data.Word
 import Data.ByteString.Short
-import Data.ByteString.UTF8 as BSU 
+import Data.ByteString.UTF8 as BSU
+import qualified Data.Map as Map 
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State.Lazy
@@ -90,6 +91,8 @@ getConstant :: LLVM.Constant.Constant -> Hopefully $ MAOperand VReg Word
 getConstant (LLVM.Constant.Int _ val) = Const <$> integer2wrd val
 getConstant (LLVM.Constant.Undef typ) = return $ Const 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
 getConstant (LLVM.Constant.GlobalReference typ name) = return $ Glob $ gName2String name
+getConstant (LLVM.Constant.GetElementPtr _ _ _) = assumptError $
+  "Constant structs are not supported yet. This should go away with -O1. If you are seeing this message and used at least -O1 please report."
 getConstant consT = otherError $
   "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions)" ++ (show consT)
 
@@ -107,16 +110,24 @@ name2Operand (LLVM.UnName number) = return $ Reg $ Name $ any2short number
 --name2Operand _ = assumptError "Unnamed name passed. Unnammed things should not be called."
 
 
-type2type (LLVM.IntegerType n) = return Tint -- FIXME check size! 
-type2type (LLVM.PointerType t _) = do
-  pointee <- type2type t
+type2type :: TypeEnv -> LLVM.Type -> Hopefully Ty
+type2type _ (LLVM.IntegerType n) = return Tint -- FIXME check size! 
+type2type tenv (LLVM.PointerType t _) = do
+  pointee <- type2type tenv t
   return $ Tptr $ pointee 
-type2type (LLVM.FunctionType _ _ _) = return Tint -- FIXME enrich typed!
-type2type (LLVM.ArrayType size elemT) = do
-  elemT' <- type2type elemT
+type2type _ (LLVM.FunctionType _ _ _) = return Tint -- FIXME enrich typed!
+type2type tenv (LLVM.ArrayType size elemT) = do
+  elemT' <- type2type tenv elemT
   size' <- return $ wrdFromwrd64 size
   return $ Tarray size' elemT'
-type2type t = implError $ "Type: \n \t " ++ (show t)
+type2type _ (LLVM.StructureType True _) = assumptError "Can't pack structs yet."
+type2type tenv (LLVM.StructureType False tys) = Tstruct <$> mapM (type2type tenv) tys
+type2type tenv (LLVM.NamedTypeReference name) = do
+  name' <- name2name name
+  case Map.lookup name' tenv of
+    Just ty -> return ty
+    Nothing -> assumptError $ "Type name not defined: " ++ show name ++ ". \n With type environment: " ++ show tenv
+type2type _ t = implError $ "Type: \n \t " ++ (show t)
 
 
 -- | toRTL lifts simple MicroRAM instruction into RTL.
@@ -221,20 +232,20 @@ a <++> b = (++) <$> a <*> b
 -- *** Trtanslating Function parameters and types
 
 function2function
-  :: Either a LLVM.Operand -> Hopefully (MAOperand VReg Word, Ty, [Ty])
-function2function (Left _ ) = implError $ "Inlined assembly not supported"
-function2function (Right (LLVM.LocalReference ty nm)) = do
+  :: TypeEnv -> Either a LLVM.Operand -> Hopefully (MAOperand VReg Word, Ty, [Ty])
+function2function _ (Left _ ) = implError $ "Inlined assembly not supported"
+function2function tenv (Right (LLVM.LocalReference ty nm)) = do
   nm' <- name2name nm
   (retT', paramT') <- functionTypes ty
   return (Reg nm',retT',paramT')
   where functionTypes (LLVM.FunctionType retTy argTys False) = do
-          retT' <- type2type retTy
-          paramT' <- mapM type2type argTys
+          retT' <- type2type tenv retTy
+          paramT' <- mapM (type2type tenv) argTys
           return (retT',paramT')
         functionTypes (LLVM.FunctionType  _ _ True) =
           implError $ "Variable parameters (isVarArg in function call)."
         functionTypes ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
-function2function (Right (LLVM.ConstantOperand c)) =
+function2function _ (Right (LLVM.ConstantOperand c)) =
   implError $ "Calling a function with a constant or a global. You called: \n \t" ++ show c
 
 -- | Process parameters into RTL format
@@ -246,56 +257,56 @@ params2params params paramsT = do
 
 
 -- | Instruction Selection for single LLVM instructions 
-isInstruction :: Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr () Word]
+isInstruction :: TypeEnv -> Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr () Word]
 -- *** Arithmetic
 
 -- Add
-isInstruction ret (LLVM.Add _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iadd
+isInstruction _ ret (LLVM.Add _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iadd
 -- Sub
-isInstruction ret (LLVM.Sub _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Isub
+isInstruction _ ret (LLVM.Sub _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Isub
 -- Mul
-isInstruction ret (LLVM.Mul _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Imull
+isInstruction _ ret (LLVM.Mul _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Imull
 -- SDiv
-isInstruction ret (LLVM.SDiv _ _ o1 o2 ) = implError "Signed division ius hard! SDiv"
+isInstruction _ ret (LLVM.SDiv _ _ o1 o2 ) = implError "Signed division ius hard! SDiv"
 -- SRem
-isInstruction ret (LLVM.SRem o1 o2 _) = implError "Signed division ius hard! SRem"
+isInstruction _ ret (LLVM.SRem o1 o2 _) = implError "Signed division ius hard! SRem"
 
 
 
 -- *** Floating Point 
 -- FAdd
-isInstruction ret (LLVM.FAdd _ o1 o2 _) = implError "Fast Multiplication FMul"
+isInstruction _ ret (LLVM.FAdd _ o1 o2 _) = implError "Fast Multiplication FMul"
 -- FSub
-isInstruction ret (LLVM.FSub _ o1 o2 _) =  implError "Fast Multiplication FMul"
+isInstruction _ ret (LLVM.FSub _ o1 o2 _) =  implError "Fast Multiplication FMul"
 -- FMul
-isInstruction ret (LLVM.FMul _ o1 o2 _) =  implError "Fast Multiplication FMul"
+isInstruction _ ret (LLVM.FMul _ o1 o2 _) =  implError "Fast Multiplication FMul"
 -- FDiv
-isInstruction ret (LLVM.FDiv _ o1 o2 _) =  implError "Fast Division FDiv"
+isInstruction _ ret (LLVM.FDiv _ o1 o2 _) =  implError "Fast Division FDiv"
 -- FRem
-isInstruction ret (LLVM.FRem _ o1 o2 _) = fError
+isInstruction _ ret (LLVM.FRem _ o1 o2 _) = fError
 
 -- *** Unsigned operations
 -- UDiv
-isInstruction ret (LLVM.UDiv _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iudiv -- this is easy
+isInstruction _ ret (LLVM.UDiv _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iudiv -- this is easy
 -- URem
-isInstruction ret (LLVM.URem o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iumod -- this is eay
+isInstruction _ ret (LLVM.URem o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iumod -- this is eay
 
 
 -- *** Shift operations
 -- Shl
-isInstruction ret (LLVM.Shl _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ishl
+isInstruction _ ret (LLVM.Shl _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ishl
 -- LShr
-isInstruction ret (LLVM.LShr _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ishr
+isInstruction _ ret (LLVM.LShr _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ishr
 -- AShr
-isInstruction ret (LLVM.AShr _ o1 o2 _) =  implError "Arithmetic shift right AShr"
+isInstruction _ ret (LLVM.AShr _ o1 o2 _) =  implError "Arithmetic shift right AShr"
 
 -- *** Logical
 --And
-isInstruction ret (LLVM.And o1 o2 _) =  lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iand
+isInstruction _ ret (LLVM.And o1 o2 _) =  lift $ toRTL <$> isBinop ret o1 o2 MRAM.Iand
 --Or
-isInstruction ret (LLVM.Or o1 o2 _) =  lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ior
+isInstruction _ ret (LLVM.Or o1 o2 _) =  lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ior
 --Xor
-isInstruction ret (LLVM.Xor o1 o2 _) =  lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ixor
+isInstruction _ ret (LLVM.Xor o1 o2 _) =  lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ixor
 
 -- *** Memory operations
 -- Alloca
@@ -303,25 +314,25 @@ isInstruction ret (LLVM.Xor o1 o2 _) =  lift $ toRTL <$> isBinop ret o1 o2 MRAM.
    we only look at the numElements.
    In fact (currently) we dont check  stack overflow or any similar safety check
    Also the current granularity of our memory is per word so ptr arithmetic and alignment are trivial. -}
-isInstruction ret (LLVM.Alloca a Nothing b c) =
-  isInstruction ret (LLVM.Alloca a (Just constOne) b c) --NumElements is defaulted to be one. 
-isInstruction ret (LLVM.Alloca ty (Just size) _ _) = lift $ do
-  ty' <- type2type ty
+isInstruction tenv ret (LLVM.Alloca a Nothing b c) =
+  isInstruction tenv ret (LLVM.Alloca a (Just constOne) b c) --NumElements is defaulted to be one. 
+isInstruction tenv ret (LLVM.Alloca ty (Just size) _ _) = lift $ do
+  ty' <- type2type tenv ty
   size' <- operand2operand size
   return [MirI (RAlloc ret ty' size') ()]
 
 
 
 -- Load
-isInstruction Nothing (LLVM.Load _ _ _ _ _) = return [] -- Optimization reconside if we care about atomics
-isInstruction (Just ret) (LLVM.Load _ n _ _ _) = lift $ do 
+isInstruction _ Nothing (LLVM.Load _ _ _ _ _) = return [] -- Optimization reconside if we care about atomics
+isInstruction _ (Just ret) (LLVM.Load _ n _ _ _) = lift $ do 
   a <- operand2operand n
   returnRTL $ (MRAM.Iload ret a) : []
     
 -- | Store
 {- Store yields void so we can will ignore the return location -}
 
-isInstruction _ (LLVM.Store _ adr cont _ _ _) = do
+isInstruction _ _ (LLVM.Store _ adr cont _ _ _) = do
   cont' <- lift $ operand2operand cont
   adr' <- lift $ operand2operand adr
   returnRTL [MRAM.Istore adr' cont']
@@ -334,8 +345,8 @@ isInstruction _ (LLVM.Store _ adr cont _ _ _) = do
    register allocator can actually use the flag as it was intended...
 -}
 
-isInstruction Nothing (LLVM.ICmp pred op1 op2 _) =  lift $ return [] -- Optimization
-isInstruction (Just ret) (LLVM.ICmp pred op1 op2 _) = lift $ do
+isInstruction _ Nothing (LLVM.ICmp pred op1 op2 _) =  lift $ return [] -- Optimization
+isInstruction _ (Just ret) (LLVM.ICmp pred op1 op2 _) = lift $ do
   lhs <- operand2operand op1
   rhs <- operand2operand op2
   comp' <- isCompare pred lhs rhs -- Do the comparison
@@ -344,51 +355,51 @@ isInstruction (Just ret) (LLVM.ICmp pred op1 op2 _) = lift $ do
 
                         
 -- *** Function Call 
-isInstruction ret (LLVM.Call _ _ _ f args _ _ ) = lift $  do
-  (f',retT,paramT) <- function2function f
+isInstruction tenv ret (LLVM.Call _ _ _ f args _ _ ) = lift $  do
+  (f',retT,paramT) <- function2function tenv f
   args' <- params2params args paramT
   return [MirI (RCall retT ret f' paramT args') ()]
 
 -- *** Phi
-isInstruction Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
-isInstruction (Just ret) (LLVM.Phi typ ins _)  =  lift $ do
+isInstruction _ Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
+isInstruction _ (Just ret) (LLVM.Phi typ ins _)  =  lift $ do
   ins' <- mapM convertPhiInput ins
   return $ [MirI (RPhi ret ins') ()]
 
-isInstruction Nothing (LLVM.Select _ _ _ _)  = return [] -- Select without a name is useless
-isInstruction (Just ret) (LLVM.Select cond op1 op2 _)  =  lift $ toRTL <$> do
+isInstruction _ Nothing (LLVM.Select _ _ _ _)  = return [] -- Select without a name is useless
+isInstruction _ (Just ret) (LLVM.Select cond op1 op2 _)  =  lift $ toRTL <$> do
    cond' <- operand2operand cond
    op1' <- operand2operand op1 
    op2' <- operand2operand op2 
    return [MRAM.Icmpe cond' (Const 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
 
 -- *** GetElementPtr 
-isInstruction Nothing (LLVM.GetElementPtr _ addr inxs _) = return [] -- GEP without a name is useless
-isInstruction (Just ret) (LLVM.GetElementPtr _ addr inxs _) = do
+isInstruction _ Nothing (LLVM.GetElementPtr _ addr inxs _) = return [] -- GEP without a name is useless
+isInstruction tenv (Just ret) (LLVM.GetElementPtr _ addr inxs _) = do
   addr' <- lift $ operand2operand addr
   ty' <- lift $ typeFromOperand addr
   -- inxs' <- lift $ mapM operand2operand inxs
-  instructions <- isGEP ret ty' addr' inxs
+  instructions <- isGEP tenv ret ty' addr' inxs
   return $ map (\instr -> MirM instr ()) instructions
 
 -- ** Conversions
 -- We fit everything in size 32 bits, so extensions are trivial
-isInstruction Nothing (LLVM.SExt _ _  _) = return [] -- without a name is useless
-isInstruction Nothing (LLVM.ZExt _ _  _) = return [] -- without a name is useless
-isInstruction (Just ret) (LLVM.SExt op _ _) = lift $ toRTL <$> do
+isInstruction _ Nothing (LLVM.SExt _ _  _) = return [] -- without a name is useless
+isInstruction _ Nothing (LLVM.ZExt _ _  _) = return [] -- without a name is useless
+isInstruction _ (Just ret) (LLVM.SExt op _ _) = lift $ toRTL <$> do
   op' <- operand2operand op
   return $ [MRAM.Imov ret op']
-isInstruction (Just ret) (LLVM.ZExt op _ _) = lift $ toRTL <$> do
+isInstruction _ (Just ret) (LLVM.ZExt op _ _) = lift $ toRTL <$> do
   op' <- operand2operand op
   return $ [MRAM.Imov ret op']
-isInstruction Nothing (LLVM.BitCast _ _ _) = return $ [] -- without a name is useless
-isInstruction (Just ret) (LLVM.BitCast op typ _) = lift $ toRTL <$> do
+isInstruction _ Nothing (LLVM.BitCast _ _ _) = return $ [] -- without a name is useless
+isInstruction _ (Just ret) (LLVM.BitCast op typ _) = lift $ toRTL <$> do
   op' <- operand2operand op
   return $ [MRAM.Imov ret op']
 
   
 -- *** Not supprted instructions (return meaningfull error)
-isInstruction _ instr =  implError $ "Instruction: " ++ (show instr)
+isInstruction _ _ instr =  implError $ "Instruction: " ++ (show instr)
 
 convertPhiInput :: (LLVM.Operand, LLVM.Name) -> Hopefully $ (MAOperand VReg Word, Name)
 convertPhiInput (op, name) = do
@@ -398,8 +409,8 @@ convertPhiInput (op, name) = do
 
 -- ** GetElementPtr
 
-  
-llvmSize :: LLVM.Type -> Hopefully $ Word
+  {-
+llvmSize :: TypeEnv -> LLVM.Type -> Hopefully $ Word
 
 llvmSize LLVM.VoidType = return 0
 -- All int types have same size:
@@ -422,9 +433,10 @@ llvmSize (LLVM.NamedTypeReference name) = implError $ "Named reference: " ++ sho
 llvmSize LLVM.MetadataType =
   assumptError "Metadata type have no size. Or do they? If you get this error. please report."
 llvmSize LLVM.LabelType =
-  assumptError "Metadata type have no size. Or do they? If you get this error. please report."       
+  assumptError "Label type have no size. Or do they? If you get this error. please report."       
 llvmSize LLVM.TokenType =
-  assumptError "Metadata type have no size. Or do they? If you get this error. please report."
+  assumptError "Token type have no size. Or do they? If you get this error. please report."
+-}
 
 typeFromOperand :: LLVM.Operand -> Hopefully $ LLVM.Type
 typeFromOperand op = return $ LLVM.typeOf op 
@@ -445,21 +457,22 @@ constantMultiplication c x = do
   return (Reg rd, [MRAM.Imull rd x (Const c)])
 
 
--- Type has to bve a pointer
+-- Type has to be a pointer
 isGEP ::
-  VReg
+  TypeEnv
+  -> VReg
   -> LLVM.Type
   -> MAOperand VReg Word
   -> [LLVM.Operand] -- [MAOperand VReg Word]
   -> Statefully $ [MRAM.MA2Instruction VReg Word]
-isGEP _ _ _ [] = assumptError "Getelementptr called with no indices"
-isGEP ret (LLVM.PointerType refT _) base (inx:inxs) = do
-  tySize <- lift $ llvmSize refT
+isGEP _ _ _ _ [] = assumptError "Getelementptr called with no indices"
+isGEP tenv ret (LLVM.PointerType refT _) base (inx:inxs) = do
+  typ' <- lift $ type2type tenv refT
   inxOp <- lift $ operand2operand inx
   inxs' <- lift $ mapM operand2operand inxs
-  continuation <- isGEP' ret refT  inxs'
+  continuation <- isGEP' ret typ' inxs'
   rtemp <- freshName
-  return $ [MRAM.Imull rtemp inxOp (Const tySize),
+  return $ [MRAM.Imull rtemp inxOp (Const $ tySize typ'),
             MRAM.Iadd ret (Reg rtemp) base] ++
            continuation
            
@@ -467,35 +480,41 @@ isGEP ret (LLVM.PointerType refT _) base (inx:inxs) = do
 -- After first pass every type has to be an agregate type
 isGEP' ::
   VReg
-  -> LLVM.Type
+  -> Ty
   -> [MAOperand VReg Word]
   -> Statefully $ [MRAM.MA2Instruction VReg Word]
 isGEP' _ _ [] = return $ []
-isGEP' ret (LLVM.ArrayType elemsN elemsT) (inx:inxs) = do
-  tySize <- lift $ llvmSize elemsT
-  (rm, multiplication) <- constantMultiplication tySize inx
+isGEP' ret (Tarray elemsN elemsT) (inx:inxs) = do
+  (rm, multiplication) <- constantMultiplication (tySize elemsT) inx
   continuation <- isGEP' ret elemsT inxs
   return $ multiplication ++
            -- offset = indes * size type 
            [MRAM.Iadd ret (Reg ret) rm] ++
            continuation
-isGEP' ret (LLVM.StructureType _ types) (inx:inxs) =
-  implError "getelemptr for structs"
-isGEP' _ t _ = assumptError $ "getelemptr for non aggregate type: " ++ show t
+isGEP' ret (Tstruct types) (inx:inxs) = 
+  case inx of
+    Const i -> do
+      offset <- return $ sum $ map tySize $ takeW i $ types  
+      continuation <- isGEP' ret (types !! (fromEnum i)) inxs -- FIXME add checks for struct bounds
+      return $ MRAM.Iadd ret (Reg ret) (Const offset) : continuation
+    _ -> assumptError $ "GetElementPtr error. Indices into structs must be constatnts, instead found: " ++
+         show inx
+isGEP' _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
 
 
 -- ** Named instructions and instructions lists
 
-isNInstruction :: LLVM.Named LLVM.Instruction -> Statefully $ [MIRInstr () Word]
-isNInstruction (LLVM.Do instr) = isInstruction Nothing instr
-isNInstruction (name LLVM.:= instr) = let ret = name2name name in
-                                                  (\ret -> isInstruction (Just ret) instr) =<< ret
+isNInstruction :: TypeEnv -> LLVM.Named LLVM.Instruction -> Statefully $ [MIRInstr () Word]
+isNInstruction tenv (LLVM.Do instr) = isInstruction tenv Nothing instr
+isNInstruction tenv (name LLVM.:= instr) =
+  let ret = name2name name in
+    (\ret -> isInstruction tenv (Just ret) instr) =<< ret
 isInstrs
-  :: [LLVM.Named LLVM.Instruction]
+  :: TypeEnv ->  [LLVM.Named LLVM.Instruction]
      -> Statefully $ [MIRInstr () Word]
-isInstrs [] = return []
-isInstrs instrs = do
-  instrs' <- mapM isNInstruction instrs
+isInstrs _ [] = return []
+isInstrs tenv instrs = do
+  instrs' <- mapM (isNInstruction tenv) instrs
   return $ concat instrs'
 
 
@@ -592,9 +611,9 @@ blockJumpsTo term = do
 
 
 -- instruction selection for blocks
-isBlock:: LLVM.BasicBlock -> Statefully (BB Name $ MIRInstr () Word)
-isBlock  (LLVM.BasicBlock name instrs term) = do
-  body <- isInstrs instrs
+isBlock:: TypeEnv -> LLVM.BasicBlock -> Statefully (BB Name $ MIRInstr () Word)
+isBlock  tenv (LLVM.BasicBlock name instrs term) = do
+  body <- isInstrs tenv instrs
   end <- lift $ isTerminator term
   jumpsTo <- lift $ blockJumpsTo term
   name' <- lift $ name2name name
@@ -602,23 +621,23 @@ isBlock  (LLVM.BasicBlock name instrs term) = do
 
 
   
-isBlocks :: [LLVM.BasicBlock] -> Statefully [BB Name $ MIRInstr () Word]
-isBlocks = mapM isBlock
+isBlocks :: TypeEnv ->  [LLVM.BasicBlock] -> Statefully [BB Name $ MIRInstr () Word]
+isBlocks tenv = mapM (isBlock tenv)
 
 processParams :: ([LLVM.Parameter], Bool) -> [Ty]
 processParams (params, _) = map (\_ -> Tint) params
 
 -- | Instruction generation for Functions
 
-isFunction :: LLVM.Definition -> Hopefully $ MIRFunction () Word
-isFunction (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
+isFunction :: TypeEnv -> LLVM.Definition -> Hopefully $ MIRFunction () Word
+isFunction tenv (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
   do
-    (body, nextReg) <- runStateT (isBlocks code) initState
+    (body, nextReg) <- runStateT (isBlocks tenv code) initState
     params' <- return $ processParams params
     name' <- name2name name
-    retT' <- type2type retT
+    retT' <- type2type tenv retT
     return $ Function name' retT' params' body nextReg
-isFunction other = unreachableError $ show other -- Shoudl be filtered out 
+isFunction _ other = unreachableError $ show other -- Shoudl be filtered out 
   
 -- | Instruction Selection for all definitions
 -- We create filters to separate the definitions into categories.
@@ -648,36 +667,55 @@ unreachableError what = otherError $ "This is akward. This error should be unrea
 
 -- | We check that we are not discarding anything we care about
 -- We allow discarding metadata for now...
-fOr ::  [a -> Bool] -> (a -> Bool)
-fOr fs a = or $ map (\f -> f a) fs 
-
-acceptedDef = fOr [itIsFunc, itIsFuncAttr, itIsGlobVar, itIsTypeDef, itIsMetaData]
-
-checkDiscardedDef :: LLVM.Definition -> Hopefully ()
-checkDiscardedDef def = if acceptedDef def
-  then return ()
-  else implError $ "Definition: " ++ (show def) ++ ".\n While checking discarded defs "
   
 checkDiscardedDefs :: [LLVM.Definition] -> Hopefully ()
 checkDiscardedDefs defs = do
   mapM checkDiscardedDef defs
   return ()
+  where checkDiscardedDef :: LLVM.Definition -> Hopefully ()
+        checkDiscardedDef def = if acceptedDef def
+                                then return ()
+                                else implError $
+                                     "Definition: " ++
+                                     (show def) ++
+                                     ".\n While checking discarded defs "
+        acceptedDef = fOr
+          [itIsFunc, itIsFuncAttr, itIsGlobVar, itIsTypeDef, itIsMetaData]
+        fOr ::  [a -> Bool] -> (a -> Bool)
+        fOr fs a = or $ map (\f -> f a) fs 
 
 isTypeDefs :: [LLVM.Definition] -> Hopefully $ TypeEnv
-isTypeDefs _ = return ()
+isTypeDefs defs =
+  foldM isTypedDef' Map.empty defs
+  where isTypedDef' :: TypeEnv -> LLVM.Definition -> Hopefully $ TypeEnv 
+        isTypedDef' tenv def = do
+          maybeDef <- isTypedDef tenv def
+          case maybeDef of
+            Just (name, ty) -> return $ Map.insert name ty tenv
+            _ -> return tenv
+        isTypedDef tenv (LLVM.TypeDefinition  name (Just ty)) = do
+          name' <- name2name name
+          ty'   <- type2type tenv ty
+          return $ Just (name',ty')
+        isTypedDef tenv (LLVM.TypeDefinition name Nothing) =
+          assumptError $ "Received an empty type definition for " ++
+          show name ++
+          " what am I supposed to do with this?"
+        isTypedDef _ _ = return Nothing
+--  return $ Map.empty
 
 -- | Turns a Global variable into its descriptor.
-isGlobVars :: [LLVM.Definition] -> Hopefully $ GEnv Word
-isGlobVars defs = mapMaybeM isGlobVar' defs
-  where isGlobVar' (LLVM.GlobalDefinition g) = do
-          flatGVar <- isGlobVar g
+isGlobVars :: TypeEnv -> [LLVM.Definition] -> Hopefully $ GEnv Word
+isGlobVars tenv defs = mapMaybeM (isGlobVar' tenv) defs
+  where isGlobVar' tenv  (LLVM.GlobalDefinition g) = do
+          flatGVar <- isGlobVar tenv  g
           return $ Just flatGVar 
-        isGlobVar' _ = return Nothing
+        isGlobVar' _ _ = return Nothing
 
-isGlobVar :: LLVM.Global -> Hopefully $ GlobalVariable Word
-isGlobVar (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) =
+isGlobVar :: TypeEnv -> LLVM.Global -> Hopefully $ GlobalVariable Word
+isGlobVar tenv (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) =
   do
-  typ' <- type2type typ
+  typ' <- type2type tenv typ
   init' <- flatInit init
   -- TODO: Want to check init' is the right length?
   return $ GlobalVariable (gName2String name) const typ' init' (sectionIsSecret sectn)
@@ -703,19 +741,19 @@ flattenConstant cnt = assumptError $ "Constant not supportet for flattening: \n 
                       show cnt
                         
                         
-
-
 isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
 isFuncAttributes _ = return () 
 
 isDefs :: [LLVM.Definition] -> Hopefully $ MIRprog () Word
 isDefs defs = do
+  otherError $ "Debug HERE: " ++ (show $ filter itIsTypeDef defs)
   typeDefs <- isTypeDefs $ filter itIsTypeDef defs
-  globVars <- isGlobVars $ filter itIsGlobVar defs
+  otherError $ "Debug HERE: " ++ show defs
+  {-globVars <- (isGlobVars typeDefs) $ filter itIsGlobVar defs
   funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
-  funcs <- mapM isFunction $ filter itIsFunc defs
+  funcs <- mapM (isFunction typeDefs) $ filter itIsFunc defs
   checkDiscardedDefs defs -- Make sure we dont drop something important
-  return $ IRprog typeDefs globVars funcs
+  return $ IRprog typeDefs globVars funcs-}
   
 -- | Instruction selection generates an RTL Program
 instrSelect :: LLVM.Module -> Hopefully $ MIRprog () Word

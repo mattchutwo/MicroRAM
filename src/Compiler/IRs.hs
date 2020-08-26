@@ -45,13 +45,19 @@ data Ty =
    Tint -- Currently all integers TODO: make it Tint int for all sizes
   | Tptr Ty 
   | Tarray Word Ty 
+  | Tstruct [Ty]
   deriving (Show)
 
 -- Determines the relative size of types (relative to a 32bit integer/64bit)
 tySize :: Ty -> Word
-tySize (Tarray length subTyp) = length * (tySize subTyp)   
-tySize _ = 1
--- Pointers have the same sizer as Tint
+tySize (Tarray length subTyp) = length * (tySize subTyp)
+tySize (Tstruct tys) = sum $ map tySize tys   
+tySize _ = 1 -- Pointers have the same sizer as Tint
+
+
+type TypeEnv = Map.Map Name Ty
+
+
 
 
 -- ** MicroIR
@@ -155,9 +161,6 @@ instance Regs Name where
 digits :: Integral x => x -> [x]
 digits 0 = []
 digits x = digits (x `div` 10) ++ [x `mod` 10 + 48] -- ASCII 0 = 0
-
-type TypeEnv = () -- TODO
-
 
 -- | Translate LLVM Names into strings
 -- We use show, but this might add dependencies.
