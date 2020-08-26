@@ -18,6 +18,7 @@ compilations units.
 import qualified Data.Map as Map
 
 import Util.Util
+import MicroRAM.MicroRAM (MWord)
 
 import Compiler.Registers
 import Compiler.Analysis
@@ -68,23 +69,23 @@ justAnalyse analysis (CompUnit prog trLen rdata adata initMem) = do
 data InitMemSegment = InitMemSegment
   { isSecret :: Bool
   , isReadOnly :: Bool
-  , location :: Word
-  , segmentLen :: Word
-  , content :: Maybe [Word]
+  , location :: MWord
+  , segmentLen :: MWord
+  , content :: Maybe [MWord]
   } deriving (Eq, Ord, Read, Show)
 
 type InitialMem = [InitMemSegment]
 
 
-flatInitMem :: InitialMem -> Map.Map Word Word
+flatInitMem :: InitialMem -> Map.Map MWord MWord
 flatInitMem = foldr initSegment Map.empty
-  where initSegment :: InitMemSegment -> Map.Map Word Word -> Map.Map Word Word
+  where initSegment :: InitMemSegment -> Map.Map MWord MWord -> Map.Map MWord MWord
         initSegment (InitMemSegment _ _ _ _ Nothing) = id
         initSegment (InitMemSegment _ _ loc _ (Just content)) =
           Map.union $ Map.fromList $
           -- Map with the new content
           zip [loc..] content
 
-lengthInitMem :: InitialMem -> Word
+lengthInitMem :: InitialMem -> MWord
 lengthInitMem = foldl (\tip seg -> max tip (segTip seg)) 0
   where segTip (InitMemSegment _ _ loc len _) = loc + len

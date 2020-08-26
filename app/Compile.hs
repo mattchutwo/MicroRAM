@@ -87,7 +87,7 @@ main = do
             
  
       
-callBackend :: FlagRecord -> IO $ CompilationUnit (Program Name Word)
+callBackend :: FlagRecord -> IO $ CompilationUnit (Program Name MWord)
 callBackend fr = do  
   -- Retrieve program from file
   llvmModule <- llvmParse $ llvmFile fr

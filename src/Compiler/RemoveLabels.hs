@@ -51,7 +51,7 @@ import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..))
 
 -- * Assembler
 
-type Wrd = Word
+type Wrd = MWord
 
 naturals :: [Wrd]
 naturals = iterate (1 +) 1

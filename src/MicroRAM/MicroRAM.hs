@@ -22,6 +22,7 @@ module MicroRAM.MicroRAM
   Operand,
   MAOperand,
   OpTraversable(..),
+  MWord,
   ) where
 
 {-
@@ -89,6 +90,7 @@ before assembly... but I also use it to stand in for label addresses before we k
 
 -}
 
+import Data.Word (Word64)
 import GHC.Generics -- Helps testing
 import GHC.Read
 import Text.Read.Lex
@@ -270,3 +272,12 @@ instance Generic (Operand regT wrdT) where
       (L1 (M1 (M1 (K1 g1)))) -> Reg g1
       (R1 (M1 (M1 (K1 g1)))) -> Const g1
   
+
+-- | MicroRAM machine word.  Some places still use a hardcoded word size
+-- instead of being parametric.  In those places, we use `MWord` to distinguish
+-- it from a general unsigned integer, and to avoid depending on the host
+-- architecture's word size.
+--
+-- Note that the rest of the MicroRAM module *has* been parameterized, so
+-- `MWord` should not be used here.
+type MWord = Word64

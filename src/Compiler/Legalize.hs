@@ -23,6 +23,7 @@ import Compiler.IRs
 import Util.Util
 
 import MicroRAM.MicroRAM (Operand'(..), MAOperand, Instruction'(..))
+import           MicroRAM.MicroRAM (MWord)
 import qualified MicroRAM.MicroRAM as MRAM
 
 
@@ -164,12 +165,12 @@ legalizeBlock :: BB Name (MIRInstr m w) -> Statefully m w (BB Name (RTLInstr m w
 legalizeBlock (BB name body term dag) =
   BB name <$> legalizeInstrs body <*> legalizeInstrs term <*> pure dag
 
-legalizeFunc :: MIRFunction () Word -> Hopefully (RFunction () Word)
+legalizeFunc :: MIRFunction () MWord -> Hopefully (RFunction () MWord)
 legalizeFunc f = do
   (blocks', nextReg') <- runStatefully (mapM legalizeBlock $ funcBlocks f) (funcNextReg f)
   return $ f { funcBlocks = blocks', funcNextReg = nextReg' }
 
-legalize :: MIRprog () Word -> Hopefully (Rprog () Word)
+legalize :: MIRprog () MWord -> Hopefully (Rprog () MWord)
 legalize p = do
   code' <- mapM legalizeFunc $ code p
   return $ p { code = code' }

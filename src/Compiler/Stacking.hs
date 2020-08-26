@@ -68,10 +68,10 @@ import Compiler.IRs
 import Compiler.Registers
 import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..)) 
 
-type Ptr = Word
+type Ptr = MWord
 -- moved to typeclass, type MReg = VReg -- FIXME only while we use trivial register allocation
 
-type LOperand mreg =  MAOperand mreg Word
+type LOperand mreg =  MAOperand mreg MWord
 
 {-
 -- * Reserved pointers: Stack pointer (SP) and Base Pointer (BP) are reserved for
@@ -89,14 +89,14 @@ ax = NewName 2
 
 -- ** Usefull snipets
 -- sp points at the next free stack location
-push, pop :: Regs mreg => mreg -> [MAInstruction mreg Word]
+push, pop :: Regs mreg => mreg -> [MAInstruction mreg MWord]
 push r = [Istore (Reg sp) r,Iadd sp sp (Const 1)]
 pop r = [Isub  sp sp (Const 1),Iload r (Reg sp)]
 
 -- | pushOperand sometimes we want to push a constant
 -- Notice here we use ax. This can only be done at funciton entry
 -- where ax is callee-saved.
-pushOperand :: Regs mreg => LOperand mreg -> [MAInstruction mreg Word]
+pushOperand :: Regs mreg => LOperand mreg -> [MAInstruction mreg MWord]
 pushOperand (Reg r) = push r
 pushOperand (Const c) = Imov ax (Const c) :  push ax
 
@@ -105,21 +105,21 @@ pushOperand (Const c) = Imov ax (Const c) :  push ax
 -- TODO: Can we do this in batch? Unfortunately I dont think we can statically compute
 -- sp + 1
 -- TODO: include types 
-pushN :: Regs mreg => [LOperand mreg] -> [MAInstruction mreg Word]
+pushN :: Regs mreg => [LOperand mreg] -> [MAInstruction mreg MWord]
 pushN [] = []
 pushN (r:rs) = pushOperand r ++ pushN rs 
 
 -- PopN doesn't return, just drops the top n things in the stack
-popN :: Regs mreg => Word -> [MAInstruction mreg Word]
+popN :: Regs mreg => Word -> [MAInstruction mreg MWord]
 popN 0 = []
-popN n = [Isub sp sp (Const n) ]
+popN n = [Isub sp sp (Const $ fromIntegral n) ]
 
 
 -- | smartMov is like Imov, but does nothing if the registers are the same
-smartMov :: Regs mreg => mreg -> mreg -> [MAInstruction mreg Word]
+smartMov :: Regs mreg => mreg -> mreg -> [MAInstruction mreg MWord]
 smartMov r1 r2 = if r1 == r2 then [] else [Imov r1 (Reg r2)]
 
-smartMovMaybe :: Regs mreg => Maybe mreg -> mreg -> [MAInstruction mreg Word]
+smartMovMaybe :: Regs mreg => Maybe mreg -> mreg -> [MAInstruction mreg MWord]
 smartMovMaybe Nothing _ = []
 smartMovMaybe (Just r) a = smartMov r a
 
@@ -180,8 +180,8 @@ type GVEnv = Map.Map ShortByteString Ptr
 -- | Not used anymore
 storeGlobVars :: -- Or preamble
   Regs mreg =>
-  GEnv Word
-  -> Hopefully $ (GVEnv, NamedBlock mreg Word)
+  GEnv MWord
+  -> Hopefully $ (GVEnv, NamedBlock mreg MWord)
 storeGlobVars [] = return (Map.empty , NBlock Nothing [])
 storeGlobVars ls = do 
   -- aggregate all gloabls
@@ -189,22 +189,22 @@ storeGlobVars ls = do
   return (Map.empty , NBlock Nothing genvInstr)
 
   where storeGlobVar :: Regs mreg =>
-                        ([MAInstruction mreg Word],Word) 
-                        -> GlobalVariable Word
-                        -> Hopefully $ ([MAInstruction mreg Word],Word)
+                        ([MAInstruction mreg MWord],MWord)
+                        -> GlobalVariable MWord
+                        -> Hopefully $ ([MAInstruction mreg MWord],MWord)
         storeGlobVar (instrs, location) (GlobalVariable nm isConst typ init secret) = do
           newInstrs <- return $ writeGlob init location
-          return (instrs++newInstrs, location + tySize typ)
+          return (instrs++newInstrs, location + fromIntegral (tySize typ))
         writeGlob :: Regs mreg =>
-                     Maybe [Word]
-                     -> Word -> [MAInstruction mreg Word]
+                     Maybe [MWord]
+                     -> MWord -> [MAInstruction mreg MWord]
         writeGlob Nothing _ = []
         writeGlob (Just []) loc = []
         writeGlob (Just initial) loc =
           Iadd sp bp (Const loc) :
           storeList initial
         storeList :: Regs mreg =>
-                     [Word] -> [MAInstruction mreg Word]
+                     [MWord] -> [MAInstruction mreg MWord]
         storeList [] = []
         storeList [c] = [Istore (Const c) sp] 
         storeList (c:ls) =
@@ -237,7 +237,7 @@ replaceGlobalsInstr = undefined
 
 -- -- | Read input: OBSOLETE, We start with an initialized memory
 -- -- We read the entire input, store it into the stack (almost like in the paper)
--- readInput :: Regs mreg => [NamedBlock mreg Word]
+-- readInput :: Regs mreg => [NamedBlock mreg MWord]
 -- readInput =
 --   (MRAM.NBlock Nothing
 --   [Istore (Const 0) sp]) :                -- 1.
@@ -294,7 +294,7 @@ replaceGlobalsInstr = undefined
 @
 -}
 
-findArguments :: Regs mreg => [NamedBlock mreg Word]
+findArguments :: Regs mreg => [NamedBlock mreg MWord]
 findArguments = (MRAM.NBlock (Just "_Find arguments_")
   [ Iload bp (Const 1)    -- Base pointer points to argc
   , Iload sp (Reg bp)     -- Temporarily load argc into sp.
@@ -326,13 +326,13 @@ findArguments = (MRAM.NBlock (Just "_Find arguments_")
 -- This is a pseudofunction, that sets up return address for main.
 -- Stores the input in memory.
 -- Sends main to the returnBlock
-premain :: Regs mreg => [NamedBlock mreg Word]
+premain :: Regs mreg => [NamedBlock mreg MWord]
 premain =
   --findArguments ++
   [MRAM.NBlock Nothing $ Imov ax (Label "_ret_") : push ax]
 
 -- | returnBlock: return lets the program output an answer (when main returns)
-returnBlock :: Regs mreg => NamedBlock mreg Word
+returnBlock :: Regs mreg => NamedBlock mreg MWord
 returnBlock = MRAM.NBlock (Just "_ret_") [Ianswer (Reg ax)]
 
 
@@ -341,13 +341,13 @@ returnBlock = MRAM.NBlock (Just "_ret_") [Ianswer (Reg ax)]
 
 
 -- | prologue: allocates the stack at the beggining of the function
-prologue :: Regs mreg => Word -> [MAInstruction mreg Word]
+prologue :: Regs mreg => Word -> [MAInstruction mreg MWord]
 prologue size =
-    (Istore (Reg sp) bp): [Imov bp (Reg sp), Iadd sp sp (Const $ size + 1)] 
+    (Istore (Reg sp) bp): [Imov bp (Reg sp), Iadd sp sp (Const $ fromIntegral size + 1)]
 
 
 -- | epilogue: deallocate the stack, then jump to return address
-epilogue :: Regs mreg => [MAInstruction mreg Word]
+epilogue :: Regs mreg => [MAInstruction mreg MWord]
 epilogue =
   -- restore the old stack pointer (bp is popped by the caller)
   Imov sp (Reg bp) :
@@ -369,7 +369,7 @@ funCallInstructions ::
   -> LOperand mreg         -- ^ Function name
   -> [Ty]
   -> [LOperand mreg] -- ^ Arguments
-  -> [MAInstruction mreg Word]
+  -> [MAInstruction mreg MWord]
 funCallInstructions _ ret f _ args =
   -- Push all arguments to stack
   -- Mant architectures store arguemnts backwards, we don't
@@ -386,7 +386,7 @@ funCallInstructions _ ret f _ args =
   -- move the return value (allways returns to ax)
   setResult ret
   
-setResult :: Regs mreg => Maybe mreg -> [MAInstruction mreg Word]
+setResult :: Regs mreg => Maybe mreg -> [MAInstruction mreg MWord]
 setResult Nothing = []
 setResult (Just ret) = smartMov ret ax
 
@@ -394,19 +394,19 @@ setResult (Just ret) = smartMov ret ax
 -- ** Stacking translation
 
 -- | stack only the new instructions
-stackLTLInstr :: Regs mreg => LTLInstr' mreg Word $ MAOperand mreg Word
-              -> [MAInstruction mreg Word]
+stackLTLInstr :: Regs mreg => LTLInstr' mreg MWord $ MAOperand mreg MWord
+              -> [MAInstruction mreg MWord]
 stackLTLInstr (Lgetstack Incoming offset typ reg) =
-   [Isub reg bp (Const (2 + offset)), Iload reg (Reg reg)]
+   [Isub reg bp (Const (2 + fromIntegral offset)), Iload reg (Reg reg)]
 stackLTLInstr (Lsetstack reg Incoming offset typ) =
-   [ Isub bp bp (Const (2 + offset)), Istore (Reg bp) reg
-   , Iadd bp bp (Const (2 + offset))]
+   [ Isub bp bp (Const (2 + fromIntegral offset)), Istore (Reg bp) reg
+   , Iadd bp bp (Const (2 + fromIntegral offset))]
 
 stackLTLInstr (Lgetstack Local offset typ reg) =
-   [Iadd reg bp (Const $ offset + 1), Iload reg (Reg reg)]  -- JP: offset+1?
+   [Iadd reg bp (Const $ fromIntegral offset + 1), Iload reg (Reg reg)]  -- JP: offset+1?
 stackLTLInstr (Lsetstack reg Local offset typ) =
-   [ Iadd bp bp (Const $ offset + 1), Istore (Reg bp) reg
-   , Isub bp bp (Const $ offset + 1)] -- JP: offset+1?
+   [ Iadd bp bp (Const $ fromIntegral offset + 1), Istore (Reg bp) reg
+   , Isub bp bp (Const $ fromIntegral offset + 1)] -- JP: offset+1?
 
 stackLTLInstr (LCall typ ret f argsT args) =
   funCallInstructions typ ret f argsT args
@@ -419,25 +419,25 @@ stackLTLInstr (LAlloc reg typ n) =
   -- sp = sp + n * |typ| 
   incrSP typ n
   where incrSP typ (Reg r) =
-          [Imull r r (Const $ tySize typ),
+          [Imull r r (Const $ fromIntegral $ tySize typ),
            Iadd sp sp (Reg r)]
-        incrSP typ (Const n) = [Iadd sp sp (Const $ n * (tySize typ))] 
+        incrSP typ (Const n) = [Iadd sp sp (Const $ n * fromIntegral (tySize typ))]
   -- Compute the size of the allocated memory
   
  
 -- | stack all instructions
 stackInstr ::
   Regs mreg => 
-  LTLInstr () mreg Word
-  -> [MAInstruction mreg Word]
+  LTLInstr () mreg MWord
+  -> [MAInstruction mreg MWord]
 stackInstr (MRI instr ()) =  [instr]
 stackInstr (IRI instr _) = stackLTLInstr instr 
 
 
 stackBlock
   :: Regs mreg
-  => (BB Name $ LTLInstr () mreg Word)
-  -> Hopefully (NamedBlock mreg Word)
+  => (BB Name $ LTLInstr () mreg MWord)
+  -> Hopefully (NamedBlock mreg MWord)
 stackBlock (BB name body term _ ) = do
   body' <- return $ map stackInstr (body++term)
   return $ NBlock (Just $ show name) $ concat body'
@@ -449,15 +449,15 @@ name2string (NewName st) = "NewName:"++(show st)
 -- | Translating funcitons
 stackFunction
   :: Regs mreg =>
-  LFunction () mreg Word
-  -> Hopefully $ [NamedBlock mreg Word]
+  LFunction () mreg MWord
+  -> Hopefully $ [NamedBlock mreg MWord]
 stackFunction (LFunction name mdata retT argT size code) = do
   prologueBlock <- return $ NBlock (Just name) $ prologue size
   codeBlocks <- mapM stackBlock code
   return $ prologueBlock : codeBlocks
   
   
-stacking :: Regs mreg => Lprog () mreg Word -> Hopefully $ MAProgram mreg Word
+stacking :: Regs mreg => Lprog () mreg MWord -> Hopefully $ MAProgram mreg MWord
 stacking (IRprog _ _ functions) = do
   -- (genv, preamble) <- storeGlobVars globals -- Globs are passed in initial mem now
   functions' <- mapM stackFunction functions

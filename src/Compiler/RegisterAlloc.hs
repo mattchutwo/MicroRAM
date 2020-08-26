@@ -39,6 +39,7 @@ import           Compiler.Errors
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.RegisterAlloc.Liveness
+import           MicroRAM.MicroRAM (MWord)
 import qualified MicroRAM.MicroRAM as MRAM
 import           Util.Util
 
@@ -53,7 +54,7 @@ type Registers = [VReg]
 
 
 
-registerAlloc :: RegisterAllocOptions -> Rprog () Word -> Hopefully $ Lprog () VReg Word
+registerAlloc :: RegisterAllocOptions -> Rprog () MWord -> Hopefully $ Lprog () VReg MWord
 registerAlloc (RegisterAllocOptions numRegisters) rprog = do
   -- Convert to ltl.
   lprog <- rtlToLtl rprog
@@ -82,7 +83,7 @@ data RAState = RAState {
 
 -- Initialize function arguments according to the calling convention.
 -- Currently, this loads arguments from the stack with `Lgetstack Incoming 0 _ (Name "0")`.
-initializeFunctionArgs :: LFunction () VReg Word -> LFunction () VReg Word
+initializeFunctionArgs :: LFunction () VReg MWord -> LFunction () VReg MWord
 initializeFunctionArgs (LFunction fname mdata typ typs stackSize blocks) = 
     let b = BB bname insts [] daginfo in
     LFunction fname mdata typ typs stackSize $ b:blocks
@@ -103,7 +104,7 @@ initializeFunctionArgs (LFunction fname mdata typ typs stackSize blocks) =
 
 
 -- Assumes that instructions are in SSA form.
-registerAllocFunc :: Registers -> LFunction () VReg Word -> Hopefully $ LFunction () VReg Word
+registerAllocFunc :: Registers -> LFunction () VReg MWord -> Hopefully $ LFunction () VReg MWord
 registerAllocFunc registers (LFunction mdata name typ typs stackSize' blocks') = do
 
   (rtlBlocks, rast) <- flip runStateT (RAState 0 0 mempty) $ do
@@ -391,7 +392,7 @@ computeInterferenceGraph liveness allRegs = -- argRegs =
 -- * Triviall allocation: we provide a pass that erases the code. Usefull for early testing.
 -- FIXME: remove this once registerAlloc is implemented and can be tested!
 
-trivialRegisterAlloc :: Rprog () Word -> Hopefully $ Lprog () VReg Word
+trivialRegisterAlloc :: Rprog () MWord -> Hopefully $ Lprog () VReg MWord
 trivialRegisterAlloc = rtlToLtl
 
 
@@ -413,13 +414,13 @@ trivialRegisterAlloc = rtlToLtl
 -- -- | Map2 is a mpa that takes two keys and returns one value
 -- type Map2 t1 t2 t3 = Map.Map t1 (Map.Map t2 t3) 
 -- 
--- replacePhi :: Rprog () Word -> Rprog () Word
+-- replacePhi :: Rprog () MWord -> Rprog () MWord
 -- replacePhi prog = addPhiMoves $ abstractPhi prog
 -- 
 -- -- | removes all occurrences of Phi, and stores the move information in a map
 -- -- (Name,Name) represents the name of the function and the name of the block.
--- type AbstractPhiProgram = (Rprog () Word, Map2 Name Name [(VReg, MRAM.MAOperand VReg Word)]) 
--- abstractPhi :: Rprog () Word -> AbstractPhiProgram 
+-- type AbstractPhiProgram = (Rprog () MWord, Map2 Name Name [(VReg, MRAM.MAOperand VReg MWord)])
+-- abstractPhi :: Rprog () MWord -> AbstractPhiProgram
 -- abstractPhi (IRprog tenv globs code) =
 --   let (phiMap, code') = abstractPhiCode code in
 --     (IRprog tenv globs code', phiMap)
@@ -446,22 +447,22 @@ trivialRegisterAlloc = rtlToLtl
 -- 
 --           
 -- -- | Adds all the abstract PHi information as `Imov` instructions
--- addPhiMoves :: AbstractPhiProgram -> Rprog () Word
+-- addPhiMoves :: AbstractPhiProgram -> Rprog () MWord
 -- addPhiMoves (prog, phiMap) = prog {code = map (addPhiFunc phiMap) $ code prog}
 --   where addPhiFunc phiMap (Function name ret args code) =
 --           Function name ret args (map (addPhiBlock (Map.lookup name phiMap)) code)
 -- 
 --         addPhiBlock ::
---           (Maybe $ Map.Map Name [(VReg, MRAM.MAOperand VReg Word)])
---           -> BB Name $ RTLInstr () Word
---           -> BB Name $ RTLInstr () Word
+--           (Maybe $ Map.Map Name [(VReg, MRAM.MAOperand VReg MWord)])
+--           -> BB Name $ RTLInstr () MWord
+--           -> BB Name $ RTLInstr () MWord
 --         addPhiBlock Nothing block = block
 --         addPhiBlock (Just phiMap) (BB name code term dagd) =
 --           (BB name (code ++ (phiMap2Instructions $ Map.lookup name phiMap)) term dagd)
 -- 
 --         phiMap2Instructions ::
---           Maybe [(VReg, MRAM.MAOperand VReg Word)]
---           -> [RTLInstr () Word]
+--           Maybe [(VReg, MRAM.MAOperand VReg MWord)]
+--           -> [RTLInstr () MWord]
 --         phiMap2Instructions Nothing = []
 --         phiMap2Instructions (Just ls) = map phiPair2instr ls
 --         
