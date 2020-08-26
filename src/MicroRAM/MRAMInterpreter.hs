@@ -3,6 +3,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RankNTypes #-}
 {-
 Module      : MRAM Interpreter
 Description : Interpreter for MicrRAM programs
@@ -23,115 +25,245 @@ module MicroRAM.MRAMInterpreter
     Advice(..), renderAdvc,
     MemOpType(..),
     -- * Just for the debugger
-    Mem, load,
+    Mem', load,
     -- * Just for testing
     Prog
     ) where
 
-import MicroRAM
-import Data.Bits
-import qualified Data.Map.Strict as Map
-import GHC.Generics
 import Control.Monad
 import Control.Monad.State
+import Control.Lens (makeLenses, ix, at, lens, (.=), (%=), use, Lens')
+import Data.Bits
+import qualified Data.Sequence as Seq
+import Data.Sequence (Seq)
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
 
-import Util.Util()
+import GHC.Generics
 
+import Compiler.Errors
 import Compiler.Registers
 import Compiler.CompilationUnit
+import MicroRAM
 
 
--- * Utility
+data Mem = Mem MWord (Map MWord MWord)
 
-wrdMax, _wrdMin :: Integer
-wrdMax = toInteger (maxBound :: MWord)
-_wrdMin = toInteger (minBound :: MWord)
+data MachineState r = MachineState
+  { _mCycle :: MWord
+  , _mPc :: MWord
+  , _mRegs :: RegBank r MWord
+  , _mFlag :: Bool
+  , _mProg :: Seq (Instruction r MWord)
+  , _mMem :: Mem
+  , _mAnswer :: Maybe MWord
+  }
+makeLenses ''MachineState
 
-wrdSize :: Int
-wrdSize = finiteBitSize (0 :: MWord)
+data InterpState r s = InterpState
+  { _sExt :: s
+  , _sMach :: MachineState r
+  }
+makeLenses ''InterpState
 
-wrdModulus :: Integer
-wrdModulus = 1 `shift` wrdSize
+type InterpM r s m a = StateT (InterpState r s) m a
 
-toInt :: Integral a => a -> Int
-toInt x = fromIntegral x
-
--- Most significant bit depends on implementation
--- If it's int then msb is the positive/negative marker
-msb :: MWord -> Bool 
-msb x = testBit x (wrdSize - 1)
-
--- Some binary operations that are representation dependent
-
--- | Multiply and take the most significant bits.
-umulh :: Integer -> Integer -> Integer
-umulh r1 r2 = (r1 * r2) `quot` wrdModulus -- this quotient removes the first W bits
-
--- | Multiply SIGNED and take the most significant bits.
--- We convert the operands through Int to interpret them as signed.
--- Then Multiply, then take the most significant bits  
-smulh :: Integer -> Integer -> Integer
-smulh r1 r2 = (r1' * r2') `quot` wrdModulus
-  where r1' = toInteger $ toInt r1 -- By converting through Int, int's interpreted as signed.
-        r2' = toInteger $ toInt r2  -- By converting through Int, int's interpreted as signed.
+type InstrHandler r s = Instruction r MWord -> InterpM r s Hopefully ()
 
 
--- ** Program State
+-- | Lens for accessing a particular register in `mRegs`.  Returns the default
+-- value 0 when the register is uninitialized.
+mReg :: (Functor f, Regs r) => r -> (MWord -> f MWord) -> (MachineState r -> f (MachineState r))
+mReg r = mRegs . lens (maybe 0 id . lookupReg r) (flip $ updateBank r)
+
+-- | Lens for accessing a particular word of memory.  Produces the `Mem`'s
+-- default value when reading an uninitialized location.
+memWord :: Functor f => MWord -> (MWord -> f MWord) -> (Mem -> f Mem)
+memWord addr = lens (get addr) (set addr)
+  where
+    get addr (Mem d m) = maybe d id $ Map.lookup addr m
+    set addr (Mem d m) val = Mem d $ Map.insert addr val m
+
+mMemWord :: Functor f => MWord -> (MWord -> f MWord) -> (MachineState r -> f (MachineState r))
+mMemWord addr = mMem . memWord addr
 
 
+-- | Fetch the instruction at `addr`.  Typically, `addr` will be the current
+-- program counter (`sMach . mPc`).
+fetchInstr :: MWord -> InterpM r s Hopefully (Instruction r MWord)
+fetchInstr addr = do
+  prog <- use $ sMach . mProg
+  case Seq.lookup (fromIntegral addr) prog of
+    Just x -> return x
+    Nothing -> assumptError $ "program executed out of bounds: " ++ show addr
 
--- The Program Counter is a special register, represented separatedly 
-type Pc = MWord
-init_pc :: Pc
-init_pc = 0
+stepInstr :: Regs r => Instruction r MWord -> InterpM r s Hopefully ()
+stepInstr i = do
+  case i of
+    Iand rd r1 op2 -> stepBinary (.&.) (\_ _ r -> r == 0) rd r1 op2
+    Ior rd r1 op2 -> stepBinary (.|.) (\_ _ r -> r == 0) rd r1 op2
+    Ixor rd r1 op2 -> stepBinary xor (\_ _ r -> r == 0) rd r1 op2
+    Inot rd op2 -> stepUnary complement (\_ r -> r == 0) rd op2
 
--- | Registers
--- We represent the registers a a list of words,
+    Iadd rd r1 op2 -> stepBinary (+) addOverflow rd r1 op2
+    Isub rd r1 op2 -> stepBinary (-) subUnderflow rd r1 op2
+    Imull rd r1 op2 -> stepBinary (*) mulOverflow rd r1 op2
+    Iumulh rd r1 op2 -> stepBinary umulh mulOverflow rd r1 op2
+    Ismulh rd r1 op2 -> stepBinary smulh signedMulOverflow rd r1 op2
+    -- TODO div/mod vs quot/rem?
+    Iudiv rd r1 op2 -> stepBinary div (\_ y _ -> y == 0) rd r1 op2
+    Iumod rd r1 op2 -> stepBinary mod (\_ y _ -> y == 0) rd r1 op2
 
--- The condition and bad flags
-{- Current implementation of the flag only works for conditionals
- it does not get set on binary operations (e.g. on overflow) as in tiniyRAM
+    Ishl rd r1 op2 -> stepBinary shiftL' (\x _ _ -> msb x) rd r1 op2
+    Ishr rd r1 op2 -> stepBinary shiftR' (\x _ _ -> lsb x) rd r1 op2
 
- We add a bad flag to be raised when an operation goes wrong. If the flag is
- set, the the rest of the state is bogus.
--}
-init_flag :: Bool
-init_flag = False
+    Icmpe r1 op2 -> stepCompare (==) r1 op2
+    Icmpa r1 op2 -> stepCompare (>) r1 op2
+    Icmpae r1 op2 -> stepCompare (>=) r1 op2
+    Icmpg r1 op2 -> stepCompare signedGt r1 op2
+    Icmpge r1 op2 -> stepCompare signedGe r1 op2
 
--- | Memory
--- Memory used to be
--- > Mem::MWord -> MWord 
--- but that is not good to building a (finite) trace
--- also we want programs that read uninitialized memory to bad
+    Imov rd op2 -> stepMove (const True) rd op2
+    Icmov rd op2 -> stepMove (== True) rd op2
+
+    Ijmp op2 -> stepJump (const True) op2
+    Icjmp op2 -> stepJump (== True) op2
+    Icnjmp op2 -> stepJump (== False) op2
+
+    Istore op2 r1 -> stepStore op2 r1
+    Iload rd op2 -> stepLoad rd op2
+
+    Iread rd op2 -> stepRead rd op2
+    Ianswer op2 -> stepAnswer op2
+
+  sMach . mCycle %= (+ 1)
+
+stepUnary :: Regs r => (MWord -> MWord) -> (MWord -> MWord -> Bool) ->
+  r -> Operand r MWord -> InterpM r s Hopefully ()
+stepUnary f flag rd op2 = do
+  y <- opVal op2
+  let result = f y
+  sMach . mReg rd .= result
+  sMach . mFlag .= flag y result
+  nextPc
+
+stepBinary :: Regs r => (MWord -> MWord -> MWord) -> (MWord -> MWord -> MWord -> Bool) ->
+  r -> r -> Operand r MWord -> InterpM r s Hopefully ()
+stepBinary f flag rd r1 op2 = do
+  x <- regVal r1
+  y <- opVal op2
+  let result = f x y
+  sMach . mReg rd .= result
+  sMach . mFlag .= flag x y result
+  nextPc
+
+stepCompare :: Regs r => (MWord -> MWord -> Bool) ->
+  r -> Operand r MWord -> InterpM r s Hopefully ()
+stepCompare flag r1 op2 = do
+  x <- regVal r1
+  y <- opVal op2
+  sMach . mFlag .= flag x y
+  nextPc
+
+stepMove :: Regs r => (Bool -> Bool) -> r -> Operand r MWord -> InterpM r s Hopefully ()
+stepMove cond rd op2 = do
+  y <- opVal op2
+  ok <- cond <$> use (sMach . mFlag)
+  when ok $ sMach . mReg rd .= y
+  nextPc
+
+stepJump :: Regs r => (Bool -> Bool) -> Operand r MWord -> InterpM r s Hopefully ()
+stepJump cond op2 = do
+  y <- opVal op2
+  ok <- cond <$> use (sMach . mFlag)
+  if ok then sMach . mPc .= y else nextPc
+
+stepStore :: Regs r => Operand r MWord -> r -> InterpM r s Hopefully ()
+stepStore op2 r1 = do
+  addr <- opVal op2
+  val <- regVal r1
+  sMach . mMemWord addr .= val
+  nextPc
+
+stepLoad :: Regs r => r -> Operand r MWord -> InterpM r s Hopefully ()
+stepLoad rd op2 = do
+  addr <- opVal op2
+  val <- use $ sMach . mMemWord addr
+  sMach . mReg rd .= val
+  nextPc
+
+stepRead :: Regs r => r -> Operand r MWord -> InterpM r s Hopefully ()
+stepRead rd _op2 = do
+  -- All tapes are empty.
+  sMach . mReg rd .= 0
+  sMach . mFlag .= True
+  nextPc
+
+stepAnswer :: Regs r => Operand r MWord -> InterpM r s Hopefully ()
+stepAnswer op2 = do
+  y <- opVal op2
+  sMach . mAnswer .= Just y
+  -- No `nextPc` here.  We just keep looping on the `answer` instruction until
+  -- the interpreter stops running.
+
+nextPc :: InterpM r s Hopefully ()
+nextPc = sMach . mPc %= (+ 1)
 
 
-type Mem = (MWord,Map.Map MWord MWord)
+wordBits :: Int
+wordBits = finiteBitSize (0 :: MWord)
 
--- | Initial memory is given as input to the program.
-init_mem :: InitialMem -> Mem
-init_mem input = (0,flatInitMem input)
+toSignedInteger :: MWord -> Integer
+toSignedInteger x = toInteger x - if msb x then 1 `shiftL` wordBits else 0
 
--- | Write to a location in memory
-store ::
-  MWord     -- ^ addres
-  -> MWord  -- ^ value
-  -> Mem
-  -> Mem
-store x y (d,m)=  (d,Map.insert x y m) 
+addOverflow :: MWord -> MWord -> MWord -> Bool
+addOverflow x _ r = r < x
 
--- | Read from a location in memory
-load ::  MWord -> Mem -> MWord
-load x (d,m)=  case Map.lookup x m of
-                 Just y -> y
-                 Nothing -> d
+subUnderflow :: MWord -> MWord -> MWord -> Bool
+subUnderflow x _ r = r > x
 
--- *** Tapes: OBSOLETE input is passed as initial memory.
---type Tape = [MWord]  -- ^read only tape
+mulOverflow :: MWord -> MWord -> MWord -> Bool
+mulOverflow x y _ = toInteger x * toInteger y > toInteger (maxBound :: MWord)
 
--- ** Program state State
-{- I don't include the program in the state since it never changes
+signedMulOverflow :: MWord -> MWord -> MWord -> Bool
+signedMulOverflow x y _ = r' < low || r' > high
+  where
+    r' = toInteger x * toInteger y
+    low = negate $ 1 `shiftL` (wordBits - 1)
+    high = (1 `shiftL` (wordBits - 1)) - 1
 
--}
+umulh :: MWord -> MWord -> MWord
+umulh x y = fromInteger $ (toInteger x * toInteger y) `shiftR` wordBits
+
+smulh :: MWord -> MWord -> MWord
+smulh x y = fromInteger $ (toSignedInteger x * toSignedInteger y) `shiftR` wordBits
+
+shiftL' :: MWord -> MWord -> MWord
+shiftL' x y = x `shiftL` fromIntegral y
+shiftR' :: MWord -> MWord -> MWord
+shiftR' x y = x `shiftR` fromIntegral y
+
+lsb :: MWord -> Bool
+lsb w = testBit w 0
+msb :: MWord -> Bool
+msb w = testBit w (wordBits - 1)
+
+signedGt :: MWord -> MWord -> Bool
+signedGt x y = toSignedInteger x > toSignedInteger y
+
+signedGe :: MWord -> MWord -> Bool
+signedGe x y = toSignedInteger x >= toSignedInteger y
+
+regVal :: Regs r => r -> InterpM r s Hopefully MWord
+regVal r = use $ sMach . mReg r
+
+opVal ::  Regs r => Operand r MWord -> InterpM r s Hopefully MWord
+opVal (Reg r) = regVal r
+opVal (Const w) = return w
+
+
+-- Advice-generating extension
+
 -- | Memory operation advice: nondeterministic advice to help the
 -- witness checker chekc the memory consistency. 
 data MemOpType = MOStore | MOLoad
@@ -156,17 +288,36 @@ renderAdvc advs = concat $ map renderAdvc' advs
         renderAdvc' (MemOp  addr v MOLoad) = "Load: " ++ show addr ++ "->" ++ show v
         renderAdvc' (Stutter) = "...Stutter..."
 
--- | The program state
+type AdviceMap = Map MWord [Advice]
+
+adviceHandler :: Regs r => Lens' s AdviceMap -> InstrHandler r s
+adviceHandler advice (Istore op2 r1) = do
+  addr <- opVal op2
+  val <- regVal r1
+  cycle <- use $ sMach . mCycle
+  sExt . advice . at cycle .= Just [MemOp addr val MOStore]
+adviceHandler advice (Iload _rd op2) = do
+  addr <- opVal op2
+  val <- use $ sMach . mMemWord addr
+  cycle <- use $ sMach . mCycle
+  sExt . advice . at cycle .= Just [MemOp addr val MOLoad]
+adviceHandler _ _ = return ()
+
+
+-- Old public definitions
+
+type Mem' = (MWord, Map MWord MWord)
+
+-- | The program state 
 data ExecutionState mreg = ExecutionState {
   -- | Program counter
-  pc :: Pc
+  pc :: MWord
   -- | Register bank
   , regs :: RegBank mreg MWord
   -- | Memory state
-  , mem :: Mem
+  , mem :: Mem'
   -- | Nondeterministic advice for the last step
-  , advice :: [Advice] -- Deleted at the start of each step.
-  --, tapes :: (Tape, Tape)
+  , advice :: [Advice]
   -- | The flag (a boolean register)
   , flag :: Bool
   -- | Marks for bugs and invalid traces
@@ -177,390 +328,66 @@ data ExecutionState mreg = ExecutionState {
 deriving instance (Read (RegBank mreg MWord)) => Read (ExecutionState mreg)
 deriving instance (Show (RegBank mreg MWord)) => Show (ExecutionState mreg)
 
-type ExecSt mreg = State (ExecutionState mreg)
+getStateWithAdvice :: Monad m => Lens' s AdviceMap -> InterpM r s m (ExecutionState r)
+getStateWithAdvice advice = do
+  pc <- use $ sMach . mPc
+  regs <- use $ sMach . mRegs
+  Mem d m <- use $ sMach . mMem
+  let mem = (d, m)
+  cycle <- use $ sMach . mCycle
+  -- Retrieve advice for the cycle that just finished executing.
+  adv <- use $ sExt . advice . ix (cycle - 1)
+  flag <- use $ sMach . mFlag
+  let bug = False
+  let inv = False
+  answer <- use $ sMach . mAnswer
+  return $ ExecutionState pc regs mem adv flag bug inv (maybe 0 id answer)
 
-init_state :: Regs mreg => InitialMem -> ExecutionState mreg
-init_state input  = ExecutionState {
-  pc = init_pc
-  , regs = initBank (lengthInitMem input)
-  , mem = init_mem input
-  , advice = []
-  --, tapes = (t_input, t_advice)
-  , flag = init_flag
-  , bug_flag = init_flag -- ^ Witness of a bug 
-  , inv_flag = init_flag -- ^ trace doesn't give enough guarantees. FIXME: What does this reveal?
-  , answer = 0
-}
-
--- | Generic setter for changing the state
-changeSt :: (ExecutionState mreg  -> ExecutionState mreg) -> ExecSt mreg ()
-changeSt setter = do{ st <- get; put $ setter st }
-
-getFromSt :: (ExecutionState mreg  -> a) -> ExecSt mreg a
-getFromSt getter = do{ st <- get; return $ getter st }
-
-setRegBank:: Regs mreg => RegBank mreg MWord -> ExecSt mreg ()
-setRegBank regBank = changeSt (\st -> st {regs = regBank})
-
-set_reg:: Regs mreg => mreg -> MWord -> ExecSt mreg ()
-set_reg r x = do
-  st <- get
-  setRegBank $ updateBank r x (regs st)
-
-store_advc :: MWord -> MWord -> ExecSt mreg ()
-store_advc addr v = changeSt (\st -> st {advice = [MemOp addr v MOStore]})
-
-load_advc :: MWord -> MWord -> ExecSt mreg ()
-load_advc addr v = changeSt (\st -> st {advice = [MemOp addr v MOLoad]})
-
-store_mem::  MWord -> MWord -> ExecSt mreg ()
-store_mem r x = do
-  st <- get
-  put $ st { mem = store r x (mem st)}
-  store_advc r x
-  
-load_mem :: Regs mreg => mreg -> MWord -> ExecSt mreg ()
-load_mem r1 op = do
-  st <- get
-  value <- return $ load op $ (mem st) 
-  load_advc op value
-  set_reg r1 value 
-
-set_flag :: Bool -> ExecSt mreg ()
-set_flag b = changeSt (\st -> st { flag = b})
-
-set_pc:: MWord -> ExecSt mreg ()
-set_pc pc'= changeSt (\st ->  st {pc = pc'})
-
--- Turn on the bad flag
--- there is no way to "unbad" a state
-bug:: ExecSt mreg ()
-bug = changeSt (\st -> st {bug_flag = True})
-
-_invalid:: ExecSt mreg ()
-_invalid = changeSt (\st -> st {inv_flag = True})
-
-set_answer:: MWord -> ExecSt mreg ()
-set_answer ans  =  changeSt (\st -> st { answer = ans })
-
-
--- | Next increases the program counter 
-next :: ExecSt mreg ()
-next = do 
-  st <- get
-  put $ st {pc = (succ $ pc st)}
-
--- * Interpreter
-
--- ** Utility evaluators
-
--- | Register getters: if the register has not been initiates is an error !
-get_bank :: ExecSt mreg (RegBank mreg MWord)
-get_bank = getFromSt regs
-
-get_reg :: Regs mreg => mreg -> ExecSt mreg MWord
-get_reg r = do
-  rs <- get_bank
-  case lookupReg r rs of
-    Just w -> return w
-    Nothing -> do {bug; return 0}
-      
-get_flag :: ExecSt mreg Bool
-get_flag = getFromSt flag
-
-get_pc :: ExecSt mreg Pc
-get_pc = getFromSt pc
- 
--- | Gets operand wether it's a register or a constant or a PC
-eval_operand :: Regs mreg => Operand mreg MWord -> ExecSt mreg MWord
-eval_operand (Reg r) = get_reg r
-eval_operand (Const w) = return w
-
--- *** unary and binart operations
-{- The way we computeto do binary/unary operations we do the following steps:
-   1 - Compute the operands (results are type MWord)
-   2 - Transforms the operands to Integer
-   3 - Compute the operation over the integers
-   4 - Transform the result to MWord and store it in the return register
-   5 - Set the flag, if the given condition is satisfied over the result
-
-We use Integers to be homogeneus over all possible types MWord and because it makes checking under/overflow easier
--}
-
--- | Binary operations generic.
-bop :: (Regs mreg) =>
-       mreg
-       -> Operand mreg MWord
-       -> (Integer -> Integer -> x) -- ^ Binary operation
-       -> ExecSt mreg x
-bop r1 a f = do
-  r1' <- get_reg r1
-  a' <- eval_operand a
-  return $ f (toInteger r1') (toInteger a')
-
-  
--- | Unart operations generic. 
-uop :: Regs mreg =>
-       Operand mreg MWord
-       -> (Integer -> x)
-       -> ExecSt mreg x
-uop a f = do
-  a' <- eval_operand a
-  return $ f (toInteger a')
-
-
--- | Catches division by 0
--- By TinyRAM semantics, this sets the flag to 0 and returns 0
--- I would like to flag this as an error.
-exception :: Regs mreg => 
-             Bool
-          -> mreg
-          -> ExecSt mreg () -- ^ continuation
-          -> ExecSt mreg ()
-exception False _ k = k
-exception True r _ = do
-  set_flag True
-  set_reg r 0
-catchZero :: Regs mreg =>
-             MWord
-           -> mreg
-          -> ExecSt mreg () -- ^ continuation
-          -> ExecSt mreg ()
-catchZero w = exception (w == 0)
-exec_bop :: Regs mreg =>
-            mreg
-         -> mreg
-         -> Operand mreg MWord
-         -> (Integer -> Integer -> Integer) -- ^ Binary operation
-         -> (Integer -> Bool) -- ^ Checks if flag should be set
-         -> ExecSt mreg () 
-exec_bop r1 r2 a f check = do
-  result <- bop r2 a f
-  set_flag (check result)
-  set_reg r1 (fromInteger result)
-  next
-  
--- | Evaluate binop, but first check a<>0 
-execBopCatchZero ::
-  Regs mreg =>
-  mreg
-  -> mreg
-  -> Operand mreg MWord
-  -> (Integer -> Integer -> Integer) -- ^ Binary operation
-  -> ExecSt mreg ()
-execBopCatchZero r1 r2 a f = do
-  a' <- eval_operand a
-  catchZero a' r1 $ exec_bop r1 r2 a f (\_-> False)
-  -- It's unclear if we want to set the flag at all. 
-  -- TinyRAM is abiguous: "flag is set to 1 if and only if [A]u = 0."
-  -- Here the semantics is "flag is set to 1 is [A]=0 and to 0 otherwise."
-
-exec_uop :: Regs mreg =>
-            mreg
-         -> Operand mreg MWord
-         -> (Integer -> Integer) -- ^ Unary operatio
-         -> (Integer -> Bool) -- ^ Checks if flag should be set
-         -> ExecSt mreg ()
-exec_uop r1 a f check = do
-  result <- uop a f
-  set_flag (check result)
-  set_reg r1 (fromInteger result)
-  next
-
--- Common checks for binary operations (to set the flag)
-isZero,notZero :: Integer -> Bool
-isZero 0 = True
-isZero _ = False
-notZero x = not (isZero x)
-
-
-overflow, borrow :: Integer -> Bool
-overflow i = i > wrdMax
-borrow i = i < 0
-
-trivialCheck :: Integer -> Bool
-trivialCheck _ = True
-
--- compute most/less significant digit
-lsb :: MWord -> Bool
-lsb x = 0 == x `mod` 2
-                 
--- *** Conditionals Util
-
-exec_cnd :: Regs mreg =>
-  mreg
-  -> Operand mreg MWord
-  -> (Integer -> Integer -> Bool)
-  -> ExecSt mreg ()
-exec_cnd r1 a f = do
-  result <- bop r1 a f
-  set_flag result
-  next
-
--- *** Jump util
-
-exec_jmp
-  :: Regs mreg => Operand mreg MWord -> ExecSt mreg ()
-exec_jmp a = do
-  a' <-  eval_operand a
-  set_pc a'
-
--- ** Instruction execution (after instr. fetching)
-ifFlagExec :: ExecSt mreg a -> ExecSt mreg a -> ExecSt mreg a
-ifFlagExec kt kf = do
-  fl <- get_flag
-  if fl then kt else kf
-  
-exec :: Regs mreg => Instruction mreg MWord -> ExecSt mreg ()
-exec (Iand r1 r2 a) = exec_bop r1 r2 a (.&.) isZero
-exec (Ior r1 r2 a)  = exec_bop r1 r2 a (.|.) isZero
-exec (Ixor r1 r2 a) = exec_bop r1 r2 a xor isZero
-exec (Inot r1 a)  = exec_uop r1 a complement isZero
-
-exec (Iadd r1 r2 a) = exec_bop r1 r2 a (+) overflow
-exec (Isub r1 r2 a) = exec_bop r1 r2 a (-) borrow
-exec (Imull r1 r2 a) = exec_bop r1 r2 a (*) overflow
-
-exec (Iumulh r1 r2 a) = exec_bop r1 r2 a umulh notZero -- ^ flagged iff the return is not zero (indicates overflow)
-exec (Ismulh r1 r2 a) = exec_bop r1 r2 a smulh notZero  -- ^ flagged iff the return is not zero (indicates overflow)
-exec (Iudiv r1 r2 a) = execBopCatchZero r1 r2 a quot
-exec (Iumod r1 r2 a) = execBopCatchZero r1 r2 a rem
-
--- Shifts are a bit tricky since the flag depends on the operand not the result.
-exec (Ishl r1 r2 a) = do
-  r1' <- get_reg r1
-  set_flag (msb r1')
-  exec_bop r1 r2 a (\a b -> shiftL a (fromInteger b)) trivialCheck
-exec (Ishr r1 r2 a) = do
-  r1' <- get_reg r1
-  set_flag (lsb r1')
-  exec_bop r1 r2 a (\a b -> shiftR a (fromInteger b)) trivialCheck
-
--- Compare operations
-exec (Icmpe r1 a) = exec_cnd r1 a (==)
-exec (Icmpa r1 a) = exec_cnd r1 a (>)
-exec (Icmpae r1 a) = exec_cnd r1 a (>=)
-exec (Icmpg r1 a) = exec_cnd r1 a (>)
-exec (Icmpge r1 a) = exec_cnd r1 a (>=)
-
--- Move operations
-exec (Imov r a) = do
-  a' <- eval_operand a
-  set_reg r a'
-  next
- 
-exec (Icmov r a) = ifFlagExec (exec (Imov r a)) next
- 
--- Jump Operations
-exec (Ijmp a) = exec_jmp a
-exec (Icjmp a) = ifFlagExec (exec_jmp a) next
-exec (Icnjmp a) = ifFlagExec next $ exec_jmp a -- Reverse order for not
-
---Memory operations
-exec (Istore a r1) = do
-  a' <- eval_operand a
-  r1' <- get_reg r1
-  store_mem a' r1'
-  next
-
-exec (Iload r1 a) =  do
-  a' <- eval_operand a
-  load_mem r1 a'
-  next
-
-exec (Iread _r1 _a) = next -- ^ Obsolete, it's a no-op now. FIXME: remove?
--- pop_tape (eval_operand st a) r1 st
-
--- Answer : set answer to ans and loop (pc not incremented)
-exec (Ianswer a) = do
-  a' <- eval_operand a
-  set_answer a'
-
--- | freshAdvice: clear advice before every step 
-freshAdvice :: ExecSt mreg ()
-freshAdvice = changeSt (\st -> st {advice = []})
-
--- ** Program step
 type Prog mreg = Program mreg MWord
-
-step :: Regs mreg => Prog mreg  -> ExecSt mreg (ExecutionState mreg)
-step prog = do
-  pc' <- get_pc
-  freshAdvice
-  exec (prog !! (toInt $ pc'))
-  get
-_step_ :: Regs mreg => Prog mreg  -> ExecSt mreg ()
-_step_ p = do {_ <- step p; return ()}
-
--- ** Execution
 type Trace mreg = [ExecutionState mreg]
+
+initMach :: Regs r => Program r MWord -> InitialMem -> MachineState r
+initMach prog imem = MachineState
+  { _mCycle = 0
+  , _mPc = 0
+  , _mRegs = initBank (lengthInitMem imem)
+  , _mFlag = False
+  , _mProg = Seq.fromList prog
+  , _mMem = Mem 0 $ flatInitMem imem
+  , _mAnswer = Nothing
+  }
 
 -- | Produce the trace of a program
 run :: Regs mreg => CompilationUnit (Prog mreg) -> Trace mreg
-run (CompUnit prog trLen _ _ initMem) =
-  initSt : (evalState (replicateM (fromEnum trLen) (step prog)) $ initSt)
-  where initSt = init_state initMem
--- ** Some facilities to run 
+run (CompUnit prog trLen _ _ initMem) = case runStateT (go trLen) initState of
+  Left e -> error $ describeError e
+  Right (x, _s) -> x
+  where
+    go 0 = return []
+    go n = do
+      -- The first of the `n` states is simply the initial state.  So we only
+      -- run `n-1` steps of actual execution.
+      s <- getStateWithAdvice id
+      go' [s] (n - 1)
+
+    go' tr 0 = return $ reverse tr
+    go' tr n = do
+      pc <- use $ sMach . mPc
+      i <- fetchInstr pc
+      adviceHandler id i
+      stepInstr i
+
+      s <- getStateWithAdvice id
+      go' (s : tr) (n - 1)
+
+    initState = InterpState mempty $ initMach prog initMem
 
 -- | Execute the program and return the result.
 execAnswer :: Regs mreg => CompilationUnit (Prog mreg) -> MWord
 execAnswer compUnit = answer $ last $ run compUnit
 
-
-
--- | Create the initial memory from a list of inputs
--- TODO This seems out of place, but I don't know where to put it
-_buildInitMem :: [String] -> [MWord]
-_buildInitMem ls = map fromIntegral $
-  let argsAsChars = args2chars ("Name":ls) in   -- we fake the "name" of the program.
-    let argv_array = getStarts argsAsChars in
-      let argsAsString = concat argsAsChars in
-        argsAsString ++
-        argv_array ++             -- argv
-        [length argv_array,       -- arg C
-         2 + length argsAsString] -- Points at itself (staring "stack pointer")
-        
-  where args2chars ls = map (addNull . str2Ascii) ls 
-        addNull ls = (ls ++ [0])
-        str2Ascii ls = map char2Ascii ls
-        char2Ascii ch = fromEnum ch
-        getStarts = getStartsRec 2 []
-
-        getStartsRec _ ret [] = ret
-        getStartsRec n ret (x:ls) =
-          getStartsRec (n+length x) (ret++[n]) ls
-
-_emptyInitMem :: [MWord]
-_emptyInitMem = _buildInitMem []
-          
-
-
-
--- Testing grounds
-
-{-
-prog1 :: Program Int MWord
-prog1 = [Iadd 0 0 (Const 1),
-       Iadd 0 0 (Const 2),
-       Iadd 1 1 (Const 3),
-       Iadd 1 1 (Const 4),
-       Imull 0 0 (Reg 1)]
-myCU len = CompUnit prog1 len InfinityRegs [] []
-
-instance Regs Int where
-  sp = 0
-  bp = 1
-  ax = 2
-  argc = 3
-  argv = 4
-  fromWord = fromIntegral . toInteger
-  toWord = fromIntegral
-  data RegBank Int x = RegBank x (Map.Map Int x)
-  initBank d = RegBank d Map.empty
-  lookupReg r (RegBank d m) = case Map.lookup r m of
-                        Just x -> x
-                        Nothing -> d
-  updateBank r x (RegBank d m) = RegBank d (Map.insert r x m)
-
-
--}
+-- | Read from a location in memory
+load ::  MWord -> Mem' -> MWord
+load x (d,m)=  case Map.lookup x m of
+                 Just y -> y
+                 Nothing -> d
