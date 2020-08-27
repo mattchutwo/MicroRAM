@@ -45,10 +45,6 @@ import MicroRAM.MicroRAM
 
 import GHC.Generics
 
---  Temp
-import Compiler.IRs
-import Control.Monad
-
 
 -- * Infinity type
 -- We define Infinity types and make them a (somwhat bogus, see below)
@@ -182,11 +178,13 @@ instrType inst =
 -- ** Sparsity for instructions
 
 
+setNewEnd :: Int -> OpSparsity -> OpSparsity
 setNewEnd loc (OpSparsity (Just lastS) spar begSpar endSpar) =
   OpSparsity (Just lastS) spar begSpar (min endSpar (Finite $ loc - lastS))
-setNewEnd loc (OpSparsity Nothing spar begSpar endSpar) =
+setNewEnd _loc (OpSparsity Nothing spar begSpar endSpar) =
   OpSparsity Nothing spar begSpar endSpar
   
+sparsJump :: Functor f => Int -> f OpSparsity -> f OpSparsity
 sparsJump location spars =
   fmap forgetLastSeen $
   fmap (setNewEnd location) spars
@@ -198,11 +196,11 @@ updateInstrSpars ::
   -> InstrKind
   -> (Maybe OpSparsity)
   -> OpSparsity
-updateInstrSpars location intrL Nothing =
+updateInstrSpars location _intrL Nothing =
   OpSparsity (Just location) Infinity (Finite location) Infinity
-updateInstrSpars location intrL (Just (OpSparsity Nothing spar begSpar endSpar)) =
+updateInstrSpars location _intrL (Just (OpSparsity Nothing spar begSpar endSpar)) =
   OpSparsity (Just location) spar (min begSpar $ Finite location) endSpar
-updateInstrSpars location intrL (Just ( OpSparsity (Just lastSeen) spar begSpar endSpar)) =
+updateInstrSpars location _intrL (Just ( OpSparsity (Just lastSeen) spar begSpar endSpar)) =
   OpSparsity (Just location) (min spar (Finite $ location - lastSeen)) begSpar endSpar
   
 
@@ -263,5 +261,5 @@ sparsity blocks =
                      (min s1 s2)
                      (min bs1 bs2)
                      (min es1 es2)
-        addEdgeEffect (OpSparsity ls s bs es) =
+        addEdgeEffect (OpSparsity _ls s bs es) =
           min s (bs + es)

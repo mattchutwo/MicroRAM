@@ -16,11 +16,11 @@ module Compiler.Legalize
 
 import Control.Monad
 import Control.Monad.State
-import Control.Monad.Trans
+
 
 import Compiler.Errors
 import Compiler.IRs
-import Util.Util
+
 
 import MicroRAM.MicroRAM (Operand'(..), MAOperand, Instruction'(..))
 import           MicroRAM.MicroRAM (MWord)

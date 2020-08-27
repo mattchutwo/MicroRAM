@@ -20,7 +20,7 @@ module Compiler.Globals
 import qualified Data.Map as Map
 
 import Util.Util
-import Control.Monad
+
 
 import Compiler.CompilationUnit
 import Compiler.Errors

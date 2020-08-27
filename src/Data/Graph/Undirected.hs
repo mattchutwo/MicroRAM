@@ -13,8 +13,8 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 data Graph nid e = Graph {
-    graph :: HGL.PatriciaTree nid e -- SimpleBiDigraph?
-  , graphVertexMap :: Map nid HGL.Vertex
+    _graph :: HGL.PatriciaTree nid e -- SimpleBiDigraph?
+  , _graphVertexMap :: Map nid HGL.Vertex
   }
 
 insertVertex :: Ord n => n -> Graph n e -> Graph n e
@@ -58,7 +58,7 @@ color colors' (Graph graph vmap) =
 
   where
     go :: [n] -> HGL.PatriciaTree n e -> Either n (Map n color)
-    go sortedNodes graph | HGL.isEmpty graph = Right mempty
+    go _sortedNodes graph | HGL.isEmpty graph = Right mempty
     go sortedNodes graph =
       -- Find a node with less than k edges.
       case findNode sortedNodes graph of
@@ -113,8 +113,8 @@ color colors' (Graph graph vmap) =
 
 
     -- Find a node with less than k edges.
-    findNode []     g = Nothing
-    findNode (n:ns) g = case nodeToVertexM n of
+    findNode []     _g = Nothing
+    findNode (n:ns) g  = case nodeToVertexM n of
       Nothing ->
         -- Not in graph, so it has less than k edges.
         Just (n, ns)

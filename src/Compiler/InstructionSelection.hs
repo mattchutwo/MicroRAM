@@ -28,24 +28,19 @@ module Compiler.InstructionSelection
     ( instrSelect,
     ) where
 
--- FIXME: remove me!
-import System.IO.Unsafe
-
-
-import Data.Word
 import Data.ByteString.Short
 import Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map 
-import Control.Monad
+
 import Control.Monad.Except
 import Control.Monad.State.Lazy
-import Control.Monad.Trans
+
 
 import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Typed as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.IntegerPredicate as IntPred
-import qualified LLVM.AST.ParameterAttribute as ParamAtt
+
 
 import Compiler.Errors
 import Compiler.IRs
@@ -65,15 +60,14 @@ import qualified MicroRAM.MicroRAM as MRAM
 -}
 
 -- ** Translation between LLVM and RTL "things"
-wrdFromwrd64 :: Word64 -> Word
-wrdFromwrd64 = fromInteger . toInteger
-
 any2short :: Show a => a -> ShortByteString
 any2short n = toShort $ BSU.fromString $ show $ n
 
-
+name2name :: LLVM.Name -> Name
 name2name (LLVM.Name s) = Name s
 name2name (LLVM.UnName n) = Name $ any2short n
+
+name2nameM :: Monad m => LLVM.Name -> m Name
 name2nameM nm = return $ name2name nm
 
 -- | For Global names we just use strings.
@@ -95,11 +89,11 @@ integer2wrd x
   
 getConstant :: LLVM.Constant.Constant -> Hopefully $ MAOperand VReg MWord
 getConstant (LLVM.Constant.Int _ val) = Const <$> integer2wrd val
-getConstant (LLVM.Constant.Undef typ) = return $ Const 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
-getConstant (LLVM.Constant.GlobalReference typ name) = return $ Glob $ gName2String name
+getConstant (LLVM.Constant.Undef _typ) = return $ Const 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
+getConstant (LLVM.Constant.GlobalReference _typ name) = return $ Glob $ gName2String name
 getConstant (LLVM.Constant.GetElementPtr _ _ _) = assumptError $
   "Constant structs are not supported yet. This should go away with -O1. If you are seeing this message and used at least -O1 please report."
-getConstant (LLVM.Constant.Null typ) = return $ Const 0 -- Ignores type/size
+getConstant (LLVM.Constant.Null _typ) = return $ Const 0 -- Ignores type/size
 getConstant consT = otherError $
   "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions): \n \t" ++ (show consT) ++ "\n"
 
@@ -111,12 +105,6 @@ operand2operand (LLVM.LocalReference _ name) = do
   return $ Reg name'
 operand2operand _ = implError "operand, probably metadata"
 
-name2Operand :: LLVM.Name -> Hopefully $ MRAM.MAOperand VReg MWord
-name2Operand (LLVM.Name name) = return $ Reg $ Name name
-name2Operand (LLVM.UnName number) = return $ Reg $ Name $ any2short number
---name2Operand _ = assumptError "Unnamed name passed. Unnammed things should not be called."
-
-
 
 -- | Transforms `LLVM.Type` into backend types `Ty`
 -- Note that LLVM types can be recursive. However, in well-typed LLVMS,
@@ -124,8 +112,8 @@ name2Operand (LLVM.UnName number) = return $ Reg $ Name $ any2short number
 -- infinite loops and that `type2type` terminates.
 -- Unfortunately this property is not enforced by the type system.
 type2type :: LLVMTypeEnv -> LLVM.Type -> Hopefully Ty
-type2type _ (LLVM.IntegerType n) = return Tint -- FIXME check size! 
-type2type tenv (LLVM.PointerType t _) = do
+type2type _ (LLVM.IntegerType _n) = return Tint -- FIXME check size! 
+type2type _tenv (LLVM.PointerType _t _) = do
   --pointee <- type2type tenv t
   return $ Tptr 
 type2type _ (LLVM.FunctionType _ _ _) = return Tint -- FIXME enrich typed!
@@ -193,8 +181,11 @@ isBinop (Just ret) op1 op2 bop = do
 -- There are two ways to move the result from the flag.
 -- The straight worfward cmptTail_pos and the negated one cmptTail_neg
 
+cmptTail_pos, cmptTail_neg
+  :: (Monad m, Num wrdT) =>
+     regT1
+     -> m [MRAM.Instruction' regT1 operand1 (Operand' phase regT2 wrdT)]
 cmptTail_pos ret = return [MRAM.Imov ret (Const 0), MRAM.Icmov ret (Const 1)] -- moving the flag to the register... super wasteful! write a better register allocater
-
 cmptTail_neg ret = return [MRAM.Imov ret (Const 1), MRAM.Icmov ret (Const 0)] -- Neg. the result && mov the flag to the register... wasteful! 
 
 -- | cmptTail:
@@ -212,6 +203,11 @@ cmptTail IntPred.SLT = cmptTail_neg
 cmptTail IntPred.SLE = cmptTail_neg
 
 -- | Instruction selection for comparisons
+isCompare
+  :: IntPred.IntegerPredicate
+     -> operand1
+     -> operand2
+     -> Hopefully (MRAM.Instruction' regT operand1 operand2)
 isCompare IntPred.EQ lhs rhs = return $ MRAM.Icmpe lhs rhs
 isCompare IntPred.NE lhs rhs = return $ MRAM.Icmpe lhs rhs
 -- Unsigned
@@ -228,18 +224,10 @@ isCompare IntPred.SLE lhs rhs = return $ MRAM.Icmpg lhs rhs
 
 fError :: MonadError CmplError m => m a
 fError = implError "Floatin point arithmetic"
-uError :: MonadError CmplError m => m a
-uError = implError "unsigned operations"
 
-
-constzero = LLVM.ConstantOperand (LLVM.Constant.Int (toEnum 0) 0)
+_constzero,constOne :: LLVM.Operand
+_constzero = LLVM.ConstantOperand (LLVM.Constant.Int (toEnum 0) 0)
 constOne = LLVM.ConstantOperand (LLVM.Constant.Int (toEnum 1) 1)
-
-(<:>):: Applicative f => f a -> f [a] -> f [a]
-a <:> b = (:) <$> a <*> b
-
-(<++>) :: Applicative f => f [a] -> f [a]  -> f [a] 
-a <++> b = (++) <$> a <*> b
 
 -- *** Trtanslating Function parameters and types
 
@@ -259,11 +247,17 @@ function2function tenv (Right (LLVM.LocalReference ty nm)) = do
         functionTypes ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
 function2function _ (Right (LLVM.ConstantOperand c)) =
   implError $ "Calling a function with a constant or a global. You called: \n \t" ++ show c
+function2function _ (Right op) = 
+  implError $ "Calling a function with unsuported operand. You called: \n \t" ++ show op
 
 -- | Process parameters into RTL format
 -- WE dump the attributes
 
-params2params params paramsT = do
+params2params
+  :: Traversable t =>
+     t (LLVM.Operand, b)
+     -> Either CmplError (t (MAOperand VReg MWord))
+params2params params  = do
   params' <- mapM (operand2operand . fst) params -- fst dumps the attributes
   return params' 
 
@@ -279,23 +273,23 @@ isInstruction _ ret (LLVM.Sub _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 
 -- Mul
 isInstruction _ ret (LLVM.Mul _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Imull
 -- SDiv
-isInstruction _ ret (LLVM.SDiv _ _ o1 o2 ) = implError "Signed division ius hard! SDiv"
+isInstruction _ _ret (LLVM.SDiv _ _ _o1 _o2 ) = implError "Signed division ius hard! SDiv"
 -- SRem
-isInstruction _ ret (LLVM.SRem o1 o2 _) = implError "Signed division ius hard! SRem"
+isInstruction _ _ret (LLVM.SRem _o1 _o2 _) = implError "Signed division ius hard! SRem"
 
 
 
 -- *** Floating Point 
 -- FAdd
-isInstruction _ ret (LLVM.FAdd _ o1 o2 _) = implError "Fast Multiplication FMul"
+isInstruction _ _ret (LLVM.FAdd _ _o1 _o2 _) = implError "Fast Multiplication FMul"
 -- FSub
-isInstruction _ ret (LLVM.FSub _ o1 o2 _) =  implError "Fast Multiplication FMul"
+isInstruction _ _ret (LLVM.FSub _ _o1 _o2 _) =  implError "Fast Multiplication FMul"
 -- FMul
-isInstruction _ ret (LLVM.FMul _ o1 o2 _) =  implError "Fast Multiplication FMul"
+isInstruction _ _ret (LLVM.FMul _ _o1 _o2 _) =  implError "Fast Multiplication FMul"
 -- FDiv
-isInstruction _ ret (LLVM.FDiv _ o1 o2 _) =  implError "Fast Division FDiv"
+isInstruction _ _ret (LLVM.FDiv _ _o1 _o2 _) =  implError "Fast Division FDiv"
 -- FRem
-isInstruction _ ret (LLVM.FRem _ o1 o2 _) = fError
+isInstruction _ _ret (LLVM.FRem _ _o1 _o2 _) = fError
 
 -- *** Unsigned operations
 -- UDiv
@@ -310,7 +304,7 @@ isInstruction _ ret (LLVM.Shl _ _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 
 -- LShr
 isInstruction _ ret (LLVM.LShr _ o1 o2 _) = lift $ toRTL <$> isBinop ret o1 o2 MRAM.Ishr
 -- AShr
-isInstruction _ ret (LLVM.AShr _ o1 o2 _) =  implError "Arithmetic shift right AShr"
+isInstruction _ _ret (LLVM.AShr _ _o1 _o2 _) =  implError "Arithmetic shift right AShr"
 
 -- *** Logical
 --And
@@ -357,7 +351,7 @@ isInstruction _ _ (LLVM.Store _ adr cont _ _ _) = do
    register allocator can actually use the flag as it was intended...
 -}
 
-isInstruction _ Nothing (LLVM.ICmp pred op1 op2 _) =  lift $ return [] -- Optimization
+isInstruction _ Nothing (LLVM.ICmp _pred _op1 _op2 _) =  lift $ return [] -- Optimization
 isInstruction _ (Just ret) (LLVM.ICmp pred op1 op2 _) = lift $ do
   lhs <- operand2operand op1
   rhs <- operand2operand op2
@@ -369,12 +363,12 @@ isInstruction _ (Just ret) (LLVM.ICmp pred op1 op2 _) = lift $ do
 -- *** Function Call 
 isInstruction tenv ret (LLVM.Call _ _ _ f args _ _ ) = lift $  do
   (f',retT,paramT) <- function2function tenv f
-  args' <- params2params args paramT
+  args' <- params2params args
   return [MirI (RCall retT ret f' paramT args') ()]
 
 -- *** Phi
 isInstruction _ Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
-isInstruction _ (Just ret) (LLVM.Phi typ ins _)  =  lift $ do
+isInstruction _ (Just ret) (LLVM.Phi _typ ins _)  =  lift $ do
   ins' <- mapM convertPhiInput ins
   return $ [MirI (RPhi ret ins') ()]
 
@@ -386,7 +380,7 @@ isInstruction _ (Just ret) (LLVM.Select cond op1 op2 _)  =  lift $ toRTL <$> do
    return [MRAM.Icmpe cond' (Const 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
 
 -- *** GetElementPtr 
-isInstruction _ Nothing (LLVM.GetElementPtr _ addr inxs _) = return [] -- GEP without a name is useless
+isInstruction _ Nothing (LLVM.GetElementPtr _ _addr _inxs _) = return [] -- GEP without a name is useless
 isInstruction tenv (Just ret) (LLVM.GetElementPtr _ addr inxs _) = do
   addr' <- lift $ operand2operand addr
   ty' <- lift $ typeFromOperand addr
@@ -405,7 +399,7 @@ isInstruction _ (Just ret) (LLVM.ZExt op _ _) = lift $ toRTL <$> do
   op' <- operand2operand op
   return $ [MRAM.Imov ret op']
 isInstruction _ Nothing (LLVM.BitCast _ _ _) = return $ [] -- without a name is useless
-isInstruction _ (Just ret) (LLVM.BitCast op typ _) = lift $ toRTL <$> do
+isInstruction _ (Just ret) (LLVM.BitCast op _typ _) = lift $ toRTL <$> do
   op' <- operand2operand op
   return $ [MRAM.Imov ret op']
 
@@ -488,6 +482,8 @@ isGEP tenv ret (LLVM.PointerType refT _) base (inx:inxs) = do
   return $ [MRAM.Imull rtemp inxOp (Const $ tySize typ'),
             MRAM.Iadd ret (Reg rtemp) base] ++
            continuation
+isGEP _ _ llvmTy _ _ =
+  assumptError $ "getElementPtr called in a no-pointer type: " ++ show llvmTy
            
 
 -- After first pass every type has to be an agregate type
@@ -497,7 +493,7 @@ isGEP' ::
   -> [MAOperand VReg MWord]
   -> Statefully $ [MRAM.MA2Instruction VReg MWord]
 isGEP' _ _ [] = return $ []
-isGEP' ret (Tarray elemsN elemsT) (inx:inxs) = do
+isGEP' ret (Tarray _ elemsT) (inx:inxs) = do
   (rm, multiplication) <- constantMultiplication (tySize elemsT) inx
   continuation <- isGEP' ret elemsT inxs
   return $ multiplication ++
@@ -547,7 +543,7 @@ isInstrs tenv instrs = do
 -- | Instruction Generation for terminators
 -- We ignore the name of terminators
 isTerminator :: LLVM.Named LLVM.Terminator -> Hopefully $ [MIRInstr () MWord]
-isTerminator (name LLVM.:= term) = do
+isTerminator (_name LLVM.:= term) = do
   termInstr <- isTerminator' term
   return $ termInstr
 isTerminator (LLVM.Do term) = do
@@ -580,7 +576,7 @@ isTerminator' (LLVM.Switch cond deflt dests _ ) = do
   
 -- Possible optimisation:
 -- Add just one return block, and have all others jump there.
-isTerminator' (LLVM.Ret (Just ret) md) = do
+isTerminator' (LLVM.Ret (Just ret) _md) = do
   ret' <- operand2operand ret
   return $ [MirI (RRet $ Just ret') ()]
 isTerminator' (LLVM.Ret Nothing _) =
@@ -601,7 +597,7 @@ blockJumpsTo' (LLVM.Switch _ defaultDest dests _) = return $ defaultDest : (map 
 blockJumpsTo' (LLVM.IndirectBr _ dests _) = return dests
 -- We ignore function calls!!! Only care what block it returns to
 -- we also ignore the exeption handling.
-blockJumpsTo' (LLVM.Invoke _ _ _ _ _ retDest exepcDest _ ) = return [retDest]
+blockJumpsTo' (LLVM.Invoke _ _ _ _ _ retDest _exepcDest _ ) = return [retDest]
 blockJumpsTo' (LLVM.Resume _ _ ) = return [] -- exception propagation
 blockJumpsTo' (LLVM.Unreachable _ ) = return [] -- unreachable
 blockJumpsTo' (LLVM.CleanupRet _ _ _) = return [] -- exception propagation
@@ -655,14 +651,14 @@ isFunction _ other = unreachableError $ show other -- Shoudl be filtered out
 -- Then process each category of definition separatedly
 
 -- | Filters
-itIsFunc, itIsGlobVar, itIsTypeDef, itIsMetaData :: LLVM.Definition -> Bool
+itIsFunc, itIsFuncAttr,itIsGlobVar, itIsTypeDef, itIsMetaData :: LLVM.Definition -> Bool
 itIsFunc (LLVM.GlobalDefinition (LLVM.Function  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ )) = True
 itIsFunc _ = False
 
 itIsFuncAttr (LLVM.FunctionAttributes _ _) = True
 itIsFuncAttr _ = False
 
-itIsGlobVar (LLVM.GlobalDefinition (LLVM.GlobalVariable name _ _ _ _ _ _ _ _ _ _ _ _ _)) = True
+itIsGlobVar (LLVM.GlobalDefinition (LLVM.GlobalVariable _name _ _ _ _ _ _ _ _ _ _ _ _ _)) = True
 itIsGlobVar _ = False
 
 itIsTypeDef (LLVM.TypeDefinition _ _) = True
@@ -672,6 +668,7 @@ itIsMetaData (LLVM.MetadataNodeDefinition _ _) = True
 itIsMetaData (LLVM.NamedMetadataDefinition _ _) = True
 itIsMetaData _ = False
 
+unreachableError :: MonadError CmplError m => [Char] -> m b
 unreachableError what = otherError $ "This is akward. This error should be unreachable. You called a function that should only be called on a list after filtering, to avoid this error. Here is the info: " ++ what
 
 -- ** Instruction selection for each of those filtered definitions
@@ -681,7 +678,7 @@ unreachableError what = otherError $ "This is akward. This error should be unrea
   
 checkDiscardedDefs :: [LLVM.Definition] -> Hopefully ()
 checkDiscardedDefs defs = do
-  mapM checkDiscardedDef defs
+  _ <- mapM checkDiscardedDef defs
   return ()
   where checkDiscardedDef :: LLVM.Definition -> Hopefully ()
         checkDiscardedDef def = if acceptedDef def
@@ -716,25 +713,8 @@ isTypeDefs defs = do
           assumptError $ "Received an empty type definition for " ++
           show name ++
           " what am I supposed to do with this?"
-  
-  {- Old definitions did not support recursive types
-
-where isTypedDef' :: TypeEnv -> LLVM.Definition -> Hopefully $ TypeEnv 
-        isTypedDef' tenv def = do
-          maybeDef <- isTypedDef tenv def
-          case maybeDef of
-            Just (name, ty) -> return $ Map.insert name ty tenv
-            _ -> return tenv
-        isTypedDef tenv (LLVM.TypeDefinition  name (Just ty)) = do
-          name' <- name2nameM name
-          ty'   <- type2type tenv ty
-          return $ Just (name',ty')
-        isTypedDef tenv (LLVM.TypeDefinition name Nothing) =
-          assumptError $ "Received an empty type definition for " ++
-          show name ++
-          " what am I supposed to do with this?"
-        isTypedDef _ _ = return Nothing
---  return $ Map.empty -}
+        def2pair _ =
+          assumptError $ "This definition is not a type. How did it skip the filter?"
 
 -- | Turns a Global variable into its descriptor.
 isGlobVars :: LLVMTypeEnv -> [LLVM.Definition] -> Hopefully $ GEnv MWord
@@ -745,8 +725,7 @@ isGlobVars tenv defs = mapMaybeM (isGlobVar' tenv) defs
         isGlobVar' _ _ = return Nothing
 
 isGlobVar :: LLVMTypeEnv -> LLVM.Global -> Hopefully $ GlobalVariable MWord
-isGlobVar tenv (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) =
-  do
+isGlobVar tenv (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) = do
   typ' <- type2type tenv typ
   init' <- flatInit init
   -- TODO: Want to check init' is the right length?
@@ -761,23 +740,23 @@ isGlobVar tenv (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _)
         sectionIsSecret (Just "__DATA,__secret") = True
         sectionIsSecret (Just ".data.secret") = True
         sectionIsSecret _ = False
+isGlobVar _ _ = assumptError "This is not a global. How did it skip the filter?"
 
 flattenConstant :: LLVM.Constant.Constant ->
                    Hopefully [MWord]
 flattenConstant (LLVM.Constant.Int _ n) = return $ [fromInteger n]
-flattenConstant (LLVM.Constant.Null typ) = return $ [0]
-flattenConstant (LLVM.Constant.Array typ cnts) = do
+flattenConstant (LLVM.Constant.Null _typ) = return $ [0]
+flattenConstant (LLVM.Constant.Array _typ cnts) = do
   cnts' <- mapM flattenConstant cnts
   return $ concat cnts'
 flattenConstant (LLVM.Constant.Struct name True _) =
   implError $ "Packed structs not supported yet. Tried packing constant struct \n " ++
   show name
-flattenConstant (LLVM.Constant.Struct name False cnts) = do
+flattenConstant (LLVM.Constant.Struct _name False cnts) = do
   cnts' <- mapM flattenConstant cnts
   return $ concat cnts'  --
 flattenConstant cnt = assumptError $ "Constant not supportet for flattening: \n " ++
                       show cnt
-                        
                         
 isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
 isFuncAttributes _ = return () 
@@ -787,7 +766,7 @@ isDefs defs = do
   typeDefs <- isTypeDefs $ filter itIsTypeDef defs
   globVars <- (isGlobVars typeDefs) $ filter itIsGlobVar defs
   --otherError $ "DEBUG HERE: \n" ++ show typeDefs ++ "\n" ++ show globVars ++ "\n"  
-  funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
+  _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
   funcs <- mapM (isFunction typeDefs) $ filter itIsFunc defs
   checkDiscardedDefs defs -- Make sure we dont drop something important
   return $ IRprog Map.empty globVars funcs

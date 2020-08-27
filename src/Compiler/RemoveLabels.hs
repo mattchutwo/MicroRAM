@@ -1,4 +1,4 @@
- {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GADTs #-}
 {-|
 Module      : Removing Labels
@@ -37,17 +37,11 @@ module Compiler.RemoveLabels
 
 
 import MicroRAM.MicroRAM
-import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Traversable
-import Compiler.Errors
 
 import Util.Util
 
-import Compiler.IRs
-import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..)) 
-
-
+import Compiler.Errors
 
 -- * Assembler
 
@@ -67,6 +61,7 @@ getLabel lmap lbl =
     Nothing -> assumptError $ "Code label called but not defined. Label" ++ (show lbl)
 
 data State = State { pc :: Wrd, lMap :: LabelMap}
+initState :: State
 initState = State 0 Map.empty
 
 -- | createMapStep

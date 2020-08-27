@@ -19,8 +19,8 @@ import qualified Data.Map as Map
 
 -- Bidirectional graph with labelled nodes.
 data DiGraph nid n e = DiGraph {
-    diGraph :: HGL.VertexLabeledGraph HGL.Digraph nid
-  , diGraphVertexKeys :: HGL.VertexMap nid
+    _diGraph :: HGL.VertexLabeledGraph HGL.Digraph nid
+  , _diGraphVertexKeys :: HGL.VertexMap nid
   , diGraphVertexLabel :: Map nid n
   }
 
@@ -36,7 +36,7 @@ topSort :: DiGraph nid n e -> [nid]
 topSort = maybe (error "topSort: Invalid DiGraph.") id . topSort'
 
 topSort' :: DiGraph nid n e -> Maybe [nid]
-topSort' (DiGraph g l _) = mapM (HGL.vertexLabel g) $ HGL.topsort g
+topSort' (DiGraph g _ _) = mapM (HGL.vertexLabel g) $ HGL.topsort g
 
 topSortWithLabels :: Ord nid => DiGraph nid n e -> [(nid, n)]
 topSortWithLabels = maybe (error "topSort: Invalid DiGraph.") id . topSortWithLabels'
@@ -67,7 +67,7 @@ edges :: DiGraph nid n e -> [(nid,nid)]
 edges = maybe (error "edges: Invalid DiGraph.") id . edges'
 
 edges' :: DiGraph nid n e -> Maybe [(nid,nid)]
-edges' (DiGraph g l _) = mapM (\e -> (,) <$> toNid (HGL.edgeSource e) <*> toNid (HGL.edgeDest e)) $ HGL.edges g
+edges' (DiGraph g _ _) = mapM (\e -> (,) <$> toNid (HGL.edgeSource e) <*> toNid (HGL.edgeDest e)) $ HGL.edges g
   where
     toNid = HGL.vertexLabel g
 

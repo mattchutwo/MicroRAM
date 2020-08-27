@@ -25,7 +25,7 @@ module Compiler.Errors
 
     ) where
 
-import Control.Monad.State.Lazy
+
 import Control.Monad.Except
 
 import System.Exit

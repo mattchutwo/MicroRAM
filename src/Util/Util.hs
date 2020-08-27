@@ -1,11 +1,5 @@
 {-# LANGUAGE TypeOperators #-}
 module Util.Util where
-  
-import Control.Monad.State.Lazy
-import Control.Monad.Except
-import Data.Word
-
-import qualified Data.Map as Map
 
 type ($) a b = a b
 

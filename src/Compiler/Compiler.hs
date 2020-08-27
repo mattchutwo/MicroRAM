@@ -41,15 +41,7 @@ module Compiler.Compiler
     ) where
 
 import qualified LLVM.AST as LLVM
-import qualified LLVM.AST.Constant as LLVM.Constant
-import Control.Monad.State.Lazy
-import Control.Monad.Except
 import           Data.Default
-import qualified Data.List as List
-import qualified Data.ByteString.Char8 as C8
-import qualified Data.ByteString.Short as Short
-import qualified Data.Sequence as Seq (lookup, fromList)
-import qualified Data.Word as Word
 
 import Util.Util
 
@@ -66,7 +58,7 @@ import Compiler.RemoveLabels
 import Compiler.Analysis
 
 import MicroRAM.MicroRAM (MWord)
-import qualified MicroRAM.MicroRAM as MRAM  (MAProgram,Program,NamedBlock(..)) 
+import qualified MicroRAM.MicroRAM as MRAM  (Program) 
 
 (<.>) :: Monad m => (b -> c) -> (a -> b) -> a -> m c
 f <.> g = \x -> return $ f $ g x 

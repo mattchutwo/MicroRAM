@@ -23,9 +23,9 @@ import           Control.Applicative (liftA2)
 import           Control.Monad.State (runStateT, StateT, get, modify')
 import           Control.Monad.Trans.Class (lift)
 import qualified Data.ByteString.Char8 as BSC
-import           Data.ByteString.Internal (c2w)
+
 import qualified Data.ByteString.Short as BSS
-import           Data.Char (intToDigit)
+
 import           Data.Default
 import           Data.Graph.Undirected (Graph)
 import qualified Data.Graph.Undirected as Graph
@@ -44,7 +44,7 @@ import qualified MicroRAM.MicroRAM as MRAM
 import           Util.Util
 
 data RegisterAllocOptions = RegisterAllocOptions {
-    registerAllocNumRegisters :: Word
+    _registerAllocNumRegisters :: Word
   }
 
 instance Default RegisterAllocOptions where
@@ -194,7 +194,7 @@ spillRegister spillReg isArg pos blocks = do
       flatten name iid dag insts'' tInsts'
 
     flatten :: Name -> Int -> DAGinfo name -> [LTLInstr mdata VReg wrdT] -> [LTLInstr mdata VReg wrdT] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
-    flatten name iid dag [] [] = return []
+    flatten _name _iid _dag [] [] = return []
     flatten name iid dag [] [inst] = do
       return [BB (name, iid) [] [inst] dag]
     flatten name iid dag [] (inst':insts') = do
@@ -241,7 +241,7 @@ spillRegister spillReg isArg pos blocks = do
       modify' $ \(RAState c s m) -> RAState (c+1) s m
       return reg
 
-    getTyForRegister reg instr = Tint -- TODO: How do we get the Ty?
+    getTyForRegister _reg _instr = Tint -- TODO: How do we get the Ty?
 
 
 -- JP: lens/uniplate would make this easier.

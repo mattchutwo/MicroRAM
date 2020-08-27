@@ -83,5 +83,5 @@ buildCFG blocks = DiGraph.setNodeLabels nodeLabels $ DiGraph.fromEdges edges
       ) blocks
 
     -- JP: We have the invariant that each block has one instruction, so we could return `DiGraph name inst ()` instead.
-    nodeLabels = map (\(BB name insts insts' names) -> (name, (insts, insts'))) blocks
+    nodeLabels = map (\(BB name insts insts' _names) -> (name, (insts, insts'))) blocks
 

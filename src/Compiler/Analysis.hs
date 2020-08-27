@@ -13,7 +13,7 @@ Metadata is produced by the compiler and passed down to the witness generator.
 -}
 module Compiler.Analysis
     ( AnalysisPiece(..),
-      AnalysisData(..)
+      AnalysisData
     ) where
 
 import Compiler.Sparsity
