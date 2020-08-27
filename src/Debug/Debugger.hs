@@ -27,7 +27,7 @@ import Text.PrettyPrint.Tabulate
 import Text.PrettyPrint.Boxes
 import Text.Printf
 
-import System.Process
+
 
 import Util.Util
 -- LLVM
@@ -69,7 +69,9 @@ data CustomSummary mreg = CS
   }
 
 
+memSummarySize :: Integer
 memSummarySize = 5
+
 toSummaryMem :: [MWord] -> Mem -> [MWord]
 toSummaryMem theseLocations m =
   map (\loc -> load loc m) theseLocations
@@ -119,7 +121,7 @@ toSummaryRegs rmap =
   (lookupReg ax rmap)
 
 toSummaryRegsCustom :: Regs mreg => RMap mreg MWord -> Maybe [mreg] -> [MWord]
-toSummaryRegsCustom rmap Nothing = []
+toSummaryRegsCustom _rmap Nothing = []
 toSummaryRegsCustom rmap (Just regs) =
   map (\r -> lookupReg r rmap) regs
 
@@ -242,7 +244,7 @@ summaryFromFile file cs length = do
 pprint :: CompilationUnit (Program Name MWord) -> String
 pprint compUnit =
   let prog = programCU compUnit in
-  concat $ map (\(n,inst) -> show n ++ ". " ++ show inst ++ "\n") $ enumerate prog
+  concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ show inst ++ "\n") $ enumerate prog
 
 pprintFromFile :: FilePath -> IO ()
 pprintFromFile file = do
@@ -255,6 +257,7 @@ readProg = read
 firstRegs :: Word -> [Name]
 firstRegs bound = map fromWord $ map (2*) [0..bound] 
 
+myCS :: CustomSummary Name
 myCS = defaultCSName
   {theseRegs = Just $ firstRegs 7
   ,theseMem = [0..15]
@@ -269,9 +272,13 @@ fromAscii = toEnum
 
 
 -- Example
+myfile,myllvmfile :: FilePath
 myfile = "test/programs/easyLinkedList.micro" -- "programs/returnInput.micro"
-pprintMyFile = pprintFromFile myfile
 myllvmfile = "programs/returnInput.ll"
+
+pprintMyFile :: IO ()
+pprintMyFile = pprintFromFile myfile
+
 mram :: IO $ CompilationUnit (Program Name MWord)
 mram =  fromMRAMFile "test/return42.micro"
 
@@ -279,6 +286,7 @@ mram =  fromMRAMFile "test/return42.micro"
 -- summaryFromFile myfile myCS 300 --emptyInitMem
 -}
 
+jpProg :: IO (Program VReg MWord)
 jpProg = do
     m <- fromLLVMFile "test/programs/returnArgc.ll"
     return $ either undefined id $
@@ -287,7 +295,9 @@ jpProg = do
       >>= registerAlloc def
       >>= stacking
       >>= removeLabels
+cs :: CustomSummary mreg
 cs = defaultSummary {theseMem = [0..27]}
+inp :: [MWord]
 inp = buildInitMem ["one","two", "three"]
 
 -- m' <- jpProg

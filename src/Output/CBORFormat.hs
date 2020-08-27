@@ -21,7 +21,7 @@ import qualified Data.Map as Map
 import GHC.Generics
 
 import Codec.Serialise
-import Codec.CBOR
+
 import Codec.CBOR.Decoding
 import Codec.CBOR.Encoding
 import Codec.CBOR.Write
@@ -38,7 +38,7 @@ import MicroRAM.MRAMInterpreter
 import MicroRAM.MicroRAM
 
 import qualified Data.Text as TXT 
-import qualified Data.Text.Internal  as TXT
+
 
 import Output.Output
 
@@ -67,12 +67,12 @@ decodeOutput = do
   case len of
     5 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode
     3 -> PublicOutput <$> tagDecode <*> tagDecode  <*> tagDecode
-
+    n -> fail $ "Only lengths for output are 3 and 5 (Public and Secret). Insted found: " ++ show n 
+    
 instance Serialise reg => Serialise (Output reg) where 
     encode = encodeOutput
     decode = decodeOutput
 
-    
 -- * Utils
 
 deriving instance Generic Int
@@ -227,6 +227,7 @@ x = fromFlatTerm decode $ toFlatTerm $ encode a
 
 b :: Instruction Word MWord
 b = Istore (Reg 0) 0
+y :: L.ByteString
 y = serialise b
 
 
@@ -368,6 +369,7 @@ decodeAdvice = do
   case (ln,name) of
     (4, "MemOp") -> MemOp <$> decode <*> decode <*> decode
     (1, "Stutter") -> return Stutter
+    (ln,name) -> fail $ "Found bad advice of length " ++ show ln ++ " and name: " ++ show name 
 
 instance Serialise Advice where
   decode = decodeAdvice
@@ -393,11 +395,9 @@ decodeName = do
   wrd <- decodeWord
   return $ fromWord wrd 
 
-
 instance Serialise Name where
   decode = decodeName
   encode = encodeName
-
 
 -- * Serialisations and other pretty printing formats
 

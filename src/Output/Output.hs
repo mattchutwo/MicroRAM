@@ -22,16 +22,11 @@ import GHC.Generics
 import Compiler.Sparsity
 import Compiler.CompilationUnit
 import Compiler.Registers
-import Compiler.CompilationUnit
 import Compiler.Analysis
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM.MicroRAM
 import Util.Util
-
-
--- Remove
-import Compiler.IRs
 
 
 -- * Output structures
@@ -116,6 +111,13 @@ state2out bound (State pc regs _ _ flag _ _) = StateOut flag pc (regToList bound
 -- * Producing Outputs
 
 -- | Convert the output of the compiler (Compilation Unit) into Output
+buildCircuitParameters
+  :: Foldable t =>
+     Word
+  -> RegisterData
+  -> t AnalysisPiece
+  -> Word
+  -> CircuitParameters
 buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed if InfinityRegs doesn't show up here. 
   CircuitParameters (regData2output regData) trLen (analyData2sparc aData)
   where regData2output (NumRegisters n) = fromIntegral n
@@ -152,11 +154,13 @@ secretOutput tr (CompUnit p trLen regData aData initM) =
                                        [] -> adviceMap
                                        ls -> Map.insert i ls adviceMap
 
+outputTrace
+  :: (Enum a1, Regs mreg) => a1 -> [State mreg] -> Word -> [StateOut]
 outputTrace len tr regBound = takeEnum len $ map (state2out regBound) tr
 
 fullOutput :: Regs reg => CompilationUnit (Program reg MWord) -> Output reg
 fullOutput compUnit =
-  let mem = flatInitMem $ initM compUnit in 
+  let _mem = flatInitMem $ initM compUnit in 
   secretOutput (run compUnit) compUnit 
 
 
@@ -164,29 +168,29 @@ fullOutput compUnit =
 -- | We only look at what registers are assigned too
 countRegs :: Regs regT => Program regT MWord -> Word
 countRegs p = maximum $ map getRegAssign p
-  where getRegAssign (Iand reg1 reg2 operand  ) =  toWord reg1  
-        getRegAssign (Ior reg1 reg2 operand   ) =  toWord reg1 
-        getRegAssign (Ixor reg1 reg2 operand  ) =  toWord reg1 
-        getRegAssign (Inot reg1 operand       ) =  toWord reg1 
-        getRegAssign (Iadd reg1 reg2 operand  ) =  toWord reg1 
-        getRegAssign (Isub reg1 reg2 operand  ) =  toWord reg1 
-        getRegAssign (Imull reg1 reg2 operand ) =  toWord reg1 
-        getRegAssign (Iumulh reg1 reg2 operand) =  toWord reg1 
-        getRegAssign (Ismulh reg1 reg2 operand) =  toWord reg1 
-        getRegAssign (Iudiv reg1 reg2 operand ) =  toWord reg1 
-        getRegAssign (Iumod reg1 reg2 operand ) =  toWord reg1 
-        getRegAssign (Ishl reg1 reg2 operand  ) =  toWord reg1 
-        getRegAssign (Ishr reg1 reg2 operand  ) =  toWord reg1 
-        getRegAssign (Icmpe reg1 operand      ) =  toWord reg1 
-        getRegAssign (Icmpa reg1 operand      ) =  toWord reg1 
-        getRegAssign (Icmpae reg1 operand     ) =  toWord reg1 
-        getRegAssign (Icmpg reg1 operand      ) =  toWord reg1 
-        getRegAssign (Icmpge reg1 operand     ) =  toWord reg1 
-        getRegAssign (Imov reg1 operand       ) =  toWord reg1 
-        getRegAssign (Icmov reg1 operand      ) =  toWord reg1 
-        getRegAssign (Istore operand reg1     ) =  toWord reg1 
-        getRegAssign (Iload reg1 operand      ) =  toWord reg1 
-        getRegAssign (Iread reg1 operand      ) =  toWord reg1 
+  where getRegAssign (Iand reg1 _reg2 _  ) =  toWord reg1  
+        getRegAssign (Ior reg1 _reg2 _   ) =  toWord reg1 
+        getRegAssign (Ixor reg1 _reg2 _  ) =  toWord reg1 
+        getRegAssign (Inot reg1 _       ) =  toWord reg1 
+        getRegAssign (Iadd reg1 _reg2 _  ) =  toWord reg1 
+        getRegAssign (Isub reg1 _reg2 _  ) =  toWord reg1 
+        getRegAssign (Imull reg1 _reg2 _ ) =  toWord reg1 
+        getRegAssign (Iumulh reg1 _reg2 _) =  toWord reg1 
+        getRegAssign (Ismulh reg1 _reg2 _) =  toWord reg1 
+        getRegAssign (Iudiv reg1 _reg2 _ ) =  toWord reg1 
+        getRegAssign (Iumod reg1 _reg2 _ ) =  toWord reg1 
+        getRegAssign (Ishl reg1 _reg2 _  ) =  toWord reg1 
+        getRegAssign (Ishr reg1 _reg2 _  ) =  toWord reg1 
+        getRegAssign (Icmpe reg1 _      ) =  toWord reg1 
+        getRegAssign (Icmpa reg1 _      ) =  toWord reg1 
+        getRegAssign (Icmpae reg1 _     ) =  toWord reg1 
+        getRegAssign (Icmpg reg1 _      ) =  toWord reg1 
+        getRegAssign (Icmpge reg1 _     ) =  toWord reg1 
+        getRegAssign (Imov reg1 _       ) =  toWord reg1 
+        getRegAssign (Icmov reg1 _      ) =  toWord reg1 
+        getRegAssign (Istore _ reg1     ) =  toWord reg1 
+        getRegAssign (Iload reg1 _      ) =  toWord reg1 
+        getRegAssign (Iread reg1 _      ) =  toWord reg1 
         getRegAssign _ =  0 
 
 {-
