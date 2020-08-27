@@ -477,7 +477,7 @@ step prog st = exec (prog !! (toInt $ pc st)) $ freshAdvice st
 type Trace mreg = [State mreg]
 run :: Regs mreg => CompilationUnit (Prog mreg) -> Trace mreg
 run (CompUnit prog trLen _ _ initMem) =
-  takeW trLen $ 
+  takeEnum trLen $ 
   iterate (step prog) $ init_state initMem
 
 

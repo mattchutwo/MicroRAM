@@ -54,6 +54,11 @@ nats :: [Int]
 nats = iterate ((+) 1) 0 -}
 
 tests = testGroup "Compiler tests" $
+        [testTrivial, testLoops, testGEP]
+
+    
+-- Trivial test, just to see the basics are working
+testTrivial = testGroup "Trivial programs" $
   compileTest
     "Return 42"
     "test/programs/return42.ll"
@@ -62,6 +67,10 @@ tests = testGroup "Compiler tests" $
     "21 + 21"
     "test/programs/compute42.ll"
     70 42 :
+    []
+
+-- Conditionals, Branching and loops
+testLoops = testGroup "Conditionals, Branching and loops" $
   compileTest
     "Fibonacci loop (not optimized)"
     "test/programs/fibSlow.ll"
@@ -70,12 +79,29 @@ tests = testGroup "Compiler tests" $
     "Fibonacci loop"
     "test/programs/fib.ll"
     420 34 :
-{-  compileTest
-    "Input text into numbers"
-    "test/programs/returnInput.ll"
-    80 42 : -}
---  compileTest "Hello world" "test/programs/hello.ll" 50 [] 0 :
     []
+
+-- GetElementPtr
+testGEP = testGroup "Test structs and arrays with GetElementPtr" $
+  compileTest
+    "Trivial array"
+    "test/programs/easyArray.ll"
+    50 11 :
+    compileTest
+    "Trivial struct"
+    "test/programs/easyStruct.ll"
+    50 3 :
+{-  WAIT FOR FUNCTIONS TO WORK.
+    compileTest
+    "Simple Binary Tree"
+    "test/programs/easyBinaryTree.ll"
+    100 42 :  -}
+    compileTest
+    "Linked list length 3"
+    "test/programs/easyLinkedList.ll"
+    140 16 :
+    []
+    
 
 -- tests = testGroup "Compiler tests" [instructionSelectionTests]
 
@@ -95,7 +121,9 @@ compileTest ::
 compileTest name file len ret = 
   testProperty name $ 
   QCM.monadicIO $ do
-  answer <- QCM.run $ compileTest' file len  False 
+  --QCM.run $ putStrLn "Here"
+  answer <- QCM.run $ compileTest' file len  False
+  --QCM.run $ putStrLn "Here 2" 
   QCM.assert $ answer == ret
 
 compileTest' ::

@@ -269,7 +269,7 @@ fromAscii = toEnum
 
 
 -- Example
-myfile = "programs/fib.micro" -- "programs/returnInput.micro"
+myfile = "test/programs/easyLinkedList.micro" -- "programs/returnInput.micro"
 pprintMyFile = pprintFromFile myfile
 myllvmfile = "programs/returnInput.ll"
 mram :: IO $ CompilationUnit (Program Name MWord)

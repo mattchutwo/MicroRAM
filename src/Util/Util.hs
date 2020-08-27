@@ -5,6 +5,8 @@ import Control.Monad.State.Lazy
 import Control.Monad.Except
 import Data.Word
 
+import qualified Data.Map as Map
+
 type ($) a b = a b
 
 
@@ -21,5 +23,5 @@ mapMaybeM op = foldr f (pure [])
 
 
 -- | take with words
-takeW :: Word -> [a] -> [a]
-takeW w = take (fromEnum w)
+takeEnum :: Enum a1 => a1 -> [a2] -> [a2]
+takeEnum w = take (fromEnum w)

@@ -147,12 +147,12 @@ secretOutput tr (CompUnit p trLen regData aData initM) =
     -- Advice
     (outputAdvice trLen tr)
 
-  where outputAdvice len tr = foldr joinAdvice Map.empty (takeW len $ zip [0..] tr)
+  where outputAdvice len tr = foldr joinAdvice Map.empty (takeEnum len $ zip [0..] tr)
         joinAdvice (i,state) adviceMap = case advice state of
                                        [] -> adviceMap
                                        ls -> Map.insert i ls adviceMap
 
-outputTrace len tr regBound = takeW len $ map (state2out regBound) tr
+outputTrace len tr regBound = takeEnum len $ map (state2out regBound) tr
 
 fullOutput :: Regs reg => CompilationUnit (Program reg MWord) -> Output reg
 fullOutput compUnit =
