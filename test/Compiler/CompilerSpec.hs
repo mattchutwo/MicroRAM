@@ -3,44 +3,15 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 module Compiler.CompilerSpec where
 
-import Compiler.Compiler
-import LLVMutil.LLVMutil
-import qualified LLVM.AST as LLVM
-import qualified MicroRAM.MicroRAM as MRAM
 import MicroRAM.MRAMInterpreter
-import LLVM.AST (Named(..))
-import qualified LLVM.AST.Constant as LLVM.Constant
-import qualified LLVM.AST.IntegerPredicate as IntPred
-import GHC.Word as Word
-import qualified Data.ByteString.Char8 as C8
-import qualified Data.ByteString.Short as Short
-import           Data.Default
-import qualified Data.String as String
-import qualified LLVM.AST.Linkage
-import qualified LLVM.AST.Visibility
-import qualified LLVM.AST.CallingConvention
-
-import qualified Data.Map as Map
-
---import InstructionSelectionSpec
-
 import MicroRAM.MicroRAM (MWord)
 
 -- Compiler imports
-import Compiler.Registers
 import Compiler.Errors
-import Compiler.InstructionSelection
-import Compiler.RegisterAlloc
-import Compiler.Stacking
-import Compiler.RemoveLabels
-import Compiler.IRs
-
+import Compiler.Compiler
 
 import LLVMutil.LLVMIO
-
 import Test.Tasty
-import Test.Tasty.Options
---import Test.QuickCheck.Monadic
 import qualified Test.QuickCheck.Monadic as QCM
 import Test.Tasty.QuickCheck
 
@@ -53,6 +24,7 @@ main = defaultMain tests
 nats :: [Int] 
 nats = iterate ((+) 1) 0 -}
 
+tests, testTrivial, testLoops, testGEP :: TestTree
 tests = testGroup "Compiler tests" $
         [testTrivial, testLoops, testGEP]
 
@@ -131,7 +103,7 @@ compileTest' ::
   -> Word -- ^ Length
   -> Bool -- ^ verbose
   -> IO MWord -- TestTree
-compileTest' file len verb= do
+compileTest' file len _verb = do
   llvmProg <- llvmParse file
   mramProg <- handleErrorWith $ compile len llvmProg
   return $ execAnswer mramProg
