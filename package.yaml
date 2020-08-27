@@ -50,7 +50,7 @@ dependencies:
 
 library:
   source-dirs: src
-  ghc-options: -Wno-name-shadowing # -Wall
+  ghc-options: -Wall -Wno-name-shadowing
 
 executables:
   MicroRAM-exe:

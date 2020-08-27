@@ -10,24 +10,9 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
-module MicroRAM.MicroRAM
-( Instruction'(..),
-  MAInstruction,
-  MA2Instruction,
-  Instruction,
-  NamedBlock(NBlock),
-  MAProgram,
-  Program,
-  Operand'(..),
-  Operand,
-  MAOperand,
-  OpTraversable(..),
-  MWord,
-  ) where
-
-{-
+{-|
 Module      : MicroRAM
-Description : ADT for MicroRam instructions and programs
+Description : ADT for MicroRAM instructions and programs
 Maintainer  : santiago@galois.com
 Stability   : experimental
 
@@ -38,37 +23,60 @@ Instructions from TinyRAM paper (everything is now supported in MicroRAM):
 |  Instr  | operands |                   effects                    |     flag     |
 +---------+----------+----------------------------------------------+--------------+
 | and     | ri rj A  | bitwise AND of [rj] and [A] and store in ri  | result is 0W |
++---------+----------+----------------------------------------------+--------------+
 | or      | ri rj A  | bitwise OR of [rj] and [A] and store in ri   | result is 0W |
++---------+----------+----------------------------------------------+--------------+
 | xor     | ri rj A  | bitwise XOR of [rj] and [A] and store in ri  | result is 0W |
++---------+----------+----------------------------------------------+--------------+
 | not     | ri A     | bitwise NOT of [A] and store result in ri    | result is 0W |
++---------+----------+----------------------------------------------+--------------+
 | add     | ri rj A  | [rj]u + [A]u and store result in ri          | overflow     |
++---------+----------+----------------------------------------------+--------------+
 | sub     | ri rj A  | [rj]u − [A]u and store result in ri          | borrow       |
++---------+----------+----------------------------------------------+--------------+
 | mull    | ri rj A  | [rj]u × [A]u, store least sign. bits in ri   | overflow     |
++---------+----------+----------------------------------------------+--------------+
 | umulh   | ri rj A  | [rj]u × [A]u, store most sign. bits in ri    | overflow     |
++---------+----------+----------------------------------------------+--------------+
 | smulh   | ri rj A  | [rj]s × [A]s, store most sign. bits in ri    | over/underf. |
++---------+----------+----------------------------------------------+--------------+
 | udiv    | ri rj A  | quotient of [rj]u/[A]u and store in ri       | [A]u = 0     |
++---------+----------+----------------------------------------------+--------------+
 | umod    | ri rj A  | remainder of [rj]u/[A]u and store in ri      | [A]u = 0     |
++---------+----------+----------------------------------------------+--------------+
 | shl     | ri rj A  | shift [rj] by [A]u bits left, store in ri    | MSB of [rj]  |
++---------+----------+----------------------------------------------+--------------+
 | shr     | ri rj A  | shift [rj] by [A]u bits right, store in ri   | LSB of [rj]  |
 +---------+----------+----------------------------------------------+--------------+
 | cmpe    | ri A     | none (“compare equal”)                       | [ri] = [A]   |
++---------+----------+----------------------------------------------+--------------+
 | cmpa    | ri A     | none (“compare above”, unsigned)             | [ri]u > [A]u |
++---------+----------+----------------------------------------------+--------------+
 | cmpae   | ri A     | none (“compare above or equal”, unsigned)    | [ri]u ≥ [A]u |
++---------+----------+----------------------------------------------+--------------+
 | cmpg    | ri A     | none (“compare greater”, signed)             | [ri]s > [A]s |
++---------+----------+----------------------------------------------+--------------+
 | cmpge   | ri A     | none (“compare greater or equal”, signed)    | [ri]s ≥ [A]s |
 +---------+----------+----------------------------------------------+--------------+
 | mov     | ri A     | store [A] in ri                              |              |
++---------+----------+----------------------------------------------+--------------+
 | cmov    | ri A     | if flag = 1, store [A] in ri                 |              |
 +---------+----------+----------------------------------------------+--------------+
 | jmp     | A        | set pc to [A]                                |              |
++---------+----------+----------------------------------------------+--------------+
 | cjmp    | A        | if flag = 1, set pc to [A] (else pc++)       |              |
++---------+----------+----------------------------------------------+--------------+
 | cnjmp   | A        | if flag = 0, set pc to [A] (else pc++)       |              |
 +---------+----------+----------------------------------------------+--------------+
 | store   | A ri     | store [ri] at memory address [A]u            |              |
++---------+----------+----------------------------------------------+--------------+
 | load    | ri A     | store content of mem address [A]u in ri      |              |
++---------+----------+----------------------------------------------+--------------+
 | read    | ri A     | if [A]u-th tape has words, consume next      |              |
++---------+----------+----------------------------------------------+--------------+
 |         |          | word, store in ri and set flag = 0;          | <-- (1)      |
 |         |          | else store 0W in ri and set flag = 1         |              |
++---------+----------+----------------------------------------------+--------------+
 | answer  | A        | stall or halt (ret. value is [A]u)           | (2)          |
 +---------+----------+----------------------------------------------+--------------+
 | (read)   All but the first two tapes are empty: if [A]u 6∈ {0, 1} then store 0W  |
@@ -87,8 +95,20 @@ The only difference is that MicroASM can use as operands. That is intended to be
 before assembly... but I also use it to stand in for label addresses before we know what they are.
 
 
-
 -}
+module MicroRAM.MicroRAM
+( Instruction'(..),
+  MAInstruction,
+  MA2Instruction,
+  Instruction,
+  NamedBlock(NBlock),
+  MAProgram,
+  Program,
+  Operand'(..),
+  Operand,
+  MAOperand,
+  MWord,
+  ) where
 
 import Data.Word (Word64)
 import GHC.Generics -- Helps testing
@@ -202,26 +222,6 @@ type Program r w = [Instruction r w]
 
 
 -- * Instances and classes
-
--- ** Extended Traversabel classes
--- We define classes that allows us to transform the operands or registers
--- inside a data structure (example below). In many cases, this is identical
--- to the automatically derived Traversal class (when Operand/regs is the last
--- argument of the type), but we can estend this to many other clases.
-
-class OpTraversable (t :: * -> * -> *) where 
-  traverseOp :: Applicative f =>
-    (Operand' ph a b -> f (Operand' ph a b')) -> t a b -> f (t a b')
-  mapOp :: Monad m => 
-    (Operand' ph a b -> m (Operand' ph a b')) -> t a b -> m (t a b')
-  mapOp = traverseOp
-
-traverseOpInst :: Applicative f =>
-    (Operand' 'Post a b -> f (Operand' 'Post a b')) -> Instruction a b -> f (Instruction a b')
-traverseOpInst fOp inst = traverse fOp inst
-
-
-
 
 -- ** Generics 
 
