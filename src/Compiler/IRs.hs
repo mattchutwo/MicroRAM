@@ -129,12 +129,10 @@ type IRFunction mdata regT wrdT irinstr =
  
 
 data Name =
-  Name ShortByteString -- | we keep the LLVM names
-  | NewName Word         -- | and add some new ones
+  Name ShortByteString   -- ^ we keep the LLVM names
+  | NewName Word         -- ^ and add some new ones
   deriving (Eq, Ord, Read, Show)
 
---w8 :: Word -> Word8
---w8 = fromIntegral 
 
 instance Regs Name where
   sp = NewName 0

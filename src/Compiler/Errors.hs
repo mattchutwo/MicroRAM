@@ -31,7 +31,8 @@ import Control.Monad.Except
 import System.Exit
 import System.IO
 
- -- ** Error handling
+-- ** Error handling
+
 data CmplError =
   NotImpl String      -- Feature not implemented
   | CompilerAssumption String   -- Compiler assumption broken
