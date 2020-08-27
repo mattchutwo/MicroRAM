@@ -28,6 +28,9 @@ module Compiler.InstructionSelection
     ( instrSelect,
     ) where
 
+-- FIXME: remove me!
+import System.IO.Unsafe
+
 
 import Data.Word
 import Data.ByteString.Short
@@ -67,8 +70,10 @@ wrdFromwrd64 = fromInteger . toInteger
 any2short :: Show a => a -> ShortByteString
 any2short n = toShort $ BSU.fromString $ show $ n
 
-name2name (LLVM.Name s) = return $ Name s
-name2name (LLVM.UnName n) = return $ Name $ any2short n
+
+name2name (LLVM.Name s) = Name s
+name2name (LLVM.UnName n) = Name $ any2short n
+name2nameM nm = return $ name2name nm
 
 -- | For Global names we just use strings.
 -- Should we use Names insted?
@@ -93,14 +98,15 @@ getConstant (LLVM.Constant.Undef typ) = return $ Const 0 -- Concretising values 
 getConstant (LLVM.Constant.GlobalReference typ name) = return $ Glob $ gName2String name
 getConstant (LLVM.Constant.GetElementPtr _ _ _) = assumptError $
   "Constant structs are not supported yet. This should go away with -O1. If you are seeing this message and used at least -O1 please report."
+getConstant (LLVM.Constant.Null typ) = return $ Const 0 -- Ignores type/size
 getConstant consT = otherError $
-  "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions)" ++ (show consT)
+  "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions): \n \t" ++ (show consT) ++ "\n"
 
 
 operand2operand :: LLVM.Operand -> Hopefully $ MAOperand VReg Word
 operand2operand (LLVM.ConstantOperand c) = getConstant c
 operand2operand (LLVM.LocalReference _ name) = do
-  name' <- (name2name name)
+  name' <- (name2nameM name)
   return $ Reg name'
 operand2operand _ = implError "operand, probably metadata"
 
@@ -110,11 +116,17 @@ name2Operand (LLVM.UnName number) = return $ Reg $ Name $ any2short number
 --name2Operand _ = assumptError "Unnamed name passed. Unnammed things should not be called."
 
 
-type2type :: TypeEnv -> LLVM.Type -> Hopefully Ty
+
+-- | Transforms `LLVM.Type` into backend types `Ty`
+-- Note that LLVM types can be recursive. However, in well-typed LLVMS,
+-- all structs have a computable size. This ensures that there are no
+-- infinite loops and that `type2type` terminates.
+-- Unfortunately this property is not enforced by the type system.
+type2type :: LLVMTypeEnv -> LLVM.Type -> Hopefully Ty
 type2type _ (LLVM.IntegerType n) = return Tint -- FIXME check size! 
 type2type tenv (LLVM.PointerType t _) = do
-  pointee <- type2type tenv t
-  return $ Tptr $ pointee 
+  --pointee <- type2type tenv t
+  return $ Tptr 
 type2type _ (LLVM.FunctionType _ _ _) = return Tint -- FIXME enrich typed!
 type2type tenv (LLVM.ArrayType size elemT) = do
   elemT' <- type2type tenv elemT
@@ -123,10 +135,9 @@ type2type tenv (LLVM.ArrayType size elemT) = do
 type2type _ (LLVM.StructureType True _) = assumptError "Can't pack structs yet."
 type2type tenv (LLVM.StructureType False tys) = Tstruct <$> mapM (type2type tenv) tys
 type2type tenv (LLVM.NamedTypeReference name) = do
-  name' <- name2name name
-  case Map.lookup name' tenv of
-    Just ty -> return ty
-    Nothing -> assumptError $ "Type name not defined: " ++ show name ++ ". \n With type environment: " ++ show tenv
+  case Map.lookup name tenv of
+    Just ty -> type2type tenv ty
+    Nothing -> assumptError $ "Type not defined: \n \t" ++ show name ++ ".\n" 
 type2type _ t = implError $ "Type: \n \t " ++ (show t)
 
 
@@ -232,10 +243,10 @@ a <++> b = (++) <$> a <*> b
 -- *** Trtanslating Function parameters and types
 
 function2function
-  :: TypeEnv -> Either a LLVM.Operand -> Hopefully (MAOperand VReg Word, Ty, [Ty])
+  :: LLVMTypeEnv -> Either a LLVM.Operand -> Hopefully (MAOperand VReg Word, Ty, [Ty])
 function2function _ (Left _ ) = implError $ "Inlined assembly not supported"
 function2function tenv (Right (LLVM.LocalReference ty nm)) = do
-  nm' <- name2name nm
+  nm' <- name2nameM nm
   (retT', paramT') <- functionTypes ty
   return (Reg nm',retT',paramT')
   where functionTypes (LLVM.FunctionType retTy argTys False) = do
@@ -257,7 +268,7 @@ params2params params paramsT = do
 
 
 -- | Instruction Selection for single LLVM instructions 
-isInstruction :: TypeEnv -> Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr () Word]
+isInstruction :: LLVMTypeEnv -> Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr () Word]
 -- *** Arithmetic
 
 -- Add
@@ -404,12 +415,13 @@ isInstruction _ _ instr =  implError $ "Instruction: " ++ (show instr)
 convertPhiInput :: (LLVM.Operand, LLVM.Name) -> Hopefully $ (MAOperand VReg Word, Name)
 convertPhiInput (op, name) = do
   op' <- operand2operand op
-  name' <- name2name name
+  name' <- name2nameM name
   return (op', name')
 
 -- ** GetElementPtr
 
-  {-
+
+{-
 llvmSize :: TypeEnv -> LLVM.Type -> Hopefully $ Word
 
 llvmSize LLVM.VoidType = return 0
@@ -459,7 +471,7 @@ constantMultiplication c x = do
 
 -- Type has to be a pointer
 isGEP ::
-  TypeEnv
+  LLVMTypeEnv
   -> VReg
   -> LLVM.Type
   -> MAOperand VReg Word
@@ -504,18 +516,18 @@ isGEP' _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t 
 
 -- ** Named instructions and instructions lists
 
-isNInstruction :: TypeEnv -> LLVM.Named LLVM.Instruction -> Statefully $ [MIRInstr () Word]
-isNInstruction tenv (LLVM.Do instr) = isInstruction tenv Nothing instr
-isNInstruction tenv (name LLVM.:= instr) =
-  let ret = name2name name in
-    (\ret -> isInstruction tenv (Just ret) instr) =<< ret
 isInstrs
-  :: TypeEnv ->  [LLVM.Named LLVM.Instruction]
+  :: LLVMTypeEnv ->  [LLVM.Named LLVM.Instruction]
      -> Statefully $ [MIRInstr () Word]
 isInstrs _ [] = return []
 isInstrs tenv instrs = do
   instrs' <- mapM (isNInstruction tenv) instrs
   return $ concat instrs'
+  where isNInstruction :: LLVMTypeEnv -> LLVM.Named LLVM.Instruction -> Statefully $ [MIRInstr () Word]
+        isNInstruction tenv (LLVM.Do instr) = isInstruction tenv Nothing instr
+        isNInstruction tenv (name LLVM.:= instr) =
+          let ret = name2nameM name in
+            (\ret -> isInstruction tenv (Just ret) instr) =<< ret
 
 
 
@@ -545,23 +557,23 @@ isTerminator (LLVM.Do term) = do
 
 isTerminator' :: LLVM.Terminator -> Hopefully $ [MIRInstr () Word]
 isTerminator' (LLVM.Br name _) = do
-  name' <- name2name name
+  name' <- name2nameM name
   returnRTL $ [MRAM.Ijmp $ Label (show name')] -- FIXME: This works but it's a hack. Think about labels.
 isTerminator' (LLVM.CondBr cond name1 name2 _) = do
   cond' <- operand2operand cond
-  loc1 <- name2name name1
-  loc2 <- name2name name2 
+  loc1 <- name2nameM name1
+  loc2 <- name2nameM name2 
   returnRTL $ [MRAM.Icmpe cond' (Const 1),
                     MRAM.Icjmp $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
                     MRAM.Ijmp $ Label (show loc2)]
 isTerminator' (LLVM.Switch cond deflt dests _ ) = do
   cond' <- operand2operand cond
-  deflt' <- name2name deflt
+  deflt' <- name2nameM deflt
   switchInstrs <- mapM (isDest cond') dests
   returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Reg deflt')]
   where isDest cond' (switch,dest) = do
           switch' <- getConstant switch
-          dest' <- name2name dest
+          dest' <- name2nameM dest
           return [MRAM.Icmpe cond' switch', MRAM.Icjmp (Reg dest')]
 
   
@@ -607,21 +619,19 @@ dumpName f (LLVM.Do a) = f a
 blockJumpsTo :: LLVM.Named LLVM.Terminator -> Hopefully [Name]
 blockJumpsTo term = do
   dests <- (dumpName blockJumpsTo' term)
-  mapM name2name dests 
+  mapM name2nameM dests 
 
 
 -- instruction selection for blocks
-isBlock:: TypeEnv -> LLVM.BasicBlock -> Statefully (BB Name $ MIRInstr () Word)
+isBlock:: LLVMTypeEnv -> LLVM.BasicBlock -> Statefully (BB Name $ MIRInstr () Word)
 isBlock  tenv (LLVM.BasicBlock name instrs term) = do
   body <- isInstrs tenv instrs
   end <- lift $ isTerminator term
   jumpsTo <- lift $ blockJumpsTo term
-  name' <- lift $ name2name name
+  name' <- lift $ name2nameM name
   return $ BB name' body end jumpsTo
 
-
-  
-isBlocks :: TypeEnv ->  [LLVM.BasicBlock] -> Statefully [BB Name $ MIRInstr () Word]
+isBlocks :: LLVMTypeEnv ->  [LLVM.BasicBlock] -> Statefully [BB Name $ MIRInstr () Word]
 isBlocks tenv = mapM (isBlock tenv)
 
 processParams :: ([LLVM.Parameter], Bool) -> [Ty]
@@ -629,12 +639,12 @@ processParams (params, _) = map (\_ -> Tint) params
 
 -- | Instruction generation for Functions
 
-isFunction :: TypeEnv -> LLVM.Definition -> Hopefully $ MIRFunction () Word
+isFunction :: LLVMTypeEnv -> LLVM.Definition -> Hopefully $ MIRFunction () Word
 isFunction tenv (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
   do
     (body, nextReg) <- runStateT (isBlocks tenv code) initState
     params' <- return $ processParams params
-    name' <- name2name name
+    name' <- name2nameM name
     retT' <- type2type tenv retT
     return $ Function name' retT' params' body nextReg
 isFunction _ other = unreachableError $ show other -- Shoudl be filtered out 
@@ -684,17 +694,38 @@ checkDiscardedDefs defs = do
         fOr ::  [a -> Bool] -> (a -> Bool)
         fOr fs a = or $ map (\f -> f a) fs 
 
-isTypeDefs :: [LLVM.Definition] -> Hopefully $ TypeEnv
-isTypeDefs defs =
-  foldM isTypedDef' Map.empty defs
-  where isTypedDef' :: TypeEnv -> LLVM.Definition -> Hopefully $ TypeEnv 
+
+-- | Computes the type environment.
+{- We do it lazily in tthree steps, to support recursive types:
+   1 - First we just gather the map1: LLVM.Name -> LLVM.Type
+   2 - Then we traverse that map converting it to map2: LLVM.Name -> Ty
+       This second pass calls the original map on any recursive calls
+   3 - Then we just change the keys to get map3 : Name -> Ty
+-}
+
+type LLVMTypeEnv = Map.Map LLVM.Name LLVM.Type
+
+isTypeDefs :: [LLVM.Definition] -> Hopefully $ LLVMTypeEnv
+isTypeDefs defs = do
+  map1 <- Map.fromList <$> mapM def2pair defs
+  return map1
+  where def2pair :: LLVM.Definition -> Hopefully $ (LLVM.Name, LLVM.Type)
+        def2pair (LLVM.TypeDefinition  name (Just ty)) = return (name, ty)
+        def2pair (LLVM.TypeDefinition  name Nothing) =
+          assumptError $ "Received an empty type definition for " ++
+          show name ++
+          " what am I supposed to do with this?"
+  
+  {- Old definitions did not support recursive types
+
+where isTypedDef' :: TypeEnv -> LLVM.Definition -> Hopefully $ TypeEnv 
         isTypedDef' tenv def = do
           maybeDef <- isTypedDef tenv def
           case maybeDef of
             Just (name, ty) -> return $ Map.insert name ty tenv
             _ -> return tenv
         isTypedDef tenv (LLVM.TypeDefinition  name (Just ty)) = do
-          name' <- name2name name
+          name' <- name2nameM name
           ty'   <- type2type tenv ty
           return $ Just (name',ty')
         isTypedDef tenv (LLVM.TypeDefinition name Nothing) =
@@ -702,17 +733,17 @@ isTypeDefs defs =
           show name ++
           " what am I supposed to do with this?"
         isTypedDef _ _ = return Nothing
---  return $ Map.empty
+--  return $ Map.empty -}
 
 -- | Turns a Global variable into its descriptor.
-isGlobVars :: TypeEnv -> [LLVM.Definition] -> Hopefully $ GEnv Word
+isGlobVars :: LLVMTypeEnv -> [LLVM.Definition] -> Hopefully $ GEnv Word
 isGlobVars tenv defs = mapMaybeM (isGlobVar' tenv) defs
   where isGlobVar' tenv  (LLVM.GlobalDefinition g) = do
           flatGVar <- isGlobVar tenv  g
           return $ Just flatGVar 
         isGlobVar' _ _ = return Nothing
 
-isGlobVar :: TypeEnv -> LLVM.Global -> Hopefully $ GlobalVariable Word
+isGlobVar :: LLVMTypeEnv -> LLVM.Global -> Hopefully $ GlobalVariable Word
 isGlobVar tenv (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) =
   do
   typ' <- type2type tenv typ
@@ -737,6 +768,12 @@ flattenConstant (LLVM.Constant.Null typ) = return $ [0]
 flattenConstant (LLVM.Constant.Array typ cnts) = do
   cnts' <- mapM flattenConstant cnts
   return $ concat cnts'
+flattenConstant (LLVM.Constant.Struct name True _) =
+  implError $ "Packed structs not supported yet. Tried packing constant struct \n " ++
+  show name
+flattenConstant (LLVM.Constant.Struct name False cnts) = do
+  cnts' <- mapM flattenConstant cnts
+  return $ concat cnts'  --
 flattenConstant cnt = assumptError $ "Constant not supportet for flattening: \n " ++
                       show cnt
                         
@@ -746,14 +783,13 @@ isFuncAttributes _ = return ()
 
 isDefs :: [LLVM.Definition] -> Hopefully $ MIRprog () Word
 isDefs defs = do
-  otherError $ "Debug HERE: " ++ (show $ filter itIsTypeDef defs)
   typeDefs <- isTypeDefs $ filter itIsTypeDef defs
-  otherError $ "Debug HERE: " ++ show defs
-  {-globVars <- (isGlobVars typeDefs) $ filter itIsGlobVar defs
+  globVars <- (isGlobVars typeDefs) $ filter itIsGlobVar defs
+  --otherError $ "DEBUG HERE: \n" ++ show typeDefs ++ "\n" ++ show globVars ++ "\n"  
   funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
   funcs <- mapM (isFunction typeDefs) $ filter itIsFunc defs
   checkDiscardedDefs defs -- Make sure we dont drop something important
-  return $ IRprog typeDefs globVars funcs-}
+  return $ IRprog Map.empty globVars funcs
   
 -- | Instruction selection generates an RTL Program
 instrSelect :: LLVM.Module -> Hopefully $ MIRprog () Word

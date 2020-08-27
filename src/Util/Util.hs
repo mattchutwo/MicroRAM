@@ -4,6 +4,8 @@ module Util.Util where
 import Control.Monad.State.Lazy
 import Control.Monad.Except
 
+import qualified Data.Map as Map
+
 type ($) a b = a b
 
 

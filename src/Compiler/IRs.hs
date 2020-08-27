@@ -42,14 +42,14 @@ and adding some functionality such as functions Stack locations etc.
 -- FIXME: For now we assume everything is an int, but the code should be
 --  written genrically over this type so it's easy to change
 data Ty =
-   Tint -- Currently all integers TODO: make it Tint int for all sizes
-  | Tptr Ty 
+   Tint
+  | Tptr 
   | Tarray Word Ty 
   | Tstruct [Ty]
   deriving (Show)
 
 -- Determines the relative size of types (relative to a 32bit integer/64bit)
-tySize :: Ty -> Word
+tySize ::  Ty -> Word
 tySize (Tarray length subTyp) = length * (tySize subTyp)
 tySize (Tstruct tys) = sum $ map tySize tys   
 tySize _ = 1 -- Pointers have the same sizer as Tint

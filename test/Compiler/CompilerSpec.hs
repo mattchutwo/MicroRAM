@@ -90,10 +90,15 @@ testGEP = testGroup "Test structs and arrays with GetElementPtr" $
     "Trivial struct"
     "test/programs/easyStruct.ll"
     50 3 :
+{-  WAIT FOR FUNCTIONS TO WORK.
     compileTest
     "Simple Binary Tree"
     "test/programs/easyBinaryTree.ll"
-    100 42 :
+    100 42 :  -}
+    compileTest
+    "Linked list length 3"
+    "test/programs/easyLinkedList.ll"
+    140 16 :
     []
     
 
@@ -115,7 +120,9 @@ compileTest ::
 compileTest name file len ret = 
   testProperty name $ 
   QCM.monadicIO $ do
-  answer <- QCM.run $ compileTest' file len  False 
+  --QCM.run $ putStrLn "Here"
+  answer <- QCM.run $ compileTest' file len  False
+  --QCM.run $ putStrLn "Here 2" 
   QCM.assert $ answer == ret
 
 compileTest' ::
