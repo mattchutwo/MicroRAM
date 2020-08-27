@@ -2,20 +2,14 @@
 {-# LANGUAGE TypeOperators #-}
 module Run where
 
-import Data.Foldable (toList)
-import Data.List (intercalate)
 import System.Environment
 
-import Lib
-
 import Util.Util
-import LLVMutil.LLVMutil
-import Compiler.Compiler
 
 import Compiler.IRs (Name)
 import MicroRAM.MicroRAM
 import Compiler.CompilationUnit (CompilationUnit(..))
-import MicroRAM.MRAMInterpreter (execAnswer, buildInitMem, emptyInitMem)
+import MicroRAM.MRAMInterpreter (execAnswer)
 
 import Data.List
 
@@ -27,13 +21,14 @@ main = do
       case removeSuffix file of
         Nothing -> putStrLn $
                    "Input file needs to be a .micro file: " ++ (show file)
-        Just name -> do
+        Just _name -> do
           compUnit <- compUnitFromFile file
           putStrLn $ "Running program " ++ file ++ " for " ++
             (show $ traceLen compUnit) ++ " steps."
           --mramArgs <- return $ parseArgs progArgs
           result <- return $ execAnswer compUnit
           putStrLn $ "Result: " ++ show result
+    _ -> putStrLn "Error: More than one argument provided." 
           
 
 --parseArgs :: [String] -> [Word]

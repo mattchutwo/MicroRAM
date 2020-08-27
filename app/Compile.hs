@@ -8,20 +8,11 @@ import System.FilePath
 import System.IO
 import System.Exit
 import qualified Data.ByteString.Lazy                  as L
-
-import Data.Foldable (toList)
-import Data.List (intercalate)
 import Data.List
-import Data.List.Split (splitOn)
 
-
-import Lib
-import LLVMutil.LLVMutil
 import Frontend.ClangCaller
-
-
 import Util.Util
-import MicroRAM.MRAMInterpreter
+
 import MicroRAM.MicroRAM
 import Compiler.CompilationUnit
 import Compiler.Compiler
@@ -33,6 +24,7 @@ import Output.Output
 import Output.CBORFormat
 
 
+main :: IO ()
 main = do
   (options, file, len) <- getArgs >>= parseArgs
   fr <- parseOptions file len options
