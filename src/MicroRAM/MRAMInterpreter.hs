@@ -6,13 +6,11 @@
 
 module MicroRAM.MRAMInterpreter
   ( Mem,
-    --Tape, 
     State(..),
     Prog,
     Trace,
     run,
     execAnswer,
-    --init_state,
     load,
     buildInitMem, emptyInitMem -- should this go elsewhere?
   , Advice(..), renderAdvc
@@ -21,12 +19,7 @@ module MicroRAM.MRAMInterpreter
 
 import MicroRAM.MicroRAM
 import Data.Bits
-import Data.Word
-import Control.Exception
-import qualified Data.Sequence as Seq
 import qualified Data.Map.Strict as Map
-import Data.Map.Strict ((!))
-
 import GHC.Generics
 
 import Util.Util
@@ -56,8 +49,9 @@ Notes:
 -- * MicroRAM semantics
 
 type Wrd = MWord
+wrdMax,_wrdMin :: Integer
 wrdMax = toInteger (maxBound :: Wrd)
-wrdMin = toInteger (minBound :: Wrd)
+_wrdMin = toInteger (minBound :: Wrd)
 
 wrdSize :: Int
 wrdSize = finiteBitSize (0 :: Wrd)
@@ -92,6 +86,7 @@ smulh r1 r2 = (r1' * r2') `quot` wrdModulus
 
 -- The Program Counter is a special register, represented separatedly 
 type Pc = Wrd
+init_pc :: Pc
 init_pc = 0
 
 -- | Registers
@@ -104,7 +99,7 @@ init_pc = 0
  We add a bad flag to be raised when an operation goes wrong. If the flag is
  set, the the rest of the state is bogus.
 -}
-
+init_flag :: Bool
 init_flag = False
 
 -- | Memory
@@ -219,55 +214,15 @@ set_pc pc' st = st {
 
 -- Turn on the bad flag
 -- there is no way to "unbad" a state
-set_bad:: State mreg -> State mreg
-set_bad st= st {
+_set_bad:: State mreg -> State mreg
+_set_bad st= st {
    bad = True
 }
-data Side = LeftSide | RightSide
-
-get_pair::Side -> (a,a) -> a
-get_pair LeftSide = fst
-get_pair RightSide = snd
-
-set_pair::Side -> a -> (a,a) -> (a,a)
-set_pair LeftSide a (_, b)= (a, b)
-set_pair RightSide b (a, _) = (a,b)
-
---get_tape::State mreg -> Side -> Tape
---get_tape st b = get_pair b (tapes st)
-
-to_side:: Wrd -> Maybe Side
-to_side 0 = Just LeftSide
-to_side 1 = Just RightSide
-to_side _ = Nothing
-
---pop::Tape -> Maybe (Wrd, Tape)
---pop (x:tp) = Just (x,tp)
---pop _ = Nothing
-
---set_tape::Side -> Tape -> State mreg -> State mreg
---set_tape sd tp st  =  st {
---  tapes = set_pair sd tp (tapes st)
---  , flag = False -- ^ changing the tape always sets the flag to 0 (as per Tiny RAM semantics)
---}
 
 set_answer:: MWord -> State mreg -> State mreg
 set_answer ans st  =  st { answer = ans }
 
--- Pop tape tries to pop a value from tape tp_n and store it in register r
--- if the tape is empty (or tp_n > 2) set r = 0 and flag = 1
--- if success set flag = 0
---pop_tape:: Regs mreg => Wrd -> mreg -> State mreg -> State mreg
---pop_tape tp_n r st =
---  case try_pop_tape st tp_n r of
---    Just st' -> set_flag False st'
---    _ -> set_flag True (set_reg r 0 st)
---  where try_pop_tape st tp_n r = do
---          sd <- to_side tp_n
---          (x,tp) <- pop (get_tape st sd)
---          Just $ set_reg r x $ set_tape sd tp st
-
-next:: State mreg -> State mreg
+next :: State mreg -> State mreg
 next st = set_pc (succ $ pc st) st
 
 -- * Interpreter
@@ -278,12 +233,13 @@ next st = set_pc (succ $ pc st) st
 get_reg :: Regs mreg => RMap mreg MWord -> mreg -> Wrd
 get_reg rs r = lookupReg r rs
 
+eval_reg :: Regs mreg => State mreg -> mreg -> Wrd
 eval_reg st r = get_reg (regs st) r
 
 -- | Gets operand wether it's a register or a constant or a PC
 eval_operand :: Regs mreg => State mreg -> Operand mreg Wrd -> Wrd
 eval_operand st (Reg r) = eval_reg st r
-eval_operand st (Const w) = w
+eval_operand _st (Const w) = w
 
 -- *** unary and binart operations
 {- The way we computeto do binary/unary operations we do the following steps:
@@ -356,7 +312,7 @@ execBopCatchZero ::
   -> Operand mreg Wrd
   -> (Integer -> Integer -> Integer) -- ^ Binary operation
   -> State mreg 
-execBopCatchZero st r1 r2 a f =
+execBopCatchZero st r1 r2 a _f =
   catchZero (eval_operand st a) r1 (\st -> exec_bop st r1 r2 a quot (\_->True)) st 
 
 
@@ -370,21 +326,15 @@ exec_uop st r1 a f check = next $ set_flag (check result) $ set_reg r1 (fromInte
 
 
 -- Common checks for binary operations (to set the flag)
-isZero :: Integer -> Bool
+isZero,notZero :: Integer -> Bool
 isZero 0 = True
 isZero _ = False
 notZero x = not (isZero x)
 
 
-overflow :: Integer -> Bool
+overflow, borrow :: Integer -> Bool
 overflow i = i > wrdMax
-
-borrow :: Integer -> Bool
 borrow i = i < 0
-
-overUnderflow :: Integer -> Bool
-overUnderflow i = i < wrdMin || i > wrdMax
-
 
 trivialCheck :: Integer -> Bool
 trivialCheck _ = True
@@ -406,6 +356,8 @@ exec_cnd st r1 a f = next $ set_flag result st
 
 -- *** Jump util
 
+exec_jmp
+  :: Regs mreg => State mreg -> Operand mreg Wrd -> State mreg
 exec_jmp st a = set_pc (eval_operand st a) st
 
 -- ** Instruction execution (after instr. fetching)
@@ -453,7 +405,7 @@ exec (Icnjmp a) st = if not $ flag st then exec_jmp st a else next st
 exec (Istore a r1) st = next $ store_mem (eval_operand st a) (get_reg (regs st) r1) st
 exec (Iload r1 a) st =  next $ load_mem  r1 (eval_operand st a) st
 
-exec (Iread r1 a) st = next $ st -- pop_tape (eval_operand st a) r1 st
+exec (Iread _r1 _a) st = next $ st -- pop_tape (eval_operand st a) r1 st
 
 -- Answer : set answer to ans and loop (pc not incremented)
 exec (Ianswer a) st =
@@ -482,42 +434,8 @@ run (CompUnit prog trLen _ _ initMem) =
 
 
 -- ** Some facilities to run
--- Simple getters to explore the trace.
-get_regs :: State mreg -> RMap mreg MWord
-get_regs = regs
 
-see_regs:: Trace mreg -> Int -> RMap mreg MWord
-see_regs t n = regs (t !! n)
-
-reg_trace::Trace mreg -> [RMap mreg MWord]
-reg_trace t = map regs t
-
-pc_trace'::Trace mreg -> [Wrd]
-pc_trace' t= map pc t
-
-flag_trace'::Trace mreg -> [Bool]
-flag_trace' t= map flag t
-
--- Convenient execution
-{- As long as we haven't implemented a "return",
-   The return value will be stroed in the first register.
--}
---k = 16
-
---run' n prog = Prelude.take n (run [] prog)
---pc_trace n prog = map pc (run' n prog)
---out_trace n prog = map (\s-> lookupReg 0 (regs s)) (run' n prog)
---flag_trace n prog = map flag (run' n prog)
-
---execute :: Regs mreg => Prog mreg -> Int -> Wrd
---execute prog n = lookupReg sp (regs $ (run [] prog) !! n)
-
---execute_pc prog n = lookupReg sp ((see_regs $ run [] prog) n)
-
---exec_input :: Regs mreg => Prog mreg -> [Word] -> Int -> Wrd
---exec_input prog inp n = lookupReg sp ((see_regs $ run inp prog) n)
-
-
+-- | execute program and return the result.
 execAnswer :: Regs mreg => CompilationUnit (Prog mreg) -> MWord
 execAnswer compUnit = answer $ last $ run compUnit
 

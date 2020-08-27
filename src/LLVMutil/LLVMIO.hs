@@ -11,6 +11,7 @@ llvmParse file = do
     ast <- withModuleFromLLVMAssembly context contents moduleAST
     return ast
 
+llvmread :: FilePath -> IO ()
 llvmread file = do
   contents <- readFile file
   putStr contents

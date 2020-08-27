@@ -3,17 +3,17 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 module LLVMutil.LLVMutil where
 
-import Compiler.Compiler
+
 import qualified LLVM.AST as LLVM
-import qualified MicroRAM.MicroRAM as MRAM
-import MicroRAM.MRAMInterpreter
-import LLVM.AST (Named(..))
+
+
+
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.IntegerPredicate as IntPred
 import GHC.Word as Word
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Short as Short
-import qualified Data.String as String
+import Data.String
 import qualified LLVM.AST.Linkage
 import qualified LLVM.AST.Visibility
 import qualified LLVM.AST.CallingConvention
@@ -37,17 +37,18 @@ import qualified LLVM.AST.CallingConvention
 w32 :: Integral a => a -> Word.Word32
 w32 = fromIntegral
 
+wz :: Word32
 wz = w32 (0::Int)
 
 -- types
+ty :: LLVM.Type
 ty = LLVM.VoidType
 
-
-
 -- Operand class to make notation easier
-instance String.IsString LLVM.Operand where
+instance IsString LLVM.Operand where
   fromString  a = LLVM.LocalReference ty (LLVM.Name (Short.toShort (C8.pack a)))
 
+int2op :: Integer -> LLVM.Operand
 int2op n = LLVM.ConstantOperand (LLVM.Constant.Int wz n)
 
 instance Num LLVM.Operand where
