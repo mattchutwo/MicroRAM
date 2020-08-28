@@ -9,8 +9,8 @@ This pass lays out the stack in memory. The register allocator
 deals with the stack abstractly issuing `Lgetstack`, `Lsetstack`, `LAlloc`,
 this pass transforms those instructions into real stack manipulations.
 
-mMoreover this pass adds the necessart instructions from stack frame
-creation/destruction on function call/return.
+Moreover this pass adds the necessary instructions from stack frame
+creation and destruction on function call and return.
 
 (Note that global variables are passed as initial memory to the cricuit generator.
  see Compiler/Globals.hs for details)

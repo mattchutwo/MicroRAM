@@ -14,8 +14,8 @@ import Frontend.ClangCaller
 import Util.Util
 
 import MicroRAM.MicroRAM
+import Compiler
 import Compiler.CompilationUnit
-import Compiler.Compiler
 import Compiler.Errors
 import LLVMutil.LLVMIO
 import Compiler.IRs

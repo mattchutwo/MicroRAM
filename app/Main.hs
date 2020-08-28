@@ -7,7 +7,7 @@ import System.Environment
 
 import Lib
 import Compiler.Registers
-import Compiler.Compiler
+import Compiler
 import MicroRAM.MicroRAM
 import MicroRAM.MRAMInterpreter
 

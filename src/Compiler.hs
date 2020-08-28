@@ -3,7 +3,7 @@
 
 {-|
 Module      : Compiler
-Description : LLVM -> MicroRAM
+Description : Cheesecloth compiler
 Maintainer  : santiago@galois.com
 Stability   : prototype
 
@@ -39,8 +39,8 @@ The cheesecloth compiler translates LLVM modules to MicroRAM as diagramed below:
 
 = Source, intermediate and target languages: syntax and semantics
 
-* __LLVM__ The LLVM assembly language as defined in <https://llvm.org/docs/LangRef.html>. We
-  use the haskell implementation of `llvm-hs`.
+* __LLVM__ The LLVM assembly language as defined in <https://llvm.org/docs/LangRef.html>.
+  We use the haskell implementation of `llvm-hs`.
 
 * __MicroIR__ High-level IR based on MicroRAM.  Includes MicroRAM instructions with
    support for extended operand kinds and two non-register operands per
@@ -88,9 +88,8 @@ execution of programs.
 * __Remove Labels__ (`removeLabels`): Compiles Translates MicroASM to MicroRAM by
   removing code labels and replacing them with constant code pointers.
 
-
 -}
-module Compiler.Compiler
+module Compiler
     ( compile, --compileStraight
     ) where
 
