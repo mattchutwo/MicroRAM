@@ -56,6 +56,7 @@ import qualified Data.Word as Word
 
 import Util.Util
 
+import Compiler.CallingConvention
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.IRs
@@ -77,6 +78,7 @@ compile :: Word -> LLVM.Module
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Register Allocation" $ justCompile $ registerAlloc def)
+  >>= (tagPass "Calling Convention" $ justCompile callingConvention)
   >>= (tagPass "Remove Globals" $ replaceGlobals)
   >>= (tagPass "Stacking" $ justCompile stacking)
   >>= (tagPass "Computing Sparsity" $ justAnalyse (SparsityData <.> sparsity))
