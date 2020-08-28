@@ -72,8 +72,8 @@ Here:
 * 300 is the desired length of the trace
 * `-O3` runs clang with full optimisations
 * `--mram-out` writes the compiled MicroRAM program to `test/programs/fib.micro`
-* `--verifier` runs the backend in "public mode" so rthe resulting CBOR code only has the compiled program and the parameters (number of registers, trace length and sprsity information).
-* Notice that the "input" is passed in the program as extern global. This can be linked separatedly if needed to remain secret.
+* `--verifier` runs the backend in "public mode" so rthe resulting CBOR code only has the compiled program and the parameters (number of registers, trace length and sparsity information).
+* Notice that the "input" (in this example is 10) is passed in the program as extern global. This can be linked separatedly if needed to remain secret.
 
 
 We can further run the interpreter on the compiled code (explained below): 
