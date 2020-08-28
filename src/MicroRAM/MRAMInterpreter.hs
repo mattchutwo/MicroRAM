@@ -24,6 +24,8 @@ module MicroRAM.MRAMInterpreter
     MemOpType(..),
     -- * Just for the debugger
     Mem, load,
+    -- * Just for testing
+    Prog
     ) where
 
 import MicroRAM
