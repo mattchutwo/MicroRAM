@@ -1,20 +1,24 @@
+{-|
+Module      : LLVMIO
+Description : read llvm file
+Maintainer  : santiago@galois.com
+Stability   : prototype
+
+
+-}
 module LLVMutil.LLVMIO where
 
 import LLVM.Module
 import LLVM.Context
 import qualified LLVM.AST as LLVM 
 
+-- | Read LLVM file
 llvmParse :: FilePath -> IO LLVM.Module
 llvmParse file = do
   contents <- readFile file 
   withContext $ \context -> do
     ast <- withModuleFromLLVMAssembly context contents moduleAST
     return ast
-
-llvmread :: FilePath -> IO ()
-llvmread file = do
-  contents <- readFile file
-  putStr contents
 
 
 

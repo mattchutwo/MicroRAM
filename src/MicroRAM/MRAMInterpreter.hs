@@ -3,21 +3,30 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-
+Module      : MRAM Interpreter
+Description : Interpreter for MicrRAM programs
+Maintainer  : santiago@galois.com
+Stability   : experimental
+
+The interpreter runs a MicroRAM program, producing a
+trace of states that can easily be inspected for correctness.
+Current semantics follows the TinyRAM paper.
+-}
 
 module MicroRAM.MRAMInterpreter
-  ( Mem,
+  ( -- * Execute a program
+    run, execAnswer,
+    -- * Trace
     State(..),
-    Prog,
-    Trace,
-    run,
-    execAnswer,
-    load,
-    buildInitMem, emptyInitMem -- should this go elsewhere?
-  , Advice(..), renderAdvc
-  , MemOpType(..)
+    Trace, 
+    Advice(..), renderAdvc,
+    MemOpType(..),
+    -- * Just for the debugger
+    Mem, load,
     ) where
 
-import MicroRAM.MicroRAM
+import MicroRAM
 import Data.Bits
 import qualified Data.Map.Strict as Map
 import GHC.Generics
@@ -27,24 +36,6 @@ import Util.Util
 import Compiler.Registers
 import Compiler.CompilationUnit
 
-{-
-Module      : MRAM Interpreter
-Description : Interpreter for MicrRAM programs
-Maintainer  : santiago@galois.com
-Stability   : experimental
-
-The interpreter runs a MicroRAM pprogram, producing a
-Trace of states that can easily be inspected. Current
-semantics follows the TinyRAM paper.
-
-Notes:
-* Current implementation uses (Words) but it follows an interface
-  that can be easily converted to any other Num
-* Operations are performed over unbounded Integer and converted
-  back anf forth from Wrd
-* Follows the semantics in TinyRAM:
-  https://www.scipr-lab.org/doc/TinyRAM-spec-0.991.pdf
--}
 
 -- * MicroRAM semantics
 
@@ -115,6 +106,7 @@ type Mem = (Wrd,Map.Map Wrd Wrd)
 init_mem :: InitialMem -> Mem
 init_mem input = (0,flatInitMem input)
 
+-- | Write to a location in memory
 store ::
   Wrd     -- ^ addres
   -> Wrd  -- ^ value
@@ -122,6 +114,7 @@ store ::
   -> Mem
 store x y (d,m)=  (d,Map.insert x y m) 
 
+-- | Read from a location in memory
 load ::  Wrd -> Mem -> Wrd
 load x (d,m)=  case Map.lookup x m of
                  Just y -> y
@@ -135,10 +128,13 @@ load x (d,m)=  case Map.lookup x m of
 {- I don't include the program in the state since it never changes
 
 -}
--- | Advice: extra info that is usefull for witness checker generation
+-- | Memory operation advice: nondeterministic advice to help the
+-- witness checker chekc the memory consistency. 
 data MemOpType = MOStore | MOLoad
   deriving (Eq, Read, Show, Generic)
 
+-- | This information is passed the witness checker as nondeterministic
+-- advice. Currently we only advice about memory operations and steps that stutter.
 data Advice =
     MemOp
     MWord      -- ^ address
@@ -148,7 +144,7 @@ data Advice =
   deriving (Eq, Read, Show, Generic)
 
 
-
+-- | Pretty printer for advice.
 renderAdvc :: [Advice] -> String
 renderAdvc advs = concat $ map renderAdvc' advs
   where renderAdvc' :: Advice -> String
@@ -158,13 +154,20 @@ renderAdvc advs = concat $ map renderAdvc' advs
 
 -- | The program state 
 data State mreg = State {
+  -- | Program counter
   pc :: Pc
+  -- | Register bank
   , regs :: RMap mreg MWord
+  -- | Memory state
   , mem :: Mem
+  -- | Nondeterministic advice for the last step
   , advice :: [Advice] -- Deleted at the start of each step.
   --, tapes :: (Tape, Tape)
+  -- | The flag (a boolean register)
   , flag :: Bool
+  -- | Bad flag (another boolean register). Not used right now
   , bad :: Bool
+  -- | Return value.
   , answer :: MWord }
 
 deriving instance (Read (RMap mreg MWord)) => Read (State mreg)
@@ -427,6 +430,8 @@ step prog st = exec (prog !! (toInt $ pc st)) $ freshAdvice st
 
 -- ** Execution
 type Trace mreg = [State mreg]
+
+-- | Produce the trace of a program
 run :: Regs mreg => CompilationUnit (Prog mreg) -> Trace mreg
 run (CompUnit prog trLen _ _ initMem) =
   takeEnum trLen $ 
@@ -435,7 +440,7 @@ run (CompUnit prog trLen _ _ initMem) =
 
 -- ** Some facilities to run
 
--- | execute program and return the result.
+-- | Execute the program and return the result.
 execAnswer :: Regs mreg => CompilationUnit (Prog mreg) -> MWord
 execAnswer compUnit = answer $ last $ run compUnit
 
@@ -446,8 +451,8 @@ execAnswer compUnit = answer $ last $ run compUnit
 
 -- | Create the initial memory from a list of inputs
 -- TODO This seems out of place, but I don't know where to put it
-buildInitMem :: [String] -> [MWord]
-buildInitMem ls = map fromIntegral $
+_buildInitMem :: [String] -> [MWord]
+_buildInitMem ls = map fromIntegral $
   let argsAsChars = args2chars ("Name":ls) in   -- we fake the "name" of the program.
     let argv_array = getStarts argsAsChars in
       let argsAsString = concat argsAsChars in
@@ -466,8 +471,8 @@ buildInitMem ls = map fromIntegral $
         getStartsRec n ret (x:ls) =
           getStartsRec (n+length x) (ret++[n]) ls
 
-emptyInitMem :: [MWord]
-emptyInitMem = buildInitMem []
+_emptyInitMem :: [MWord]
+_emptyInitMem = _buildInitMem []
           
 
 

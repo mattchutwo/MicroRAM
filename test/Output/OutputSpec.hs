@@ -25,7 +25,7 @@ import Codec.Serialise
 import Codec.CBOR
 import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm)
 
-import MicroRAM.MicroRAM
+import MicroRAM
 import MicroRAM.MRAMInterpreter
 
 

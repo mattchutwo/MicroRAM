@@ -1,10 +1,19 @@
 {-# LANGUAGE TypeOperators #-}
+
+{-|
+Module      : Util
+Description : Usful tools
+Maintainer  : santiago@galois.com
+Stability   : experimental
+
+-}
+
 module Util.Util where
 
+-- | Lift this usefull operator to types
 type ($) a b = a b
 
-
--- From Python :D
+-- | From the Python function of the same name. :D
 enumerate :: (Num n, Enum n) => [a] -> [(n, a)]
 enumerate ls = zip [0..] ls
 

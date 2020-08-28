@@ -110,8 +110,8 @@ import Compiler.Sparsity
 import Compiler.RemoveLabels
 import Compiler.Analysis
 
-import MicroRAM.MicroRAM (MWord)
-import qualified MicroRAM.MicroRAM as MRAM  (Program) 
+import MicroRAM (MWord)
+import qualified MicroRAM as MRAM  (Program) 
 
 (<.>) :: Monad m => (b -> c) -> (a -> b) -> a -> m c
 f <.> g = \x -> return $ f $ g x 

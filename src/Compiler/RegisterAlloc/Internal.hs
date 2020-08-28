@@ -12,7 +12,7 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 
 import           Compiler.IRs
-import qualified MicroRAM.MicroRAM as MRAM
+import qualified MicroRAM as MRAM
 
 -- Retrieve the write registers of an instruction.
 writeRegisters :: Ord reg => LTLInstr mdata reg wrdT -> Set reg

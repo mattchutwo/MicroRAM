@@ -13,7 +13,7 @@ import Data.List
 import Frontend.ClangCaller
 import Util.Util
 
-import MicroRAM.MicroRAM
+import MicroRAM
 import Compiler
 import Compiler.CompilationUnit
 import Compiler.Errors

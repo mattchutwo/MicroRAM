@@ -8,7 +8,7 @@ import System.Environment
 import Lib
 import Compiler.Registers
 import Compiler
-import MicroRAM.MicroRAM
+import MicroRAM
 import MicroRAM.MRAMInterpreter
 
 prog1 = [Iadd 0 1 (Const 1), -- x=1

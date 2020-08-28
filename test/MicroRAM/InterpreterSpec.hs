@@ -13,7 +13,7 @@ import Test.Tasty.SmallCheck
 import Compiler.Registers
 import Compiler.CompilationUnit
 
-import MicroRAM.MicroRAM
+import MicroRAM
 import MicroRAM.MRAMInterpreter
 import qualified Data.Sequence as Seq
 import qualified Data.Map as Map

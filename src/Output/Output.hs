@@ -25,7 +25,7 @@ import Compiler.Registers
 import Compiler.Analysis
 
 import MicroRAM.MRAMInterpreter
-import MicroRAM.MicroRAM
+import MicroRAM
 import Util.Util
 
 

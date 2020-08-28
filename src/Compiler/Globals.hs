@@ -27,7 +27,7 @@ import Compiler.Errors
 import Compiler.IRs
 import Compiler.Registers
 
-import MicroRAM.MicroRAM
+import MicroRAM
 
 {- | Lay global variables in memory. Done in two steps:
 

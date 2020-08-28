@@ -4,11 +4,11 @@
 module Compiler.CompilerSpec where
 
 import MicroRAM.MRAMInterpreter
-import MicroRAM.MicroRAM (MWord)
+import MicroRAM (MWord)
 
 -- Compiler imports
+import Compiler
 import Compiler.Errors
-import Compiler.Compiler
 
 import LLVMutil.LLVMIO
 import Test.Tasty

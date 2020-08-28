@@ -57,9 +57,8 @@ module Compiler.IRs(
   rtlToLtl,
   ) where
 
-import MicroRAM.MicroRAM(MAOperand)
-import qualified MicroRAM.MicroRAM as MRAM
-import MicroRAM.MicroRAM(MWord)
+import MicroRAM(MAOperand,MWord)
+import qualified MicroRAM as MRAM
 import qualified Data.ByteString.Char8 as BSC
 import Data.ByteString.Short
 

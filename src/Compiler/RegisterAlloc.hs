@@ -39,8 +39,8 @@ import           Compiler.Errors
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.RegisterAlloc.Liveness
-import           MicroRAM.MicroRAM (MWord)
-import qualified MicroRAM.MicroRAM as MRAM
+import           MicroRAM (MWord)
+import qualified MicroRAM as MRAM
 import           Util.Util
 
 data RegisterAllocOptions = RegisterAllocOptions {

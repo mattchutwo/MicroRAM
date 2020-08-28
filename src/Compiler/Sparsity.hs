@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
-module Compiler.Sparsity (sparsity, Sparsity, InstrKind(..)) where
 
 {-
 Module      : Opcode Sparsity Analysis
@@ -38,10 +37,13 @@ But supporting separate compilation is easy:
 
 -}
 
+
+module Compiler.Sparsity (sparsity, Sparsity, InstrKind(..)) where
+
 import qualified Data.Map as Map
 
 import Util.Util
-import MicroRAM.MicroRAM
+import MicroRAM
 
 import GHC.Generics
 
@@ -246,9 +248,11 @@ sparsBlock (NBlock _ instrs) =
 
 
 -- ** Sparsity for Full program
--- We just join the spars maps by:
+-- We just join the sparsity maps by:
 -- 1. For each instruction get the min value of each  spars, endSpars and begSpars
 -- 2. Compute min (spars', endSpars' + begSpars')
+
+-- | Compute sparsity of a full program
 sparsity :: MAProgram r w -> Sparsity
 sparsity blocks =
   -- read the follwoing backwards

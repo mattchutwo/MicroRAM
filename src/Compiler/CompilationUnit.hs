@@ -18,7 +18,7 @@ compilations units.
 import qualified Data.Map as Map
 
 import Util.Util
-import MicroRAM.MicroRAM (MWord)
+import MicroRAM (MWord)
 
 import Compiler.Registers
 import Compiler.Analysis

@@ -54,8 +54,7 @@ module Compiler.Stacking
 
 
 
-import MicroRAM.MicroRAM
---import qualified MicroRAM.MicroRAM as MRAM
+import MicroRAM
 
 import Util.Util
 

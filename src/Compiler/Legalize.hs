@@ -22,9 +22,9 @@ import Compiler.Errors
 import Compiler.IRs
 
 
-import MicroRAM.MicroRAM (Operand'(..), MAOperand, Instruction'(..))
-import           MicroRAM.MicroRAM (MWord)
-import qualified MicroRAM.MicroRAM as MRAM
+import MicroRAM (Operand'(..), MAOperand, Instruction'(..))
+import           MicroRAM (MWord)
+import qualified MicroRAM as MRAM
 
 
 type Statefully m w a = StateT (LegalizeState m w) Hopefully a

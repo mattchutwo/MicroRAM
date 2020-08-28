@@ -16,91 +16,97 @@ Description : ADT for MicroRAM instructions and programs
 Maintainer  : santiago@galois.com
 Stability   : experimental
 
-This module describe two (closely related) languages: MicroRAM and MicroASM.
+This module describe two (closely related) languages designed for zero knowledge
+execution of programs: MicroRAM and MicroASM. These languages are part of the
+cheescloth compiler.
 
 = MicroRAM
 A simple machine language designed for zero knowledge
 execution of programs. The instructions (inspired by the TinyRAM language
 (<https://www.scipr-lab.org/doc/TinyRAM-spec-0.991.pdf>) are as follows:
 
-+---------+----------+----------------------------------------------+--------------+
-|  Instr  | operands |                   effects                    |     flag     |
-+=========+==========+==============================================+==============+
-| and     | ri rj A  | bitwise AND of [rj] and [A] and store in ri  | result is 0W |
-+---------+----------+----------------------------------------------+--------------+
-| or      | ri rj A  | bitwise OR of [rj] and [A] and store in ri   | result is 0W |
-+---------+----------+----------------------------------------------+--------------+
-| xor     | ri rj A  | bitwise XOR of [rj] and [A] and store in ri  | result is 0W |
-+---------+----------+----------------------------------------------+--------------+
-| not     | ri A     | bitwise NOT of [A] and store result in ri    | result is 0W |
-+---------+----------+----------------------------------------------+--------------+
-| add     | ri rj A  | [rj]u + [A]u and store result in ri          | overflow     |
-+---------+----------+----------------------------------------------+--------------+
-| sub     | ri rj A  | [rj]u − [A]u and store result in ri          | borrow       |
-+---------+----------+----------------------------------------------+--------------+
-| mull    | ri rj A  | [rj]u × [A]u, store least sign. bits in ri   | overflow     |
-+---------+----------+----------------------------------------------+--------------+
-| umulh   | ri rj A  | [rj]u × [A]u, store most sign. bits in ri    | overflow     |
-+---------+----------+----------------------------------------------+--------------+
-| smulh   | ri rj A  | [rj]s × [A]s, store most sign. bits in ri    | over/underf. |
-+---------+----------+----------------------------------------------+--------------+
-| udiv    | ri rj A  | quotient of [rj]u/[A]u and store in ri       | [A]u = 0     |
-+---------+----------+----------------------------------------------+--------------+
-| umod    | ri rj A  | remainder of [rj]u/[A]u and store in ri      | [A]u = 0     |
-+---------+----------+----------------------------------------------+--------------+
-| shl     | ri rj A  | shift [rj] by [A]u bits left, store in ri    | MSB of [rj]  |
-+---------+----------+----------------------------------------------+--------------+
-| shr     | ri rj A  | shift [rj] by [A]u bits right, store in ri   | LSB of [rj]  |
-+---------+----------+----------------------------------------------+--------------+
-| cmpe    | ri A     | none (“compare equal”)                       | [ri] = [A]   |
-+---------+----------+----------------------------------------------+--------------+
-| cmpa    | ri A     | none (“compare above”, unsigned)             | [ri]u > [A]u |
-+---------+----------+----------------------------------------------+--------------+
-| cmpae   | ri A     | none (“compare above or equal”, unsigned)    | [ri]u ≥ [A]u |
-+---------+----------+----------------------------------------------+--------------+
-| cmpg    | ri A     | none (“compare greater”, signed)             | [ri]s > [A]s |
-+---------+----------+----------------------------------------------+--------------+
-| cmpge   | ri A     | none (“compare greater or equal”, signed)    | [ri]s ≥ [A]s |
-+---------+----------+----------------------------------------------+--------------+
-| mov     | ri A     | store [A] in ri                              |              |
-+---------+----------+----------------------------------------------+--------------+
-| cmov    | ri A     | if flag = 1, store [A] in ri                 |              |
-+---------+----------+----------------------------------------------+--------------+
-| jmp     | A        | set pc to [A]                                |              |
-+---------+----------+----------------------------------------------+--------------+
-| cjmp    | A        | if flag = 1, set pc to [A] (else pc++)       |              |
-+---------+----------+----------------------------------------------+--------------+
-| cnjmp   | A        | if flag = 0, set pc to [A] (else pc++)       |              |
-+---------+----------+----------------------------------------------+--------------+
-| store   | A ri     | store [ri] at memory address [A]u            |              |
-+---------+----------+----------------------------------------------+--------------+
-| load    | ri A     | store content of mem address [A]u in ri      |              |
-+---------+----------+----------------------------------------------+--------------+
-|         |          | word, store in ri and set flag = 0;          | <-- (1)      |
-|         |          | else store 0W in ri and set flag = 1         |              |
-+---------+----------+----------------------------------------------+--------------+
-| answer  | A        | stall or halt (ret. value is [A]u)           | (2)          |
-+----------------------------------------------------------------------------------+
-| (answer) answer causes a stall (i.e., not increment pc) or a halt                |
-|          (i.e., the computation stops); the choice between the two is undefined. |
-+----------------------------------------------------------------------------------+
++--------+---------+----------------------------------------------+--------------+
+|  Instr | operands|                   effects                    |     flag     |
++========+=========+==============================================+==============+
+| and    | ri rj A | bitwise AND of [rj] and [A] and store in ri  | result is 0W |
++--------+---------+----------------------------------------------+--------------+
+| or     | ri rj A | bitwise OR of [rj] and [A] and store in ri   | result is 0W |
++--------+---------+----------------------------------------------+--------------+
+| xor    | ri rj A | bitwise XOR of [rj] and [A] and store in ri  | result is 0W |
++--------+---------+----------------------------------------------+--------------+
+| not    | ri A    | bitwise NOT of [A] and store result in ri    | result is 0W |
++--------+---------+----------------------------------------------+--------------+
+| add    | ri rj A | [rj]u + [A]u and store result in ri          | overflow     |
++--------+---------+----------------------------------------------+--------------+
+| sub    | ri rj A | [rj]u − [A]u and store result in ri          | borrow       |
++--------+---------+----------------------------------------------+--------------+
+| mull   | ri rj A | [rj]u × [A]u, store least sign. bits in ri   | overflow     |
++--------+---------+----------------------------------------------+--------------+
+| umulh  | ri rj A | [rj]u × [A]u, store most sign. bits in ri    | overflow     |
++--------+---------+----------------------------------------------+--------------+
+| smulh  | ri rj A | [rj]s × [A]s, store most sign. bits in ri    | over/underf. |
++--------+---------+----------------------------------------------+--------------+
+| udiv   | ri rj A | quotient of [rj]u/[A]u and store in ri       | [A]u = 0     |
++--------+---------+----------------------------------------------+--------------+
+| umod   | ri rj A | remainder of [rj]u/[A]u and store in ri      | [A]u = 0     |
++--------+---------+----------------------------------------------+--------------+
+| shl    | ri rj A | shift [rj] by [A]u bits left, store in ri    | MSB of [rj]  |
++--------+---------+----------------------------------------------+--------------+
+| shr    | ri rj A | shift [rj] by [A]u bits right, store in ri   | LSB of [rj]  |
++--------+---------+----------------------------------------------+--------------+
+| cmpe   | ri A    | none (“compare equal”)                       | [ri] = [A]   |
++--------+---------+----------------------------------------------+--------------+
+| cmpa   | ri A    | none (“compare above”, unsigned)             | [ri]u > [A]u |
++--------+---------+----------------------------------------------+--------------+
+| cmpae  | ri A    | none (“compare above or equal”, unsigned)    | [ri]u ≥ [A]u |
++--------+---------+----------------------------------------------+--------------+
+| cmpg   | ri A    | none (“compare greater”, signed)             | [ri]s > [A]s |
++--------+---------+----------------------------------------------+--------------+
+| cmpge  | ri A    | none (“compare greater or equal”, signed)    | [ri]s ≥ [A]s |
++--------+---------+----------------------------------------------+--------------+
+| mov    | ri A    | store [A] in ri                              |              |
++--------+---------+----------------------------------------------+--------------+
+| cmov   | ri A    | if flag = 1, store [A] in ri                 |              |
++--------+---------+----------------------------------------------+--------------+
+| jmp    | A       | set pc to [A]                                |              |
++--------+---------+----------------------------------------------+--------------+
+| cjmp   | A       | if flag = 1, set pc to [A] (else pc++)       |              |
++--------+---------+----------------------------------------------+--------------+
+| cnjmp  | A       | if flag = 0, set pc to [A] (else pc++)       |              |
++--------+---------+----------------------------------------------+--------------+
+| store  | A ri    | store [ri] at memory address [A]u            |              |
++--------+---------+----------------------------------------------+--------------+
+| load   | ri A    | store content of mem address [A]u in ri      |              |
++--------+---------+----------------------------------------------+--------------+
+| answer | A       | stall or halt (ret. value is [A]u)           | (2)          |
++--------------------------------------------------------------------------------+
+| (answer) answer causes a stall (i.e., not increment pc) or a halt              |
+|         (i.e., the computation stops); the choice between the two is undefined.|
++--------------------------------------------------------------------------------+
 
 = MicroASM: 
   Represents the MicroRAM assembly langues. It enhances MicroRAM with support for
   global variables and code labels.
 
 -}
-module MicroRAM.MicroRAM
-( Instruction'(..),
-  MAInstruction,
-  MA2Instruction,
+module MicroRAM
+( -- * MicroRAM
+  Instruction'(..),
   Instruction,
   NamedBlock(NBlock),
-  MAProgram,
   Program,
   Operand'(..),
   Operand,
+
+  -- * MicroASM
+  MAInstruction,
+  MAProgram,
   MAOperand,
+
+  -- * MicroIR
+  MA2Instruction,
+
+  -- * Words
   MWord,
   ) where
 
@@ -145,12 +151,12 @@ instance (Read regT, Read wrdT) => Read (Operand' 'Post regT wrdT) where
     readPrec
       = parens (do expectP (Ident "Reg")
                    a1_a1rK <- step readPrec
-                   return (MicroRAM.MicroRAM.Reg a1_a1rK))
+                   return (Reg a1_a1rK))
         +++
         (parens
          (do expectP (Ident "Const")
              a1_a1rL <- step readPrec
-             return (MicroRAM.MicroRAM.Const a1_a1rL)))
+             return (Const a1_a1rL)))
     readList = GHC.Read.readListDefault
     readListPrec = GHC.Read.readListPrecDefault
 
@@ -190,7 +196,8 @@ data Instruction' regT operand1 operand2 =
   | Istore operand2 operand1      -- ^  store [ri] at memory address [A]u
   | Iload regT operand2       -- ^  store the content of memory address [A]u into ri 
   | Iread regT operand2       -- ^  if the [A]u-th tape has remaining words then consume the next word,
-                             -- ^  store it in ri, and set flag = 0; otherwise store 0W in ri and set flag = 1
+                              --  store it in ri, and set flag = 0; otherwise store 0W in ri and set flag = 1.
+                              --  __To be removed__
   | Ianswer operand2          -- ^  stall or halt (and the return value is [A]u)
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
@@ -224,7 +231,8 @@ type Program r w = [Instruction r w]
 @
 data Operand'' regT wrdT = 
   Reg' regT
-  | Const' wrdT
+  | Const' wrd
+ deriving (Generic)
 @
 and then running `ghc -ddump-deriv src/MicroRAM/MicroRAM.hs` plus the standard cleanup.
 -}

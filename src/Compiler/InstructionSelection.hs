@@ -45,9 +45,8 @@ import Compiler.Errors
 import Compiler.IRs
 import Util.Util
 
-import MicroRAM.MicroRAM (Operand'(..), MAOperand) 
-import           MicroRAM.MicroRAM (MWord)
-import qualified MicroRAM.MicroRAM as MRAM
+import MicroRAM (Operand'(..), MAOperand, MWord) 
+import qualified MicroRAM as MRAM
 
 {-| Notes on this instruction generation :
 

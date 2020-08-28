@@ -19,23 +19,25 @@ module Compiler.Registers
       regToList
     ) where
 
-
+-- | Class about data structers that can be registers.
 class Ord a => Regs a where
   -- Reserved registers
-  sp :: a
-  bp :: a
-  -- caller-saved register
-  ax :: a
-  -- argc :: a
-  -- argv :: a
-  toWord :: a -> Word 
-  fromWord :: Word -> a 
+  sp :: a -- ^ Stack pointer 
+  bp :: a -- ^ Base pointer
+  ax :: a -- ^ Accumulator pointer (Caller saved!)
+
+  toWord :: a -> Word   -- ^ registers are homomorphic to unsigned integers  
+  fromWord :: Word -> a
+  
   -- Register bank
-  data RMap a :: * -> *
-  initBank :: b -> b -> RMap a b -- Takes default and sp/bp value 
+  -- | registers can be stored in a register bank with lookups and updates
+  data RMap a :: * -> *  
+  initBank :: b -> b -> RMap a b -- ^ Takes default and initial valuse of sp/bp 
   lookupReg :: a -> RMap a b -> b
   updateBank :: a -> b -> RMap a b -> RMap a b
 
+-- | Flattens a register bank to a list. Takes a bound
+-- in case the register type or the bank is infinite.
 regToList :: Regs mreg => Word -> RMap mreg b -> [b]
 regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound] 
 
@@ -47,9 +49,6 @@ regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound]
      we can implement registers indexed by `Int`s (instance of regs),
      but chose a different number of regs each time. That's what
      RegisterData is for.
-
-     Needed once reg. alloc. is done.
 -}
-
 data RegisterData = InfinityRegs | NumRegisters Int
   deriving (Eq, Ord, Read, Show)

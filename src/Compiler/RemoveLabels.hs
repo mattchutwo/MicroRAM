@@ -36,7 +36,7 @@ module Compiler.RemoveLabels
 
 
 
-import MicroRAM.MicroRAM
+import MicroRAM
 import qualified Data.Map.Strict as Map
 
 import Util.Util

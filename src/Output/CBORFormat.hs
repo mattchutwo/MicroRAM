@@ -35,7 +35,7 @@ import Compiler.Registers
 import Compiler.IRs
 
 import MicroRAM.MRAMInterpreter
-import MicroRAM.MicroRAM
+import MicroRAM
 
 import qualified Data.Text as TXT 
 

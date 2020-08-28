@@ -44,7 +44,7 @@ import Compiler.RemoveLabels
 import Compiler.Stacking
 
 import MicroRAM.MRAMInterpreter
-import MicroRAM.MicroRAM
+import MicroRAM
 import LLVMutil.LLVMIO
 
 
@@ -297,8 +297,8 @@ jpProg = do
       >>= removeLabels
 cs :: CustomSummary mreg
 cs = defaultSummary {theseMem = [0..27]}
-inp :: [MWord]
-inp = buildInitMem ["one","two", "three"]
+--inp :: [MWord]
+--inp = buildInitMem ["one","two", "three"]
 
 -- m' <- jpProg
 -- putStrLn $ pprint m'
