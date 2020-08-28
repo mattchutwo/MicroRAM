@@ -43,7 +43,7 @@ To produce the documentation. By default it will be located at:
 
 ### Simplest example:
 
-To fully process the trivial program `programs/return42.c` do:
+To fully process the trivial program `test/programs/return42.c` do:
 
 ```
 % stack exec compile -- test/programs/return42.c 25
@@ -73,17 +73,19 @@ Here:
 * `-O3` runs clang with full optimisations
 * `--mram-out` writes the compiled MicroRAM program to `test/programs/fib.micro`
 * `--verifier` runs the backend in "public mode" so rthe resulting CBOR code only has the compiled program and the parameters (number of registers, trace length and sprsity information).
+* Notice that the "input" is passed in the program as extern global. This can be linked separatedly if needed to remain secret.
+
 
 We can further run the interpreter on the compiled code (explained below): 
 
 ```
 % stack exec run test/programs/fib.micro
-Running program programs/fib.mic for 400 steps.
+Running program programs/fib.mic for 300 steps.
 Result: 34
 ```
-Returns the 9th fibonacci number. Yay!
+Returns the 10th fibonacci number. Yay!
 
-Finally, if we are happy with the execution. We can go ahead and generate the secret output (with the oh-so-secret-input "9").
+Finally, if we are happy with the execution. We can go ahead and generate the secret output (with the oh-so-secret-input "10").
 
 ```
 % stack exec compile -- programs/fib.micro 300 --from-mram
