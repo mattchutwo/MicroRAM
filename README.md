@@ -37,7 +37,7 @@ Just run
 ```
 
 To produce the documentation. By default it will be located at:
-`.stack-work/dist/x86_64-osx/Cabal-3.0.1.0/doc/html/index.html`
+`.stack-work/dist/[Your architecture]/Cabal-[version]/doc/html/index.html`
 
 ## Quick use examples:
 
