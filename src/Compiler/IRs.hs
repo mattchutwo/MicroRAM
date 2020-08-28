@@ -8,7 +8,54 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GADTs #-}
-module Compiler.IRs where
+{-|
+Module      : Intermediate Representation Languages
+Description : Intermediate representations between LLVM and MicroRAM
+Maintainer  : santiago@galois.com
+Stability   : Prototype
+
+Intermedaiate representations are Languages taking all the instructions from MicroRAM
+and adding some functionality such as function call, Stack locations, etc.
+
+
+-}
+module Compiler.IRs(
+  -- * Types
+  -- $types
+  Ty(..), tySize, TypeEnv,
+  
+  -- * Backend languages
+  -- ** Generic IR
+  -- $GIR
+  IRprog(..), Function(..), IRFunction, BB(..),
+  IRInstruction(..),
+  
+  GlobalVariable(..), GEnv,
+  Name(..), VReg, DAGinfo,
+  -- Utilities
+  traverseOpBB, traverseOpIRInstr,  
+
+  -- ** MicroIR
+  -- $MIR
+  MIRprog, MIRFunction, MIRInstruction(..), MIRInstr,
+  
+
+  -- ** RTL
+  -- $RTL
+  Rprog,RFunction, RTLInstr'(..), RTLInstr, 
+  -- RTL utility
+  traverseOpRTLInstr,
+
+  -- ** LTL
+  -- $LTL
+  Lprog, LFunction(..), LTLInstr'(..), LTLInstr,
+  Slot(..),
+  -- LTL utility
+  traverseOpLTLInstr, traverseOpLFun,traverseOpLprog,
+
+  -- * Translation RTL->LTL
+  rtlToLtl,
+                   ) where
 
 import MicroRAM.MicroRAM(MAOperand)
 import qualified MicroRAM.MicroRAM as MRAM
@@ -22,26 +69,20 @@ import Compiler.Registers
 import Compiler.Errors
 import Util.Util
 
-
-
-{-|
-Module      : Irs
-Description : Several intermediate representations between LLVM and MicroRAM
-Maintainer  : santiago@galois.com
-Stability   : Prototype
-
-Intermedaiate representations are Languages taking all the instructions from MicroRAM
-and adding some functionality such as functions Stack locations etc.
-
--}
-
-
-
 -- ** Types
--- | Ty determines the type of something in the stack. Helps us calculate
--- stack offsets for stack layout
--- FIXME: For now we assume everything is an int, but the code should be
---  written genrically over this type so it's easy to change
+-- $types
+-- This type 'system' is used by the compiler backend. Pointer types don't expose
+-- the type of the reference since we mostly just care about the size and
+-- all pointers have the same size.
+--
+-- All the types here should be finite even though that is not enforced by the Haskell
+-- Datatype.
+-- LLVM's mutually recursive types must have a computable sizes, so they allways
+-- "pass" through a pointer before a recursive referece. Thus, all those recursive
+-- referece disappear in the backend and we allways get finite types.
+
+-- | The type of something in the stack. Used to calculate
+-- stack offsets for stack layout.
 data Ty =
    Tint
   | Tptr 
@@ -49,7 +90,7 @@ data Ty =
   | Tstruct [Ty]
   deriving (Show)
 
--- Determines the relative size of types (relative to a 32bit integer/64bit)
+-- | Determines the relative size of types (relative to a 32bit integer/64bit)
 tySize ::  Ty -> MWord
 tySize (Tarray length subTyp) = length * (tySize subTyp)
 tySize (Tstruct tys) = sum $ map tySize tys   
@@ -59,42 +100,20 @@ tySize _ = 1 -- Pointers have the same sizer as Tint
 type TypeEnv = Map.Map Name Ty
 
 
+-- ** Generic low-level IR (Transfer languages)
+-- $GIR All IRs are made of standard 'MicroRAM' instructions plus some new ones. This
+-- makes compilation significantly easier and reduces duplication.
 
-
--- ** MicroIR
--- High-level IR based on MicroRAM.  Includes MicroRAM instructions with
--- support for extended operand kinds and two non-register operands per
--- instruction (normal MicroRAM requires one operand to be a register), as well
--- as extended high-level instructions (`RTLInstr'`).
-
-data MIRInstruction metadata regT wrdT =
-  MirM (MRAM.MA2Instruction regT wrdT) metadata
-  | MirI (RTLInstr' (MAOperand regT wrdT)) metadata
-  deriving (Show)
-
-type MIRInstr metadata wrdT = MIRInstruction metadata VReg wrdT
-
-type MIRFunction metadata wrdT =
-  Function Name Ty (BB Name $ MIRInstr metadata wrdT)
-
-type MIRprog metadata wrdT =
-  IRprog metadata wrdT (MIRFunction metadata wrdT)
-
-
-
--- ** Generic low-level IR
--- An IR is made of standard (register-and-operand) MRAM instructions plus some
--- new ones
 data IRInstruction metadata regT wrdT irinst =
    MRI (MRAM.MAInstruction regT wrdT) metadata
   | IRI irinst metadata
   deriving (Show,Functor, Foldable, Traversable)
 data Function nameT paramT blockT = Function
-  { funcName :: nameT
-  , funcRetTy :: paramT
-  , funcArgTys :: [paramT]
-  , funcBlocks :: [blockT]
-  , funcNextReg :: Word
+  { funcName :: nameT      -- ^ Function identifier
+  , funcRetTy :: paramT    -- ^ Return type
+  , funcArgTys :: [paramT] -- ^ Types of arguments
+  , funcBlocks :: [blockT] -- ^ Function code as a list of blocks
+  , funcNextReg :: Word    -- ^ 
   }
   deriving (Show, Functor)
 
@@ -109,11 +128,14 @@ traverseOpIRInstr fop (IRI irinst metadata) =
   IRI <$> (traverse fop irinst) <*> (pure metadata)
 
 
-
+-- | Marks a block to know what blocks can jump to it
+-- Seems like it's not used. **FIXME:** REMOVE?
 type DAGinfo name = [name]
+
 -- | Basic blocks:
---  it's a list of instructions + all the blocks that it can jump to
---  It separates the body from the instructions of the terminator.
+--  List of instructions + marked with all the blocks that it can jump to.
+--  It keeps separated the body from the instructions of the terminator,
+-- This allows for easy `phi` lifting.
 data BB name instrT = BB name [instrT] [instrT] (DAGinfo name)
   deriving (Show,Functor, Foldable, Traversable)
 
@@ -127,12 +149,16 @@ traverseOpBB fop = traverse (traverseOpLTLInstr fop)
 type IRFunction mdata regT wrdT irinstr =
   Function Name Ty (BB Name $ IRInstruction mdata regT wrdT irinstr)
  
-
+-- | These names are an extension to LLVM's register names.
+-- It includes a `NewName` to produce temporary registers that
+-- don't intefere with existing ones. 
 data Name =
   Name ShortByteString   -- ^ we keep the LLVM names
   | NewName Word         -- ^ and add some new ones
   deriving (Eq, Ord, Read, Show)
 
+-- | Virtual registers
+type VReg = Name
 
 instance Regs Name where
   sp = NewName 0
@@ -153,19 +179,14 @@ instance Regs Name where
                         Nothing -> d
   updateBank r x (RMap d m) = RMap d (Map.insert r x m)
 
---myShort:: ShortByteString
---myShort = "1234567890"
-
 -- Produces the digits, shifted by 48 (ie. the ASCII representation)
 digits :: Integral x => x -> [x]
 digits 0 = []
 digits x = digits (x `div` 10) ++ [x `mod` 10 + 48] -- ASCII 0 = 0
 
--- | Translate LLVM Names into strings
--- We use show, but this might add dependencies.
--- Should we just carry a shortString instead?
--- Moved to Instruction Selection
 
+-- | This is the representation of global variables until they are
+-- set in memory and translated to constant pointers. 
 data GlobalVariable wrdT = GlobalVariable
   { name :: String -- Optimize?
   , isConstant :: Bool
@@ -174,6 +195,8 @@ data GlobalVariable wrdT = GlobalVariable
   , secret :: Bool
   } deriving (Show)
 type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"
+
+-- | Programs in the backend.
 data IRprog mdata wrdT funcT = IRprog
   { typeEnv :: TypeEnv
   , globals :: GEnv wrdT
@@ -183,19 +206,33 @@ data IRprog mdata wrdT funcT = IRprog
 
 
 
+-- ** MicroIR
+-- $MIR
+-- High-level IR based on MicroRAM.  Includes MicroRAM instructions with
+-- support for extended operand kinds and two non-register operands per
+-- instruction (normal MicroRAM requires one operand to be a register), as well
+-- as extended high-level instructions (`RTLInstr'`).
+
+data MIRInstruction metadata regT wrdT =
+  MirM (MRAM.MA2Instruction regT wrdT) metadata
+  | MirI (RTLInstr' (MAOperand regT wrdT)) metadata
+  deriving (Show)
+
+type MIRInstr metadata wrdT = MIRInstruction metadata VReg wrdT
+
+type MIRFunction metadata wrdT =
+  Function Name Ty (BB Name $ MIRInstr metadata wrdT)
+
+type MIRprog metadata wrdT =
+  IRprog metadata wrdT (MIRFunction metadata wrdT)
+
+
 -- -------------------------------
 -- ** Register Transfer language (RTL)
 -- -------------------------------
-
--- RTL uses infinite registers, function calls and regular MRAM instructions for the rest.
-data CallInstrs operand = 
-   ICall operand -- ^ function
-        [operand] -- ^ arguments
-  | IRet (Maybe operand) -- ^ return this value
-        
-
--- | Virtual registers
-type VReg = Name 
+-- $RTL
+-- Register Transfer language (RTL) uses infinite virtual registers,
+-- function calls, Stack allocation and regular MicroRAM instructions. 
 
 -- | Instructions for the RTL language
 data RTLInstr' operand =
@@ -210,7 +247,7 @@ data RTLInstr' operand =
     (Maybe VReg) -- ^ return register (gives location)
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
-  | RPhi VReg [(operand,Name)]
+  | RPhi VReg [(operand,Name)] -- ^ Static Single Assignment function `phi`
   deriving (Show)
     
     
@@ -240,7 +277,8 @@ type Rprog mdata wrdT = IRprog mdata wrdT $ RFunction mdata wrdT
 -- ** Location Transfer Language
 -- -------------------------------
 
--- It's the target language for register allocation: Close to RTL but uses machine registers and stack slots instead of virtual registers.
+-- $LTL 
+-- Location Transfer Language (LTL) is the target language for register allocation: Close to RTL but uses machine registers and stack slots instead of virtual registers.
 
 -- | Slots are abstract representation of locations in the activation record and come in three kinds
 data Slot =
@@ -250,13 +288,14 @@ data Slot =
   deriving (Eq, Read, Show)
 
 -- | Locations are the disjoint union of machine registers and stack loctions
-data Loc mreg where
+{-data Loc mreg where
   R :: mreg -> Loc mreg
   L :: Slot -> Int -> Ty -> Loc mregm
-  deriving (Show)
+  deriving (Show) -}
 
 -- | LTL unique instrustions
 -- JP: wrdT is unused. Drop?
+-- SC: Should be wrdT instead of Word everywhere. FIXME
 data LTLInstr' mreg wrdT operand =
     Lgetstack Slot Word Ty mreg -- load from the stack into a register
   | Lsetstack mreg Slot Word Ty -- store into the stack from a register
@@ -286,10 +325,6 @@ traverseOpLTLInstr :: (Applicative f) =>
 traverseOpLTLInstr = traverseOpIRInstr
 
 
-
-
--- data Function nameT paramT blockT =
---  Function nameT paramT [paramT] [blockT]
 data LFunction mdata mreg wrdT = LFunction {
     funName :: String -- should this be a special label?
   , funMetadata :: mdata

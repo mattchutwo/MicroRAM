@@ -713,9 +713,8 @@ isTypeDefs defs = do
           assumptError $ "Received an empty type definition for " ++
           show name ++
           " what am I supposed to do with this?"
-        def2pair _ =
-          assumptError $ "This definition is not a type. How did it skip the filter?"
-
+        def2pair other = unreachableError $ show other
+        
 -- | Turns a Global variable into its descriptor.
 isGlobVars :: LLVMTypeEnv -> [LLVM.Definition] -> Hopefully $ GEnv MWord
 isGlobVars tenv defs = mapMaybeM (isGlobVar' tenv) defs
@@ -740,7 +739,7 @@ isGlobVar tenv (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _)
         sectionIsSecret (Just "__DATA,__secret") = True
         sectionIsSecret (Just ".data.secret") = True
         sectionIsSecret _ = False
-isGlobVar _ _ = assumptError "This is not a global. How did it skip the filter?"
+isGlobVar _ other = unreachableError $ show other
 
 flattenConstant :: LLVM.Constant.Constant ->
                    Hopefully [MWord]
