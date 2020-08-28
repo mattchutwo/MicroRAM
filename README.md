@@ -4,9 +4,9 @@
 MicroRAM is a random-access machine and accompanying C-compiler designed to efficiently do zero knowledge proofs of program properties. The design is mased on [TinyRAM](https://www.scipr-lab.org/doc/TinyRAM-spec-0.991.pdf). The current implementation includes the following tools:
  
  * [An ADT implementation of MicroRAM](src/MicroRAM.hs) 
- * A interpreter of MicroRAM in Haskell 
- * A compiler from C to MicroRAM with custom optimisations
- * A CBOR serialiser for the output
+ * [A interpreter of MicroRAM in Haskell ](src/MicroRAM/MRAMInterpreter.hs)
+ * [A compiler from C to MicroRAM with custom optimisations](src/Compiler.hs)
+ * [A CBOR serialiser for the output](src/Output/Output.hs)
 
 ## Installing
 
@@ -36,10 +36,10 @@ Clone this repository and build it
 To fully process the trivial program `programs/return42.c` do:
 
 ```
-% stack exec compile -- programs/return42.c 25
+% stack exec compile -- test/programs/return42.c 25
 ```
 
-Here `25` is the desired length of the trace. This will output the CBOR binary encoding of:
+Here `25` is the desired length of the trace. This will output the CBOR-hex encoding of:
 
 * The compiled MicroRAM program  
 * The parameters passed to circuit generation:
@@ -47,8 +47,8 @@ Here `25` is the desired length of the trace. This will output the CBOR binary e
   * trace length (i.e. 25)
   * Sparsity information
 * Trace of running the program for 25 cycles
-* Circuit advice
-* The input (as initial memory). Here the memory is a trivial string representing the name of the program and no other argument.
+* Nondeterministic advice for the circuit builder
+* The input (as initial memory). This program has no input so initial memory is empty.
 
 
 ### Passing arguemnts and running the interpreter:
@@ -56,28 +56,27 @@ Here `25` is the desired length of the trace. This will output the CBOR binary e
 Lets see another example
 
 ```
-% stack exec compile -- programs/fib.c 300 1 1 1 1 1 1 1 1 1 1 -O3 --mram-out -verifier
+% stack exec compile -- test/programs/fib.c 300 -O3 --mram-out --verifier
 ```
 Here:
 * 300 is the desired length of the trace
 * `-O3` runs clang with full optimisations
-* `--mram-out` writes the compiled MicroRAM program to `programs/fib.micro`
+* `--mram-out` writes the compiled MicroRAM program to `test/programs/fib.micro`
 * `--verifier` runs the backend in "public mode" so rthe resulting CBOR code only has the compiled program and the parameters (number of registers, trace length and sprsity information).
 
 We can further run the interpreter on the compiled code (explained below): 
 
 ```
-% stack exec run programs/fib.micro 400 1 1 1 1 1 1 1 1 1 1
-With arguments ["1","1","1","1","1","1","1","1","1","1"]
+% stack exec run test/programs/fib.micro
 Running program programs/fib.mic for 400 steps.
-Result: 55
+Result: 34
 ```
-Returns the 10th fibonacci number. Yay!
+Returns the 9th fibonacci number. Yay!
 
-Finally, if we are happy with the execution. We can go ahead and generate the secret output (with the oh-so-secret-input "10").
+Finally, if we are happy with the execution. We can go ahead and generate the secret output (with the oh-so-secret-input "9").
 
 ```
-% stack exec compile -- programs/fib.micro 300 1 1 1 1 1 1 1 1 1 1 --from-mram
+% stack exec compile -- programs/fib.micro 300 --from-mram
 ```
 
 Here `--from-mram` skips the compiler and only runs the interpreter and the serialisation of the result.
@@ -111,11 +110,3 @@ You can also run our test suite like so:
 ```
 % stack test
 ```
-
-## More details
-
-### Why inputs in unary
-
-Well, c programs take only two arguments: ` int argc, char *argv[]`. Our current implementation only supports ints. To avoid dealing with conversions (i.e. `char -> int`) the current hack is to use `argc` as the input. But that's only the number of arguments...
-
-Yes this is a big hack, but it get's us where we need... so if it works...
