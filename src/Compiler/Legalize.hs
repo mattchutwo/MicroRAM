@@ -1,6 +1,6 @@
 {-|
 Module      : Legalize
-Description : MIR -> RTL
+Description : Simplifies instructions where the first operand is not a register. 
 Maintainer  : santiago@galois.com
 Stability   : prototype
 

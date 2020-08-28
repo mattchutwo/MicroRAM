@@ -16,12 +16,16 @@ Description : ADT for MicroRAM instructions and programs
 Maintainer  : santiago@galois.com
 Stability   : experimental
 
+This module describe two (closely related) languages: MicroRAM and MicroASM.
 
-Instructions from TinyRAM paper (everything is now supported in MicroRAM):
+= MicroRAM
+A simple machine language designed for zero knowledge
+execution of programs. The instructions (inspired by the TinyRAM language
+(<https://www.scipr-lab.org/doc/TinyRAM-spec-0.991.pdf>) are as follows:
 
 +---------+----------+----------------------------------------------+--------------+
 |  Instr  | operands |                   effects                    |     flag     |
-+---------+----------+----------------------------------------------+--------------+
++=========+==========+==============================================+==============+
 | and     | ri rj A  | bitwise AND of [rj] and [A] and store in ri  | result is 0W |
 +---------+----------+----------------------------------------------+--------------+
 | or      | ri rj A  | bitwise OR of [rj] and [A] and store in ri   | result is 0W |
@@ -72,28 +76,18 @@ Instructions from TinyRAM paper (everything is now supported in MicroRAM):
 +---------+----------+----------------------------------------------+--------------+
 | load    | ri A     | store content of mem address [A]u in ri      |              |
 +---------+----------+----------------------------------------------+--------------+
-| read    | ri A     | if [A]u-th tape has words, consume next      |              |
-+---------+----------+----------------------------------------------+--------------+
 |         |          | word, store in ri and set flag = 0;          | <-- (1)      |
 |         |          | else store 0W in ri and set flag = 1         |              |
 +---------+----------+----------------------------------------------+--------------+
 | answer  | A        | stall or halt (ret. value is [A]u)           | (2)          |
-+---------+----------+----------------------------------------------+--------------+
-| (read)   All but the first two tapes are empty: if [A]u 6∈ {0, 1} then store 0W  |
-|          in ri and set flag = 1.                                                 |
 +----------------------------------------------------------------------------------+
 | (answer) answer causes a stall (i.e., not increment pc) or a halt                |
 |          (i.e., the computation stops); the choice between the two is undefined. |
 +----------------------------------------------------------------------------------+
 
-There are 2 different languages defined here:
- - MicroASM:
-   Which represents the TinyRAM assembly language (Similar to assembly desccribed in TinyRAM paper)
- - MicroRAM
-   Which is my implementation of TinyRAM
-The only difference is that MicroASM can use as operands. That is intended to be a stand in
-before assembly... but I also use it to stand in for label addresses before we know what they are.
-
+= MicroASM: 
+  Represents the MicroRAM assembly langues. It enhances MicroRAM with support for
+  global variables and code labels.
 
 -}
 module MicroRAM.MicroRAM

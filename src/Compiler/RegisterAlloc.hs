@@ -6,12 +6,12 @@
 
 {-|
 Module      : Register allocation
-Description : RTL -> LTL
+Description : Register allocation
 Maintainer  : 
 Stability   : 
 
 
-Description
+Register allocation
 
 -}
 module Compiler.RegisterAlloc

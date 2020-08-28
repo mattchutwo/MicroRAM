@@ -9,7 +9,7 @@ Description : LLVM -> RTL
 Maintainer  : santiago@galois.com
 Stability   : prototype
 
-This module compiles LLVM to MicroIR. It's a linear pass that translates each
+Instruction selection translates LLVM to MicroIR. It's a linear pass that translates each
 LLVM instruction to 0 or MicroIR instructinos. For now, it does not combine
 instructinos.
 
