@@ -55,7 +55,7 @@ module Compiler.IRs(
 
   -- * Translation RTL->LTL
   rtlToLtl,
-                   ) where
+  ) where
 
 import MicroRAM.MicroRAM(MAOperand)
 import qualified MicroRAM.MicroRAM as MRAM

@@ -7,33 +7,56 @@ Description : LLVM -> MicroRAM
 Maintainer  : santiago@galois.com
 Stability   : prototype
 
-This module compiles LLVM to MicroRAM. The compiler has the following
-passes/IRs:
+The cheesecloth compiler translates LLVM modules to MicroRAM as diagramed below:
 
-  
-    +---------+
-    |  LLVM   |
-    +---------+
-         | Instruction selection
-    +----v----+
-    |   RTL   |
-    +---------+
-         | Register allocation
-    +----v----+
-    |   LTL   |
-    +---------+
-         | Globals in memory
-    +----v----+
-    |   LTL   |
-    +---------+
-         | Stacking
-    +----v----+
-    |   Asm   |
-    +---------+
-         | Label removal
-    +----v----+
-    |MicroRAM |
-    +---------+
+  @
+  +---------+
+  |  LLVM   |
+  +----+----+
+       | Instruction selection
+  +----v----+
+  | MicroIR |
+  +----+----+
+       | Legalize
+  +----v----+
+  |   RTL   |
+  +----+----+
+       | Register allocation
+  +----v----+
+  |         +---+
+  |   LTL   |   |Globals
+  |         <---+
+  +----+----+
+       | Stacking
+  +----v----+     Sparsity
+  |MicroASM +------------->
+  +----+----+
+       | Label removal
+  +----v----+
+  |MicroRAM |
+  +---------+
+  @
+
+= Source, intermediate and target languages: syntax and semantics
+
+* LLVM: The LLVM assembly language as defined in <https://llvm.org/docs/LangRef.html>. We
+  use the haskell implementation of `llvm-hs`.
+
+* MicroIR: High-level IR based on MicroRAM.  Includes MicroRAM instructions with
+   support for extended operand kinds and two non-register operands per
+   instruction (normal MicroRAM requires one operand to be a register), as well
+   as extended high-level instructions (see `MIRprog`).
+
+* RTL: Register Transfer language (RTL) uses infinite virtual registers,
+  function calls, Stack allocation and regular MicroRAM instructions (see `Rprog`). 
+
+* LTL: Location Transfer Language (LTL) is close to RTL but uses machine registers
+  and stack slots instead of virtual registers (see `Lprog`). 
+
+* MicroASM: 
+
+* MicroRAM
+
 
 -}
 module Compiler.Compiler
