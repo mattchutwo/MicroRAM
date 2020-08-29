@@ -25,6 +25,10 @@ creation/destruction on function call/return.
      |                 |
      |                 |
      +-----------------+
+     | Callee-saved    |
+     | registers       |
+     |                 |  
+     +-----------------+
      | Spilled         |
      | variables       |
      |                 |  
@@ -419,7 +423,8 @@ stackLTLInstr (LCall typ ret f argsT args) =
   funCallInstructions typ ret f argsT args
 stackLTLInstr (LRet Nothing) = epilogue 
 stackLTLInstr (LRet (Just retVal)) =
-  (Imov ax retVal) : epilogue 
+  epilogue 
+  -- (Imov ax retVal) : epilogue -- Calling convention inserts the move to ax for us, so we skip it here. Can we move `restoreLTLInstruction` here?
 stackLTLInstr (LAlloc reg typ n) =
   -- Return the current sp (that's the base of the new allocation)
   (smartMovMaybe reg sp) ++

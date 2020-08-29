@@ -47,7 +47,7 @@ data RegisterAllocOptions = RegisterAllocOptions {
   }
 
 instance Default RegisterAllocOptions where
-  def = RegisterAllocOptions 8
+  def = RegisterAllocOptions 9
 
 type Registers = [VReg]
 
@@ -69,8 +69,8 @@ registerAlloc (RegisterAllocOptions numRegisters) rprog = do
 
   where
     -- Available registers.
-    -- First two registers are reserved.
-    registers = map NewName [2..numRegisters-1]
+    -- First three registers are reserved.
+    registers = map NewName [3..numRegisters-1]
 
 -- Register allocator state.
 data RAState = RAState {
@@ -104,7 +104,7 @@ initializeFunctionArgs (LFunction fname mdata typ typs stackSize blocks) =
 
 -- Assumes that instructions are in SSA form.
 registerAllocFunc :: Registers -> LFunction () VReg Word -> Hopefully $ LFunction () VReg Word
-registerAllocFunc registers (LFunction mdata name typ typs stackSize' blocks') = do
+registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') = do
 
   (rtlBlocks, rast) <- flip runStateT (RAState 0 0 mempty) $ do
     blocks <- mapM flattenBasicBlock blocks'
@@ -117,7 +117,7 @@ registerAllocFunc registers (LFunction mdata name typ typs stackSize' blocks') =
   let blocks = unflattenBasicBlock rtlBlocks
       
   -- return $ Function name typ typs blocks'
-  return $ LFunction mdata name typ typs stackSize blocks
+  return $ LFunction name mdata typ typs stackSize blocks
 
   where
     -- -- These are for arguments that are passed through registers.

@@ -8,6 +8,8 @@ import qualified Data.Set as Set
 import           Compiler.Errors
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
+import           Compiler.Registers
+import qualified MicroRAM.MicroRAM as MRAM
 import           Util.Util
 
 -- | Update functions to conform to the calling convention.
@@ -18,7 +20,6 @@ callingConvention lprog = do
     let code' = map callingConventionFunc $ code lprog
 
     return $ lprog {code = code'}
-
 
 
 callingConventionFunc :: LFunction () VReg Word -> LFunction () VReg Word
@@ -34,8 +35,6 @@ callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:bloc
     -- Postpend a pop (given stack size).
     let restoreInsts = calleeRestore stackSize registers in
     let blocks'' = restoreBlocks restoreInsts blocks' in
-
-    -- let blocks' = calleeSave stackSize registers <> blocks <> calleeRestore stackSize registers in
 
     -- Update stack size.
     let stackSize' = stackSize + fromIntegral (length registers) in
@@ -60,10 +59,11 @@ callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:bloc
       BB name (concatMap (restoreInst restoreInsts) insts) (concatMap (restoreInst restoreInsts) insts') dag
 
     restoreInst restoreInsts mri@(MRI _ _) = pure mri
-    restoreInst restoreInsts (IRI inst mdata) = IRI <$> restoreLTLInstruction restoreInsts inst <*> pure mdata
+    restoreInst restoreInsts (IRI inst mdata) = restoreLTLInstruction restoreInsts inst mdata
 
-    restoreLTLInstruction restoreInsts inst@(LRet mo) = restoreInsts <> pure inst
-    restoreLTLInstruction restoreInsts inst@(Lgetstack s w t r1) = pure inst
-    restoreLTLInstruction restoreInsts inst@(Lsetstack r1 s w t) = pure inst
-    restoreLTLInstruction restoreInsts inst@(LCall t mr op ts ops) = pure inst
-    restoreLTLInstruction restoreInsts inst@(LAlloc mr t op) = pure inst
+    restoreLTLInstruction restoreInsts inst@(LRet Nothing) mdata = fmap (\i -> IRI i mdata) restoreInsts <> pure (IRI inst mdata)
+    restoreLTLInstruction restoreInsts inst@(LRet (Just retVal)) mdata = [MRI (MRAM.Imov ax retVal) mempty] <> fmap (\i -> IRI i mdata) restoreInsts <> pure (IRI inst mdata)
+    restoreLTLInstruction restoreInsts inst@(Lgetstack s w t r1) mdata = pure (IRI inst mdata)
+    restoreLTLInstruction restoreInsts inst@(Lsetstack r1 s w t) mdata = pure (IRI inst mdata)
+    restoreLTLInstruction restoreInsts inst@(LCall t mr op ts ops) mdata = pure (IRI inst mdata)
+    restoreLTLInstruction restoreInsts inst@(LAlloc mr t op) mdata = pure (IRI inst mdata)
