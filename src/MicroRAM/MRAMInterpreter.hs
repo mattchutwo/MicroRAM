@@ -102,7 +102,7 @@ init_flag = False
 -- also we want programs that read uninitialized memory to bad
 
 
-type Mem = (Wrd,Map.Map Wrd Wrd)
+type Mem =  (Wrd,Map.Map Wrd Wrd)
 
 -- | Initial memory is given as input to the program.
 init_mem :: InitialMem -> Mem
