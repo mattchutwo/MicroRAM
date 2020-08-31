@@ -48,9 +48,22 @@ testLoops = testGroup "Conditionals, Branching and loops" $
     "test/programs/fibSlow.ll"
     420 34 : 
   compileTest
-    "Fibonacci loop"
-    "test/programs/fib.ll"
-    420 34 :
+    "Easy function call"
+    "test/programs/easyFunction.ll"
+    60 42 : 
+  compileTest
+    "More easy function calls"
+    "test/programs/callingConventions.ll"
+    70 42 : 
+  compileTest
+    "Factorial with recursive calls"
+    "test/programs/factRec.ll"
+    600 120 :
+  {-  compileTest
+    "Input text into numbers"
+    "test/programs/returnInput.ll"
+    80 42 : -}
+--  compileTest "Hello world" "test/programs/hello.ll" 50 [] 0 :
     []
 
 -- GetElementPtr

@@ -59,7 +59,7 @@ module Compiler.IRs(
 
 import MicroRAM(MAOperand,MWord)
 import qualified MicroRAM as MRAM
-import qualified Data.ByteString.Char8 as BSC
+
 import Data.ByteString.Short
 
 import qualified Data.Map as Map
@@ -364,10 +364,7 @@ rtlToLtl (IRprog tenv globals code) = do
      -- JP: Where should we get the metadata and stack size from?
      let mdata = mempty
      let stackSize = 0 -- Since nothing is spilled 0
-     let name' = case name of
-           Name n -> BSC.unpack $ fromShort n
-           NewName n -> show n
-
+     let name' = show name
      body' <- mapM convertBasicBlock body
      return $ LFunction name' mdata retType paramTypes stackSize body' 
 

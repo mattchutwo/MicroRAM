@@ -48,13 +48,13 @@ data RegisterAllocOptions = RegisterAllocOptions {
   }
 
 instance Default RegisterAllocOptions where
-  def = RegisterAllocOptions 8
+  def = RegisterAllocOptions 9
 
 type Registers = [VReg]
 
 
 
-registerAlloc :: RegisterAllocOptions -> Rprog () MWord -> Hopefully $ Lprog () VReg MWord
+registerAlloc ::  Monoid mdata => RegisterAllocOptions -> Rprog mdata MWord -> Hopefully $ Lprog mdata VReg MWord
 registerAlloc (RegisterAllocOptions numRegisters) rprog = do
   -- Convert to ltl.
   lprog <- rtlToLtl rprog
@@ -70,8 +70,8 @@ registerAlloc (RegisterAllocOptions numRegisters) rprog = do
 
   where
     -- Available registers.
-    -- First two registers are reserved.
-    registers = map NewName [2..numRegisters-1]
+    -- First three registers are reserved.
+    registers = map NewName [3..numRegisters-1]
 
 -- Register allocator state.
 data RAState = RAState {
@@ -83,7 +83,7 @@ data RAState = RAState {
 
 -- Initialize function arguments according to the calling convention.
 -- Currently, this loads arguments from the stack with `Lgetstack Incoming 0 _ (Name "0")`.
-initializeFunctionArgs :: LFunction () VReg MWord -> LFunction () VReg MWord
+initializeFunctionArgs :: Monoid mdata => LFunction mdata VReg MWord -> LFunction mdata VReg MWord
 initializeFunctionArgs (LFunction fname mdata typ typs stackSize blocks) = 
     let b = BB bname insts [] daginfo in
     LFunction fname mdata typ typs stackSize $ b:blocks
@@ -104,8 +104,8 @@ initializeFunctionArgs (LFunction fname mdata typ typs stackSize blocks) =
 
 
 -- Assumes that instructions are in SSA form.
-registerAllocFunc :: Registers -> LFunction () VReg MWord -> Hopefully $ LFunction () VReg MWord
-registerAllocFunc registers (LFunction mdata name typ typs stackSize' blocks') = do
+registerAllocFunc :: Monoid mdata => Registers -> LFunction mdata VReg MWord -> Hopefully $ LFunction mdata VReg MWord
+registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') = do
 
   (rtlBlocks, rast) <- flip runStateT (RAState 0 0 mempty) $ do
     blocks <- mapM flattenBasicBlock blocks'
@@ -118,7 +118,7 @@ registerAllocFunc registers (LFunction mdata name typ typs stackSize' blocks') =
   let blocks = unflattenBasicBlock rtlBlocks
       
   -- return $ Function name typ typs blocks'
-  return $ LFunction mdata name typ typs stackSize blocks
+  return $ LFunction name mdata typ typs stackSize blocks
 
   where
     -- -- These are for arguments that are passed through registers.
@@ -392,7 +392,7 @@ computeInterferenceGraph liveness allRegs = -- argRegs =
 -- * Triviall allocation: we provide a pass that erases the code. Usefull for early testing.
 -- FIXME: remove this once registerAlloc is implemented and can be tested!
 
-trivialRegisterAlloc :: Rprog () MWord -> Hopefully $ Lprog () VReg MWord
+trivialRegisterAlloc :: Rprog String MWord -> Hopefully $ Lprog String VReg MWord
 trivialRegisterAlloc = rtlToLtl
 
 

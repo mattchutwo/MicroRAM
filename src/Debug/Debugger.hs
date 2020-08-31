@@ -272,8 +272,8 @@ fromAscii = toEnum
 
 
 -- Example
-myfile,myllvmfile :: FilePath
-myfile = "test/programs/easyLinkedList.micro" -- "programs/returnInput.micro"
+myfile, myllvmfile:: FilePath
+myfile = "test/programs/return42.micro" -- "programs/returnInput.micro"
 myllvmfile = "programs/returnInput.ll"
 
 pprintMyFile :: IO ()
@@ -283,7 +283,7 @@ mram :: IO $ CompilationUnit (Program Name MWord)
 mram =  fromMRAMFile "test/return42.micro"
 
 {- | Example
--- summaryFromFile myfile myCS 300 --emptyInitMem
+-- summaryFromFile myfile myCS 300
 -}
 
 jpProg :: IO (Program VReg MWord)

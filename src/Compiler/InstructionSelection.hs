@@ -68,6 +68,10 @@ name2name (LLVM.UnName n) = Name $ any2short n
 name2nameM :: Monad m => LLVM.Name -> m Name
 name2nameM nm = return $ name2name nm
 
+name2label :: Monad m => LLVM.Name -> m $ MAOperand VReg MWord
+name2label nm = return $ Label $ show $ name2name nm
+
+
 -- | For Global names we just use strings.
 -- Should we use Names insted?
 gName2String :: LLVM.Name -> String
@@ -234,19 +238,28 @@ function2function
 function2function _ (Left _ ) = implError $ "Inlined assembly not supported"
 function2function tenv (Right (LLVM.LocalReference ty nm)) = do
   nm' <- name2nameM nm
-  (retT', paramT') <- functionTypes ty
+  (retT', paramT') <- functionTypes tenv ty
   return (Reg nm',retT',paramT')
-  where functionTypes (LLVM.FunctionType retTy argTys False) = do
-          retT' <- type2type tenv retTy
-          paramT' <- mapM (type2type tenv) argTys
-          return (retT',paramT')
-        functionTypes (LLVM.FunctionType  _ _ True) =
-          implError $ "Variable parameters (isVarArg in function call)."
-        functionTypes ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
-function2function _ (Right (LLVM.ConstantOperand c)) =
-  implError $ "Calling a function with a constant or a global. You called: \n \t" ++ show c
+function2function tenv (Right (LLVM.ConstantOperand (LLVM.Constant.GlobalReference ty nm))) = do
+  lbl <- name2label nm
+  (retT', paramT') <- functionPtrTypes ty
+  return (lbl,retT',paramT')
+  where functionPtrTypes :: LLVM.Type -> Hopefully (Ty, [Ty])
+        functionPtrTypes (LLVM.PointerType funTy _) = functionTypes tenv funTy
+        functionPtrTypes ty = implError $ "Function pointer type expected found "  ++ show ty ++ " instead." 
+function2function _tenv (Right (LLVM.ConstantOperand c)) =
+  implError $ "Calling a function with a constant. You called: \n \t" ++ show c
 function2function _ (Right op) = 
   implError $ "Calling a function with unsuported operand. You called: \n \t" ++ show op
+
+functionTypes :: LLVMTypeEnv ->  LLVM.Type -> Hopefully (Ty, [Ty])
+functionTypes tenv (LLVM.FunctionType retTy argTys False) = do
+  retT' <- type2type  tenv retTy
+  paramT' <- mapM (type2type tenv) argTys
+  return (retT',paramT')
+functionTypes _tenv (LLVM.FunctionType  _ _ True) =
+  implError $ "Variable parameters (isVarArg in function call)."
+functionTypes _ ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
 
 -- | Process parameters into RTL format
 -- WE dump the attributes
@@ -363,6 +376,7 @@ isInstruction tenv ret (LLVM.Call _ _ _ f args _ _ ) = lift $  do
   (f',retT,paramT) <- function2function tenv f
   args' <- params2params args
   return [MirI (RCall retT ret f' paramT args') ()]
+
 
 -- *** Phi
 isInstruction _ Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
@@ -640,9 +654,9 @@ isFunction tenv (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params
     (body, nextReg) <- runStateT (isBlocks tenv code) initState
     params' <- return $ processParams params
     name' <- name2nameM name
-    retT' <- type2type tenv retT
+    retT' <- type2type  tenv retT
     return $ Function name' retT' params' body nextReg
-isFunction _ other = unreachableError $ show other -- Shoudl be filtered out 
+isFunction _tenv other = unreachableError $ show other -- Shoudl be filtered out 
   
 -- | Instruction Selection for all definitions
 -- We create filters to separate the definitions into categories.

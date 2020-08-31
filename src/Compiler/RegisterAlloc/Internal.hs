@@ -11,10 +11,12 @@ import qualified Data.Map as Map
 import           Data.Set (Set)
 import qualified Data.Set as Set
 
+-- import           Compiler.Registers
 import           Compiler.IRs
 import qualified MicroRAM as MRAM
 
 -- Retrieve the write registers of an instruction.
+
 writeRegisters :: Ord reg => LTLInstr mdata reg wrdT -> Set reg
 writeRegisters (MRI inst _mdata) = writeRegistersMRIInstruction inst
 writeRegisters (IRI inst _mdata) = writeRegistersLTLInstruction inst

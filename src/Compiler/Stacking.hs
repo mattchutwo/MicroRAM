@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-|
 Module      : Stacking
@@ -23,6 +24,10 @@ creation and destruction on function call and return.
      | Local variables |
      |                 |
      |                 |
+     +-----------------+
+     | Callee-saved    |
+     | registers       |
+     |                 |  
      +-----------------+
      | Spilled         |
      | variables       |
@@ -80,9 +85,9 @@ ax = NewName 2
 
 -- ** Usefull snipets
 -- sp points at the next free stack location
-push, pop :: Regs mreg => mreg -> [MAInstruction mreg MWord]
+push, _pop :: Regs mreg => mreg -> [MAInstruction mreg MWord]
 push r = [Istore (Reg sp) r,Iadd sp sp (Const 1)]
-pop r = [Isub  sp sp (Const 1),Iload r (Reg sp)]
+_pop r = [Isub  sp sp (Const 1),Iload r (Reg sp)]
 
 -- | pushOperand sometimes we want to push a constant
 -- Notice here we use ax. This can only be done at funciton entry
@@ -117,9 +122,26 @@ smartMovMaybe (Just r) a = smartMov r a
 -- | Premain just sets the return address before calling Main.
 -- The return address just points at the end of the program where
 -- the answer is returned.
+{- This is the master when merging function calls #9
+
 premain :: Regs mreg => [NamedBlock mreg MWord]
 premain =
   [NBlock Nothing $ Imov ax (Label "_ret_") : push ax]
+-}
+
+-- | Premain: NOT USED ANYMORE
+-- NEW: no arguments to main!
+-- This is a pseudofunction, that sets up return address for main.
+-- Stores the input in memory.
+-- Sends main to the returnBlock
+premain :: Regs mreg => [NamedBlock mreg MWord]
+premain = return $
+  --findArguments ++
+  NBlock Nothing $ Imov ax (Label "_ret_") : (push ax) ++
+  Istore (Reg sp) bp :  -- Store "old" base pointer 
+  Imov bp (Reg sp) :    -- set base pointer to the stack pointer
+  callMain              -- jump to main
+  where callMain = return $ Ijmp $ Label $ show $ Name "main"
 
 -- | returnBlock: return lets the program output an answer (when main returns)
 returnBlock :: Regs mreg => NamedBlock mreg MWord
@@ -133,19 +155,17 @@ returnBlock = NBlock (Just "_ret_") [Ianswer (Reg ax)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => Word -> [MAInstruction mreg MWord]
 prologue size =
-    (Istore (Reg sp) bp): [Imov bp (Reg sp), Iadd sp sp (Const $ fromIntegral size + 1)]
+    [Iadd sp sp (Const $ fromIntegral size + 1)] 
 
 
 -- | epilogue: deallocate the stack, then jump to return address
 epilogue :: Regs mreg => [MAInstruction mreg MWord]
 epilogue =
-  -- restore the old stack pointer (bp is popped by the caller)
-  Imov sp (Reg bp) :
-  -- load return address and jump (remember return is passed in ax, so we use bp here)
-  -- bp = sp point at the old bp and the return address is one bellow. 
-  Isub bp bp (Const 1) :
-  Iload bp (Reg bp) : 
-  [Ijmp (Reg bp)]
+  -- Sp is uselles at this point so we use to calculate return adress
+  -- remember return value is passed in ax and bp is marking the old stack 
+  Isub sp bp (Const 1) :
+  Iload sp (Reg sp) : 
+  [Ijmp (Reg sp)]
 
 
 -- ** Function calls:
@@ -165,12 +185,16 @@ funCallInstructions _ ret f _ args =
   -- Mant architectures store arguemnts backwards, we don't
   pushN args ++
   -- Push return addres
-    [Imov ax HereLabel, Iadd ax ax (Const 2)] ++ push ax ++
+    [Imov ax HereLabel,
+     Iadd ax ax (Const 6) -- FIXME: The compiler should do this addition
+    ] ++ push ax ++
+    [Istore (Reg sp) bp, Imov bp (Reg sp)] ++ -- Set new stack frame (sp is increased in the function)
   -- Run function 
     Ijmp f :
-  -- The function should return to the this next instruciton
+  -- The function should return to this next instruciton
   -- restore the base pointer (right before this is used to compute return address)
-  pop bp ++
+  Imov sp (Reg bp): -- get old sp 
+  Iload bp (Reg sp) :         -- get old bp
   -- remove arguments and return address from the stack
   (popN (fromIntegral $ (length args) + 1)) ++
   -- move the return value (allways returns to ax)
@@ -199,9 +223,10 @@ stackLTLInstr (Lsetstack reg Local offset _) = return $
 
 stackLTLInstr (LCall typ ret f argsT args) = return $
   funCallInstructions typ ret f argsT args
-stackLTLInstr (LRet Nothing) = return $ epilogue 
-stackLTLInstr (LRet (Just retVal)) = return $
-  (Imov ax retVal) : epilogue 
+stackLTLInstr (LRet Nothing) = return epilogue 
+stackLTLInstr (LRet (Just _retVal)) =
+  return epilogue 
+  -- (Imov ax retVal) : epilogue -- Calling convention inserts the move to ax for us, so we skip it here. Can we move `restoreLTLInstruction` here?
 stackLTLInstr (LAlloc reg typ n) = do
   -- Return the current sp (that's the base of the new allocation)
   copySp <- return $ smartMovMaybe reg sp
