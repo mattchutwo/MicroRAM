@@ -53,6 +53,31 @@ updateBank = Map.insert
 regToList :: Regs mreg => Word -> RegBank mreg b -> [Maybe b]
 regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound] 
 
+-- | Machine registers based on X86
+
+data MReg =
+  SP | BP | AX | MReg Word
+  deriving (Show, Read, Eq, Ord)
+
+instance Regs MReg where
+  sp = SP
+  bp = BP
+  ax = AX
+  
+  fromWord 0 = SP
+  fromWord 1 = BP
+  fromWord 2 = AX
+  fromWord n = MReg $ n - 3
+  
+  toWord SP       = 1 
+  toWord BP       = 2 
+  toWord AX       = 3 
+  toWord (MReg n) = n + 3 
+  
+
+
+
+
 
 {- | RegisterData : carries info about the registers.
      Number of regs, classes, types.
