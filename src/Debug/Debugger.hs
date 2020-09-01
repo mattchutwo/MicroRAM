@@ -126,7 +126,7 @@ toSummaryRegsCustom rmap (Just regs) =
   map (\r -> lookupReg r rmap) regs
 
 
-toSummary :: Regs mreg => Maybe [mreg] -> [MWord] -> State mreg -> SummaryState
+toSummary :: Regs mreg => Maybe [mreg] -> [MWord] -> ExecutionState mreg -> SummaryState
 toSummary theseRegs theseMems st  =
   SState 
   { pc_ = pc st

@@ -3,11 +3,11 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module MicroRAM.InterpreterSpec where
+module MicroRAM.InterpreterSpec (main) where
 
 
 import Test.Tasty
-import Test.Tasty.HUnit
+
 import Test.Tasty.SmallCheck
 
 import Compiler.Registers
@@ -15,14 +15,13 @@ import Compiler.CompilationUnit
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
-import qualified Data.Sequence as Seq
+
 import qualified Data.Map as Map
 
 
 main :: IO ()
 main = defaultMain tests
   -- defaultMain (testGroup "Our Library Tests" testSuite) -- testSuit defined at eof
-k = 5 -- 5 registers
 
 trivialCU :: Prog Int -> Word -> [MWord] -> CompilationUnit (Prog Int)
 trivialCU prog len input = CompUnit prog len InfinityRegs [] (list2InitMem input)
@@ -33,11 +32,15 @@ runProg prog len input = run $ trivialCU prog len input
 -- We are treating the first register as the return
 -- To get ouptu to get output provide a program and a number of steps to get the result after that long
 -- Execute gets the trace and then looks at the first register after t steps
+exec :: Prog Int -> Word -> [MWord] -> MWord
 exec prog steps input = lookupReg sp (seeRegs (runProg prog (steps+1) input) (fromEnum steps)) -- this throws an error if there is no register 0
 simpl_exec :: Prog Int -> Word -> MWord
 simpl_exec prog steps = exec prog steps [] -- when there are no inputs
 seeRegs:: Trace mreg -> Int -> RMap mreg MWord
 seeRegs t n = regs (t !! n)
+
+_showRMap ::Show a =>  RMap Int a -> String
+_showRMap (RMap x map) = "(" ++ show x ++ ", "++ show map ++ ")                             "
 
 -- The tester setup
 type Reg = Int
@@ -55,19 +58,6 @@ instance Regs Int where
                         Just x -> x
                         Nothing -> d
   updateBank r x (RMap d m) = RMap d (Map.insert r x m)
-
-get_regs :: State mreg -> RMap mreg MWord
-get_regs = regs
-
-reg_trace::Trace mreg -> [RMap mreg MWord]
-reg_trace t= map regs t
-
-pc_trace::Trace Reg -> [MWord]
-pc_trace t= map pc t
-
-flag_trace::Trace Reg -> [Bool]
-flag_trace t= map flag t
-
 
 
 -- # Test 1
@@ -97,7 +87,8 @@ prog2 :: Program Reg MWord
 prog2 = [Iadd 0 0 (Const 1),
        Ijmp (Const 0)]
 
-test2 = testProperty "Test `x++` on a loop" $ \n -> (n :: Word) >= 0 ==> simpl_exec prog2 (2*n) == fromIntegral n
+test2 :: TestTree
+test2 = testProperty "Test `x++` on a loop" $ \n -> (n :: Word) >= 1 ==> simpl_exec prog2 (2*n) == fromIntegral n
 
 -- # Test 3: fibonacci
 {-
@@ -121,10 +112,10 @@ prog3 = [Iadd 0 1 (Const 1), -- x=1
          Iadd 1 2 (Const 0),
        Ijmp (Const 1)]
 
-fibs:: [MWord]
-fibs = 0 : 1 : Prelude.zipWith (+) fibs (tail fibs)
-fib::Int -> MWord
-fib n = fibs !! n
+_fibs:: [MWord]
+_fibs = 0 : 1 : Prelude.zipWith (+) _fibs (tail _fibs)
+_fib::Int -> MWord
+_fib n = _fibs !! n
 
 claimEqual :: (Eq a, Show a) => a -> a -> Either String String
 claimEqual a b = 
@@ -132,6 +123,7 @@ claimEqual a b =
      then Right "OK"
      else Left $ "Got " ++ show a ++ " but expected " ++ show b
 
+test3 :: TestTree
 test3 = testProperty "Test fibonacci" $ \n -> (n :: Word) >= 0 ==>
    claimEqual (simpl_exec prog3 (1+4*n)) (fib_pure (n+1))
    
@@ -147,6 +139,7 @@ prog4 = [Iread 1 (Const 0), --
          Ijmp (Const 6) -- Label: 6
         ]
 
+test4 :: TestTree
 test4 = testProperty "Test a conditional and input" $ \x ->
    claimEqual (exec prog4 5 [x]) (if x>10 then 42 else 77)
 
@@ -177,6 +170,7 @@ list2InitMem ls = map word2InitSeg $ zip [0..] ls
         word2InitSeg (loc,val) = InitMemSegment False False loc 1 (Just [val]) 
 
 --test5 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
+test5 :: TestTree
 test5 = testProperty "Test adding a list of inputs" $ \xs ->
    claimEqual (exec prog5 (4 * (toEnum $ length xs)) xs)  (sum xs)
 
@@ -192,7 +186,9 @@ test5 = testProperty "Test adding a list of inputs" $ \xs ->
 
 failSignal:: Operand Reg MWord
 failSignal = (Const 11)
+gotoFail :: Instruction' regT operand1 (Operand Reg MWord)
 gotoFail = Ijmp failSignal
+cGotoFail :: Instruction' regT operand1 (Operand Reg MWord)
 cGotoFail = Icjmp failSignal
 
 prog6 :: Program Reg MWord
@@ -212,7 +208,9 @@ prog6 = [Imov 1 (Const 1),   -- 0. x = 1 // Test 1
         ]
 
 --test6 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
+test6 :: TestTree
 test6 = testProperty "Test over/underflow for adition and substraction"
         $ \n -> (n :: Word) >= 0 ==> simpl_exec prog6 n /= 42
 
+tests :: TestTree
 tests = testGroup "Testing the Interpreter for  MicroRAM" [test1,test2,test3,test4,test5, test6]

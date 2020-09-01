@@ -101,8 +101,8 @@ data StateOut = StateOut
   , regsOut :: [MWord]
   } deriving (Eq, Show, Generic)
 
-state2out :: Regs mreg => Word -> State mreg -> StateOut
-state2out bound (State pc regs _ _ flag _ _) = StateOut flag pc (regToList bound regs)
+state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
+state2out bound (ExecutionState pc regs _ _ flag _ _) = StateOut flag pc (regToList bound regs)
 
 
 
@@ -155,7 +155,7 @@ secretOutput tr (CompUnit p trLen regData aData initM) =
                                        ls -> Map.insert i ls adviceMap
 
 outputTrace
-  :: (Enum a1, Regs mreg) => a1 -> [State mreg] -> Word -> [StateOut]
+  :: (Enum a1, Regs mreg) => a1 -> [ExecutionState mreg] -> Word -> [StateOut]
 outputTrace len tr regBound = takeEnum len $ map (state2out regBound) tr
 
 fullOutput :: Regs reg => CompilationUnit (Program reg MWord) -> Output reg

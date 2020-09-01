@@ -18,7 +18,7 @@ module MicroRAM.MRAMInterpreter
   ( -- * Execute a program
     run, execAnswer,
     -- * Trace
-    State(..),
+    ExecutionState(..),
     Trace, 
     Advice(..), renderAdvc,
     MemOpType(..),
@@ -32,14 +32,16 @@ import MicroRAM
 import Data.Bits
 import qualified Data.Map.Strict as Map
 import GHC.Generics
+import Control.Monad
+import Control.Monad.State
 
-import Util.Util
+import Util.Util()
 
 import Compiler.Registers
 import Compiler.CompilationUnit
 
 
--- * MicroRAM semantics
+-- * Utility
 
 type Wrd = MWord
 wrdMax,_wrdMin :: Integer
@@ -76,6 +78,8 @@ smulh r1 r2 = (r1' * r2') `quot` wrdModulus
 
 
 -- ** Program State
+
+
 
 -- The Program Counter is a special register, represented separatedly 
 type Pc = Wrd
@@ -122,7 +126,6 @@ load x (d,m)=  case Map.lookup x m of
                  Just y -> y
                  Nothing -> d
 
-
 -- *** Tapes: OBSOLETE input is passed as initial memory.
 --type Tape = [Wrd]  -- ^read only tape
 
@@ -154,8 +157,8 @@ renderAdvc advs = concat $ map renderAdvc' advs
         renderAdvc' (MemOp  addr v MOLoad) = "Load: " ++ show addr ++ "->" ++ show v
         renderAdvc' (Stutter) = "...Stutter..."
 
--- | The program state 
-data State mreg = State {
+-- | The program state
+data ExecutionState mreg = ExecutionState {
   -- | Program counter
   pc :: Pc
   -- | Register bank
@@ -172,12 +175,13 @@ data State mreg = State {
   -- | Return value.
   , answer :: MWord }
 
-deriving instance (Read (RMap mreg MWord)) => Read (State mreg)
-deriving instance (Show (RMap mreg MWord)) => Show (State mreg)
+deriving instance (Read (RMap mreg MWord)) => Read (ExecutionState mreg)
+deriving instance (Show (RMap mreg MWord)) => Show (ExecutionState mreg)
 
-  
-init_state :: Regs mreg => InitialMem -> State mreg
-init_state input  = State {
+type ExecSt mreg = State (ExecutionState mreg)
+
+init_state :: Regs mreg => InitialMem -> ExecutionState mreg
+init_state input  = ExecutionState {
   pc = init_pc
   , regs = initBank 0 (lengthInitMem input)
   , mem = init_mem input
@@ -188,47 +192,60 @@ init_state input  = State {
   , answer = 0
 }
 
-set_reg:: Regs mreg => mreg -> Wrd -> State mreg -> State mreg
-set_reg r x st = st { regs = updateBank r x (regs st) }
+-- | Generic setter for changing the state
+changeSt :: (ExecutionState mreg  -> ExecutionState mreg) -> ExecSt mreg ()
+changeSt setter = do{ st <- get; put $ setter st }
 
-store_advc :: Wrd -> Wrd -> State mreg -> State mreg
-store_advc addr v st = st {advice = [MemOp addr v MOStore] } 
-load_advc :: Wrd -> Wrd -> State mreg -> State mreg
-load_advc addr v st = st {advice = [MemOp addr v MOLoad] }
+getFromSt :: (ExecutionState mreg  -> a) -> ExecSt mreg a
+getFromSt getter = do{ st <- get; return $ getter st }
 
+setRegBank:: Regs mreg => RMap mreg MWord -> ExecSt mreg ()
+setRegBank regBank = changeSt (\st -> st {regs = regBank})
 
-store_mem::  Wrd -> Wrd -> State mreg -> State mreg
-store_mem r x st = store_advc r x $ 
-  st { mem = store r x (mem st)}
+set_reg:: Regs mreg => mreg -> Wrd -> ExecSt mreg ()
+set_reg r x = do
+  st <- get
+  setRegBank $ updateBank r x (regs st)
 
-load_mem :: Regs mreg => mreg -> Wrd -> State mreg -> State mreg
-load_mem r1 op st =
-  let value = (load op $ (mem st)) in
-    set_reg r1 value $ load_advc op value st
+store_advc :: Wrd -> Wrd -> ExecSt mreg ()
+store_advc addr v = changeSt (\st -> st {advice = [MemOp addr v MOStore]})
 
+load_advc :: Wrd -> Wrd -> ExecSt mreg ()
+load_advc addr v = changeSt (\st -> st {advice = [MemOp addr v MOLoad]})
 
-set_flag:: Bool -> State mreg  -> State mreg
-set_flag b st = st {
-   flag = b
-}
+store_mem::  Wrd -> Wrd -> ExecSt mreg ()
+store_mem r x = do
+  st <- get
+  put $ st { mem = store r x (mem st)}
+  store_advc r x
+  
+load_mem :: Regs mreg => mreg -> Wrd -> ExecSt mreg ()
+load_mem r1 op = do
+  st <- get
+  value <- return $ load op $ (mem st) 
+  load_advc op value
+  set_reg r1 value 
 
-set_pc:: Wrd -> State mreg -> State mreg
-set_pc pc' st = st {
-  pc = pc'
-}
+set_flag :: Bool -> ExecSt mreg ()
+set_flag b = changeSt (\st -> st { flag = b})
+
+set_pc:: Wrd -> ExecSt mreg ()
+set_pc pc'= changeSt (\st ->  st {pc = pc'})
 
 -- Turn on the bad flag
 -- there is no way to "unbad" a state
-_set_bad:: State mreg -> State mreg
-_set_bad st= st {
-   bad = True
-}
+_set_bad:: ExecSt mreg ()
+_set_bad = changeSt (\st -> st {bad = True})
 
-set_answer:: MWord -> State mreg -> State mreg
-set_answer ans st  =  st { answer = ans }
+set_answer:: MWord -> ExecSt mreg ()
+set_answer ans  =  changeSt (\st -> st { answer = ans })
 
-next :: State mreg -> State mreg
-next st = set_pc (succ $ pc st) st
+
+-- | Next increases the program counter 
+next :: ExecSt mreg ()
+next = do 
+  st <- get
+  put $ st {pc = (succ $ pc st)}
 
 -- * Interpreter
 
@@ -238,13 +255,19 @@ next st = set_pc (succ $ pc st) st
 get_reg :: Regs mreg => RMap mreg MWord -> mreg -> Wrd
 get_reg rs r = lookupReg r rs
 
-eval_reg :: Regs mreg => State mreg -> mreg -> Wrd
-eval_reg st r = get_reg (regs st) r
+eval_reg :: Regs mreg => mreg -> ExecSt mreg Wrd
+eval_reg r = getFromSt $ \st -> get_reg (regs st) r
 
+get_flag :: ExecSt mreg Bool
+get_flag = getFromSt flag
+
+get_pc :: ExecSt mreg Pc
+get_pc = getFromSt pc
+ 
 -- | Gets operand wether it's a register or a constant or a PC
-eval_operand :: Regs mreg => State mreg -> Operand mreg Wrd -> Wrd
-eval_operand st (Reg r) = eval_reg st r
-eval_operand _st (Const w) = w
+eval_operand :: Regs mreg => Operand mreg Wrd -> ExecSt mreg Wrd
+eval_operand (Reg r) = eval_reg r
+eval_operand (Const w) = return w
 
 -- *** unary and binart operations
 {- The way we computeto do binary/unary operations we do the following steps:
@@ -259,22 +282,24 @@ We use Integers to be homogeneus over all possible types Wrd and because it make
 
 -- | Binary operations generic.
 bop :: (Regs mreg) =>
-       State mreg
-       -> mreg
+       mreg
        -> Operand mreg Wrd
        -> (Integer -> Integer -> x) -- ^ Binary operation
-       -> x
-bop rs r1 a f = f (toInteger $ get_reg (regs rs) r1) (toInteger $ eval_operand rs a)
+       -> ExecSt mreg x
+bop r1 a f = do
+  r1' <- eval_reg r1
+  a' <- eval_operand a
+  return $ f (toInteger r1') (toInteger a')
 
   
 -- | Unart operations generic. 
 uop :: Regs mreg =>
-       State mreg
-       -> Operand mreg Wrd
+       Operand mreg Wrd
        -> (Integer -> x)
-       -- -> (Integer -> Bool) -- ^ Set the flag? Is applied to the result of the operation 
-       -> x
-uop rs a f = f (toInteger $ eval_operand rs a)
+       -> ExecSt mreg x
+uop a f = do
+  a' <- eval_operand a
+  return $ f (toInteger a')
 
 
 -- | Catches division by 0
@@ -283,52 +308,57 @@ uop rs a f = f (toInteger $ eval_operand rs a)
 exception :: Regs mreg => 
              Bool
           -> mreg
-          -> (State mreg -> State mreg) -- ^ continuation
-          -> State mreg
-          -> State mreg
-exception False _ f st = f st
-exception True r _ st = set_flag True $ set_reg r 0 st
+          -> ExecSt mreg () -- ^ continuation
+          -> ExecSt mreg ()
+exception False _ k = k
+exception True r _ = do
+  set_flag True
+  set_reg r 0
 catchZero :: Regs mreg =>
              Wrd
            -> mreg
-          -> (State mreg -> State mreg) -- ^ continuation
-          -> State mreg
-          -> State mreg
+          -> ExecSt mreg () -- ^ continuation
+          -> ExecSt mreg ()
 catchZero w = exception (w == 0)
-
-
 exec_bop :: Regs mreg =>
-            State mreg
-         -> mreg
+            mreg
          -> mreg
          -> Operand mreg Wrd
          -> (Integer -> Integer -> Integer) -- ^ Binary operation
          -> (Integer -> Bool) -- ^ Checks if flag should be set
-         -> State mreg 
-exec_bop st r1 r2 a f check = next $ set_flag (check result) $ set_reg r1 (fromInteger result) st
-  where result = bop st r2 a f
-
+         -> ExecSt mreg () 
+exec_bop r1 r2 a f check = do
+  result <- bop r2 a f
+  set_flag (check result)
+  set_reg r1 (fromInteger result)
+  next
+  
 -- | Evaluate binop, but first check a<>0 
 execBopCatchZero ::
   Regs mreg =>
-  State mreg
-  -> mreg
+  mreg
   -> mreg
   -> Operand mreg Wrd
   -> (Integer -> Integer -> Integer) -- ^ Binary operation
-  -> State mreg 
-execBopCatchZero st r1 r2 a _f =
-  catchZero (eval_operand st a) r1 (\st -> exec_bop st r1 r2 a quot (\_->True)) st 
-
+  -> ExecSt mreg ()
+execBopCatchZero r1 r2 a f = do
+  a' <- eval_operand a
+  catchZero a' r1 $ exec_bop r1 r2 a f (\_-> False)
+  -- It's unclear if we want to set the flag at all. 
+  -- TinyRAM is abiguous: "flag is set to 1 if and only if [A]u = 0."
+  -- Here the semantics is "flag is set to 1 is [A]=0 and to 0 otherwise."
 
 exec_uop :: Regs mreg =>
-            State mreg -> mreg -> Operand mreg Wrd
+            mreg
+         -> Operand mreg Wrd
          -> (Integer -> Integer) -- ^ Unary operatio
          -> (Integer -> Bool) -- ^ Checks if flag should be set
-         -> State mreg
-exec_uop st r1 a f check = next $ set_flag (check result) $ set_reg r1 (fromInteger result) st
-  where result = uop st a f
-
+         -> ExecSt mreg ()
+exec_uop r1 a f check = do
+  result <- uop a f
+  set_flag (check result)
+  set_reg r1 (fromInteger result)
+  next
 
 -- Common checks for binary operations (to set the flag)
 isZero,notZero :: Integer -> Bool
@@ -351,103 +381,123 @@ lsb x = 0 == x `mod` 2
 -- *** Conditionals Util
 
 exec_cnd :: Regs mreg =>
-  State mreg
-  -> mreg
+  mreg
   -> Operand mreg Wrd
   -> (Integer -> Integer -> Bool)
-  -> State mreg
-exec_cnd st r1 a f = next $ set_flag result st
-                        where result = bop st r1 a f
+  -> ExecSt mreg ()
+exec_cnd r1 a f = do
+  result <- bop r1 a f
+  set_flag result
+  next
 
 -- *** Jump util
 
 exec_jmp
-  :: Regs mreg => State mreg -> Operand mreg Wrd -> State mreg
-exec_jmp st a = set_pc (eval_operand st a) st
+  :: Regs mreg => Operand mreg Wrd -> ExecSt mreg ()
+exec_jmp a = do
+  a' <-  eval_operand a
+  set_pc a'
 
 -- ** Instruction execution (after instr. fetching)
+ifFlagExec :: ExecSt mreg a -> ExecSt mreg a -> ExecSt mreg a
+ifFlagExec kt kf = do
+  fl <- get_flag
+  if fl then kt else kf
+  
+exec :: Regs mreg => Instruction mreg Wrd -> ExecSt mreg ()
+exec (Iand r1 r2 a) = exec_bop r1 r2 a (.&.) isZero
+exec (Ior r1 r2 a)  = exec_bop r1 r2 a (.|.) isZero
+exec (Ixor r1 r2 a) = exec_bop r1 r2 a xor isZero
+exec (Inot r1 a)  = exec_uop r1 a complement isZero
 
-exec :: Regs mreg => Instruction mreg Wrd -> State mreg -> State mreg
-exec (Iand r1 r2 a) st = exec_bop st r1 r2 a (.&.) isZero
-exec (Ior r1 r2 a) st = exec_bop st r1 r2 a (.|.) isZero
-exec (Ixor r1 r2 a) st = exec_bop st r1 r2 a xor isZero
-exec (Inot r1 a) st = exec_uop st r1 a complement isZero
+exec (Iadd r1 r2 a) = exec_bop r1 r2 a (+) overflow
+exec (Isub r1 r2 a) = exec_bop r1 r2 a (-) borrow
+exec (Imull r1 r2 a) = exec_bop r1 r2 a (*) overflow
 
-exec (Iadd r1 r2 a) st = exec_bop st r1 r2 a (+) overflow
-exec (Isub r1 r2 a) st = exec_bop st r1 r2 a (-) borrow
-exec (Imull r1 r2 a) st = exec_bop st r1 r2 a (*) overflow
-
-exec (Iumulh r1 r2 a) st = exec_bop st r1 r2 a umulh notZero -- flagged iff the return is not zero (indicates overflow)
-exec (Ismulh r1 r2 a) st = exec_bop st r1 r2 a smulh notZero  -- flagged iff the return is not zero (indicates overflow)
-exec (Iudiv r1 r2 a) st = execBopCatchZero st r1 r2 a quot
-exec (Iumod r1 r2 a) st = execBopCatchZero st r1 r2 a rem
+exec (Iumulh r1 r2 a) = exec_bop r1 r2 a umulh notZero -- ^ flagged iff the return is not zero (indicates overflow)
+exec (Ismulh r1 r2 a) = exec_bop r1 r2 a smulh notZero  -- ^ flagged iff the return is not zero (indicates overflow)
+exec (Iudiv r1 r2 a) = execBopCatchZero r1 r2 a quot
+exec (Iumod r1 r2 a) = execBopCatchZero r1 r2 a rem
 
 -- Shifts are a bit tricky since the flag depends on the operand not the result.
-exec (Ishl r1 r2 a) st = set_flag (msb $ eval_reg st r1) $
-  exec_bop st r1 r2 a (\a b -> shiftL a (fromInteger b)) trivialCheck
-exec (Ishr r1 r2 a) st = set_flag (lsb $ eval_reg st r1) $
-  exec_bop st r1 r2 a (\a b -> shiftR a (fromInteger b)) trivialCheck
+exec (Ishl r1 r2 a) = do
+  r1' <- eval_reg r1
+  set_flag (msb r1')
+  exec_bop r1 r2 a (\a b -> shiftL a (fromInteger b)) trivialCheck
+exec (Ishr r1 r2 a) = do
+  r1' <- eval_reg r1
+  set_flag (lsb r1')
+  exec_bop r1 r2 a (\a b -> shiftR a (fromInteger b)) trivialCheck
 
 -- Compare operations
-exec (Icmpe r1 a) st = exec_cnd st r1 a (==)
-exec (Icmpa r1 a) st = exec_cnd st r1 a (>)
-exec (Icmpae r1 a) st = exec_cnd st r1 a (>=)
-exec (Icmpg r1 a) st = exec_cnd st r1 a (>)
-exec (Icmpge r1 a) st = exec_cnd st r1 a (>=)
+exec (Icmpe r1 a) = exec_cnd r1 a (==)
+exec (Icmpa r1 a) = exec_cnd r1 a (>)
+exec (Icmpae r1 a) = exec_cnd r1 a (>=)
+exec (Icmpg r1 a) = exec_cnd r1 a (>)
+exec (Icmpge r1 a) = exec_cnd r1 a (>=)
 
 -- Move operations
-exec (Imov r a) st = next $ set_reg r (eval_operand st a) st
-exec (Icmov r a) st = if flag st
-  then exec (Imov r a) st
-  else next st
+exec (Imov r a) = do
+  a' <- eval_operand a
+  set_reg r a'
+  next
+ 
+exec (Icmov r a) = ifFlagExec (exec (Imov r a)) next
  
 -- Jump Operations
-exec (Ijmp a) st = exec_jmp st a
-exec (Icjmp a) st = if flag st then exec_jmp st a else next st
-exec (Icnjmp a) st = if not $ flag st then exec_jmp st a else next st
+exec (Ijmp a) = exec_jmp a
+exec (Icjmp a) = ifFlagExec (exec_jmp a) next
+exec (Icnjmp a) = ifFlagExec next $ exec_jmp a -- Reverse order for not
 
 --Memory operations
-exec (Istore a r1) st = next $ store_mem (eval_operand st a) (get_reg (regs st) r1) st
-exec (Iload r1 a) st =  next $ load_mem  r1 (eval_operand st a) st
+exec (Istore a r1) = do
+  a' <- eval_operand a
+  r1' <- eval_reg r1
+  store_mem a' r1'
+  next
 
-exec (Iread _r1 _a) st = next $ st -- pop_tape (eval_operand st a) r1 st
+exec (Iload r1 a) =  do
+  a' <- eval_operand a
+  load_mem r1 a'
+  next
+
+exec (Iread _r1 _a) = next -- ^ Obsolete, it's a no-op now. FIXME: remove?
+-- pop_tape (eval_operand st a) r1 st
 
 -- Answer : set answer to ans and loop (pc not incremented)
-exec (Ianswer a) st =
-  let ans = (eval_operand st a) in
-    set_answer ans st   -- Set answer to ans
-  --set_reg sp ans st -- sets register 0 (backwards compat. FIXME! )
-
+exec (Ianswer a) = do
+  a' <- eval_operand a
+  set_answer a'
 
 -- | freshAdvice: clear advice before every step 
-freshAdvice :: State mreg -> State mreg
-freshAdvice st = st {advice = []}
+freshAdvice :: ExecSt mreg ()
+freshAdvice = changeSt (\st -> st {advice = []})
 
 -- ** Program step
 type Prog mreg = Program mreg Wrd
 
-step :: Regs mreg => Prog mreg  -> State mreg -> State mreg
-step prog st = exec (prog !! (toInt $ pc st)) $ freshAdvice st
-
+step :: Regs mreg => Prog mreg  -> ExecSt mreg (ExecutionState mreg)
+step prog = do
+  pc' <- get_pc
+  freshAdvice
+  exec (prog !! (toInt $ pc'))
+  get
+_step_ :: Regs mreg => Prog mreg  -> ExecSt mreg ()
+_step_ p = do {_ <- step p; return ()}
 
 -- ** Execution
-type Trace mreg = [State mreg]
+type Trace mreg = [ExecutionState mreg]
 
 -- | Produce the trace of a program
 run :: Regs mreg => CompilationUnit (Prog mreg) -> Trace mreg
 run (CompUnit prog trLen _ _ initMem) =
-  takeEnum trLen $ 
-  iterate (step prog) $ init_state initMem
-
-
--- ** Some facilities to run
+  initSt : (evalState (replicateM (fromEnum trLen) (step prog)) $ initSt)
+  where initSt = init_state initMem
+-- ** Some facilities to run 
 
 -- | Execute the program and return the result.
 execAnswer :: Regs mreg => CompilationUnit (Prog mreg) -> MWord
 execAnswer compUnit = answer $ last $ run compUnit
-
-
-
 
 
 

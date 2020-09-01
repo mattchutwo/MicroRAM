@@ -24,7 +24,7 @@ input, advice :: [Word]
 input = []
 advice = []
 
-dumpState :: (Foldable (RMap mreg)) => State mreg -> String
+dumpState :: (Foldable (RMap mreg)) => ExecutionState mreg -> String
 dumpState s = intercalate "; " [
     "pc " ++ show (pc s),
     "regs " ++ intercalate " " (map show $ toList $ regs s),
