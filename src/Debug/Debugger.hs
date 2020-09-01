@@ -87,10 +87,24 @@ defaultCSName = defaultSummary
 
 
 -- | Reserved regs
+data MaybeWord = JustW MWord | NoW
+  deriving (G.Generic, Data)
+
+instance Show MaybeWord where
+  show (JustW w) = show w
+  show NoW = "-"
+
+lookupReg' :: Regs a => a -> RegBank a MWord -> MaybeWord
+lookupReg' a bank =
+  case lookupReg a bank of
+    Just w -> JustW w
+    Nothing -> NoW
+
+
 data ResRegs = RRs
-  { esp :: MWord
-  , ebp :: MWord
-  , eax :: MWord }
+  { esp :: MaybeWord
+  , ebp :: MaybeWord
+  , eax :: MaybeWord }
   deriving (Show, G.Generic, Data)
 instance Tabulate ResRegs ExpandWhenNested
 instance CellValueFormatter ResRegs
@@ -100,7 +114,7 @@ data SummaryState = SState {
   , flag_ :: MWord
   , answer_ :: MWord
   , regs_ :: ResRegs
-  , registers_ :: [MWord] -- Custom regs
+  , registers_ :: [MaybeWord] -- Custom regs
   , mem_ :: [MWord]
   , advc_ :: String
       }
@@ -111,19 +125,21 @@ instance CellValueFormatter Word
 instance CellValueFormatter [Word]
 instance CellValueFormatter MWord
 instance CellValueFormatter [MWord]
+instance CellValueFormatter MaybeWord
+instance CellValueFormatter [MaybeWord]
 
 
-toSummaryRegs :: Regs mreg => RMap mreg MWord -> ResRegs
+toSummaryRegs :: Regs mreg => RegBank mreg MWord -> ResRegs
 toSummaryRegs rmap =
   RRs
-  (lookupReg sp rmap)
-  (lookupReg bp rmap)
-  (lookupReg ax rmap)
+  (lookupReg' sp rmap)
+  (lookupReg' bp rmap)
+  (lookupReg' ax rmap)
 
-toSummaryRegsCustom :: Regs mreg => RMap mreg MWord -> Maybe [mreg] -> [MWord]
+toSummaryRegsCustom :: Regs mreg => RegBank mreg MWord -> Maybe [mreg] -> [MaybeWord]
 toSummaryRegsCustom _rmap Nothing = []
 toSummaryRegsCustom rmap (Just regs) =
-  map (\r -> lookupReg r rmap) regs
+  map (\r -> lookupReg' r rmap) regs
 
 
 toSummary :: Regs mreg => Maybe [mreg] -> [MWord] -> ExecutionState mreg -> SummaryState

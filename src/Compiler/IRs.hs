@@ -171,13 +171,7 @@ instance Regs Name where
     | otherwise = Name $ pack $ read $ show $ digits ((w-1) `div` 2)
   toWord (NewName x) = 2*x
   toWord (Name sh) = 1 + (2 * (read $ read $ show sh))
-  data RMap Name x = RMap x (Map.Map Name x)
-  initBank d init = RMap d $ (Map.fromList [(sp,init),(bp,init)])
-  lookupReg r (RMap d m) = case Map.lookup r m of
-                        Just x -> x
-                        Nothing -> d
-  updateBank r x (RMap d m) = RMap d (Map.insert r x m)
-
+  
 -- Produces the digits, shifted by 48 (ie. the ASCII representation)
 digits :: Integral x => x -> [x]
 digits 0 = []

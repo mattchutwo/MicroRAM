@@ -15,9 +15,14 @@ the compiler to choose the number of registers as well as the classes
 -}
 module Compiler.Registers
     ( Regs(..),
+      RegBank,
+      initBank, lookupReg, updateBank,
       RegisterData(..),
       regToList
     ) where
+
+import qualified Data.Map as Map
+
 
 -- | Class about data structers that can be registers.
 class Ord a => Regs a where
@@ -29,16 +34,23 @@ class Ord a => Regs a where
   toWord :: a -> Word   -- ^ registers are homomorphic to unsigned integers  
   fromWord :: Word -> a
   
-  -- Register bank
-  -- | registers can be stored in a register bank with lookups and updates
-  data RMap a :: * -> *  
-  initBank :: b -> b -> RMap a b -- ^ Takes default and initial valuse of sp/bp 
-  lookupReg :: a -> RMap a b -> b
-  updateBank :: a -> b -> RMap a b -> RMap a b
+-- Register bank
+-- | registers can be stored in a register bank with lookups and updates
+type RegBank regT wrdT = Map.Map regT wrdT 
+initBank ::
+  Regs regT =>
+  b  -- ^ Takes default and initial valuse of sp/bp  
+  -> RegBank regT b 
+initBank def = Map.fromList [(sp,def),(sp,def)]  
+
+lookupReg :: Regs a => a -> RegBank a b -> Maybe b
+lookupReg = Map.lookup
+updateBank :: Regs a => a -> b -> RegBank a b -> RegBank a b
+updateBank = Map.insert
 
 -- | Flattens a register bank to a list. Takes a bound
 -- in case the register type or the bank is infinite.
-regToList :: Regs mreg => Word -> RMap mreg b -> [b]
+regToList :: Regs mreg => Word -> RegBank mreg b -> [Maybe b]
 regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound] 
 
 

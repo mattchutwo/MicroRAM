@@ -3,28 +3,30 @@ module Main where
 
 import Data.Foldable (toList)
 import Data.List (intercalate)
-import System.Environment
 
-import Lib
-import Compiler.Registers
-import Compiler
+
+
+
+
+
+
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
+prog1
+  :: [Instruction' Integer Integer (Operand' phase Integer Integer)]
 prog1 = [Iadd 0 1 (Const 1), -- x=1
          Iadd 2 0 (Const 0), -- z=x
          Iadd 0 0 (Reg 1),  -- x=x+y
          Iadd 1 2 (Const 0),
        Ijmp (Const 1)]
 
--- Hardcode 16 registers for now
-k = 16
 -- No input or advice
 input, advice :: [Word]
 input = []
 advice = []
 
-dumpState :: (Foldable (RMap mreg)) => ExecutionState mreg -> String
+dumpState :: ExecutionState mreg -> String
 dumpState s = intercalate "; " [
     "pc " ++ show (pc s),
     "regs " ++ intercalate " " (map show $ toList $ regs s),

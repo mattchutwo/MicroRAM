@@ -162,7 +162,7 @@ data ExecutionState mreg = ExecutionState {
   -- | Program counter
   pc :: Pc
   -- | Register bank
-  , regs :: RMap mreg MWord
+  , regs :: RegBank mreg MWord
   -- | Memory state
   , mem :: Mem
   -- | Nondeterministic advice for the last step
@@ -170,25 +170,26 @@ data ExecutionState mreg = ExecutionState {
   --, tapes :: (Tape, Tape)
   -- | The flag (a boolean register)
   , flag :: Bool
-  -- | Bad flag (another boolean register). Not used right now
-  , bad :: Bool
+  -- | Marks for bugs and invalid traces
+  , bug_flag, inv_flag :: Bool
   -- | Return value.
   , answer :: MWord }
 
-deriving instance (Read (RMap mreg MWord)) => Read (ExecutionState mreg)
-deriving instance (Show (RMap mreg MWord)) => Show (ExecutionState mreg)
+deriving instance (Read (RegBank mreg MWord)) => Read (ExecutionState mreg)
+deriving instance (Show (RegBank mreg MWord)) => Show (ExecutionState mreg)
 
 type ExecSt mreg = State (ExecutionState mreg)
 
 init_state :: Regs mreg => InitialMem -> ExecutionState mreg
 init_state input  = ExecutionState {
   pc = init_pc
-  , regs = initBank 0 (lengthInitMem input)
+  , regs = initBank (lengthInitMem input)
   , mem = init_mem input
   , advice = []
   --, tapes = (t_input, t_advice)
   , flag = init_flag
-  , bad = init_flag
+  , bug_flag = init_flag -- ^ Witness of a bug 
+  , inv_flag = init_flag -- ^ trace doesn't give enough guarantees. FIXME: What does this reveal?
   , answer = 0
 }
 
@@ -199,7 +200,7 @@ changeSt setter = do{ st <- get; put $ setter st }
 getFromSt :: (ExecutionState mreg  -> a) -> ExecSt mreg a
 getFromSt getter = do{ st <- get; return $ getter st }
 
-setRegBank:: Regs mreg => RMap mreg MWord -> ExecSt mreg ()
+setRegBank:: Regs mreg => RegBank mreg MWord -> ExecSt mreg ()
 setRegBank regBank = changeSt (\st -> st {regs = regBank})
 
 set_reg:: Regs mreg => mreg -> Wrd -> ExecSt mreg ()
@@ -234,8 +235,11 @@ set_pc pc'= changeSt (\st ->  st {pc = pc'})
 
 -- Turn on the bad flag
 -- there is no way to "unbad" a state
-_set_bad:: ExecSt mreg ()
-_set_bad = changeSt (\st -> st {bad = True})
+bug:: ExecSt mreg ()
+bug = changeSt (\st -> st {bug_flag = True})
+
+_invalid:: ExecSt mreg ()
+_invalid = changeSt (\st -> st {inv_flag = True})
 
 set_answer:: MWord -> ExecSt mreg ()
 set_answer ans  =  changeSt (\st -> st { answer = ans })
@@ -251,13 +255,17 @@ next = do
 
 -- ** Utility evaluators
 
--- | Register getters (from a set register set)
-get_reg :: Regs mreg => RMap mreg MWord -> mreg -> Wrd
-get_reg rs r = lookupReg r rs
+-- | Register getters: if the register has not been initiates is an error !
+get_bank :: ExecSt mreg (RegBank mreg MWord)
+get_bank = getFromSt regs
 
-eval_reg :: Regs mreg => mreg -> ExecSt mreg Wrd
-eval_reg r = getFromSt $ \st -> get_reg (regs st) r
-
+get_reg :: Regs mreg => mreg -> ExecSt mreg Wrd
+get_reg r = do
+  rs <- get_bank
+  case lookupReg r rs of
+    Just w -> return w
+    Nothing -> do {bug; return 0}
+      
 get_flag :: ExecSt mreg Bool
 get_flag = getFromSt flag
 
@@ -266,7 +274,7 @@ get_pc = getFromSt pc
  
 -- | Gets operand wether it's a register or a constant or a PC
 eval_operand :: Regs mreg => Operand mreg Wrd -> ExecSt mreg Wrd
-eval_operand (Reg r) = eval_reg r
+eval_operand (Reg r) = get_reg r
 eval_operand (Const w) = return w
 
 -- *** unary and binart operations
@@ -287,7 +295,7 @@ bop :: (Regs mreg) =>
        -> (Integer -> Integer -> x) -- ^ Binary operation
        -> ExecSt mreg x
 bop r1 a f = do
-  r1' <- eval_reg r1
+  r1' <- get_reg r1
   a' <- eval_operand a
   return $ f (toInteger r1') (toInteger a')
 
@@ -421,11 +429,11 @@ exec (Iumod r1 r2 a) = execBopCatchZero r1 r2 a rem
 
 -- Shifts are a bit tricky since the flag depends on the operand not the result.
 exec (Ishl r1 r2 a) = do
-  r1' <- eval_reg r1
+  r1' <- get_reg r1
   set_flag (msb r1')
   exec_bop r1 r2 a (\a b -> shiftL a (fromInteger b)) trivialCheck
 exec (Ishr r1 r2 a) = do
-  r1' <- eval_reg r1
+  r1' <- get_reg r1
   set_flag (lsb r1')
   exec_bop r1 r2 a (\a b -> shiftR a (fromInteger b)) trivialCheck
 
@@ -452,7 +460,7 @@ exec (Icnjmp a) = ifFlagExec next $ exec_jmp a -- Reverse order for not
 --Memory operations
 exec (Istore a r1) = do
   a' <- eval_operand a
-  r1' <- eval_reg r1
+  r1' <- get_reg r1
   store_mem a' r1'
   next
 
@@ -548,12 +556,12 @@ instance Regs Int where
   argv = 4
   fromWord = fromIntegral . toInteger
   toWord = fromIntegral
-  data RMap Int x = RMap x (Map.Map Int x)
-  initBank d = RMap d Map.empty
-  lookupReg r (RMap d m) = case Map.lookup r m of
+  data RegBank Int x = RegBank x (Map.Map Int x)
+  initBank d = RegBank d Map.empty
+  lookupReg r (RegBank d m) = case Map.lookup r m of
                         Just x -> x
                         Nothing -> d
-  updateBank r x (RMap d m) = RMap d (Map.insert r x m)
+  updateBank r x (RegBank d m) = RegBank d (Map.insert r x m)
 
 
 -}
