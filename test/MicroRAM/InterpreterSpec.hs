@@ -7,8 +7,8 @@ module MicroRAM.InterpreterSpec (main) where
 
 
 import Test.Tasty
-
-import Test.Tasty.SmallCheck
+import Test.Tasty.QuickCheck
+import qualified Test.QuickCheck.Property as Prop (succeeded, failed, reason, Result) 
 
 import Compiler.Registers
 import Compiler.CompilationUnit
@@ -22,6 +22,22 @@ import MicroRAM.MRAMInterpreter
 main :: IO ()
 main = defaultMain tests
   -- defaultMain (testGroup "Our Library Tests" testSuite) -- testSuit defined at eof
+
+-- * Pretty printers
+_ppList :: Show a => [a] -> IO ()
+_ppList all =  putStr $ concat $ map (\st -> show st ++ "\n") all
+
+-- * Build a Compilation unit from a simpl program snip
+
+-- | Build initial memory from a list of words
+
+-- Old strategy
+list2InitMem :: [MWord] -> InitialMem
+list2InitMem ls = map word2InitSeg $ zip [0..] ls 
+  where word2InitSeg :: (MWord,MWord) -> InitMemSegment
+        word2InitSeg (loc,val) = InitMemSegment False False loc 1 (Just [val]) 
+
+
 
 trivialCU :: Prog Int -> Word -> [MWord] -> CompilationUnit (Prog Int)
 trivialCU prog len input = CompUnit prog len InfinityRegs [] (list2InitMem input)
@@ -100,31 +116,32 @@ _fibs = 0 : 1 : Prelude.zipWith (+) _fibs (tail _fibs)
 _fib::Int -> MWord
 _fib n = _fibs !! n
 
-claimEqual :: (Eq a, Show a) => a -> a -> Either String String
+claimEqual  :: (Eq a, Show a) => a -> a -> Prop.Result
 claimEqual a b = 
    if a == b
-     then Right "OK"
-     else Left $ "Got " ++ show a ++ " but expected " ++ show b
+     then Prop.succeeded
+     else Prop.failed { Prop.reason = "Got " ++ show a ++ " but expected " ++ show b}
 
 test3 :: TestTree
-test3 = testProperty "Test fibonacci" $ \n -> (n :: Word) >= 0 ==>
-   claimEqual (simpl_exec prog3 (1+4*n)) (Just $ fib_pure (n+1))
+test3 = testProperty "Test fibonacci" $ \n -> (n :: Word) <= 30 ==>
+                                              (simpl_exec prog3 (1+4*n)) ==  (Just $ fib_pure (n+1))
    
 -- # Test 4: conditional + input
 
 prog4 :: Program Reg MWord
-prog4 = [Iread 1 (Const 0), --
+prog4 = [Iload 1 (Const 0), --
          Icmpg 1 (Const 10), -- 1
          Icjmp (Const 5),    -- 2 
-         Iadd 0 0 (Const 77),-- 3
+         Iadd 2 2 (Const 77),-- 3
          Ijmp (Const 6),     -- 4
-         Iadd 0 0 (Const 42), -- Label: 5
-         Ijmp (Const 6) -- Label: 6
+         Iadd 2 2 (Const 42) -- Label: 5
+        ,Imov 0 (Reg 2)      -- Label: 6
+        , Ijmp (Const 6)     -- Label: 7
         ]
 
 test4 :: TestTree
 test4 = testProperty "Test a conditional and input" $ \x ->
-   claimEqual (exec prog4 5 [x]) (Just $ if x>10 then 42 else 77)
+   claimEqual (exec prog4 6 [x]) (Just $ if x>10 then 42 else 77)
 
                                                                
 -- # Test 5: sum all input
@@ -141,16 +158,13 @@ prog5 :: Program Reg MWord
 prog5 = [Iread 1 (Const 0), Iadd 0 0 (Reg 1), Icjmp (Const 4), Ijmp (Const 0), Ijmp (Const 4)]
 -}
 -- New version with input in initial memory.
-prog5 = [Imov 1 (Const 0),
+prog5 = [Imov 0 (Const 0),
+         Imov 1 (Const 0),
          Iload 2 (Reg 1),
          Iadd 0 0 (Reg 2),
          Iadd 1 1 (Const 1),
-         Ijmp (Const 1)]
+         Ijmp (Const 2)]
         
-list2InitMem :: [MWord] -> InitialMem
-list2InitMem ls = map word2InitSeg $ zip [0..] ls 
-  where word2InitSeg :: (MWord,MWord) -> InitMemSegment
-        word2InitSeg (loc,val) = InitMemSegment False False loc 1 (Just [val]) 
 
 --test5 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
 test5 :: TestTree

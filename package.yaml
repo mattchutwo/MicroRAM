@@ -65,7 +65,7 @@ executables:
   compile:
     main:                Compile.hs
     source-dirs:         app
-    ghc-options:
+    ghc-options: 
     - -main-is Compile
     - -threaded
     - -rtsopts
@@ -88,7 +88,7 @@ tests:
   compiler:
     main:                CompilerSpec.hs
     source-dirs:         test/Compiler
-    ghc-options:
+    ghc-options:         
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
