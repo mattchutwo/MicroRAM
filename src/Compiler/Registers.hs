@@ -53,6 +53,20 @@ updateBank = Map.insert
 regToList :: Regs mreg => Word -> RegBank mreg b -> [Maybe b]
 regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound] 
 
+
+
+-- | Integer registers
+
+
+instance Regs Int where
+  sp = 0
+  bp = 1
+  ax = 2
+  -- argc = 3
+  -- argv = 4
+  fromWord = fromIntegral . toInteger
+  toWord = fromIntegral
+  
 -- | Machine registers based on X86
 
 data MReg =
