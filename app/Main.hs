@@ -14,7 +14,7 @@ import MicroRAM
 import MicroRAM.MRAMInterpreter
 
 prog1
-  :: [Instruction' Integer Integer (Operand' phase Integer Integer)]
+  :: [Instruction' Integer Integer (Operand Integer Integer)]
 prog1 = [Iadd 0 1 (Const 1), -- x=1
          Iadd 2 0 (Const 0), -- z=x
          Iadd 0 0 (Reg 1),  -- x=x+y
