@@ -63,16 +63,28 @@ cc_test_add _ _ = progError "bad arguments"
 cc_noop :: IntrinsicImpl () w
 cc_noop _ _ = return []
 
+
 cc_trap :: IntrinsicImpl () MWord
 cc_trap _ _ = return [
   MirM (Iext "trace_trap" []) (),
   MirM (Ianswer (LImm $ SConst 0)) ()] -- TODO
+
+cc_malloc :: IntrinsicImpl () w
+cc_malloc [size] (Just dest) = return [MirM (Iextval "malloc" dest [size]) ()]
+cc_malloc _ _ = progError "bad arguments"
+
+cc_free :: IntrinsicImpl () w
+cc_free [ptr] Nothing = return [MirM (Iext "free" [ptr]) ()]
+cc_free _ _ = progError "bad arguments"
 
 intrinsics :: Map String (IntrinsicImpl () MWord)
 intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   [ ("__cc_test_add", cc_test_add)
   , ("__cc_valid_if", cc_noop)  -- TODO
   , ("__cc_bug_if", cc_noop)  -- TODO
+
+  , ("__cc_malloc", cc_malloc)
+  , ("__cc_free", cc_free)
 
   , ("llvm.lifetime.start.p0i8", cc_noop)
   , ("llvm.lifetime.end.p0i8", cc_noop)

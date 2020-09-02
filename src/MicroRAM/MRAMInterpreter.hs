@@ -33,7 +33,7 @@ module MicroRAM.MRAMInterpreter
 
 import Control.Monad
 import Control.Monad.State
-import Control.Lens (makeLenses, ix, at, lens, (.=), (%=), use, Lens')
+import Control.Lens (makeLenses, ix, at, to, lens, (.=), (%=), use, Lens', _1, _2)
 import Data.Bits
 import Data.List (intercalate)
 import qualified Data.Sequence as Seq
@@ -41,8 +41,9 @@ import Data.Sequence (Seq)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Text as Text
+import qualified Numeric
 
-import GHC.Generics
+import GHC.Generics (Generic)
 
 import Compiler.Errors
 import Compiler.Registers
@@ -332,6 +333,95 @@ traceHandler _nextH (Iext name ops) | Just desc <- Text.stripPrefix "trace_" nam
 traceHandler nextH instr = nextH instr
 
 
+-- Memory allocation tracking
+
+data Alloc = Alloc
+  { _aLen :: MWord
+  , _aFreed :: Bool
+  }
+
+data AllocState = AllocState
+  -- | A map for tracking all allocations made by the program, including those
+  -- that have already been freed.  This works becaus eall allocations are
+  -- nonoverlapping and memory is never reused.  The map key is the
+  -- allocation's start address; use `Map.lookupLE addr` to find the allocation
+  -- that might contain `addr`.
+  { _asAllocs :: Map MWord Alloc
+  -- | The next unused address.  Used for future allocations.
+  , _asFrontier :: MWord
+  }
+
+makeLenses ''Alloc
+makeLenses ''AllocState
+
+heapStart :: MWord
+heapStart = 0x10000000
+
+initAllocState :: AllocState
+initAllocState = AllocState Map.empty heapStart
+
+redzoneSize :: MWord
+redzoneSize = 128
+
+ceilLog2 :: MWord -> Int
+ceilLog2 0 = 1
+ceilLog2 n = wordBits - countLeadingZeros (n - 1)
+
+allocHandler :: Regs r => Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
+allocHandler allocState nextH (Iextval "malloc" rd [sizeOp]) = do
+  size <- opVal sizeOp
+  let sizeClass = ceilLog2 (size + 1)
+  let size' = 1 `shiftL` sizeClass
+
+  base <- use $ sExt . allocState . asFrontier
+  -- Start at `base + redzoneSize`, then round up to the next multiple of size'
+  let addr = (base + redzoneSize + size' - 1) .&. complement (size' - 1)
+  sExt . allocState . asFrontier .= addr + size'
+
+  let ptr = addr .|. (fromIntegral sizeClass `shiftL` 58)
+  sExt . allocState . asAllocs %= Map.insert ptr (Alloc size False)
+
+  traceM $ "malloc " ++ show size ++ " words (extended to " ++ show size' ++
+    ") at " ++ showHex ptr
+
+  sMach . mReg rd .= ptr
+  nextPc
+allocHandler allocState nextH (Iext "free" [ptrOp]) = do
+  ptr <- opVal ptrOp
+
+  cur <- use $ sExt . allocState . asAllocs . at ptr
+  case cur of
+    Just (Alloc _ True) -> do
+      traceM $ "detected double free at " ++ showHex ptr
+      -- TODO: record the bug
+    Nothing -> do
+      traceM $ "detected invalid free at " ++ showHex ptr
+      -- TODO: record the bug
+    _ -> return ()
+
+  sExt . allocState . asAllocs . ix ptr . aFreed .= True
+  nextPc
+allocHandler allocState nextH instr@(Istore op2 _r1) = do
+  addr <- opVal op2
+  optAlloc <- use $ sExt . allocState . asAllocs . to (Map.lookupLE addr)
+  case optAlloc of
+    Just (base, Alloc len _) | addr >= base + len -> do
+      traceM $ "detected out-of-bounds write at " ++ showHex addr ++
+        ", after the block at " ++ showHex base
+    Just (base, Alloc _ True) -> do
+      traceM $ "detected use-after-free at " ++ showHex addr ++
+        ", in the block starting at " ++ showHex base
+    Nothing | addr >= heapStart -> do
+      traceM $ "detected out-of-bounds write at " ++ showHex addr ++
+        ", before the first block"
+    _ -> return ()
+  nextH instr
+allocHandler _ nextH instr = nextH instr
+
+showHex :: MWord -> String
+showHex w = "0x" ++ Numeric.showHex w ""
+
+
 -- Old public definitions
 
 type Mem' = (MWord, Map MWord MWord)
@@ -395,20 +485,20 @@ run (CompUnit prog trLen _ _ initMem _) = case runStateT (go trLen) initState of
     go n = do
       -- The first of the `n` states is simply the initial state.  So we only
       -- run `n-1` steps of actual execution.
-      s <- getStateWithAdvice id
+      s <- getStateWithAdvice _1
       go' [s] (n - 1)
 
     go' tr 0 = return $ reverse tr
     go' tr n = do
       pc <- use $ sMach . mPc
       i <- fetchInstr pc
-      adviceHandler id i
-      (traceHandler $ stepInstr) i
+      adviceHandler _1 i
+      (allocHandler _2 $ traceHandler $ stepInstr) i
 
-      s <- getStateWithAdvice id
+      s <- getStateWithAdvice _1
       go' (s : tr) (n - 1)
 
-    initState = InterpState mempty $ initMach prog initMem
+    initState = InterpState (mempty, initAllocState) $ initMach prog initMem
 
 -- | Execute the program and return the result.
 execAnswer :: Regs mreg => CompilationResult (Prog mreg) -> MWord
