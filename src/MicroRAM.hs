@@ -93,18 +93,17 @@ module MicroRAM
 ( -- * MicroRAM
   Instruction'(..),
   Instruction,
-  NamedBlock(NBlock),
+--  NamedBlock(NBlock),
   Program,
-  Operand'(..),
-  Operand,
+  Operand(..),
 
   -- * MicroASM
-  MAInstruction,
+  {-MAInstruction,
   MAProgram,
   MAOperand,
 
   -- * MicroIR
-  MA2Instruction,
+  MA2Instruction, -}
 
   -- * Words
   MWord,
@@ -112,11 +111,6 @@ module MicroRAM
 
 import Data.Word (Word64)
 import GHC.Generics -- Helps testing
-import GHC.Read
-import Text.Read.Lex
-import Text.ParserCombinators.ReadPrec
-
-
 
 -- * The MicroRAM language(s)
 
@@ -133,33 +127,33 @@ data Phase = Pre | Post
 -- | Operands
 -- TinyRAM instructions take immidiate values (constants) and registers
 -- when an instruction allows either we denote it a (|A| in the paper).
-data Operand' phase regT wrdT where
-  Reg :: regT -> Operand' phase regT wrdT
-  Const :: wrdT -> Operand' phase regT wrdT
-  Label :: String -> Operand' 'Pre regT wrdT
-  Glob ::  String -> Operand' 'Pre regT wrdT
-  HereLabel :: Operand' 'Pre regT wrdT
-  
-deriving instance (Eq regT, Eq wrdT) => Eq (Operand' phase regT wrdT)
-deriving instance (Ord regT, Ord wrdT) => Ord (Operand' phase regT wrdT)
+
+-- TO BE MOVED TO ITS OWN MODULE
+
+{-type GEnv = String -> Word -- FIXME
+newtype LazyConst wrdT = LazyConst (GEnv -> wrdT) 
+
 deriving instance (Read regT, Read wrdT) => Read (Operand' 'Pre regT wrdT)
 deriving instance (Show regT, Show wrdT) => Show (Operand' phase regT wrdT)
 
--- | Reading Operands
--- Generated using --ddump-derived 
-instance (Read regT, Read wrdT) => Read (Operand' 'Post regT wrdT) where
-    readPrec
-      = parens (do expectP (Ident "Reg")
-                   a1_a1rK <- step readPrec
-                   return (Reg a1_a1rK))
-        +++
-        (parens
-         (do expectP (Ident "Const")
-             a1_a1rL <- step readPrec
-             return (Const a1_a1rL)))
-    readList = GHC.Read.readListDefault
-    readListPrec = GHC.Read.readListPrecDefault
 
+instance Num wrdT => Num (LazyConst wrdT) where
+  (LazyConst a) + (LazyConst b) = LazyConst $ \ge -> (a ge) + (b ge)
+  (LazyConst a) - (LazyConst b) = LazyConst $ \ge -> (a ge) - (b ge)
+  (LazyConst a) * (LazyConst b) = LazyConst $ \ge -> (a ge) * (b ge)
+  negate (LazyConst a)          = LazyConst $ \ge -> negate (a ge)
+  abs (LazyConst a)             = LazyConst $ \ge -> abs (a ge)
+  signum (LazyConst a)          = LazyConst $ \ge -> signum (a ge)
+  fromInteger n                 = LazyConst $ \ge -> fromInteger n
+-}
+
+-- END OF THINGS TO MOVE
+
+
+data Operand regT wrdT where
+  Reg :: regT -> Operand regT wrdT
+  Const :: wrdT -> Operand regT wrdT
+  deriving (Eq,Ord,Read,Show)
 
 -- | TinyRAM Instructions
 data Instruction' regT operand1 operand2 =
@@ -201,21 +195,8 @@ data Instruction' regT operand1 operand2 =
   | Ianswer operand2          -- ^  stall or halt (and the return value is [A]u)
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
--- ** MicroAssembly
-type MAOperand regT wrdT = Operand' 'Pre regT wrdT
-type MAInstruction regT wrdT = Instruction' regT regT (MAOperand regT wrdT)
--- Two-operand MicroASM instruction (normal MAInstruction is register + operand)
-type MA2Instruction regT wrdT = Instruction' regT (MAOperand regT wrdT) (MAOperand regT wrdT)
-
-data NamedBlock r w = NBlock (Maybe String) [MAInstruction r w]
-  deriving (Eq, Ord, Read, Show)
-type MAProgram r w = [NamedBlock r w] -- These are MicroASM programs
-
-
   
 -- ** MicroRAM
-type Operand regT wrdT = Operand' 'Post regT wrdT
-
 type Instruction regT wrdT = Instruction' regT regT (Operand regT wrdT)
 
 type Program r w = [Instruction r w]

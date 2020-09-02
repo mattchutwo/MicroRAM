@@ -37,6 +37,7 @@ module Compiler.RemoveLabels
 
 
 import MicroRAM
+import Compiler.IRs
 import qualified Data.Map.Strict as Map
 
 import Util.Util
@@ -97,8 +98,8 @@ flatten maProg = foldl flattenStep [] maProg
 -- | Translate the operands
 -- This takes the current instruction to translate 'HereLabel'
 translateOperand :: LabelMap -> Wrd -> MAOperand regT Wrd -> Hopefully (Operand regT Wrd)
-translateOperand _ _ (Reg r) = Right $ Reg r
-translateOperand _ _ (Const c) =  Right $ Const c
+translateOperand _ _ (AReg r) = Right $ Reg r
+translateOperand _ _ (LConst c) =  Right $ Const c
 translateOperand _ _ (Glob g) =  assumptError $ "There should be no globals at this point. Found \n" ++
                                  "Glob " ++ g
 translateOperand lmap _ (Label lbl) = do

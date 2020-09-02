@@ -83,6 +83,6 @@ raplaceGlobals gmap = mapM $ traverseOpLFun $ raplaceGlobalsOperands gmap
           -> Hopefully $ MAOperand mreg MWord
         raplaceGlobalsOperands gmap (Glob name) =
           case Map.lookup name gmap of
-            Just gptr -> return $ Const gptr
+            Just gptr -> return $ LConst gptr
             _ -> assumptError $ "Global not found in the environment: " ++ name
         raplaceGlobalsOperands _ op = return op

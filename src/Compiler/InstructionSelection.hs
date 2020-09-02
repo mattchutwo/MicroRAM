@@ -45,7 +45,7 @@ import Compiler.Errors
 import Compiler.IRs
 import Util.Util
 
-import MicroRAM (Operand'(..), MAOperand, MWord) 
+import MicroRAM (MWord) 
 import qualified MicroRAM as MRAM
 
 {-| Notes on this instruction generation :
@@ -90,12 +90,12 @@ integer2wrd x
   | otherwise = otherError $ "Literal out of bounds: " ++ (show x) ++ ". Bounds " ++ (show (wrd2integer minBound, wrd2integer maxBound)) 
   
 getConstant :: LLVM.Constant.Constant -> Hopefully $ MAOperand VReg MWord
-getConstant (LLVM.Constant.Int _ val) = Const <$> integer2wrd val
-getConstant (LLVM.Constant.Undef _typ) = return $ Const 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
+getConstant (LLVM.Constant.Int _ val) = LConst <$> integer2wrd val
+getConstant (LLVM.Constant.Undef _typ) = return $ LConst 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
 getConstant (LLVM.Constant.GlobalReference _typ name) = return $ Glob $ gName2String name
 getConstant (LLVM.Constant.GetElementPtr _ _ _) = assumptError $
   "Constant structs are not supported yet. This should go away with -O1. If you are seeing this message and used at least -O1 please report."
-getConstant (LLVM.Constant.Null _typ) = return $ Const 0 -- Ignores type/size
+getConstant (LLVM.Constant.Null _typ) = return $ LConst 0 -- Ignores type/size
 getConstant consT = otherError $
   "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions): \n \t" ++ (show consT) ++ "\n"
 
@@ -104,7 +104,7 @@ operand2operand :: LLVM.Operand -> Hopefully $ MAOperand VReg MWord
 operand2operand (LLVM.ConstantOperand c) = getConstant c
 operand2operand (LLVM.LocalReference _ name) = do
   name' <- (name2nameM name)
-  return $ Reg name'
+  return $ AReg name'
 operand2operand _ = implError "operand, probably metadata"
 
 
@@ -133,10 +133,10 @@ type2type _ t = implError $ "Type: \n \t " ++ (show t)
 
 
 -- | toRTL lifts simple MicroRAM instruction into RTL.
-toRTL :: [MRAM.MA2Instruction VReg MWord] -> [MIRInstr () MWord]
+toRTL :: [MA2Instruction VReg MWord] -> [MIRInstr () MWord]
 toRTL = map  $ \x -> MirM x ()
 
-returnRTL :: Monad m => [MRAM.MA2Instruction VReg MWord] -> m [MIRInstr () MWord]
+returnRTL :: Monad m => [MA2Instruction VReg MWord] -> m [MIRInstr () MWord]
 returnRTL = return . toRTL
 
 -- ** State
@@ -161,14 +161,14 @@ freshName = do
 --isInstrs = undefined
 
 -- |I
-type BinopInstruction = VReg -> MRAM.MAOperand VReg MWord -> MRAM.MAOperand VReg MWord ->
-  MRAM.MA2Instruction VReg MWord
+type BinopInstruction = VReg -> MAOperand VReg MWord -> MAOperand VReg MWord ->
+  MA2Instruction VReg MWord
 isBinop ::
   Maybe VReg
   -> LLVM.Operand
   -> LLVM.Operand
   -> BinopInstruction
-  -> Hopefully $ [MRAM.MA2Instruction VReg MWord]
+  -> Hopefully $ [MA2Instruction VReg MWord]
 isBinop Nothing _ _ _ = Right $ [] --  without return is a noop
 isBinop (Just ret) op1 op2 bop = do
   a <- operand2operand op1
@@ -186,13 +186,13 @@ isBinop (Just ret) op1 op2 bop = do
 cmptTail_pos, cmptTail_neg
   :: (Monad m, Num wrdT) =>
      regT1
-     -> m [MRAM.Instruction' regT1 operand1 (Operand' phase regT2 wrdT)]
-cmptTail_pos ret = return [MRAM.Imov ret (Const 0), MRAM.Icmov ret (Const 1)] -- moving the flag to the register... super wasteful! write a better register allocater
-cmptTail_neg ret = return [MRAM.Imov ret (Const 1), MRAM.Icmov ret (Const 0)] -- Neg. the result && mov the flag to the register... wasteful! 
+     -> m [MRAM.Instruction' regT1 operand1 (MAOperand regT2 wrdT)]
+cmptTail_pos ret = return [MRAM.Imov ret (LConst 0), MRAM.Icmov ret (LConst 1)] -- moving the flag to the register... super wasteful! write a better register allocater
+cmptTail_neg ret = return [MRAM.Imov ret (LConst 1), MRAM.Icmov ret (LConst 0)] -- Neg. the result && mov the flag to the register... wasteful! 
 
 -- | cmptTail:
 -- Describe if the comparison is computed directly or it's negation 
-cmptTail :: IntPred.IntegerPredicate -> VReg -> Hopefully [MRAM.MA2Instruction VReg MWord]
+cmptTail :: IntPred.IntegerPredicate -> VReg -> Hopefully [MA2Instruction VReg MWord]
 cmptTail IntPred.EQ = cmptTail_pos -- This values allow to flip the result
 cmptTail IntPred.NE = cmptTail_neg 
 cmptTail IntPred.UGT = cmptTail_pos
@@ -239,7 +239,7 @@ function2function _ (Left _ ) = implError $ "Inlined assembly not supported"
 function2function tenv (Right (LLVM.LocalReference ty nm)) = do
   nm' <- name2nameM nm
   (retT', paramT') <- functionTypes tenv ty
-  return (Reg nm',retT',paramT')
+  return (AReg nm',retT',paramT')
 function2function tenv (Right (LLVM.ConstantOperand (LLVM.Constant.GlobalReference ty nm))) = do
   lbl <- name2label nm
   (retT', paramT') <- functionPtrTypes ty
@@ -389,7 +389,7 @@ isInstruction _ (Just ret) (LLVM.Select cond op1 op2 _)  =  lift $ toRTL <$> do
    cond' <- operand2operand cond
    op1' <- operand2operand op1 
    op2' <- operand2operand op2 
-   return [MRAM.Icmpe cond' (Const 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
+   return [MRAM.Icmpe cond' (LConst 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
 
 -- *** GetElementPtr 
 isInstruction _ Nothing (LLVM.GetElementPtr _ _addr _inxs _) = return [] -- GEP without a name is useless
@@ -466,14 +466,14 @@ typeFromOperand op = return $ LLVM.typeOf op
 constantMultiplication ::
   MWord
   -> MAOperand VReg MWord
-  -> Statefully $ (MAOperand VReg MWord, [MRAM.MA2Instruction VReg MWord])
+  -> Statefully $ (MAOperand VReg MWord, [MA2Instruction VReg MWord])
 -- TODO switch to Statefully monad so we can generate a fresh register here
 -- TODO support all operand kinds
-constantMultiplication c (Const r) =
-  return (Const (c*r),[])
+constantMultiplication c (LConst r) =
+  return (LConst (c*r),[])
 constantMultiplication c x = do
   rd <- freshName
-  return (Reg rd, [MRAM.Imull rd x (Const c)])
+  return (AReg rd, [MRAM.Imull rd x (LConst c)])
 
 
 -- Type has to be a pointer
@@ -483,7 +483,7 @@ isGEP ::
   -> LLVM.Type
   -> MAOperand VReg MWord
   -> [LLVM.Operand] -- [MAOperand VReg Word]
-  -> Statefully $ [MRAM.MA2Instruction VReg MWord]
+  -> Statefully $ [MA2Instruction VReg MWord]
 isGEP _ _ _ _ [] = assumptError "Getelementptr called with no indices"
 isGEP tenv ret (LLVM.PointerType refT _) base (inx:inxs) = do
   typ' <- lift $ type2type tenv refT
@@ -491,8 +491,8 @@ isGEP tenv ret (LLVM.PointerType refT _) base (inx:inxs) = do
   inxs' <- lift $ mapM operand2operand inxs
   continuation <- isGEP' ret typ' inxs'
   rtemp <- freshName
-  return $ [MRAM.Imull rtemp inxOp (Const $ tySize typ'),
-            MRAM.Iadd ret (Reg rtemp) base] ++
+  return $ [MRAM.Imull rtemp inxOp (LConst $ tySize typ'),
+            MRAM.Iadd ret (AReg rtemp) base] ++
            continuation
 isGEP _ _ llvmTy _ _ =
   assumptError $ "getElementPtr called in a no-pointer type: " ++ show llvmTy
@@ -503,21 +503,21 @@ isGEP' ::
   VReg
   -> Ty
   -> [MAOperand VReg MWord]
-  -> Statefully $ [MRAM.MA2Instruction VReg MWord]
+  -> Statefully $ [MA2Instruction VReg MWord]
 isGEP' _ _ [] = return $ []
 isGEP' ret (Tarray _ elemsT) (inx:inxs) = do
   (rm, multiplication) <- constantMultiplication (tySize elemsT) inx
   continuation <- isGEP' ret elemsT inxs
   return $ multiplication ++
            -- offset = indes * size type 
-           [MRAM.Iadd ret (Reg ret) rm] ++
+           [MRAM.Iadd ret (AReg ret) rm] ++
            continuation
 isGEP' ret (Tstruct types) (inx:inxs) = 
   case inx of
-    Const i -> do
+    LConst i -> do
       offset <- return $ sum $ map tySize $ takeEnum i $ types  
       continuation <- isGEP' ret (types !! (fromEnum i)) inxs -- FIXME add checks for struct bounds
-      return $ MRAM.Iadd ret (Reg ret) (Const offset) : continuation
+      return $ MRAM.Iadd ret (AReg ret) (LConst offset) : continuation
     _ -> assumptError $ "GetElementPtr error. Indices into structs must be constatnts, instead found: " ++
          show inx
 isGEP' _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
@@ -572,18 +572,18 @@ isTerminator' (LLVM.CondBr cond name1 name2 _) = do
   cond' <- operand2operand cond
   loc1 <- name2nameM name1
   loc2 <- name2nameM name2 
-  returnRTL $ [MRAM.Icmpe cond' (Const 1),
+  returnRTL $ [MRAM.Icmpe cond' (LConst 1),
                     MRAM.Icjmp $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
                     MRAM.Ijmp $ Label (show loc2)]
 isTerminator' (LLVM.Switch cond deflt dests _ ) = do
   cond' <- operand2operand cond
   deflt' <- name2nameM deflt
   switchInstrs <- mapM (isDest cond') dests
-  returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Reg deflt')]
+  returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (AReg deflt')]
   where isDest cond' (switch,dest) = do
           switch' <- getConstant switch
           dest' <- name2nameM dest
-          return [MRAM.Icmpe cond' switch', MRAM.Icjmp (Reg dest')]
+          return [MRAM.Icmpe cond' switch', MRAM.Icjmp (AReg dest')]
 
   
 -- Possible optimisation:
