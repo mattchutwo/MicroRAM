@@ -86,14 +86,14 @@ ax = NewName 2
 -- ** Usefull snipets
 -- sp points at the next free stack location
 push, _pop :: Regs mreg => mreg -> [MAInstruction mreg MWord]
-push r = [Istore (Reg sp) r,Iadd sp sp (Const 1)]
-_pop r = [Isub  sp sp (Const 1),Iload r (Reg sp)]
+push r = [Istore (AReg sp) r,Iadd sp sp (LConst 1)]
+_pop r = [Isub  sp sp (LConst 1),Iload r (AReg sp)]
 
 -- | pushOperand sometimes we want to push a constant
 -- Notice here we use ax. This can only be done at funciton entry
 -- where ax is callee-saved.
 pushOperand :: Regs mreg => LOperand mreg -> [MAInstruction mreg MWord]
-pushOperand (Reg r) = push r
+pushOperand (AReg r) = push r
 pushOperand op = Imov ax op :  push ax
 
 
@@ -108,12 +108,12 @@ pushN (r:rs) = pushOperand r ++ pushN rs
 -- PopN doesn't return, just drops the top n things in the stack
 popN :: Regs mreg => Word -> [MAInstruction mreg MWord]
 popN 0 = []
-popN n = [Isub sp sp (Const $ fromIntegral n) ]
+popN n = [Isub sp sp (LConst $ fromIntegral n) ]
 
 
 -- | smartMov is like Imov, but does nothing if the registers are the same
 smartMov :: Regs mreg => mreg -> mreg -> [MAInstruction mreg MWord]
-smartMov r1 r2 = if r1 == r2 then [] else [Imov r1 (Reg r2)]
+smartMov r1 r2 = if r1 == r2 then [] else [Imov r1 (AReg r2)]
 
 smartMovMaybe :: Regs mreg => Maybe mreg -> mreg -> [MAInstruction mreg MWord]
 smartMovMaybe Nothing _ = []
@@ -138,14 +138,14 @@ premain :: Regs mreg => [NamedBlock mreg MWord]
 premain = return $
   --findArguments ++
   NBlock Nothing $ Imov ax (Label "_ret_") : (push ax) ++
-  Istore (Reg sp) bp :  -- Store "old" base pointer 
-  Imov bp (Reg sp) :    -- set base pointer to the stack pointer
+  Istore (AReg sp) bp :  -- Store "old" base pointer 
+  Imov bp (AReg sp) :    -- set base pointer to the stack pointer
   callMain              -- jump to main
   where callMain = return $ Ijmp $ Label $ show $ Name "main"
 
 -- | returnBlock: return lets the program output an answer (when main returns)
 returnBlock :: Regs mreg => NamedBlock mreg MWord
-returnBlock = NBlock (Just "_ret_") [Ianswer (Reg ax)]
+returnBlock = NBlock (Just "_ret_") [Ianswer (AReg ax)]
 
 
 
@@ -155,7 +155,7 @@ returnBlock = NBlock (Just "_ret_") [Ianswer (Reg ax)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => Word -> [MAInstruction mreg MWord]
 prologue size =
-    [Iadd sp sp (Const $ fromIntegral size + 1)] 
+    [Iadd sp sp (LConst $ fromIntegral size + 1)] 
 
 
 -- | epilogue: deallocate the stack, then jump to return address
@@ -163,9 +163,9 @@ epilogue :: Regs mreg => [MAInstruction mreg MWord]
 epilogue =
   -- Sp is uselles at this point so we use to calculate return adress
   -- remember return value is passed in ax and bp is marking the old stack 
-  Isub sp bp (Const 1) :
-  Iload sp (Reg sp) : 
-  [Ijmp (Reg sp)]
+  Isub sp bp (LConst 1) :
+  Iload sp (AReg sp) : 
+  [Ijmp (AReg sp)]
 
 
 -- ** Function calls:
@@ -186,15 +186,15 @@ funCallInstructions _ ret f _ args =
   pushN args ++
   -- Push return addres
     [Imov ax HereLabel,
-     Iadd ax ax (Const 6) -- FIXME: The compiler should do this addition
+     Iadd ax ax (LConst 6) -- FIXME: The compiler should do this addition
     ] ++ push ax ++
-    [Istore (Reg sp) bp, Imov bp (Reg sp)] ++ -- Set new stack frame (sp is increased in the function)
+    [Istore (AReg sp) bp, Imov bp (AReg sp)] ++ -- Set new stack frame (sp is increased in the function)
   -- Run function 
     Ijmp f :
   -- The function should return to this next instruciton
   -- restore the base pointer (right before this is used to compute return address)
-  Imov sp (Reg bp): -- get old sp 
-  Iload bp (Reg sp) :         -- get old bp
+  Imov sp (AReg bp): -- get old sp 
+  Iload bp (AReg sp) :         -- get old bp
   -- remove arguments and return address from the stack
   (popN (fromIntegral $ (length args) + 1)) ++
   -- move the return value (allways returns to ax)
@@ -211,15 +211,15 @@ setResult (Just ret) = smartMov ret ax
 stackLTLInstr :: Regs mreg => LTLInstr' mreg MWord $ MAOperand mreg MWord
               -> Hopefully [MAInstruction mreg MWord]
 stackLTLInstr (Lgetstack Incoming offset _ reg) = return $
-   [Isub reg bp (Const (2 + fromIntegral offset)), Iload reg (Reg reg)]
+   [Isub reg bp (LConst (2 + fromIntegral offset)), Iload reg (AReg reg)]
 stackLTLInstr (Lsetstack reg Incoming offset _) = return $
-   [ Isub bp bp (Const (2 + fromIntegral offset)), Istore (Reg bp) reg
-   , Iadd bp bp (Const (2 + fromIntegral offset))]
+   [ Isub bp bp (LConst (2 + fromIntegral offset)), Istore (AReg bp) reg
+   , Iadd bp bp (LConst (2 + fromIntegral offset))]
 stackLTLInstr (Lgetstack Local offset _ reg) = return $
-   [Iadd reg bp (Const $ fromIntegral offset + 1), Iload reg (Reg reg)]  -- JP: offset+1?
+   [Iadd reg bp (LConst $ fromIntegral offset + 1), Iload reg (AReg reg)]  -- JP: offset+1?
 stackLTLInstr (Lsetstack reg Local offset _) = return $
-   [ Iadd bp bp (Const $ fromIntegral offset + 1), Istore (Reg bp) reg
-   , Isub bp bp (Const $ fromIntegral offset + 1)] -- JP: offset+1?
+   [ Iadd bp bp (LConst $ fromIntegral offset + 1), Istore (AReg bp) reg
+   , Isub bp bp (LConst $ fromIntegral offset + 1)] -- JP: offset+1?
 
 stackLTLInstr (LCall typ ret f argsT args) = return $
   funCallInstructions typ ret f argsT args
@@ -234,10 +234,10 @@ stackLTLInstr (LAlloc reg typ n) = do
   increaseSp <- incrSP typ n
   return $ copySp ++ increaseSp
   where incrSP :: (Regs mreg) => Ty -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]    
-        incrSP typ (Reg r) = return $
-          [Imull r r (Const $ fromIntegral $ tySize typ),
-           Iadd sp sp (Reg r)]
-        incrSP typ (Const n) = return $ [Iadd sp sp (Const $ n * fromIntegral (tySize typ))]
+        incrSP typ (AReg r) = return $
+          [Imull r r (LConst $ fromIntegral $ tySize typ),
+           Iadd sp sp (AReg r)]
+        incrSP typ (LConst n) = return $ [Iadd sp sp (LConst $ n * fromIntegral (tySize typ))]
         incrSP _ _ = assumptError $ "Operand not supported for allocation size. Probably a mistake in the Register allocator. \n"
   -- Compute the size of the allocated memory
   

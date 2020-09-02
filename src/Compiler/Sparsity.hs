@@ -44,6 +44,7 @@ import qualified Data.Map as Map
 
 import Util.Util
 import MicroRAM
+import Compiler.IRs
 
 import GHC.Generics
 

@@ -255,7 +255,7 @@ applyColoring coloring = mapM applyBasicBlock
     applyIRInstruction (MRI inst mdata) = MRI <$> applyMRIInstruction inst <*> pure mdata
     applyIRInstruction (IRI inst mdata) = IRI <$> applyLTLInstruction inst <*> pure mdata
 
-    applyLTLInstruction :: LTLInstr' VReg mdata (MRAM.MAOperand VReg wrdT) -> Hopefully (LTLInstr' VReg mdata (MRAM.MAOperand VReg wrdT))
+    applyLTLInstruction :: LTLInstr' VReg mdata (MAOperand VReg wrdT) -> Hopefully (LTLInstr' VReg mdata (MAOperand VReg wrdT))
     applyLTLInstruction (Lgetstack s w t r1) = Lgetstack s w t <$> applyVReg r1
     applyLTLInstruction (Lsetstack r1 s w t) = Lsetstack <$> applyVReg r1 <*> pure s <*> pure w <*> pure t
     applyLTLInstruction (LCall t mr op ts ops) = LCall t <$> mr' <*> applyOperand op <*> pure ts <*> mapM applyOperand ops
@@ -264,7 +264,7 @@ applyColoring coloring = mapM applyBasicBlock
     applyLTLInstruction (LAlloc mr t op) = LAlloc <$> mr' <*> pure t <*> applyOperand op
       where mr' = maybe (pure Nothing) (\r -> Just <$> applyVReg r) mr
 
-    applyMRIInstruction :: MRAM.MAInstruction VReg wrdT -> Hopefully (MRAM.MAInstruction VReg wrdT)
+    applyMRIInstruction :: MAInstruction VReg wrdT -> Hopefully (MAInstruction VReg wrdT)
     applyMRIInstruction (MRAM.Iand r1 r2 op) = MRAM.Iand <$> applyVReg r1 <*> applyVReg r2 <*> applyOperand op
     applyMRIInstruction (MRAM.Ior r1 r2 op) = MRAM.Ior <$> applyVReg r1 <*> applyVReg r2 <*> applyOperand op
     applyMRIInstruction (MRAM.Ixor r1 r2 op) = MRAM.Ixor <$> applyVReg r1 <*> applyVReg r2 <*> applyOperand op
@@ -296,12 +296,12 @@ applyColoring coloring = mapM applyBasicBlock
     applyVReg r | Just r' <- Map.lookup r coloring = return r'
     applyVReg r                                    = otherError $ "Unknown register assignment for: " <> show r
 
-    applyOperand :: MRAM.MAOperand VReg wrdT -> Hopefully (MRAM.MAOperand VReg wrdT)
-    applyOperand (MRAM.Reg r)   = MRAM.Reg <$> applyVReg r
-    applyOperand (MRAM.Const w) = return $ MRAM.Const w
-    applyOperand (MRAM.Label s) = return $ MRAM.Label s
-    applyOperand (MRAM.Glob s) = return $ MRAM.Glob s
-    applyOperand MRAM.HereLabel = return $ MRAM.HereLabel
+    applyOperand :: MAOperand VReg wrdT -> Hopefully (MAOperand VReg wrdT)
+    applyOperand (AReg r)   = AReg <$> applyVReg r
+    applyOperand (LConst w) = return $ LConst w
+    applyOperand (Label s) = return $ Label s
+    applyOperand (Glob s) = return $ Glob s
+    applyOperand HereLabel = return $ HereLabel
 
 
 -- Each returned basic block will have one instruction. 
@@ -419,7 +419,7 @@ trivialRegisterAlloc = rtlToLtl
 -- 
 -- -- | removes all occurrences of Phi, and stores the move information in a map
 -- -- (Name,Name) represents the name of the function and the name of the block.
--- type AbstractPhiProgram = (Rprog () MWord, Map2 Name Name [(VReg, MRAM.MAOperand VReg MWord)])
+-- type AbstractPhiProgram = (Rprog () MWord, Map2 Name Name [(VReg, MAOperand VReg MWord)])
 -- abstractPhi :: Rprog () MWord -> AbstractPhiProgram
 -- abstractPhi (IRprog tenv globs code) =
 --   let (phiMap, code') = abstractPhiCode code in
@@ -453,7 +453,7 @@ trivialRegisterAlloc = rtlToLtl
 --           Function name ret args (map (addPhiBlock (Map.lookup name phiMap)) code)
 -- 
 --         addPhiBlock ::
---           (Maybe $ Map.Map Name [(VReg, MRAM.MAOperand VReg MWord)])
+--           (Maybe $ Map.Map Name [(VReg, MAOperand VReg MWord)])
 --           -> BB Name $ RTLInstr () MWord
 --           -> BB Name $ RTLInstr () MWord
 --         addPhiBlock Nothing block = block
@@ -461,7 +461,7 @@ trivialRegisterAlloc = rtlToLtl
 --           (BB name (code ++ (phiMap2Instructions $ Map.lookup name phiMap)) term dagd)
 -- 
 --         phiMap2Instructions ::
---           Maybe [(VReg, MRAM.MAOperand VReg MWord)]
+--           Maybe [(VReg, MAOperand VReg MWord)]
 --           -> [RTLInstr () MWord]
 --         phiMap2Instructions Nothing = []
 --         phiMap2Instructions (Just ls) = map phiPair2instr ls

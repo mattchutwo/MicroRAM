@@ -25,6 +25,14 @@ module Compiler.IRs(
   Ty(..), tySize, TypeEnv,
   
   -- * Backend languages
+  -- ** MicroAssembly
+  -- $MA
+  MAOperand(..),
+  MAProgram,
+  MA2Instruction,
+  MAInstruction,
+  NamedBlock(..),
+  
   -- ** Generic IR
   -- $GIR
   IRprog(..), Function(..), IRFunction, BB(..),
@@ -57,7 +65,7 @@ module Compiler.IRs(
   rtlToLtl,
   ) where
 
-import MicroRAM(MAOperand,MWord)
+import MicroRAM(MWord)
 import qualified MicroRAM as MRAM
 
 import Data.ByteString.Short
@@ -98,13 +106,40 @@ tySize _ = 1 -- Pointers have the same sizer as Tint
 
 type TypeEnv = Map.Map Name Ty
 
+-- ** Operands
+
+data MAOperand regT wrdT where
+  AReg :: regT -> MAOperand regT wrdT    -- ^ Assembly register 
+  LConst :: wrdT -> MAOperand regT wrdT  -- ^ Name foreshadows the use of lazy constants
+  Label :: String -> MAOperand regT wrdT -- 
+  Glob ::  String -> MAOperand regT wrdT
+  HereLabel :: MAOperand regT wrdT
+  deriving (Eq,Ord,Read,Show)
+
+-- ** MicroAssembly
+-- $MA MicroAssembly is the lowes level of intermediate language and it's buildnig blocks are
+-- reused by other IRs to avoid duplication (and easier compilation).
+-- It comes in two flavors:
+-- * __Two operands__ : Is more expresive, for higher level IRs it supports immidiates on the left of opperations.
+-- * __One operands__ : Closer to machine language `MicroRAM`, left operand is allways a register.
+   
+-- | Two operands MicroAssembly
+type MA2Instruction regT wrdT = MRAM.Instruction' regT (MAOperand regT wrdT) (MAOperand regT wrdT)
+-- | One operand MicroAssembly
+type MAInstruction regT wrdT = MRAM.Instruction' regT regT (MAOperand regT wrdT)
+
+data NamedBlock r w = NBlock (Maybe String) [MAInstruction r w]
+  deriving (Eq, Ord, Read, Show)
+type MAProgram r w = [NamedBlock r w] -- These are MicroASM programs
+
+
 
 -- ** Generic low-level IR (Transfer languages)
 -- $GIR All IRs are made of standard 'MicroRAM' instructions plus some new ones. This
 -- makes compilation significantly easier and reduces duplication.
 
 data IRInstruction metadata regT wrdT irinst =
-   MRI (MRAM.MAInstruction regT wrdT) metadata
+   MRI (MAInstruction regT wrdT) metadata
   | IRI irinst metadata
   deriving (Show,Functor, Foldable, Traversable)
 data Function nameT paramT blockT = Function
@@ -213,7 +248,7 @@ data IRprog mdata wrdT funcT = IRprog
 -- as extended high-level instructions (`RTLInstr'`).
 
 data MIRInstruction metadata regT wrdT =
-  MirM (MRAM.MA2Instruction regT wrdT) metadata
+  MirM (MA2Instruction regT wrdT) metadata
   | MirI (RTLInstr' (MAOperand regT wrdT)) metadata
   deriving (Show)
 
