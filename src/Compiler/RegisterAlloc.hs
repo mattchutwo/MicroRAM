@@ -290,6 +290,8 @@ applyColoring coloring = mapM applyBasicBlock
     applyMRIInstruction (MRAM.Iload r1 op) = MRAM.Iload <$> applyVReg r1 <*> applyOperand op
     applyMRIInstruction (MRAM.Iread r1 op) = MRAM.Iread <$> applyVReg r1 <*> applyOperand op
     applyMRIInstruction (MRAM.Ianswer op) = MRAM.Ianswer <$> applyOperand op
+    applyMRIInstruction (MRAM.Iext name ops) = MRAM.Iext name <$> mapM applyOperand ops
+    applyMRIInstruction (MRAM.Iextval name rd ops) = MRAM.Iextval name <$> applyVReg rd <*> mapM applyOperand ops
 
     applyVReg r | Just r' <- Map.lookup r coloring = return r'
     applyVReg r                                    = otherError $ "Unknown register assignment for: " <> show r

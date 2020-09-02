@@ -136,6 +136,9 @@ stepInstr i = do
     Iread rd op2 -> stepRead rd op2
     Ianswer op2 -> stepAnswer op2
 
+    Iext name _ -> assumptError $ "unhandled extension instruction " ++ show name
+    Iextval name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
+
   sMach . mCycle %= (+ 1)
 
 stepUnary :: Regs r => (MWord -> MWord) -> (MWord -> MWord -> Bool) ->
