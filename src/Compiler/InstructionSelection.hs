@@ -27,6 +27,7 @@ module Compiler.InstructionSelection
     ( instrSelect,
     ) where
 
+import Data.Bits
 import Data.ByteString.Short
 import Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map 
@@ -106,6 +107,19 @@ operand2operand (LLVM.LocalReference _ name) = do
   name' <- (name2nameM name)
   return $ Reg name'
 operand2operand _ = implError "operand, probably metadata"
+
+-- | Get the value of `op`, masking off high bits if necessary to emulate
+-- truncation to the appropriate width (determined by the LLVM type of `op`).
+operand2operandTrunc :: LLVM.Operand -> Statefully (MAOperand VReg MWord, [MRAM.MA2Instruction VReg MWord])
+operand2operandTrunc op = do
+  op' <- lift $ operand2operand op
+  case LLVM.typeOf op of
+    LLVM.IntegerType w | w < 64 -> do
+      tmpReg <- freshName
+      let extra = MRAM.Iand tmpReg op' (Const $ (1 `shiftL` fromIntegral w) - 1)
+      return (MRAM.Reg tmpReg, [extra])
+    _ -> return (op', [])
+
 
 
 -- | Transforms `LLVM.Type` into backend types `Ty`
@@ -363,12 +377,12 @@ isInstruction _ _ (LLVM.Store _ adr cont _ _ _) = do
 -}
 
 isInstruction _ Nothing (LLVM.ICmp _pred _op1 _op2 _) =  lift $ return [] -- Optimization
-isInstruction _ (Just ret) (LLVM.ICmp pred op1 op2 _) = lift $ do
-  lhs <- operand2operand op1
-  rhs <- operand2operand op2
-  comp' <- isCompare pred lhs rhs -- Do the comparison
-  compTail <- cmptTail pred ret -- Put the comparison in the ret register
-  returnRTL $ comp': compTail
+isInstruction _ (Just ret) (LLVM.ICmp pred op1 op2 _) = do
+  (lhs, lhsPre) <- operand2operandTrunc op1
+  (rhs, rhsPre) <- operand2operandTrunc op2
+  comp' <- lift $ isCompare pred lhs rhs -- Do the comparison
+  compTail <- lift $ cmptTail pred ret -- Put the comparison in the ret register
+  returnRTL $ lhsPre ++ rhsPre ++ [comp'] ++ compTail
 
                         
 -- *** Function Call 
