@@ -46,7 +46,7 @@ testLoops = testGroup "Conditionals, Branching and loops" $
   compileTest
     "Fibonacci loop (not optimized)"
     "test/programs/fibSlow.ll"
-    470 34 :
+    520 34 :
   compileTest
     "Easy function call"
     "test/programs/easyFunction.ll"
