@@ -52,9 +52,14 @@ cc_test_add :: IntrinsicImpl () w
 cc_test_add [x, y] (Just dest) = return [MirM (Iadd dest x y) ()]
 cc_test_add _ _ = progError "bad arguments"
 
+cc_noop :: IntrinsicImpl () w
+cc_noop _ _ = return []
+
 intrinsics :: Map String (IntrinsicImpl () MWord)
 intrinsics = Map.fromList $ map (\(x, y) -> ("Name " ++ show x, y)) $
   [ ("__cc_test_add", cc_test_add)
+  , ("__cc_valid_if", cc_noop)  -- TODO
+  , ("__cc_bug_if", cc_noop)  -- TODO
   ]
 
 lowerIntrinsics :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
