@@ -128,26 +128,6 @@ data Phase = Pre | Post
 -- TinyRAM instructions take immidiate values (constants) and registers
 -- when an instruction allows either we denote it a (|A| in the paper).
 
--- TO BE MOVED TO ITS OWN MODULE
-
-{-type GEnv = String -> Word -- FIXME
-newtype LazyConst wrdT = LazyConst (GEnv -> wrdT) 
-
-deriving instance (Read regT, Read wrdT) => Read (Operand' 'Pre regT wrdT)
-deriving instance (Show regT, Show wrdT) => Show (Operand' phase regT wrdT)
-
-
-instance Num wrdT => Num (LazyConst wrdT) where
-  (LazyConst a) + (LazyConst b) = LazyConst $ \ge -> (a ge) + (b ge)
-  (LazyConst a) - (LazyConst b) = LazyConst $ \ge -> (a ge) - (b ge)
-  (LazyConst a) * (LazyConst b) = LazyConst $ \ge -> (a ge) * (b ge)
-  negate (LazyConst a)          = LazyConst $ \ge -> negate (a ge)
-  abs (LazyConst a)             = LazyConst $ \ge -> abs (a ge)
-  signum (LazyConst a)          = LazyConst $ \ge -> signum (a ge)
-  fromInteger n                 = LazyConst $ \ge -> fromInteger n
--}
-
--- END OF THINGS TO MOVE
 
 
 data Operand regT wrdT where

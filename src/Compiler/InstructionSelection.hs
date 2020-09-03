@@ -28,20 +28,23 @@ module Compiler.InstructionSelection
     ) where
 
 import Data.ByteString.Short
-import Data.ByteString.UTF8 as BSU
+import           Data.Bits 
+import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map 
 
 import Control.Monad.Except
 import Control.Monad.State.Lazy
 
+import qualified Data.Set as Set
 
 import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Typed as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.IntegerPredicate as IntPred
 
-
+import Compiler.LazyConstants
 import Compiler.Errors
+import Compiler.Common
 import Compiler.IRs
 import Util.Util
 
@@ -78,9 +81,6 @@ gName2String :: LLVM.Name -> String
 gName2String = show
 
 
---  implError "Unnamed opareands not supported yet. TODO soon... "
-
-
 wrd2integer:: MWord -> Integer
 wrd2integer x = fromIntegral x
 
@@ -90,12 +90,12 @@ integer2wrd x
   | otherwise = otherError $ "Literal out of bounds: " ++ (show x) ++ ". Bounds " ++ (show (wrd2integer minBound, wrd2integer maxBound)) 
   
 getConstant :: LLVM.Constant.Constant -> Hopefully $ MAOperand VReg MWord
-getConstant (LLVM.Constant.Int _ val) = LConst <$> integer2wrd val
-getConstant (LLVM.Constant.Undef _typ) = return $ LConst 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
+getConstant (LLVM.Constant.Int _ val) = LImm <$> integer2wrd val
+getConstant (LLVM.Constant.Undef _typ) = return $ LImm 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
 getConstant (LLVM.Constant.GlobalReference _typ name) = return $ Glob $ gName2String name
 getConstant (LLVM.Constant.GetElementPtr _ _ _) = assumptError $
   "Constant structs are not supported yet. This should go away with -O1. If you are seeing this message and used at least -O1 please report."
-getConstant (LLVM.Constant.Null _typ) = return $ LConst 0 -- Ignores type/size
+getConstant (LLVM.Constant.Null _typ) = return $ LImm 0 -- Ignores type/size
 getConstant consT = otherError $
   "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions): \n \t" ++ (show consT) ++ "\n"
 
@@ -187,8 +187,8 @@ cmptTail_pos, cmptTail_neg
   :: (Monad m, Num wrdT) =>
      regT1
      -> m [MRAM.Instruction' regT1 operand1 (MAOperand regT2 wrdT)]
-cmptTail_pos ret = return [MRAM.Imov ret (LConst 0), MRAM.Icmov ret (LConst 1)] -- moving the flag to the register... super wasteful! write a better register allocater
-cmptTail_neg ret = return [MRAM.Imov ret (LConst 1), MRAM.Icmov ret (LConst 0)] -- Neg. the result && mov the flag to the register... wasteful! 
+cmptTail_pos ret = return [MRAM.Imov ret (LImm 0), MRAM.Icmov ret (LImm 1)] -- moving the flag to the register... super wasteful! write a better register allocater
+cmptTail_neg ret = return [MRAM.Imov ret (LImm 1), MRAM.Icmov ret (LImm 0)] -- Neg. the result && mov the flag to the register... wasteful! 
 
 -- | cmptTail:
 -- Describe if the comparison is computed directly or it's negation 
@@ -389,7 +389,7 @@ isInstruction _ (Just ret) (LLVM.Select cond op1 op2 _)  =  lift $ toRTL <$> do
    cond' <- operand2operand cond
    op1' <- operand2operand op1 
    op2' <- operand2operand op2 
-   return [MRAM.Icmpe cond' (LConst 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
+   return [MRAM.Icmpe cond' (LImm 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
 
 -- *** GetElementPtr 
 isInstruction _ Nothing (LLVM.GetElementPtr _ _addr _inxs _) = return [] -- GEP without a name is useless
@@ -425,38 +425,6 @@ convertPhiInput (op, name) = do
   name' <- name2nameM name
   return (op', name')
 
--- ** GetElementPtr
-
-
-{-
-llvmSize :: TypeEnv -> LLVM.Type -> Hopefully $ Word
-
-llvmSize LLVM.VoidType = return 0
--- All int types have same size:
--- We don't pay extra for size of memory
-llvmSize (LLVM.IntegerType _) = return 1
-llvmSize (LLVM.PointerType _ _) = return 1
-llvmSize (LLVM.FloatingPointType _) = implError "Floating point type."
-llvmSize (LLVM.FunctionType _ _ _) =
-  assumptError "Function type have no size. Or do they? If you get this error. please report."
-llvmSize (LLVM.VectorType _ _) = implError "Vactor type."
-llvmSize (LLVM.StructureType _ _) = implError "Structured type not supported yet. Stay tuned."
-llvmSize (LLVM.ArrayType size elemT) = do
-  elemSize <- llvmSize elemT
-  size' <- return $ wrdFromwrd64 size
-  return $ size' * elemSize
---  elemSize <- return (size * llvmSize elemT) 
-llvmSize (LLVM.NamedTypeReference name) = implError $ "Named reference: " ++ show name
-
--- Metadata, labels and token dont have size in memory         
-llvmSize LLVM.MetadataType =
-  assumptError "Metadata type have no size. Or do they? If you get this error. please report."
-llvmSize LLVM.LabelType =
-  assumptError "Label type have no size. Or do they? If you get this error. please report."       
-llvmSize LLVM.TokenType =
-  assumptError "Token type have no size. Or do they? If you get this error. please report."
--}
-
 typeFromOperand :: LLVM.Operand -> Hopefully $ LLVM.Type
 typeFromOperand op = return $ LLVM.typeOf op 
 
@@ -469,11 +437,11 @@ constantMultiplication ::
   -> Statefully $ (MAOperand VReg MWord, [MA2Instruction VReg MWord])
 -- TODO switch to Statefully monad so we can generate a fresh register here
 -- TODO support all operand kinds
-constantMultiplication c (LConst r) =
-  return (LConst (c*r),[])
+constantMultiplication c (LImm r) =
+  return (LImm (c*r),[])
 constantMultiplication c x = do
   rd <- freshName
-  return (AReg rd, [MRAM.Imull rd x (LConst c)])
+  return (AReg rd, [MRAM.Imull rd x (LImm c)])
 
 
 -- Type has to be a pointer
@@ -491,7 +459,7 @@ isGEP tenv ret (LLVM.PointerType refT _) base (inx:inxs) = do
   inxs' <- lift $ mapM operand2operand inxs
   continuation <- isGEP' ret typ' inxs'
   rtemp <- freshName
-  return $ [MRAM.Imull rtemp inxOp (LConst $ tySize typ'),
+  return $ [MRAM.Imull rtemp inxOp (LImm $ tySize typ'),
             MRAM.Iadd ret (AReg rtemp) base] ++
            continuation
 isGEP _ _ llvmTy _ _ =
@@ -514,10 +482,10 @@ isGEP' ret (Tarray _ elemsT) (inx:inxs) = do
            continuation
 isGEP' ret (Tstruct types) (inx:inxs) = 
   case inx of
-    LConst i -> do
+    LImm i -> do
       offset <- return $ sum $ map tySize $ takeEnum i $ types  
       continuation <- isGEP' ret (types !! (fromEnum i)) inxs -- FIXME add checks for struct bounds
-      return $ MRAM.Iadd ret (AReg ret) (LConst offset) : continuation
+      return $ MRAM.Iadd ret (AReg ret) (LImm offset) : continuation
     _ -> assumptError $ "GetElementPtr error. Indices into structs must be constatnts, instead found: " ++
          show inx
 isGEP' _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
@@ -572,7 +540,7 @@ isTerminator' (LLVM.CondBr cond name1 name2 _) = do
   cond' <- operand2operand cond
   loc1 <- name2nameM name1
   loc2 <- name2nameM name2 
-  returnRTL $ [MRAM.Icmpe cond' (LConst 1),
+  returnRTL $ [MRAM.Icmpe cond' (LImm 1),
                     MRAM.Icjmp $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
                     MRAM.Ijmp $ Label (show loc2)]
 isTerminator' (LLVM.Switch cond deflt dests _ ) = do
@@ -728,33 +696,47 @@ isTypeDefs defs = do
         def2pair other = unreachableError $ show other
         
 -- | Turns a Global variable into its descriptor.
-isGlobVars :: LLVMTypeEnv -> [LLVM.Definition] -> Hopefully $ GEnv MWord
-isGlobVars tenv defs = mapMaybeM (isGlobVar' tenv) defs
-  where isGlobVar' tenv  (LLVM.GlobalDefinition g) = do
-          flatGVar <- isGlobVar tenv  g
-          return $ Just flatGVar 
-        isGlobVar' _ _ = return Nothing
 
-isGlobVar :: LLVMTypeEnv -> LLVM.Global -> Hopefully $ GlobalVariable MWord
-isGlobVar tenv (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) = do
+-- Here is how we it works:
+-- Create a set with a list of globals that are defined.
+isGlobVars :: LLVMTypeEnv -> [LLVM.Definition] -> Hopefully $ GEnv MWord
+isGlobVars tenv defs =
+  mapMaybeM (isGlobVar' tenv (nameOfGlobals defs)) defs
+  where isGlobVar' tenv globNames (LLVM.GlobalDefinition g) = do
+          flatGVar <- isGlobVar tenv globNames g
+          return $ Just flatGVar 
+        isGlobVar' _ _ _ = return Nothing
+        nameOfGlobals defs = Set.fromList $ concat $ map nameOfGlobal defs
+        nameOfGlobal (LLVM.GlobalDefinition (LLVM.GlobalVariable name _ _ _ _ _ _ _ _ _ _ _ _ _)) =
+          [name]
+        nameOfGlobal _ = []
+
+          
+isGlobVar :: LLVMTypeEnv -> Set.Set LLVM.Name -> LLVM.Global -> Hopefully $ GlobalVariable MWord
+isGlobVar tenv globNames (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) = do
   typ' <- type2type tenv typ
-  init' <- flatInit init
+  init' <- flatInit globNames  init
   -- TODO: Want to check init' is the right length?
   return $ GlobalVariable (gName2String name) const typ' init' (sectionIsSecret sectn)
-  where flatInit :: Maybe LLVM.Constant.Constant ->
-                    Hopefully $ Maybe [MWord]
-        flatInit Nothing = return Nothing
-        flatInit (Just const) = do
-          const' <- flattenConstant const
+  where flatInit :: Set.Set LLVM.Name ->
+                    Maybe LLVM.Constant.Constant ->
+                    Hopefully $ Maybe [LazyConst Name MWord]
+        flatInit _ Nothing = return Nothing
+        flatInit globNames (Just const) = do
+          const' <- flattenConstant globNames  const
           return $ Just const'
 
         sectionIsSecret (Just "__DATA,__secret") = True
         sectionIsSecret (Just ".data.secret") = True
         sectionIsSecret _ = False
-isGlobVar _ other = unreachableError $ show other
+isGlobVar _ _ other = unreachableError $ show other
 
-flattenConstant :: LLVM.Constant.Constant ->
-                   Hopefully [MWord]
+flattenConstant :: (Integral wrdT, Bits wrdT) =>
+                   Set.Set LLVM.Name
+                   -> LLVM.Constant.Constant
+                   -> Hopefully [LazyConst Name wrdT]
+flattenConstant globNames c = constant2lazyConst globNames c
+{-
 flattenConstant (LLVM.Constant.Int _ n) = return $ [fromInteger n]
 flattenConstant (LLVM.Constant.Null _typ) = return $ [0]
 flattenConstant (LLVM.Constant.Array _typ cnts) = do
@@ -768,7 +750,104 @@ flattenConstant (LLVM.Constant.Struct _name False cnts) = do
   return $ concat cnts'  --
 flattenConstant cnt = assumptError $ "Constant not supportet for flattening: \n " ++
                       show cnt
+-}
                         
+
+constant2lazyConst :: (Bits wrdT, Integral wrdT, Num wrdT) =>
+  Set.Set LLVM.Name
+  -> LLVM.Constant.Constant
+  -> Hopefully $ [LazyConst Name wrdT]
+constant2lazyConst _globs (LLVM.Constant.Int _ val                        ) = returnL $ SConst $ fromInteger val
+constant2lazyConst _globs (LLVM.Constant.Null _ty                         ) = returnL $ SConst $ fromInteger 0
+constant2lazyConst _globs (LLVM.Constant.AggregateZero ty                 ) =
+  implError $ "Is this a zero initialized aggregate element?" ++ show (LLVM.Constant.AggregateZero ty) 
+constant2lazyConst  globs (LLVM.Constant.Struct _name _pack vals          ) = concat <$> mapM (constant2lazyConst globs) vals 
+constant2lazyConst  globs (LLVM.Constant.Array _ty vals                  ) = concat <$> mapM (constant2lazyConst globs) vals
+constant2lazyConst _globs (LLVM.Constant.Undef _ty                        ) = returnL $ SConst $ fromInteger 0
+constant2lazyConst globs (LLVM.Constant.GlobalReference _ty name         ) = do
+  _ <- checkName globs name
+  name' <- return $ name2name name
+  returnL $ LConst $ \ge -> ge name'
+constant2lazyConst  globs (LLVM.Constant.Add _ _ op1 op2                  ) = bop2lazyConst globs (+) op1 op2
+constant2lazyConst  globs (LLVM.Constant.Sub  _ _ op1 op2                 ) = bop2lazyConst globs (-) op1 op2
+constant2lazyConst  globs (LLVM.Constant.Mul  _ _ op1 op2                 ) = bop2lazyConst globs (*) op1 op2
+constant2lazyConst  globs (LLVM.Constant.UDiv  _ op1 op2                  ) = bop2lazyConst globs quot op1 op2
+constant2lazyConst _globs (LLVM.Constant.SDiv _ _op1 _op2                   ) =
+  implError $ "Signed division is not implemented."
+constant2lazyConst  globs (LLVM.Constant.URem op1 op2                     ) = bop2lazyConst globs rem op1 op2
+constant2lazyConst _globs (LLVM.Constant.SRem _op1 _op2                     ) = 
+  implError $ "Signed reminder is not implemented."
+--constant2lazyConst  globs (LLVM.Constant.Shl _ _ op1 op2                  ) = undefined -- bop2lazyConst globs shift op1 op2
+--constant2lazyConst _globs (LLVM.Constant.LShr _ _ op1                     ) = undefined
+--constant2lazyConst _globs (LLVM.Constant.AShr _ _ op1                     ) = undefined
+constant2lazyConst  globs (LLVM.Constant.And op1 op2                      ) = bop2lazyConst globs (.&.) op1 op2
+constant2lazyConst  globs (LLVM.Constant.Or op1 op2                       ) = bop2lazyConst globs (.|.) op1 op2
+constant2lazyConst  globs (LLVM.Constant.Xor op1 op2                      ) = bop2lazyConst globs xor op1 op2
+--constant2lazyConst  globs (LLVM.Constant.GetElementPtr _bounds _otr _inds ) = undefined
+constant2lazyConst  globs (LLVM.Constant.PtrToInt op1 _typ                ) = constant2lazyConst globs op1
+constant2lazyConst  globs (LLVM.Constant.IntToPtr op1 _typ                ) = constant2lazyConst globs op1
+constant2lazyConst  globs (LLVM.Constant.BitCast  op1 _typ                ) = constant2lazyConst globs op1
+--constant2lazyConst _globs (LLVM.Constant.ICmp pred _op2 _typ              ) = undefined
+--constant2lazyConst _globs (LLVM.Constant.Select cond tVal fVal            ) = undefined
+--constant2lazyConst _globs (LLVM.Constant.ExtractValue aggr _inds          ) = undefined
+--constant2lazyConst _globs (LLVM.Constant.InsertValue aggr elem _inds      ) = undefined
+-- Vector         
+constant2lazyConst _globs (LLVM.Constant.Vector _mems                     ) =  
+  implError $ "Vectors not yet supported."
+constant2lazyConst _globs (LLVM.Constant.ExtractElement _vect _indx       ) = 
+  implError $ "Vectors not yet supported."
+constant2lazyConst _globs (LLVM.Constant.InsertElement _vect _elem _indx  ) = 
+  implError $ "Vectors not yet supported."
+constant2lazyConst _globs (LLVM.Constant.ShuffleVector _op1 _op2 _mask    ) = 
+  implError $ "Vectors not yet supported."
+{-
+-- Floating points
+constant2lazyConst _globs (LLVM.Constant.Float _                          ) = undefined
+constant2lazyConst _globs (LLVM.Constant.FAdd _op1 _op2                   ) = undefined
+constant2lazyConst _globs (LLVM.Constant.FSub _op1 _op2                   ) = undefined
+constant2lazyConst _globs (LLVM.Constant.FMul _op1 _op2                   ) = undefined
+constant2lazyConst _globs (LLVM.Constant.FDiv _op1 _op2                   ) = undefined
+constant2lazyConst _globs (LLVM.Constant.FRem _op1 _op2                   ) = undefined
+constant2lazyConst _globs (LLVM.Constant.FPToUI _op _typ                  ) = undefined
+constant2lazyConst _globs (LLVM.Constant.FPToSI _op _typ                  ) = undefined
+constant2lazyConst _globs (LLVM.Constant.UIToFP _op _typ                  ) = undefined
+constant2lazyConst _globs (LLVM.Constant.SIToFP _op _typ                  ) = undefined
+constant2lazyConst _globs (LLVM.Constant.FPTrunc _op _typ                 ) = undefined
+constant2lazyConst _globs (LLVM.Constant.FPExt _op _typ                   ) = undefined
+constant2lazyConst _globs (LLVM.Constant.FCmp _ _op1 _op2                 ) = undefined
+-- Extensions -- Truncation
+constant2lazyConst _globs (LLVM.Constant.ZExt _ _                         ) = undefined
+constant2lazyConst _globs (LLVM.Constant.SExt _ _                         ) = undefined
+constant2lazyConst _globs (LLVM.Constant.Trunc _ _                        ) = undefined
+-- Tokens
+constant2lazyConst _globs (LLVM.Constant.TokenNone                        ) = undefined
+-}
+constant2lazyConst _ c = implError $ "Constant not supported yet: " ++ show c
+
+bop2lazyConst :: (Bits wrdT, Integral wrdT, Num wrdT) =>
+                 Set.Set LLVM.Name
+              -> (wrdT -> wrdT -> wrdT)
+              -> LLVM.Constant.Constant
+              -> LLVM.Constant.Constant
+              -> Hopefully $ [LazyConst Name wrdT]
+bop2lazyConst globs bop op1 op2 = do
+  op1s <- constant2lazyConst globs op1
+  op1' <- getUniqueWord op1s
+  op2s <- constant2lazyConst globs op2
+  op2' <- getUniqueWord op2s
+  returnL $ lazyBop bop op1' op2'  
+  where getUniqueWord :: [LazyConst Name wrdT] -> Hopefully $ LazyConst Name wrdT
+        getUniqueWord [op1'] = return op1' 
+        getUniqueWord _ = assumptError "Tryed to compute a binary operation with an aggregate value." 
+
+
+
+
+
+
+
+
+
 isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
 isFuncAttributes _ = return () 
 
@@ -785,4 +864,3 @@ isDefs defs = do
 -- | Instruction selection generates an RTL Program
 instrSelect :: LLVM.Module -> Hopefully $ MIRprog () MWord
 instrSelect (LLVM.Module _ _ _ _ defs) = isDefs defs
-

@@ -108,7 +108,7 @@ readRegistersLTLInstruction (LAlloc _mr _t op) = readRegistersOperand op
 
 readRegistersOperand :: Ord reg => MAOperand reg wrdT -> Set reg
 readRegistersOperand (AReg r) = Set.singleton r
-readRegistersOperand (LConst _w) = mempty
+readRegistersOperand (LImm _w) = mempty
 readRegistersOperand (Label _s) = mempty
 readRegistersOperand (Glob _ ) = mempty
 readRegistersOperand HereLabel = mempty
@@ -161,7 +161,7 @@ substituteRegister _      r                                  = r
 
 substituteOperand :: Ord reg => Map reg reg -> MAOperand reg wrdT -> MAOperand reg wrdT
 substituteOperand substs (AReg r)   = AReg (substituteRegister substs r)
-substituteOperand _      (LConst w) = LConst w
+substituteOperand _      (LImm w) = LImm w
 substituteOperand _      (Label s) = Label s
 substituteOperand _      (Glob g) = Glob g
 substituteOperand _      HereLabel = HereLabel

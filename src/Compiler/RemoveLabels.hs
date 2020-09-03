@@ -99,7 +99,7 @@ flatten maProg = foldl flattenStep [] maProg
 -- This takes the current instruction to translate 'HereLabel'
 translateOperand :: LabelMap -> Wrd -> MAOperand regT Wrd -> Hopefully (Operand regT Wrd)
 translateOperand _ _ (AReg r) = Right $ Reg r
-translateOperand _ _ (LConst c) =  Right $ Const c
+translateOperand _ _ (LImm c) =  Right $ Const c
 translateOperand _ _ (Glob g) =  assumptError $ "There should be no globals at this point. Found \n" ++
                                  "Glob " ++ g
 translateOperand lmap _ (Label lbl) = do

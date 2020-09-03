@@ -6,6 +6,7 @@ module Compiler.CallingConvention where
 import qualified Data.Set as Set
 
 import           Compiler.Errors
+import           Compiler.Common
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.Registers

@@ -24,6 +24,7 @@ import Util.Util
 
 import Compiler.CompilationUnit
 import Compiler.Errors
+import Compiler.Common
 import Compiler.IRs
 import Compiler.Registers
 
@@ -61,7 +62,7 @@ memoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg
           -> (InitialMem, Map.Map String MWord)
         memoryFromGlobal (GlobalVariable name isConst gTy init secret) (initMem, gMap) =
           let newLoc = newLocation initMem in
-          let newSegment = InitMemSegment secret isConst newLoc (fromIntegral $ tySize gTy) init in
+          let newSegment = InitMemSegment secret isConst newLoc (fromIntegral $ tySize gTy) init in -- __FIXME__
           (newSegment:initMem, Map.insert name newLoc gMap)
           
         newLocation :: InitialMem -> MWord
@@ -83,6 +84,6 @@ raplaceGlobals gmap = mapM $ traverseOpLFun $ raplaceGlobalsOperands gmap
           -> Hopefully $ MAOperand mreg MWord
         raplaceGlobalsOperands gmap (Glob name) =
           case Map.lookup name gmap of
-            Just gptr -> return $ LConst gptr
+            Just gptr -> return $ LImm gptr
             _ -> assumptError $ "Global not found in the environment: " ++ name
         raplaceGlobalsOperands _ op = return op

@@ -64,6 +64,7 @@ import MicroRAM
 import Util.Util
 
 import Compiler.Errors
+import Compiler.Common
 import Compiler.IRs
 import Compiler.Registers
 
@@ -86,8 +87,8 @@ ax = NewName 2
 -- ** Usefull snipets
 -- sp points at the next free stack location
 push, _pop :: Regs mreg => mreg -> [MAInstruction mreg MWord]
-push r = [Istore (AReg sp) r,Iadd sp sp (LConst 1)]
-_pop r = [Isub  sp sp (LConst 1),Iload r (AReg sp)]
+push r = [Istore (AReg sp) r,Iadd sp sp (LImm 1)]
+_pop r = [Isub  sp sp (LImm 1),Iload r (AReg sp)]
 
 -- | pushOperand sometimes we want to push a constant
 -- Notice here we use ax. This can only be done at funciton entry
@@ -108,7 +109,7 @@ pushN (r:rs) = pushOperand r ++ pushN rs
 -- PopN doesn't return, just drops the top n things in the stack
 popN :: Regs mreg => Word -> [MAInstruction mreg MWord]
 popN 0 = []
-popN n = [Isub sp sp (LConst $ fromIntegral n) ]
+popN n = [Isub sp sp (LImm $ fromIntegral n) ]
 
 
 -- | smartMov is like Imov, but does nothing if the registers are the same
@@ -155,7 +156,7 @@ returnBlock = NBlock (Just "_ret_") [Ianswer (AReg ax)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => Word -> [MAInstruction mreg MWord]
 prologue size =
-    [Iadd sp sp (LConst $ fromIntegral size + 1)] 
+    [Iadd sp sp (LImm $ fromIntegral size + 1)] 
 
 
 -- | epilogue: deallocate the stack, then jump to return address
@@ -163,7 +164,7 @@ epilogue :: Regs mreg => [MAInstruction mreg MWord]
 epilogue =
   -- Sp is uselles at this point so we use to calculate return adress
   -- remember return value is passed in ax and bp is marking the old stack 
-  Isub sp bp (LConst 1) :
+  Isub sp bp (LImm 1) :
   Iload sp (AReg sp) : 
   [Ijmp (AReg sp)]
 
@@ -186,7 +187,7 @@ funCallInstructions _ ret f _ args =
   pushN args ++
   -- Push return addres
     [Imov ax HereLabel,
-     Iadd ax ax (LConst 6) -- FIXME: The compiler should do this addition
+     Iadd ax ax (LImm 6) -- FIXME: The compiler should do this addition
     ] ++ push ax ++
     [Istore (AReg sp) bp, Imov bp (AReg sp)] ++ -- Set new stack frame (sp is increased in the function)
   -- Run function 
@@ -211,15 +212,15 @@ setResult (Just ret) = smartMov ret ax
 stackLTLInstr :: Regs mreg => LTLInstr' mreg MWord $ MAOperand mreg MWord
               -> Hopefully [MAInstruction mreg MWord]
 stackLTLInstr (Lgetstack Incoming offset _ reg) = return $
-   [Isub reg bp (LConst (2 + fromIntegral offset)), Iload reg (AReg reg)]
+   [Isub reg bp (LImm (2 + fromIntegral offset)), Iload reg (AReg reg)]
 stackLTLInstr (Lsetstack reg Incoming offset _) = return $
-   [ Isub bp bp (LConst (2 + fromIntegral offset)), Istore (AReg bp) reg
-   , Iadd bp bp (LConst (2 + fromIntegral offset))]
+   [ Isub bp bp (LImm (2 + fromIntegral offset)), Istore (AReg bp) reg
+   , Iadd bp bp (LImm (2 + fromIntegral offset))]
 stackLTLInstr (Lgetstack Local offset _ reg) = return $
-   [Iadd reg bp (LConst $ fromIntegral offset + 1), Iload reg (AReg reg)]  -- JP: offset+1?
+   [Iadd reg bp (LImm $ fromIntegral offset + 1), Iload reg (AReg reg)]  -- JP: offset+1?
 stackLTLInstr (Lsetstack reg Local offset _) = return $
-   [ Iadd bp bp (LConst $ fromIntegral offset + 1), Istore (AReg bp) reg
-   , Isub bp bp (LConst $ fromIntegral offset + 1)] -- JP: offset+1?
+   [ Iadd bp bp (LImm $ fromIntegral offset + 1), Istore (AReg bp) reg
+   , Isub bp bp (LImm $ fromIntegral offset + 1)] -- JP: offset+1?
 
 stackLTLInstr (LCall typ ret f argsT args) = return $
   funCallInstructions typ ret f argsT args
@@ -235,9 +236,9 @@ stackLTLInstr (LAlloc reg typ n) = do
   return $ copySp ++ increaseSp
   where incrSP :: (Regs mreg) => Ty -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]    
         incrSP typ (AReg r) = return $
-          [Imull r r (LConst $ fromIntegral $ tySize typ),
+          [Imull r r (LImm $ fromIntegral $ tySize typ),
            Iadd sp sp (AReg r)]
-        incrSP typ (LConst n) = return $ [Iadd sp sp (LConst $ n * fromIntegral (tySize typ))]
+        incrSP typ (LImm n) = return $ [Iadd sp sp (LImm $ n * fromIntegral (tySize typ))]
         incrSP _ _ = assumptError $ "Operand not supported for allocation size. Probably a mistake in the Register allocator. \n"
   -- Compute the size of the allocated memory
   

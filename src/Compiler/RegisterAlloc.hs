@@ -36,6 +36,8 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 
 import           Compiler.Errors
+
+import           Compiler.Common
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.RegisterAlloc.Liveness
@@ -298,7 +300,7 @@ applyColoring coloring = mapM applyBasicBlock
 
     applyOperand :: MAOperand VReg wrdT -> Hopefully (MAOperand VReg wrdT)
     applyOperand (AReg r)   = AReg <$> applyVReg r
-    applyOperand (LConst w) = return $ LConst w
+    applyOperand (LImm w) = return $ LImm w
     applyOperand (Label s) = return $ Label s
     applyOperand (Glob s) = return $ Glob s
     applyOperand HereLabel = return $ HereLabel
