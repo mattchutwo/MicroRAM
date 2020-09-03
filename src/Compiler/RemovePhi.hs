@@ -84,7 +84,21 @@ removePhiFunc f@(Function name retTy argTys blocks nextReg) = do
     buildEdgeBlock ((pred, succ), edgeIdx) = do
       let name = makeEdgeBlockName pred succ edgeIdx
       let moves = maybe [] id $ Map.lookup succ phiMoves >>= Map.lookup pred
-      let body = map (\(dest, op, mdata) -> MRI (Imov dest op) mdata) moves
+      (revBody, revPreBody, _) <- foldM (\(body, preBody, writtenRegs) (dest, op, mdata) -> do
+        -- Generate an `Imov`, and record that `dest` was written.  However, if
+        -- `op` reads from a previously written register, then we have to store
+        -- the value to a temporary first, then read from the temporary later.
+        case op of
+          AReg r | Set.member r writtenRegs -> do
+            tmpReg <- NewName <$> get <* modify (+1)
+            let move = MRI (Imov dest (AReg tmpReg)) mdata
+            let preMove = MRI (Imov tmpReg op) mdata
+            return (move : body, preMove : preBody, Set.insert dest writtenRegs)
+          _ -> do
+            let move = MRI (Imov dest op) mdata
+            return (move : body, preBody, Set.insert dest writtenRegs)
+        ) ([], [], Set.empty) moves
+      let body = reverse revPreBody ++ reverse revBody
       let term = [MRI (Ijmp $ nameLabel succ) mempty]
       return $ BB name body term [succ]
 
