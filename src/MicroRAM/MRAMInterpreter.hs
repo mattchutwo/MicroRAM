@@ -389,6 +389,10 @@ allocHandler allocState nextH (Iextval "malloc" rd [sizeOp]) = do
 allocHandler allocState nextH (Iext "free" [ptrOp]) = do
   ptr <- opVal ptrOp
 
+  let sizeClass = ptr `shiftR` 58
+  let size' = (1 :: MWord) `shiftL` fromIntegral sizeClass
+  traceM $ "free " ++ show size' ++ " words at " ++ showHex ptr
+
   cur <- use $ sExt . allocState . asAllocs . at ptr
   case cur of
     Just (Alloc _ True) -> do
