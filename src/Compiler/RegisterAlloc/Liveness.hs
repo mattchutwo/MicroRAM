@@ -20,7 +20,6 @@ import           Compiler.RegisterAlloc.Internal
 -- If the target instruction is Nothing, it's a return edge.
 type LivenessResult instname = Map (instname, instname) (Set VReg) -- Could make this a Graph
 
--- Assumes SSA.
 -- A good resource: https://www.seas.upenn.edu/~cis341/current/lectures/lec22.pdf
 livenessAnalysis :: Ord name -- => (Show name, Show wrdT, Show mdata) 
   => [BB name (LTLInstr mdata VReg wrdT)] 

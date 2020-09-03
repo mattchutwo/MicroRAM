@@ -105,7 +105,6 @@ initializeFunctionArgs (LFunction fname mdata typ typs stackSize blocks) =
     wordToBSS = BSS.toShort . BSC.pack . show -- TODO: Double check this.
 
 
--- Assumes that instructions are in SSA form.
 registerAllocFunc :: Monoid mdata => Registers -> LFunction mdata VReg MWord -> Hopefully $ LFunction mdata VReg MWord
 registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') = do
 
@@ -207,36 +206,25 @@ spillRegister spillReg isArg pos blocks = do
       iid' <- getNextInstructionId name
       ((BB (name, iid) [inst] [] [(name, iid')]):) <$> flatten name iid' dag insts insts'
 
-
-    -- Assumes SSA.
     spillIRInstruction :: LTLInstr mdata VReg wrdT -> StateT RAState Hopefully [LTLInstr mdata VReg wrdT]
-    spillIRInstruction instr | Set.member spillReg (writeRegisters instr) = do
-      -- Generate new reg.
+    spillIRInstruction instr = do
+      -- Create a new temporary register to store the value stored/loaded from
+      -- the stack.
       reg <- generateNewRegister
-
-      -- Replace spillReg with reg.
+      -- Replace the spilled register with the new temporary.
+      --
+      -- We could potentially do better by using separate temporaries for the
+      -- input and output sides, but that only applies to instructions that
+      -- read and write the same virtual register, which should be fairly rare.
       let instr' = substituteRegisters (Map.singleton spillReg reg) instr
-
-      -- Append push to stack instruction.
+      -- Add stack access before/after if needed.
       let ty = getTyForRegister spillReg $ Just instr
-      let push = IRI (Lsetstack reg Local pos ty) mempty
-
-      return [instr', push]
-
-    spillIRInstruction instr | Set.member spillReg (readRegisters instr) = do
-      -- Generate new reg.
-      reg <- generateNewRegister
-
-      -- Replace spillReg with reg.
-      let instr' = substituteRegisters (Map.singleton spillReg reg) instr
-
-      -- Prepend load from stack instruction.
-      let ty = getTyForRegister spillReg instr
       let load = IRI (Lgetstack Local pos ty reg) mempty
-      
-      return [load, instr']
-
-    spillIRInstruction instr = return [instr]
+      let store = IRI (Lsetstack reg Local pos ty) mempty
+      return $
+        (if Set.member spillReg (readRegisters instr) then [load] else []) ++
+        [instr'] ++
+        (if Set.member spillReg (writeRegisters instr) then [store] else [])
 
     generateNewRegister = do
       reg <- (\i -> Name $ "_reg_alloc" <> BSS.toShort (BSC.pack $ show $ raNextRegister i)) <$> get
