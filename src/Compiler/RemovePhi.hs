@@ -12,11 +12,14 @@ incoming edges and adding `Imov`s in the newly introduced blocks.
 -}
 
 module Compiler.RemovePhi
-    ( removePhi
+    ( edgeSplit
+    , removePhi
     ) where
 
 import Control.Monad.State
 import Data.Foldable
+import qualified Data.Graph.Directed as Digraph
+import qualified Data.List as List
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Sequence (Seq)
@@ -27,7 +30,85 @@ import Data.String (fromString)
 
 import Compiler.IRs
 import Compiler.Errors
+import Compiler.RegisterAlloc.Liveness
 import MicroRAM
+
+
+-- Split edges to ensure the "unique successor or predecessor property" (Modern Compiler Implementation in Java, 19.6).
+edgeSplit :: (Monoid mdata) => Rprog mdata wrdT -> Hopefully (Rprog mdata wrdT)
+edgeSplit (IRprog te ge funcs) = IRprog te ge <$> mapM edgeSplitFunc funcs
+
+edgeSplitFunc :: forall mdata wrdT . (Monoid mdata) => RFunction mdata wrdT -> Hopefully (RFunction mdata wrdT)
+edgeSplitFunc (Function name retTy argTys blocks nextReg) = do
+  (edgeBlocks, nextReg') <- runStateT (mapM buildEdgeBlock $ Map.toList edgeIndex) nextReg
+  return $ Function name retTy argTys (blocks' ++ edgeBlocks) nextReg'
+
+  where
+    cfg = buildCFG blocks
+
+    -- Build new blocks to place along the previous CFG edges.
+
+    buildEdgeBlock :: ((Name, Name), Int) -> StateT Word Hopefully (BB Name (RTLInstr mdata wrdT))
+    buildEdgeBlock ((pred, succ), edgeIdx) = do
+      let name = makeEdgeBlockName pred succ edgeIdx
+      let body = []
+      let term = [MRI (Ijmp $ nameLabel succ) mempty]
+      return $ BB name body term [succ]
+
+    -- | Map from (pred, succ) to a unique index.  This is mainly used to
+    -- ensure that every new block gets a unique name, even if there are
+    -- collisions such as `Name "0"` vs. `NewName 0`.
+    edgeIndex = 
+      let splitEdges = Set.toList $ Set.unions $ 
+            -- Iterate over nodes.
+            let ns = Digraph.nodes cfg in
+
+            map (\nid ->
+                -- Get successors.
+                let succs = Digraph.successors cfg nid in
+
+                -- Skip if less than 2 successors.
+                if List.length succs < 2 then
+                  mempty
+                else
+                  Set.unions $ map (\succId -> 
+                      -- Get predecessors of each successor.
+                      let succPreds = Digraph.predecessors cfg succId in
+
+                      -- Include if more than one predecessor.
+                      if List.length succPreds > 1 then
+                        Set.singleton (nid, succId)
+                      else
+                        mempty
+                    ) succs
+              ) ns
+      in
+
+      Map.fromList $ zip splitEdges [0..]
+
+    -- Modify existing blocks
+
+    blocks' = map fixJumps blocks
+
+    fixJumps :: BB Name (RTLInstr mdata wrdT) -> BB Name (RTLInstr mdata wrdT)
+    fixJumps (BB name body term dag) = BB name (map (fixJump name) body) (map (fixJump name) term) (fixDag name dag)
+
+    fixJump :: Name -> RTLInstr mdata wrdT -> RTLInstr mdata wrdT
+    fixJump pred (MRI (Ijmp (Label succ)) mdata) = MRI (Ijmp (jumpDest pred succ)) mdata
+    fixJump pred (MRI (Icjmp (Label succ)) mdata) = MRI (Icjmp (jumpDest pred succ)) mdata
+    fixJump pred (MRI (Icnjmp (Label succ)) mdata) = MRI (Icnjmp (jumpDest pred succ)) mdata
+    fixJump _ instr = instr
+
+    jumpDest :: Name -> String -> MAOperand VReg wrdT
+    jumpDest pred succStr = nameLabel $ fixSucc pred (read succStr)
+
+    fixDag pred succs = map (fixSucc pred) succs
+
+    fixSucc pred succ = case Map.lookup (pred, succ) edgeIndex of
+      Just idx -> makeEdgeBlockName pred succ idx
+
+      -- Leave target unchanged if we're not splitting this edge. 
+      Nothing -> succ 
 
 removePhi :: (Monoid mdata) => Rprog mdata wrdT -> Hopefully (Rprog mdata wrdT)
 removePhi (IRprog te ge funcs) = IRprog te ge <$> mapM removePhiFunc funcs

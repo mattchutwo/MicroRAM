@@ -123,7 +123,7 @@ compile :: Word -> LLVM.Module
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Legalize Instructions" $ justCompile legalize)
-  >>= (tagPass "Remove Phi Nodes" $ justCompile removePhi)
+  >>= (tagPass "Edge split" $ justCompile edgeSplit)
   >>= (tagPass "Register Allocation" $ justCompile $ registerAlloc def)
   >>= (tagPass "Calling Convention" $ justCompile callingConvention)
   >>= (tagPass "Remove Globals" $ replaceGlobals)
