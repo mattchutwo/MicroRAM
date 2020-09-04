@@ -707,15 +707,19 @@ isTypeDefs defs = do
 
 -- Here is how we it works:
 -- Create a set with a list of globals that are defined.
-isGlobVars :: LLVMTypeEnv -> [LLVM.Definition] -> Hopefully $ GEnv MWord
-isGlobVars tenv defs =
-  mapMaybeM (isGlobVar' tenv (nameOfGlobals defs)) defs
+isGlobVars :: LLVMTypeEnv -> Set.Set LLVM.Name -> [LLVM.Definition] -> Hopefully $ GEnv MWord
+isGlobVars tenv setGlobNames defs =
+  mapMaybeM (isGlobVar' tenv setGlobNames) defs
   where isGlobVar' tenv globNames (LLVM.GlobalDefinition g) = do
           flatGVar <- isGlobVar tenv globNames g
           return $ Just flatGVar 
         isGlobVar' _ _ _ = return Nothing
-        nameOfGlobals defs = Set.fromList $ concat $ map nameOfGlobal defs
-        nameOfGlobal (LLVM.GlobalDefinition (LLVM.GlobalVariable name _ _ _ _ _ _ _ _ _ _ _ _ _)) =
+nameOfGlobals :: [LLVM.Definition] -> Set.Set LLVM.Name
+nameOfGlobals defs = Set.fromList $ concat $ map nameOfGlobal defs
+  where nameOfGlobal (LLVM.GlobalDefinition (LLVM.GlobalVariable name _ _ _ _ _ _ _ _ _ _ _ _ _)) =
+          [name]
+        nameOfGlobal (LLVM.GlobalDefinition
+                      (LLVM.Function _ _ _ _ _ _ name _ _ _ _ _ _ _ _ _ _)) =
           [name]
         nameOfGlobal _ = []
 
@@ -744,21 +748,6 @@ flattenConstant :: (Integral wrdT, Bits wrdT) =>
                    -> LLVM.Constant.Constant
                    -> Hopefully [LazyConst Name wrdT]
 flattenConstant globNames c = constant2lazyConst globNames c
-{-
-flattenConstant (LLVM.Constant.Int _ n) = return $ [fromInteger n]
-flattenConstant (LLVM.Constant.Null _typ) = return $ [0]
-flattenConstant (LLVM.Constant.Array _typ cnts) = do
-  cnts' <- mapM flattenConstant cnts
-  return $ concat cnts'
-flattenConstant (LLVM.Constant.Struct name True _) =
-  implError $ "Packed structs not supported yet. Tried packing constant struct \n " ++
-  show name
-flattenConstant (LLVM.Constant.Struct _name False cnts) = do
-  cnts' <- mapM flattenConstant cnts
-  return $ concat cnts'  --
-flattenConstant cnt = assumptError $ "Constant not supportet for flattening: \n " ++
-                      show cnt
--}
                         
 
 constant2lazyConst :: (Bits wrdT, Integral wrdT, Num wrdT) =>
@@ -862,7 +851,8 @@ isFuncAttributes _ = return ()
 isDefs :: [LLVM.Definition] -> Hopefully $ MIRprog () MWord
 isDefs defs = do
   typeDefs <- isTypeDefs $ filter itIsTypeDef defs
-  globVars <- (isGlobVars typeDefs) $ filter itIsGlobVar defs
+  setGlobNames <- return $ nameOfGlobals defs
+  globVars <- (isGlobVars typeDefs setGlobNames) $ filter itIsGlobVar defs -- filtered inside the def 
   --otherError $ "DEBUG HERE: \n" ++ show typeDefs ++ "\n" ++ show globVars ++ "\n"  
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
   funcs <- mapM (isFunction typeDefs) $ filter itIsFunc defs
