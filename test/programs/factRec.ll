@@ -3,7 +3,7 @@ source_filename = "test/programs/factRec.c"
 target datalayout = "e-m:o-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-apple-macosx10.15.0"
 
-@SECRET_NUMBER = internal global i32 5, section "__DATA,__secret", align 4
+@SECRET_NUMBER = internal global i32 2, section "__DATA,__secret", align 4
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable
 define i32 @factorial(i32) #0 {
@@ -15,7 +15,7 @@ define i32 @factorial(i32) #0 {
   br i1 %5, label %6, label %7
 
 6:                                                ; preds = %1
-  store i32 1, i32* %2, align 4
+  store i32 21, i32* %2, align 4
   br label %17
 
 7:                                                ; preds = %1
@@ -24,7 +24,7 @@ define i32 @factorial(i32) #0 {
   br i1 %9, label %10, label %11
 
 10:                                               ; preds = %7
-  store i32 1, i32* %2, align 4
+  store i32 42, i32* %2, align 4
   br label %17
 
 11:                                               ; preds = %7
