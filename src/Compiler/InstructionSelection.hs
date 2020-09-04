@@ -75,12 +75,6 @@ name2label :: Monad m => LLVM.Name -> m $ MAOperand VReg MWord
 name2label nm = return $ Label $ show $ name2name nm
 
 
--- | For Global names we just use strings.
--- Should we use Names insted?
-gName2String :: LLVM.Name -> String
-gName2String = show
-
-
 wrd2integer:: MWord -> Integer
 wrd2integer x = fromIntegral x
 
@@ -92,7 +86,7 @@ integer2wrd x
 getConstant :: LLVM.Constant.Constant -> Hopefully $ MAOperand VReg MWord
 getConstant (LLVM.Constant.Int _ val) = LImm <$> integer2wrd val
 getConstant (LLVM.Constant.Undef _typ) = return $ LImm 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
-getConstant (LLVM.Constant.GlobalReference _typ name) = return $ Glob $ gName2String name
+getConstant (LLVM.Constant.GlobalReference _typ name) = return $ Glob $ name2name name
 getConstant (LLVM.Constant.GetElementPtr _ _ _) = assumptError $
   "Constant structs are not supported yet. This should go away with -O1. If you are seeing this message and used at least -O1 please report."
 getConstant (LLVM.Constant.Null _typ) = return $ LImm 0 -- Ignores type/size
@@ -717,7 +711,7 @@ isGlobVar tenv globNames (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init se
   typ' <- type2type tenv typ
   init' <- flatInit globNames  init
   -- TODO: Want to check init' is the right length?
-  return $ GlobalVariable (gName2String name) const typ' init' (sectionIsSecret sectn)
+  return $ GlobalVariable (name2name name) const typ' init' (sectionIsSecret sectn)
   where flatInit :: Set.Set LLVM.Name ->
                     Maybe LLVM.Constant.Constant ->
                     Hopefully $ Maybe [LazyConst Name MWord]

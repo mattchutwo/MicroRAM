@@ -85,7 +85,7 @@ data MAOperand regT wrdT where
   AReg :: regT -> MAOperand regT wrdT    -- ^ Assembly register 
   LImm :: wrdT -> MAOperand regT wrdT    -- ^ lazy immidiates
   Label :: String -> MAOperand regT wrdT -- 
-  Glob ::  String -> MAOperand regT wrdT
+  Glob ::  Name -> MAOperand regT wrdT
   HereLabel :: MAOperand regT wrdT
   deriving (Eq,Ord,Read,Show)
 

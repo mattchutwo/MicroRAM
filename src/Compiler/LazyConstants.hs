@@ -35,11 +35,16 @@ type GlobMap name wrdT = name -> wrdT
 
 data LazyConst name wrdT =
    LConst ( GlobMap name wrdT -> wrdT)  -- ^ Lazy constants
-  | SConst wrdT         -- ^ Static constant, allows optimizations/folding upstream.
+  | SConst wrdT   -- ^ Static constant, allows optimizations/folding upstream and debugging
 
-instance( Show wrdT) => Show (LazyConst name wrdT) where
+makeConcreteConst :: GlobMap name wrdT -> LazyConst name wrdT -> wrdT
+makeConcreteConst gmap (LConst lw) = lw gmap
+makeConcreteConst _    (SConst  w) = w
+
+
+instance (Show wrdT) => Show (LazyConst name wrdT) where
   show (LConst _) = "LazyConstant"
-  show (SConst w) = show w
+  show (SConst w) = show w 
 
 lazyBop :: (wrdT -> wrdT -> wrdT)
      -> LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT

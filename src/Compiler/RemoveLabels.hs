@@ -101,7 +101,7 @@ translateOperand :: LabelMap -> Wrd -> MAOperand regT Wrd -> Hopefully (Operand 
 translateOperand _ _ (AReg r) = Right $ Reg r
 translateOperand _ _ (LImm c) =  Right $ Const c
 translateOperand _ _ (Glob g) =  assumptError $ "There should be no globals at this point. Found \n" ++
-                                 "Glob " ++ g
+                                 "Glob " ++ show g
 translateOperand lmap _ (Label lbl) = do
   location <- getLabel lmap lbl 
   Right $ Const location
