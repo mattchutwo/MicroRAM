@@ -72,7 +72,7 @@ data CustomSummary mreg = CS
 memSummarySize :: Integer
 memSummarySize = 5
 
-toSummaryMem :: [MWord] -> Mem -> [MWord]
+toSummaryMem :: [MWord] -> Mem' -> [MWord]
 toSummaryMem theseLocations m =
   map (\loc -> load loc m) theseLocations
   

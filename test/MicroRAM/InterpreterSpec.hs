@@ -130,7 +130,7 @@ test3 = testProperty "Test fibonacci" $ \n -> (n :: Word) <= 30 ==>
 
 prog4 :: Program Reg MWord
 prog4 = [Iload 1 (Const 0), --
-         Icmpg 1 (Const 10), -- 1
+         Icmpa 1 (Const 10), -- 1
          Icjmp (Const 5),    -- 2 
          Iadd 2 2 (Const 77),-- 3
          Ijmp (Const 6),     -- 4

@@ -18,6 +18,7 @@ module Compiler.Errors
       otherError,
 
       CmplError,
+      describeError,
 
       
       tag, tagPass,
