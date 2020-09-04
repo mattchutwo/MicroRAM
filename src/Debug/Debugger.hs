@@ -289,7 +289,7 @@ fromAscii = toEnum
 
 -- Example
 myfile, myllvmfile:: FilePath
-myfile = "test/programs/return42.micro" -- "programs/returnInput.micro"
+myfile = "test/programs/fib.micro" -- "programs/returnInput.micro"
 myllvmfile = "programs/returnInput.ll"
 
 pprintMyFile :: IO ()

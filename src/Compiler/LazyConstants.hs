@@ -75,7 +75,7 @@ checkName :: Set.Set LLVM.Name -> LLVM.Name -> Hopefully $ ()
 checkName globs name =
   if Set.member name globs
   then return ()
-  else assumptError $ "Global variable not defined" ++ show name
+  else assumptError $ "Global variable not defined \n \t" ++ show name ++ "\n"
 
 -- | Duplicated from InstructionSelection
 -- Can we unify
