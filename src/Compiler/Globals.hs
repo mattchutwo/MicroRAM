@@ -33,22 +33,27 @@ import Util.Util
 
 {- | Lay global variables in memory. Done in two steps:
 
-1. We create an initial memory that contains all th eglobal varibles
+1. We create an initial memory that contains all the global varibles
    (maybe uninitialised) and a globalMap mapping global names to their
-   location in the initla mem.
+   location in the initla mem. This is memory still has lazy constants
+   since code labels haven't been resolved.
 2. Then we replace all the uses of global variables in the program, with
-   the real location of the variable in memory.
+   the real location of the variable in memory. -- This part will soon be
+   made obsolete by lazy constants.
+   We also partially resolve the lazy variables using the locations of
+   global variables.
+   
 
 -}
 replaceGlobals :: Regs mreg =>
-        CompilationUnit (Lprog () mreg MWord)
-        -> Hopefully $ CompilationUnit (Lprog () mreg MWord)
-replaceGlobals (CompUnit prog tr regs aData _ ) = do
+        CompilationUnit () (Lprog () mreg MWord)
+        -> Hopefully $ CompilationUnit LazyInitialMem (Lprog () mreg MWord)
+replaceGlobals (CompUnit prog tr regs aData _ _) = do
   (prog', initMem) <- globals' prog
-  return $ CompUnit prog' tr regs aData initMem
+  return $ CompUnit prog' tr regs aData [] initMem 
 
 globals' :: Regs mreg => Lprog () mreg MWord
-         -> Hopefully $ (Lprog () mreg MWord, InitialMem)
+         -> Hopefully $ (Lprog () mreg MWord, LazyInitialMem)
 globals' (IRprog tenv genv prog) = do
   (initMem, globalMap) <- return $ memoryFromGlobals genv
   prog' <- raplaceGlobals globalMap prog
@@ -58,26 +63,19 @@ globals' (IRprog tenv genv prog) = do
 -- that has a lazy initialization value `[LazyConst Name MWord]`, that completly overrides
 -- the `content` `:: [MWord]` field (This field should be `Nothing` anyways, but is completly meaningless).
 -- After constructing the globals map, these lazy segments are converted to real ones.
-type LazyInitSegment = (Maybe [LazyConst Name MWord], InitMemSegment)
-type LazyInitialMem = [LazyInitSegment] 
-
 
 -- * Building initial memory and the `globalMap`
-memoryFromGlobals :: GEnv MWord -> (InitialMem, Map.Map Name MWord)
+memoryFromGlobals :: GEnv MWord -> (LazyInitialMem, Map.Map Name MWord)
 memoryFromGlobals ggg  = 
   let (lazyInitMem, globs) = lazyMemoryFromGlobals ggg in
-    (makeConcreteMem globs lazyInitMem, globs)
-  where makeConcreteMem :: Map.Map Name MWord -> LazyInitialMem -> InitialMem
-        makeConcreteMem globMap lInitMem =
-          map (blah globMap) lInitMem
-        blah :: Map.Map Name MWord -> LazyInitSegment -> InitMemSegment
-        blah g (lazyConst, InitMemSegment secr rOnly loc len _) =
-          let concreteInit = map (makeConcreteConst (addDefault g)) <$> lazyConst in
-          InitMemSegment secr rOnly loc len concreteInit
-        addDefault :: Ord a => Map.Map a MWord -> a -> MWord
-        addDefault m a = case Map.lookup a m of
-                           Just w -> w
-                           Nothing -> 0
+    (resolveGlobalsMem globs lazyInitMem, globs)
+  where resolveGlobalsMem :: Map.Map Name MWord -> LazyInitialMem -> LazyInitialMem
+        resolveGlobalsMem globMap lInitMem = 
+          map (resolveGlobalsSegment globMap) lInitMem
+        resolveGlobalsSegment :: Map.Map Name MWord -> LazyInitSegment -> LazyInitSegment
+        resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly loc len _) =
+          let concreteInit = map (applyPartialMap g) <$> lazyConst in
+          (concreteInit, InitMemSegment secr rOnly loc len Nothing)
         
 lazyMemoryFromGlobals :: GEnv MWord -> (LazyInitialMem, Map.Map Name MWord)
 lazyMemoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg  

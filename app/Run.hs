@@ -8,11 +8,12 @@ import Util.Util
 
 import Compiler.IRs (Name)
 import MicroRAM
-import Compiler.CompilationUnit (CompilationUnit(..))
+import Compiler.CompilationUnit (CompilationResult, CompilationUnit(..))
 import MicroRAM.MRAMInterpreter (execAnswer)
 
 import Data.List
 
+main :: IO ()
 main = do
   args <- getArgs
   case args of
@@ -34,7 +35,7 @@ main = do
 --parseArgs :: [String] -> [Word]
 --parseArgs = map read
 
-compUnitFromFile :: FilePath -> IO $ CompilationUnit (Program Name MWord)
+compUnitFromFile :: FilePath -> IO $ CompilationResult (Program Name MWord)
 compUnitFromFile file = do
   contents <- readFile file -- Get text from file
   return $ read contents -- Parse them       
@@ -42,7 +43,7 @@ compUnitFromFile file = do
 microFromFile :: FilePath -> IO (Program Name MWord)
 microFromFile file = do
   contents <- readFile file -- Get text from file
-  CompUnit prog _ _ _ _ <- return $ read contents -- Parse them 
+  CompUnit prog _ _ _ _ () <- return $ read contents -- Parse them 
   return prog
 
 fromText :: String -> Either () (Program Name MWord)

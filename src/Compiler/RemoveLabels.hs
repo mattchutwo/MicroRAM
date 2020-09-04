@@ -31,7 +31,8 @@ TODO: It can all be done in 2 passes. Optimize?
 
 -}
 module Compiler.RemoveLabels
-    ( removeLabels, 
+    ( removeLabels,
+      removeLabelsProg
     ) where
 
 
@@ -42,7 +43,9 @@ import qualified Data.Map.Strict as Map
 
 import Util.Util
 
+import Compiler.CompilationUnit
 import Compiler.Errors
+import Compiler.LazyConstants
 
 -- * Assembler
 
@@ -119,6 +122,10 @@ translateProgram:: Monad m =>
   m [(Instruction' regT regT b)]
 translateProgram f = mapM (translatePair f)
 
+
+-- Reoplaces labels with the real value.
+-- In the future it will ALSO replace lazy constants with immediates.
+-- (Remember we stillneed "HERE LABEL", which cannot (should not) be replaced by lazy constants)
 replaceLabels:: LabelMap -> [MAInstruction regT Wrd] -> Hopefully $ Program regT Wrd
 replaceLabels lm amProg = translateProgram (translateOperand lm) numberedProg
   where numberedProg = zip amProg naturals 
@@ -126,7 +133,31 @@ replaceLabels lm amProg = translateProgram (translateOperand lm) numberedProg
 
 -- ** Assemble : put all steps together
 
-removeLabels :: MAProgram regT Wrd -> Hopefully $ Program regT Wrd
-removeLabels massProg = replaceLabels lMap flatProg
+-- Old way of doing it.
+removeLabelsProg :: MAProgram regT Wrd -> Hopefully $ Program regT Wrd
+removeLabelsProg massProg = replaceLabels lMap flatProg
   where lMap     = createMap massProg
         flatProg = flatten massProg
+
+removeLabelsInitMem :: LabelMap -> LazyInitialMem -> Hopefully $ InitialMem
+removeLabelsInitMem lmap lInitMem =
+  let fullMap = addDefault lmap in
+    mapM (removeLabelsSegment fullMap) lInitMem
+  where removeLabelsSegment :: (Name -> Wrd) -> LazyInitSegment -> Hopefully $ InitMemSegment
+        removeLabelsSegment labelMap (lMem, initSegment) =
+          return $ initSegment {content =  blah labelMap lMem}
+        blah :: (Name -> Wrd) -> Maybe [LazyConst Name Wrd] -> Maybe [Wrd]
+        blah  labelMap lMem =  map (makeConcreteConst labelMap) <$> lMem
+        addDefault :: LabelMap -> Name -> Wrd
+        addDefault = undefined
+      
+
+-- ** Remove labels from the entire CompilationUnit
+removeLabels :: (CompilationUnit LazyInitialMem $ MAProgram regT Wrd)
+             -> Hopefully $ CompilationUnit () (Program regT Wrd)
+removeLabels compUnit = do
+  lMap <- return $ createMap $ programCU compUnit
+  prog' <- replaceLabels lMap $ flatten $ programCU compUnit
+  initMem <- removeLabelsInitMem lMap $ intermediateInfo compUnit
+  return $ compUnit {programCU = prog' , initM = initMem, intermediateInfo = ()}
+  

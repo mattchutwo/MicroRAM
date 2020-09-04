@@ -232,7 +232,7 @@ fromLLVMFile = llvmParse
 
 fromMRAMFile :: (Read mreg, Regs mreg) =>
                 FilePath
-             -> IO $ CompilationUnit (Program mreg MWord)
+             -> IO $ CompilationResult (Program mreg MWord)
 fromMRAMFile file = do
   contents <- readFile file
   return $ read contents
@@ -257,7 +257,7 @@ summaryFromFile file cs length = do
 
 -- * Pretty printing
 
-pprint :: CompilationUnit (Program Name MWord) -> String
+pprint :: CompilationResult (Program Name MWord) -> String
 pprint compUnit =
   let prog = programCU compUnit in
   concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ show inst ++ "\n") $ enumerate prog
@@ -295,7 +295,7 @@ myllvmfile = "programs/returnInput.ll"
 pprintMyFile :: IO ()
 pprintMyFile = pprintFromFile myfile
 
-mram :: IO $ CompilationUnit (Program Name MWord)
+mram :: IO $ CompilationResult (Program Name MWord)
 mram =  fromMRAMFile "test/return42.micro"
 
 {- | Example
@@ -310,7 +310,7 @@ jpProg = do
       >>= legalize
       >>= registerAlloc def
       >>= stacking
-      >>= removeLabels
+      >>= removeLabelsProg -- SC: This might not work anymore since the compilation passs now takes the entire compilation unit. I have added this function o the interface to make it work, but if you are using this debugger you should probably update it. 
 cs :: CustomSummary mreg
 cs = defaultSummary {theseMem = [0..27]}
 --inp :: [MWord]

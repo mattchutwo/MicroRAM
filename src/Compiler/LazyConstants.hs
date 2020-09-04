@@ -13,10 +13,9 @@ This are constants, up to global constant pointers that have not yet been comput
 module Compiler.LazyConstants where
 
 
+
+import qualified Data.Map as Map
 import qualified Data.Set as Set
-
-
-
 
 import qualified LLVM.AST as LLVM(Name(..))
 
@@ -40,7 +39,6 @@ data LazyConst name wrdT =
 makeConcreteConst :: GlobMap name wrdT -> LazyConst name wrdT -> wrdT
 makeConcreteConst gmap (LConst lw) = lw gmap
 makeConcreteConst _    (SConst  w) = w
-
 
 instance (Show wrdT) => Show (LazyConst name wrdT) where
   show (LConst _) = "LazyConstant"
@@ -81,3 +79,10 @@ checkName globs name =
 -- Can we unify
 
 
+applyPartialMap :: Ord a => Map.Map a b -> LazyConst a b -> LazyConst a b
+applyPartialMap _  (SConst w) = SConst w
+applyPartialMap m1 (LConst lw) = LConst $ \ge -> lw $ partiallyAppliedMap m1 ge
+  where partiallyAppliedMap :: Ord a => Map.Map a b -> (a -> b) -> a -> b
+        partiallyAppliedMap map1 f a = case Map.lookup a map1 of
+                                         Just w -> w
+                                         Nothing -> f a

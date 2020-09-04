@@ -20,48 +20,53 @@ import qualified Data.Map as Map
 import Util.Util
 import MicroRAM (MWord)
 
-import Compiler.Registers
 import Compiler.Analysis
+import Compiler.Common
+import Compiler.LazyConstants
+import Compiler.Registers
+
 
 -- | The Compilation Unit
-data CompilationUnit prog = CompUnit
+data CompilationUnit a prog = CompUnit
   { programCU :: prog
   , traceLen :: Word
   , regData :: RegisterData
   , aData   :: AnalysisData
   , initM   :: InitialMem
+  , intermediateInfo :: a -- Other stuff we carry during compilation, but starts and ends as `()`
   }
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
+type CompilationResult prog = CompilationUnit () prog
 
-prog2unit :: Word -> prog -> CompilationUnit prog
-prog2unit len p = CompUnit p len InfinityRegs [] []
+prog2unit :: Word -> prog -> CompilationUnit () prog
+prog2unit len p = CompUnit p len InfinityRegs [] [] ()
 
 -- * Lifting operators
 
 -- | Just compile, lift passes that only deal with code.
 justCompile :: Monad m =>
   (progS -> m progT)
-  -> CompilationUnit progS
-  -> m $ CompilationUnit progT
+  -> CompilationUnit a progS
+  -> m $ CompilationUnit a progT
 justCompile pass p = mapM pass p
 
 -- | Informed Compilation: passes that use analysis data but only change code
 informedCompile :: Monad m =>
   (progS -> AnalysisData -> m progT)
-  -> CompilationUnit progS
-  -> m $ CompilationUnit progT
-informedCompile pass (CompUnit prog trLen rdata adata initMem) = do
-  p' <- pass prog adata
-  return $ CompUnit p' trLen rdata adata initMem
+  -> CompilationUnit a progS
+  -> m $ CompilationUnit a progT
+informedCompile pass cUnit = do
+  p' <- pass (programCU cUnit) (aData cUnit)
+  return $ cUnit {programCU = p'}
   
 -- | Just Analyse, lift passes that don't modify the code.
 justAnalyse :: Monad m  =>
   (prog  -> m AnalysisPiece)
-  -> CompilationUnit prog
-  -> m $ CompilationUnit prog
-justAnalyse analysis (CompUnit prog trLen rdata adata initMem) = do
-  a' <-  analysis prog
-  return $ CompUnit prog trLen rdata (a' : adata) initMem
+  -> CompilationUnit a prog
+  -> m $ CompilationUnit a prog
+justAnalyse analysis cUnit = do
+  a' <-  analysis (programCU cUnit)
+  return $ cUnit {aData = a' : aData cUnit}
 
 
 -- TODO: Should we move this to a separate file (e.g. Compiler/InitMem.hs) ?
@@ -75,6 +80,10 @@ data InitMemSegment = InitMemSegment
   } deriving (Eq, Ord, Read, Show)
 
 type InitialMem = [InitMemSegment]
+
+-- | For creating an initial memory befor code labels and globals have been resolved.
+type LazyInitSegment = (Maybe [LazyConst Name MWord], InitMemSegment)
+type LazyInitialMem = [LazyInitSegment] 
 
 
 flatInitMem :: InitialMem -> Map.Map MWord MWord

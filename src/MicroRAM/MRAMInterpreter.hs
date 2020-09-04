@@ -358,8 +358,8 @@ initMach prog imem = MachineState
   }
 
 -- | Produce the trace of a program
-run :: Regs mreg => CompilationUnit (Prog mreg) -> Trace mreg
-run (CompUnit prog trLen _ _ initMem) = case runStateT (go trLen) initState of
+run :: Regs mreg => CompilationResult (Prog mreg) -> Trace mreg
+run (CompUnit prog trLen _ _ initMem _) = case runStateT (go trLen) initState of
   Left e -> error $ describeError e
   Right (x, _s) -> x
   where
@@ -383,7 +383,7 @@ run (CompUnit prog trLen _ _ initMem) = case runStateT (go trLen) initState of
     initState = InterpState mempty $ initMach prog initMem
 
 -- | Execute the program and return the result.
-execAnswer :: Regs mreg => CompilationUnit (Prog mreg) -> MWord
+execAnswer :: Regs mreg => CompilationResult (Prog mreg) -> MWord
 execAnswer compUnit = answer $ last $ run compUnit
 
 -- | Read from a location in memory

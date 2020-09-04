@@ -39,8 +39,8 @@ list2InitMem ls = map word2InitSeg $ zip [0..] ls
 
 
 
-trivialCU :: Prog Int -> Word -> [MWord] -> CompilationUnit (Prog Int)
-trivialCU prog len input = CompUnit prog len InfinityRegs [] (list2InitMem input)
+trivialCU :: Prog Int -> Word -> [MWord] -> CompilationResult (Prog Int)
+trivialCU prog len input = CompUnit prog len InfinityRegs [] (list2InitMem input) ()
 
 runProg :: Prog Int -> Word -> [MWord] -> Trace Int
 runProg prog len input = run $ trivialCU prog len input

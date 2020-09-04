@@ -79,7 +79,7 @@ main = do
             
  
       
-callBackend :: FlagRecord -> IO $ CompilationUnit (Program Name MWord)
+callBackend :: FlagRecord -> IO $ CompilationResult (Program Name MWord)
 callBackend fr = do  
   -- Retrieve program from file
   llvmModule <- llvmParse $ llvmFile fr

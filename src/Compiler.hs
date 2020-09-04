@@ -118,7 +118,7 @@ import qualified MicroRAM as MRAM  (Program)
 f <.> g = \x -> return $ f $ g x 
 
 compile :: Word -> LLVM.Module
-        -> Hopefully $ CompilationUnit (MRAM.Program Name MWord)
+        -> Hopefully $ CompilationResult (MRAM.Program Name MWord)
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Legalize Instructions" $ justCompile legalize)
@@ -127,5 +127,5 @@ compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Remove Globals" $ replaceGlobals)
   >>= (tagPass "Stacking" $ justCompile stacking)
   >>= (tagPass "Computing Sparsity" $ justAnalyse (SparsityData <.> sparsity))
-  >>= (tagPass "Removing labels" $ justCompile removeLabels)
+  >>= (tagPass "Removing labels" $ removeLabels)
           
