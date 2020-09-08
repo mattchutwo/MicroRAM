@@ -819,7 +819,7 @@ constant2lazyConst _globs (LLVM.Constant.Trunc _ _                        ) = un
 -- Tokens
 constant2lazyConst _globs (LLVM.Constant.TokenNone                        ) = undefined
 -}
-constant2lazyConst _ c = implError $ "Constant not supported yet: " ++ show c
+constant2lazyConst _ c = implError $ "Constant not supported yet for global initializers: " ++ show c
 
 bop2lazyConst :: (Bits wrdT, Integral wrdT, Num wrdT) =>
                  Set.Set LLVM.Name
