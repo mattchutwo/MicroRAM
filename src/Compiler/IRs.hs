@@ -64,10 +64,7 @@ module Compiler.IRs(
 
 import qualified MicroRAM as MRAM
 
-
-
-
-
+import Compiler.LazyConstants
 
 import Compiler.Errors
 import Compiler.Common
@@ -83,11 +80,13 @@ import Util.Util
 
 data MAOperand regT wrdT where
   AReg :: regT -> MAOperand regT wrdT    -- ^ Assembly register 
-  LImm :: wrdT -> MAOperand regT wrdT    -- ^ lazy immidiates
+  LImm :: LazyConst String wrdT -> MAOperand regT wrdT    -- ^ lazy immidiates
   Label :: String -> MAOperand regT wrdT -- 
   Glob ::  Name -> MAOperand regT wrdT
   HereLabel :: MAOperand regT wrdT
-  deriving (Eq,Ord,Read,Show)
+  deriving (Show)
+
+
 
 -- ** MicroAssembly
 -- $MA MicroAssembly is the lowes level of intermediate language and it's buildnig blocks are
@@ -102,7 +101,7 @@ type MA2Instruction regT wrdT = MRAM.Instruction' regT (MAOperand regT wrdT) (MA
 type MAInstruction regT wrdT = MRAM.Instruction' regT regT (MAOperand regT wrdT)
 
 data NamedBlock r w = NBlock (Maybe String) [MAInstruction r w]
-  deriving (Eq, Ord, Read, Show)
+  deriving (Show)
 type MAProgram r w = [NamedBlock r w] -- These are MicroASM programs
 
 

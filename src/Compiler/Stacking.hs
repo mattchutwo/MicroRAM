@@ -266,7 +266,7 @@ stackFunction
   LFunction () mreg MWord
   -> Hopefully $ [NamedBlock mreg MWord]
 stackFunction (LFunction name _mdata _retT _argT size code) = do
-  prologueBlock <- return $ NBlock (Just name) $ prologue size
+  prologueBlock <- return $ NBlock (Just $ name) $ prologue size
   codeBlocks <- mapM stackBlock code
   return $ prologueBlock : codeBlocks
   

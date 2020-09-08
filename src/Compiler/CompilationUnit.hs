@@ -21,7 +21,7 @@ import Util.Util
 import MicroRAM (MWord)
 
 import Compiler.Analysis
-import Compiler.Common
+--import Compiler.Common
 import Compiler.LazyConstants
 import Compiler.Registers
 
@@ -82,7 +82,7 @@ data InitMemSegment = InitMemSegment
 type InitialMem = [InitMemSegment]
 
 -- | For creating an initial memory befor code labels and globals have been resolved.
-type LazyInitSegment = (Maybe [LazyConst Name MWord], InitMemSegment)
+type LazyInitSegment = (Maybe [LazyConst String MWord], InitMemSegment)
 type LazyInitialMem = [LazyInitSegment] 
 
 

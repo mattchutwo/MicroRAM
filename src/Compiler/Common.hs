@@ -57,7 +57,8 @@ import Compiler.LazyConstants
 -- | The type of something in the stack. Used to calculate
 -- stack offsets for stack layout.
 data Ty =
-   Tint
+  TVoid
+  | Tint
   | Tptr 
   | Tarray MWord Ty 
   | Tstruct [Ty]
@@ -67,6 +68,7 @@ data Ty =
 tySize ::  Ty -> MWord
 tySize (Tarray length subTyp) = length * (tySize subTyp)
 tySize (Tstruct tys) = sum $ map tySize tys   
+tySize TVoid = 0 -- Pointers have the same sizer as Tint
 tySize _ = 1 -- Pointers have the same sizer as Tint
 
 
@@ -83,7 +85,7 @@ data GlobalVariable wrdT = GlobalVariable
   { name :: Name -- Optimize?
   , isConstant :: Bool
   , gType :: Ty
-  , initializer :: Maybe [LazyConst Name wrdT]
+  , initializer :: Maybe [LazyConst String wrdT]
   , secret :: Bool
   } deriving (Show)
 type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"
