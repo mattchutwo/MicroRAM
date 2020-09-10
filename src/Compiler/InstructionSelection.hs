@@ -339,10 +339,11 @@ isInstruction env ret instr =
     (LLVM.Store _ adr cont _ _ _) -> isStore env adr cont
     -- Other
     (LLVM.ICmp pred op1 op2 _) -> withReturn ret $ isCompare env pred op1 op2
-    (LLVM.Call _ _ _ f args _ _ ) -> isCall env ret f args
+    (LLVM.Call _ _ _ f args _ _ ) -> lift $ isCall env ret f args
     (LLVM.Phi _typ ins _)  ->  withReturn ret $ isPhi env ins
     (LLVM.Select cond op1 op2 _)  -> withReturn ret $ isSelect env cond op1 op2 
     (LLVM.GetElementPtr _ addr inxs _) -> withReturn ret $ isGEP env addr inxs
+    (LLVM.ExtractValue _ _ _ )   -> lift $ return $ makeTraceInvalid
     -- Transformers
     (LLVM.SExt op _ _)       -> lift $ toRTL <$> withReturn ret (isMove env op) 
     (LLVM.ZExt op _ _)       -> lift $ toRTL <$> withReturn ret (isMove env op)
@@ -427,8 +428,8 @@ isCall
      -> Maybe VReg
      -> Either a LLVM.Operand
      -> [(LLVM.Operand, b)]
-     -> Statefully $ [MIRInstruction () VReg MWord]
-isCall env ret f args = lift $  do
+     -> Hopefully $ [MIRInstruction () VReg MWord]
+isCall env ret f args = do
   (f',retT,paramT) <- function2function (tenv env) f
   args' <- params2params env args
   return [MirI (RCall retT ret f' paramT args') ()]
@@ -512,8 +513,6 @@ isGEPaggregate ret (Tstruct types) (inx:inxs) =
         unexpectedNotConstantIndexMSG = "GetElementPtr error. Indices into structs must be constatnts, instead found: "
                                 
 isGEPaggregate _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
-
-isExtractValue :: Env -> LLVM.Operand -> [] -> VReg ->  [MIRInstr () MWord]
 
     
 -- ** Conversions
@@ -606,25 +605,31 @@ isInstrs env instrs = do
 isTerminator :: Env
              -> LLVM.Named LLVM.Terminator
              -> Hopefully $ [MIRInstr () MWord]
-isTerminator env (_name LLVM.:= term) = do
-  termInstr <- isTerminator' env term
+isTerminator env (name LLVM.:= term) = do
+  ret <- return $ name2name name
+  termInstr <- isTerminator' env (Just ret) term
   return $ termInstr
 isTerminator env (LLVM.Do term) = do
-  termInstr <- isTerminator' env term
+  termInstr <- isTerminator' env Nothing term
   return $ termInstr
   
 -- Branching
 
 isTerminator' :: Env
+              -> Maybe VReg
               -> LLVM.Terminator
               -> Hopefully $ [MIRInstr () MWord]
-isTerminator' env term =
+isTerminator' env ret term =
   case term of 
     (LLVM.Br name _) -> isBr name
     (LLVM.CondBr cond name1 name2 _) -> isCondBr env cond name1 name2 
     (LLVM.Switch cond deflt dests _ ) -> isSwitch env cond deflt dests
     (LLVM.Ret ret _md) -> isRet env ret 
-    (LLVM.Invoke _ _ _ _ _ _ _ _ ) -> return makeTraceInvalid
+    (LLVM.Invoke _ _ f args _ retDest _exceptionDest _ ) -> -- treats this as a call + a jump 
+      do call <- isCall env ret f args
+         destJmp <- isBr retDest
+         return $ call ++  destJmp
+    (LLVM.Resume _ _ ) -> return $ makeTraceInvalid
     term ->  implError $ "Terminator not yet supported. \n \t" ++ (show term)
 
 makeTraceInvalid :: [MIRInstruction () regT MWord]
