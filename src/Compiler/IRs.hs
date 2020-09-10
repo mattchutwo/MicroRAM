@@ -209,7 +209,7 @@ data RTLInstr' operand =
     Ty   -- ^ type of the allocated thing
     operand -- ^ number of things allocated
   | RPhi VReg [(operand,Name)] -- ^ Static Single Assignment function `phi`
-  deriving (Show)
+  deriving (Show, Functor, Foldable, Traversable)
     
     
 type RTLInstr mdata wrdT = IRInstruction mdata VReg wrdT (RTLInstr' $ MAOperand VReg wrdT)

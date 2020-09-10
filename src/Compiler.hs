@@ -117,6 +117,7 @@ import Compiler.Stacking
 import Compiler.Sparsity
 import Compiler.RemoveLabels
 import Compiler.Analysis
+import Compiler.LocalizeLabels
 
 import MicroRAM (MWord)
 import qualified MicroRAM as MRAM  (Program) 
@@ -129,6 +130,7 @@ compile :: Word -> LLVM.Module
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Legalize Instructions" $ justCompile legalize)
+  >>= (tagPass "Localize Labels" $ justCompile localizeLabels)
   >>= (tagPass "Remove Phi Nodes" $ justCompile removePhi)
   >>= (tagPass "Register Allocation" $ justCompile $ registerAlloc def)
   >>= (tagPass "Calling Convention" $ justCompile callingConvention)
