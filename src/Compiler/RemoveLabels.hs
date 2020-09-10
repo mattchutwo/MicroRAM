@@ -76,6 +76,8 @@ createMapStep st (NBlock name code) =
   State ( pc st + (fromIntegral $ length code)) (update oldMap name)
   where location = pc st
         oldMap = lMap st
+        update lm (Just nm) | Map.member nm lm =
+          error $ "duplicate definition of label " ++ show nm
         update lm (Just nm) = Map.insert nm location lm
         update lm _ = lm
 
