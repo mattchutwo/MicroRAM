@@ -63,6 +63,9 @@ cc_test_add _ _ = progError "bad arguments"
 cc_noop :: IntrinsicImpl () w
 cc_noop _ _ = return []
 
+cc_zero :: IntrinsicImpl () MWord
+cc_zero _ (Just dest) = return [MirM (Imov dest (LImm $ SConst 0)) ()]
+cc_zero _ Nothing = return []
 
 cc_trap :: IntrinsicImpl () MWord
 cc_trap _ _ = return [
@@ -85,6 +88,10 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
 
   , ("__cc_malloc", cc_malloc)
   , ("__cc_free", cc_free)
+  , ("__cc_advise_poison", cc_zero)
+  , ("__cc_write_and_poison", cc_noop)
+  , ("__cc_write_poisoned", cc_noop)
+  , ("__cc_read_poisoned", cc_zero)
 
   , ("llvm.lifetime.start.p0i8", cc_noop)
   , ("llvm.lifetime.end.p0i8", cc_noop)

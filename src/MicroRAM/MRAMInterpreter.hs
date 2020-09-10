@@ -33,13 +33,15 @@ module MicroRAM.MRAMInterpreter
 
 import Control.Monad
 import Control.Monad.State
-import Control.Lens (makeLenses, ix, at, to, lens, (.=), (%=), use, Lens', _1, _2)
+import Control.Lens (makeLenses, ix, at, lens, (.=), (%=), use, Lens', _1, _2)
 import Data.Bits
 import Data.List (intercalate)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import qualified Data.Text as Text
 import qualified Numeric
 
@@ -340,6 +342,18 @@ data Alloc = Alloc
   , _aFreed :: Bool
   }
 
+data MemErrors = MemErrors
+  -- | Addresses where a store occurred after the end of an allocated block.
+  -- These addresses can be poisoned during a `malloc` call.
+  { _meOutOfBounds :: Set MWord
+  -- | Addresses that were loaded or stored after the containing block was
+  -- freed.  These addresses can be poisoned during a `free` call.
+  , _meUseAfterFree :: Set MWord
+  -- | Addresses that were accessed despite not being allocated yet.  These can
+  -- be poisoned before the start of `main`.
+  , _meUnallocated :: Set MWord
+  }
+
 data AllocState = AllocState
   -- | A map for tracking all allocations made by the program, including those
   -- that have already been freed.  This works becaus eall allocations are
@@ -349,16 +363,18 @@ data AllocState = AllocState
   { _asAllocs :: Map MWord Alloc
   -- | The next unused address.  Used for future allocations.
   , _asFrontier :: MWord
+  , _asMemErrors :: MemErrors
   }
 
 makeLenses ''Alloc
+makeLenses ''MemErrors
 makeLenses ''AllocState
 
 heapStart :: MWord
 heapStart = 0x10000000
 
 initAllocState :: AllocState
-initAllocState = AllocState Map.empty heapStart
+initAllocState = AllocState Map.empty heapStart (MemErrors Set.empty Set.empty Set.empty)
 
 redzoneSize :: MWord
 redzoneSize = 128
@@ -366,6 +382,36 @@ redzoneSize = 128
 ceilLog2 :: MWord -> Int
 ceilLog2 0 = 1
 ceilLog2 n = wordBits - countLeadingZeros (n - 1)
+
+
+-- | Compute the start address of the block containing `addr`.
+blockStartAddr :: MWord -> MWord
+blockStartAddr addr = addr .&. complement (size - 1)
+  where
+    sizeClass = addr `shiftR` 58
+    size = 1 `shiftL` fromIntegral sizeClass
+
+-- | Check the allocation status of `addr`, and record a memory error if it
+-- isn't valid.
+checkAccess :: Regs r => Lens' s AllocState -> MWord -> InterpM r s Hopefully ()
+checkAccess _ addr | addr < heapStart = return ()
+checkAccess allocState addr = do
+  let start = blockStartAddr addr
+  optAlloc <- use $ sExt . allocState . asAllocs . at start
+  case optAlloc of
+    Just (Alloc len _) | addr >= start + len -> do
+      traceM $ "detected out-of-bounds access at " ++ showHex addr ++
+        ", after the block at " ++ showHex start
+      sExt . allocState . asMemErrors . meOutOfBounds %= Set.insert addr
+    Just (Alloc _ True) -> do
+      traceM $ "detected use-after-free at " ++ showHex addr ++
+        ", in the block at " ++ showHex start
+      sExt . allocState . asMemErrors . meUseAfterFree %= Set.insert addr
+    Nothing -> do
+      traceM $ "detected bad access at " ++ showHex addr ++
+        ", in the unallocated block at " ++ showHex start
+      sExt . allocState . asMemErrors . meUnallocated %= Set.insert addr
+    _ -> return ()
 
 allocHandler :: Regs r => Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
 allocHandler allocState nextH (Iextval "malloc" rd [sizeOp]) = do
@@ -397,28 +443,21 @@ allocHandler allocState nextH (Iext "free" [ptrOp]) = do
   case cur of
     Just (Alloc _ True) -> do
       traceM $ "detected double free at " ++ showHex ptr
-      -- TODO: record the bug
+      -- This kind of bug is detected automatically - no advice required.
     Nothing -> do
       traceM $ "detected invalid free at " ++ showHex ptr
-      -- TODO: record the bug
+      -- This kind of bug is detected automatically - no advice required.
     _ -> return ()
 
   sExt . allocState . asAllocs . ix ptr . aFreed .= True
   nextPc
 allocHandler allocState nextH instr@(Istore op2 _r1) = do
   addr <- opVal op2
-  optAlloc <- use $ sExt . allocState . asAllocs . to (Map.lookupLE addr)
-  case optAlloc of
-    Just (base, Alloc len _) | addr >= base + len -> do
-      traceM $ "detected out-of-bounds write at " ++ showHex addr ++
-        ", after the block at " ++ showHex base
-    Just (base, Alloc _ True) -> do
-      traceM $ "detected use-after-free at " ++ showHex addr ++
-        ", in the block starting at " ++ showHex base
-    Nothing | addr >= heapStart -> do
-      traceM $ "detected out-of-bounds write at " ++ showHex addr ++
-        ", before the first block"
-    _ -> return ()
+  checkAccess allocState addr
+  nextH instr
+allocHandler allocState nextH instr@(Iload _rd op2) = do
+  addr <- opVal op2
+  checkAccess allocState addr
   nextH instr
 allocHandler _ nextH instr = nextH instr
 
