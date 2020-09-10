@@ -24,7 +24,11 @@ The cheesecloth compiler translates LLVM modules to MicroRAM as diagramed below:
        | Register allocation
   +----v----+
   |         +---+
-  |   LTL   |   |Globals
+  |         |   | Calling conventions
+  |         <---+
+  |   LTL   |
+  |         +---+
+  |         |   | Globals
   |         <---+
   +----+----+
        | Stacking
@@ -71,6 +75,8 @@ execution of programs.
   `Imov` to put one operand into a register, but for some instructions we can do better.
 
 * __Register Allocation__ (`registerAlloc`): Register allocation
+
+* __Calling Convention__ (`callingConvention`): Saving callee saved registersto the stack.
 
 * __Gloabls__ (`replaceGlobals`): Converts globals into initial memory and replaces all
   uses of global variables with the constant pointer to their

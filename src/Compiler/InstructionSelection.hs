@@ -104,7 +104,7 @@ getConstant consT = otherError $
   "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions): \n \t" ++ (show consT) ++ "\n"
 -}
 
-operand2operand :: Env ->LLVM.Operand -> Hopefully $ MAOperand VReg MWord
+operand2operand :: Env -> LLVM.Operand -> Hopefully $ MAOperand VReg MWord
 operand2operand env (LLVM.ConstantOperand c) = getConstant env c
 operand2operand _env (LLVM.LocalReference _ name) = do
   name' <- (name2nameM name)
@@ -226,27 +226,27 @@ cmptTail IntPred.SLT = cmptTail_neg
 cmptTail IntPred.SLE = cmptTail_neg
 
 -- | Instruction selection for comparisons
-isCompare
+predicate2instructuion
   :: IntPred.IntegerPredicate
      -> operand1
      -> operand2
-     -> Hopefully (MRAM.Instruction' regT operand1 operand2)
-isCompare IntPred.EQ lhs rhs = return $ MRAM.Icmpe lhs rhs
-isCompare IntPred.NE lhs rhs = return $ MRAM.Icmpe lhs rhs
--- Unsigned
-isCompare IntPred.UGT lhs rhs = return $ MRAM.Icmpa lhs rhs
-isCompare IntPred.UGE lhs rhs = return $ MRAM.Icmpae lhs rhs
-isCompare IntPred.ULT lhs rhs = return $ MRAM.Icmpae lhs rhs
-isCompare IntPred.ULE lhs rhs = return $ MRAM.Icmpa lhs rhs
--- Signed
-isCompare IntPred.SGT lhs rhs = return $ MRAM.Icmpg lhs rhs
-isCompare IntPred.SGE lhs rhs = return $ MRAM.Icmpge lhs rhs
-isCompare IntPred.SLT lhs rhs = return $ MRAM.Icmpge lhs rhs
-isCompare IntPred.SLE lhs rhs = return $ MRAM.Icmpg lhs rhs
+     -> MRAM.Instruction' regT operand1 operand2
+predicate2instructuion IntPred.EQ  = MRAM.Icmpe 
+predicate2instructuion IntPred.NE  = MRAM.Icmpe 
+-- Unsigned           
+predicate2instructuion IntPred.UGT = MRAM.Icmpa 
+predicate2instructuion IntPred.UGE = MRAM.Icmpae
+predicate2instructuion IntPred.ULT = MRAM.Icmpae
+predicate2instructuion IntPred.ULE = MRAM.Icmpa 
+-- Signed             
+predicate2instructuion IntPred.SGT = MRAM.Icmpg 
+predicate2instructuion IntPred.SGE = MRAM.Icmpge
+predicate2instructuion IntPred.SLT = MRAM.Icmpge
+predicate2instructuion IntPred.SLE = MRAM.Icmpg 
 
 
-fError :: MonadError CmplError m => m a
-fError = implError "Floatin point arithmetic"
+floatError :: MonadError CmplError m => m a
+floatError = implError "Floating point arithmetic"
 
 _constzero,constOne :: LLVM.Operand
 _constzero = LLVM.ConstantOperand (LLVM.Constant.Int (toEnum 0) 0)
@@ -294,9 +294,53 @@ params2params env params  = do
   params' <- mapM ((operand2operand env) . fst) params -- fst dumps the attributes
   return params' 
 
+------------------------------------------------------
+-- * Instruction selection for instructions
 
 -- | Instruction Selection for single LLVM instructions 
+    
+
 isInstruction :: Env -> Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr () MWord]
+-- *** Arithmetic
+isInstruction env ret instr =
+  case instr of
+    (LLVM.Add _ _ o1 o2 _)   -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iadd
+    (LLVM.Sub _ _ o1 o2 _)   -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Isub
+    (LLVM.Mul _ _ o1 o2 _)   -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Imull
+    (LLVM.SDiv _ _ _o1 _o2 ) -> implError "Signed division is hard! SDiv"
+    (LLVM.SRem _o1 _o2 _)    -> implError "Signed division is hard! SRem"
+    (LLVM.FAdd _ _o1 _o2 _)  -> floatError
+    (LLVM.FSub _ _o1 _o2 _)  -> floatError
+    (LLVM.FMul _ _o1 _o2 _)  -> floatError
+    (LLVM.FDiv _ _o1 _o2 _)  -> floatError
+    (LLVM.FRem _ _o1 _o2 _)  -> floatError
+    (LLVM.UDiv _ o1 o2 _)    -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iudiv -- this is easy
+    (LLVM.URem o1 o2 _)      -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iumod -- this is eay
+    (LLVM.Shl _ _ o1 o2 _)   -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ishl
+    (LLVM.LShr _ o1 o2 _)    -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ishr
+    (LLVM.AShr _ _o1 _o2 _)  ->  implError "Arithmetic shift right AShr"
+    (LLVM.And o1 o2 _)       ->  lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iand
+    (LLVM.Or o1 o2 _)        ->  lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ior
+    (LLVM.Xor o1 o2 _)       ->  lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ixor
+    (LLVM.Alloca ty Nothing _ _) -> isAlloca env ret ty constOne -- NumElements is defaulted to be one.
+    (LLVM.Alloca ty (Just size) _ _) -> isAlloca env ret ty size
+    (LLVM.Load _ n _ _ _)    -> withReturn ret $ isLoad env n 
+    (LLVM.Store _ adr cont _ _ _) -> isStore env adr cont
+    (LLVM.ICmp pred op1 op2 _) -> withReturn ret $ isCompare env pred op1 op2
+    (LLVM.Call _ _ _ f args _ _ ) -> isCall env ret f args
+    (LLVM.Phi _typ ins _)  ->  withReturn ret $ isPhi env ins
+    (LLVM.Select cond op1 op2 _)  -> withReturn ret $ isSelect env cond op1 op2 
+    (LLVM.GetElementPtr _ addr inxs _) -> withReturn ret $ isGEP env addr inxs
+    (LLVM.SExt op _ _) -> lift $ toRTL <$> withReturn ret (isMove env op) 
+    (LLVM.ZExt op _ _) -> lift $ toRTL <$> withReturn ret (isMove env op)
+    (LLVM.BitCast op _typ _) -> lift $ toRTL <$> withReturn ret (isMove env op)
+    instr ->  implError $ "Instruction: " ++ (show instr)
+  where --withReturn :: Monad m => Maybe a -> (a -> m [b]) -> m [b]
+        withReturn Nothing _ = return $ []
+        withReturn (Just ret) f = f ret
+        
+        
+{-isInstruction :: Env -> Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr () MWord]
 -- *** Arithmetic
 
 -- Add
@@ -306,10 +350,9 @@ isInstruction env ret (LLVM.Sub _ _ o1 o2 _) = lift $ toRTL <$> isBinop env ret 
 -- Mul
 isInstruction env ret (LLVM.Mul _ _ o1 o2 _) = lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Imull
 -- SDiv
-isInstruction _ _ret (LLVM.SDiv _ _ _o1 _o2 ) = implError "Signed division ius hard! SDiv"
+isInstruction _ _ret (LLVM.SDiv _ _ _o1 _o2 ) = implError "Signed division is hard! SDiv"
 -- SRem
-isInstruction _ _ret (LLVM.SRem _o1 _o2 _) = implError "Signed division ius hard! SRem"
-
+isInstruction _ _ret (LLVM.SRem _o1 _o2 _) = implError "Signed division is hard! SRem"
 
 
 -- *** Floating Point 
@@ -322,7 +365,7 @@ isInstruction _ _ret (LLVM.FMul _ _o1 _o2 _) =  implError "Fast Multiplication F
 -- FDiv
 isInstruction _ _ret (LLVM.FDiv _ _o1 _o2 _) =  implError "Fast Division FDiv"
 -- FRem
-isInstruction _ _ret (LLVM.FRem _ _o1 _o2 _) = fError
+isInstruction _ _ret (LLVM.FRem _ _o1 _o2 _) = floatError
 
 -- *** Unsigned operations
 -- UDiv
@@ -346,16 +389,24 @@ isInstruction env ret (LLVM.And o1 o2 _) =  lift $ toRTL <$> isBinop env ret o1 
 isInstruction env ret (LLVM.Or o1 o2 _) =  lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ior
 --Xor
 isInstruction env ret (LLVM.Xor o1 o2 _) =  lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ixor
-
+-}
 -- *** Memory operations
 -- Alloca
 {- we ignore type, alignment and metadata and assume we are storing integers,
    we only look at the numElements.
    In fact (currently) we dont check  stack overflow or any similar safety check
    Also the current granularity of our memory is per word so ptr arithmetic and alignment are trivial. -}
-isInstruction env ret (LLVM.Alloca a Nothing b c) =
+{-isInstruction env ret (LLVM.Alloca a Nothing b c) =
   isInstruction env ret (LLVM.Alloca a (Just constOne) b c) --NumElements is defaulted to be one. 
-isInstruction env ret (LLVM.Alloca ty (Just size) _ _) = lift $ do
+isInstruction env ret (LLVM.Alloca ty (Just size) _ _) =
+-}
+isAlloca
+  :: Env
+     -> Maybe VReg
+     -> LLVM.Type
+     -> LLVM.Operand
+     -> Statefully $ [MIRInstruction () VReg MWord]
+isAlloca env ret ty size = lift $ do
   ty' <- type2type (tenv env) ty
   size' <- operand2operand env size
   return [MirI (RAlloc ret ty' size') ()]
@@ -363,15 +414,27 @@ isInstruction env ret (LLVM.Alloca ty (Just size) _ _) = lift $ do
 
 
 -- Load
-isInstruction _env Nothing (LLVM.Load _ _ _ _ _) = return [] -- Optimization reconside if we care about atomics
-isInstruction env (Just ret) (LLVM.Load _ n _ _ _) = lift $ do 
+{-isInstruction _env Nothing (LLVM.Load _ _ _ _ _) = return [] -- Optimization reconside if we care about atomics
+isInstruction env (Just ret) (LLVM.Load _ n _ _ _) = 
+-}
+isLoad
+  :: Env -> LLVM.Operand -> VReg -> Statefully $ [MIRInstr () MWord]
+isLoad env n ret = lift $ do 
   a <- operand2operand env n
   returnRTL $ (MRAM.Iload ret a) : []
+
     
 -- | Store
 {- Store yields void so we can will ignore the return location -}
 
-isInstruction env _ (LLVM.Store _ adr cont _ _ _) = do
+{-isInstruction env _ (LLVM.Store _ adr cont _ _ _) =-}
+
+isStore
+  :: Env
+     -> LLVM.Operand
+     -> LLVM.Operand
+     -> Statefully $ [MIRInstr () MWord]
+isStore env adr cont = do
   cont' <- lift $ operand2operand env cont
   adr' <- lift $ operand2operand env adr
   returnRTL [MRAM.Istore adr' cont']
@@ -384,47 +447,132 @@ isInstruction env _ (LLVM.Store _ adr cont _ _ _) = do
    register allocator can actually use the flag as it was intended...
 -}
 
-isInstruction _env Nothing (LLVM.ICmp _pred _op1 _op2 _) =  lift $ return [] -- Optimization
-isInstruction env (Just ret) (LLVM.ICmp pred op1 op2 _) = do
+{-isInstruction _env Nothing (LLVM.ICmp _pred _op1 _op2 _) =  lift $ return [] -- Optimization
+isInstruction env (Just ret) (LLVM.ICmp pred op1 op2 _) = -}
+isCompare
+  :: Env
+     -> IntPred.IntegerPredicate
+     -> LLVM.Operand
+     -> LLVM.Operand
+     -> VReg
+     -> Statefully $ [MIRInstr () MWord]
+isCompare env pred op1 op2 ret = do
   (lhs, lhsPre) <- operand2operandTrunc env op1
   (rhs, rhsPre) <- operand2operandTrunc env op2
-  comp' <- lift $ isCompare pred lhs rhs -- Do the comparison
+  comp' <- lift $ return $ predicate2instructuion pred lhs rhs -- Do the comparison
   compTail <- lift $ cmptTail pred ret -- Put the comparison in the ret register
   returnRTL $ lhsPre ++ rhsPre ++ [comp'] ++ compTail
 
                         
 -- *** Function Call 
-isInstruction env ret (LLVM.Call _ _ _ f args _ _ ) = lift $  do
+{-isInstruction env ret (LLVM.Call _ _ _ f args _ _ ) = -}
+isCall
+  :: Env
+     -> Maybe VReg
+     -> Either a LLVM.Operand
+     -> [(LLVM.Operand, b)]
+     -> Statefully $ [MIRInstruction () VReg MWord]
+isCall env ret f args = lift $  do
   (f',retT,paramT) <- function2function (tenv env) f
   args' <- params2params env args
   return [MirI (RCall retT ret f' paramT args') ()]
 
 
 -- *** Phi
-isInstruction _env Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
-isInstruction env (Just ret) (LLVM.Phi _typ ins _)  =  lift $ do
+{- isInstruction _env Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
+isInstruction env (Just ret) (LLVM.Phi _typ ins _)  =
+-}
+isPhi
+  :: Env
+  -> [(LLVM.Operand, LLVM.Name)]
+  -> VReg
+  -> Statefully $ [MIRInstruction () VReg MWord]
+isPhi env ins ret = lift $ do
   ins' <- mapM (convertPhiInput env) ins
   return $ [MirI (RPhi ret ins') ()]
 
-isInstruction _env Nothing (LLVM.Select _ _ _ _)  = return [] -- Select without a name is useless
-isInstruction env (Just ret) (LLVM.Select cond op1 op2 _)  =  lift $ toRTL <$> do
+{- isInstruction _env Nothing (LLVM.Select _ _ _ _)  = return [] -- Select without a name is useless
+isInstruction env (Just ret) (LLVM.Select cond op1 op2 _)  =
+-}
+isSelect
+  :: Env
+  -> LLVM.Operand
+  -> LLVM.Operand
+  -> LLVM.Operand
+  -> VReg
+  -> Statefully $ [MIRInstr () MWord]
+isSelect env cond op1 op2 ret = lift $ toRTL <$> do
    cond' <- operand2operand env cond
    op1' <- operand2operand env op1 
    op2' <- operand2operand env op2 
    return [MRAM.Icmpe cond' (LImm 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
 
 -- *** GetElementPtr 
-isInstruction _env Nothing (LLVM.GetElementPtr _ _addr _inxs _) = return [] -- GEP without a name is useless
-isInstruction env (Just ret) (LLVM.GetElementPtr _ addr inxs _) = do
+{-isInstruction _env Nothing (LLVM.GetElementPtr _ _addr _inxs _) = return [] -- GEP without a name is useless
+isInstruction env (Just ret) (LLVM.GetElementPtr _ addr inxs _) =
+-}
+isGEP
+  :: Env
+  -> LLVM.Operand
+  -> [LLVM.Operand]
+  -> VReg
+  -> Statefully $ [MIRInstruction () VReg MWord]
+isGEP  env addr inxs ret = do
   addr' <- lift $ operand2operand env addr
   ty' <- lift $ typeFromOperand addr
   -- inxs' <- lift $ mapM operand2operand env inxs
-  instructions <- isGEP env ret ty' addr' inxs
+  instructions <- isGEPptr env ret ty' addr' inxs
   return $ map (\instr -> MirM instr ()) instructions
+  where isGEPptr ::
+          Env
+          -> VReg
+          -> LLVM.Type
+          -> MAOperand VReg MWord
+          -> [LLVM.Operand] -- [MAOperand VReg Word]
+          -> Statefully $ [MA2Instruction VReg MWord]
+        isGEPptr _ _ _ _ [] = assumptError "Getelementptr called with no indices"
+        isGEPptr env ret (LLVM.PointerType refT _) base (inx:inxs) = do
+          typ' <-  lift $ type2type (tenv env) refT
+          inxOp <- lift $ operand2operand env inx
+          inxs' <- lift $ mapM (operand2operand env) inxs
+          continuation <- isGEPaggregate ret typ' inxs'
+          rtemp <- freshName
+          return $ [MRAM.Imull rtemp inxOp (LImm $ SConst $ tySize typ'),
+                  MRAM.Iadd ret (AReg rtemp) base] ++
+            continuation
+        isGEPptr _ _ llvmTy _ _ =
+          assumptError $ "getElementPtr called in a no-pointer type: " ++ show llvmTy
 
+        isGEPaggregate ::
+          VReg
+          -> Ty
+          -> [MAOperand VReg MWord]
+          -> Statefully $ [MA2Instruction VReg MWord]
+        isGEPaggregate _ _ [] = return $ []
+        isGEPaggregate ret (Tarray _ elemsT) (inx:inxs) = do
+          (rm, multiplication) <- constantMultiplication (tySize elemsT) inx
+          continuation <- isGEPaggregate ret elemsT inxs
+          return $ multiplication ++
+            -- offset = indes * size type 
+            [MRAM.Iadd ret (AReg ret) rm] ++
+            continuation
+        isGEPaggregate ret (Tstruct types) (inx:inxs) = 
+          case inx of
+            (LImm (SConst i)) -> do
+              offset <- return $ sum $ map tySize $ takeEnum i $ types  
+              continuation <- isGEPaggregate ret (types !! (fromEnum i)) inxs -- FIXME add checks for struct bounds
+              return $ MRAM.Iadd ret (AReg ret) (LImm $ SConst offset) : continuation
+            (LImm lc) -> assumptError $ unexpectedLazyIndexMSG ++ show lc 
+            _ -> assumptError $ unexpectedNotConstantIndexMSG ++ show inx
+          where unexpectedLazyIndexMSG = "GetElementPtr error. Indices into structs must be constatnts that do not depend on global references. we can probably fix this, but did not expect tit to show up, please report. /n /t Index to gep was: \n \t"
+                unexpectedNotConstantIndexMSG = "GetElementPtr error. Indices into structs must be constatnts, instead found: "
+                                
+        isGEPaggregate _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
+
+    
 -- ** Conversions
 -- We fit everything in size 32 bits, so extensions are trivial
-isInstruction _env Nothing (LLVM.SExt _ _  _) = return [] -- without a name is useless
+{- isInstruction _env Nothing (LLVM.SExt _ _  _) = return [] -- without a name is useless
 isInstruction _env Nothing (LLVM.ZExt _ _  _) = return [] -- without a name is useless
 isInstruction env (Just ret) (LLVM.SExt op _ _) = lift $ toRTL <$> do
   op' <- operand2operand env op
@@ -435,11 +583,35 @@ isInstruction env (Just ret) (LLVM.ZExt op _ _) = lift $ toRTL <$> do
 isInstruction _env Nothing (LLVM.BitCast _ _ _) = return $ [] -- without a name is useless
 isInstruction env (Just ret) (LLVM.BitCast op _typ _) = lift $ toRTL <$> do
   op' <- operand2operand env op
-  return $ [MRAM.Imov ret op']
+  return $ [MRAM.Imov ret op'] -}
 
+isMove :: Env -> LLVM.Operand -> VReg -> Hopefully $ [MA2Instruction VReg MWord]
+isMove env op ret = -- lift $ toRTL <$>
+  do op' <- operand2operand env op
+     return $ smartMove ret op'
+  
+-- | Optimize away the move if it's to the same register
+smartMove
+  :: Eq regT
+  => regT
+  -> MAOperand regT wrdT
+  -> [MRAM.Instruction' regT operand1 (MAOperand regT wrdT)]
+smartMove ret op =
+  if (checkEq op ret) then [] else [MRAM.Imov ret op]
+  where checkEq op r = case op of
+                         AReg r0 -> r0 == r  
+                         _ -> False   
+
+-- ** Exeptions 
   
 -- *** Not supprted instructions (return meaningfull error)
-isInstruction _env _ instr =  implError $ "Instruction: " ++ (show instr)
+{-isInstruction _env _ instr =  implError $ "Instruction: " ++ (show instr)
+-}
+
+
+------------------------------------------------------
+-- * Utils for instructions selection of instructions
+
 
 convertPhiInput :: Env -> (LLVM.Operand, LLVM.Name) -> Hopefully $ (MAOperand VReg MWord, Name)
 convertPhiInput env (op, name) = do
@@ -466,55 +638,7 @@ constantMultiplication c x = do
   return (AReg rd, [MRAM.Imull rd x (LImm $ SConst c)])
 
 
--- Type has to be a pointer
-isGEP ::
-  Env
-  -> VReg
-  -> LLVM.Type
-  -> MAOperand VReg MWord
-  -> [LLVM.Operand] -- [MAOperand VReg Word]
-  -> Statefully $ [MA2Instruction VReg MWord]
-isGEP _ _ _ _ [] = assumptError "Getelementptr called with no indices"
-isGEP env ret (LLVM.PointerType refT _) base (inx:inxs) = do
-  typ' <-  lift $ type2type (tenv env) refT
-  inxOp <- lift $ operand2operand env inx
-  inxs' <- lift $ mapM (operand2operand env) inxs
-  continuation <- isGEP' ret typ' inxs'
-  rtemp <- freshName
-  return $ [MRAM.Imull rtemp inxOp (LImm $ SConst $ tySize typ'),
-            MRAM.Iadd ret (AReg rtemp) base] ++
-           continuation
-isGEP _ _ llvmTy _ _ =
-  assumptError $ "getElementPtr called in a no-pointer type: " ++ show llvmTy
-           
 
--- After first pass every type has to be an agregate type
-isGEP' ::
-  VReg
-  -> Ty
-  -> [MAOperand VReg MWord]
-  -> Statefully $ [MA2Instruction VReg MWord]
-isGEP' _ _ [] = return $ []
-isGEP' ret (Tarray _ elemsT) (inx:inxs) = do
-  (rm, multiplication) <- constantMultiplication (tySize elemsT) inx
-  continuation <- isGEP' ret elemsT inxs
-  return $ multiplication ++
-           -- offset = indes * size type 
-           [MRAM.Iadd ret (AReg ret) rm] ++
-           continuation
-isGEP' ret (Tstruct types) (inx:inxs) = 
-  case inx of
-    (LImm (SConst i)) -> do
-      offset <- return $ sum $ map tySize $ takeEnum i $ types  
-      continuation <- isGEP' ret (types !! (fromEnum i)) inxs -- FIXME add checks for struct bounds
-      return $ MRAM.Iadd ret (AReg ret) (LImm $ SConst offset) : continuation
-    (LImm lc) -> assumptError $ unexpectedLazyIndexMSG ++ show lc 
-    _ -> assumptError $ unexpectedNotConstantIndexMSG ++ show inx
-
-  where unexpectedLazyIndexMSG = "GetElementPtr error. Indices into structs must be constatnts that do not depend on global references. we can probably fix this, but did not expect tit to show up, please report. /n /t Index to gep was: \n \t"
-        unexpectedNotConstantIndexMSG = "GetElementPtr error. Indices into structs must be constatnts, instead found: "
-            
-isGEP' _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
 
 
 -- ** Named instructions and instructions lists
@@ -537,10 +661,8 @@ isInstrs env instrs = do
 
 
 
--- -----------------------------------------------
-
-
-
+-------------------------------------------------
+-- * Terminators
 
 
 
@@ -591,8 +713,18 @@ isTerminator' env (LLVM.Ret (Just ret) _md) = do
   return $ [MirI (RRet $ Just ret') ()]
 isTerminator' _env (LLVM.Ret Nothing _) =
   return $ [MirI (RRet Nothing) ()]
+  
+-- * Branching
+
 
 isTerminator' _env term = implError $ "Terminator not yet supported. \n \t" ++ (show term)
+
+
+------------------------------------------------------
+-- * Block calculation
+
+
+
 
 
 -- | blockJumpsTo : Calculates all the blocks that this block might jump to.
