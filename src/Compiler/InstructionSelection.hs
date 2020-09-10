@@ -352,8 +352,7 @@ isInstruction env ret instr =
     (LLVM.CatchPad _ _ _)      -> lift $ return $ makeTraceInvalid
     (LLVM.CleanupPad _ _ _ )   -> lift $ return $ makeTraceInvalid
     instr ->  implError $ "Instruction: " ++ (show instr)
-  where --withReturn :: Monad m => Maybe a -> (a -> m [b]) -> m [b]
-        withReturn Nothing _ = return $ []
+  where withReturn Nothing _ = return $ []
         withReturn (Just ret) f = f ret
         
         
@@ -491,31 +490,30 @@ isGEP  env addr inxs ret = do
         isGEPptr _ _ llvmTy _ _ =
           assumptError $ "getElementPtr called in a no-pointer type: " ++ show llvmTy
 
-        isGEPaggregate ::
-          VReg
-          -> Ty
-          -> [MAOperand VReg MWord]
-          -> Statefully $ [MA2Instruction VReg MWord]
-        isGEPaggregate _ _ [] = return $ []
-        isGEPaggregate ret (Tarray _ elemsT) (inx:inxs) = do
-          (rm, multiplication) <- constantMultiplication (tySize elemsT) inx
-          continuation <- isGEPaggregate ret elemsT inxs
-          return $ multiplication ++
-            -- offset = indes * size type 
-            [MRAM.Iadd ret (AReg ret) rm] ++
-            continuation
-        isGEPaggregate ret (Tstruct types) (inx:inxs) = 
-          case inx of
-            (LImm (SConst i)) -> do
-              offset <- return $ sum $ map tySize $ takeEnum i $ types  
-              continuation <- isGEPaggregate ret (types !! (fromEnum i)) inxs -- FIXME add checks for struct bounds
-              return $ MRAM.Iadd ret (AReg ret) (LImm $ SConst offset) : continuation
-            (LImm lc) -> assumptError $ unexpectedLazyIndexMSG ++ show lc 
-            _ -> assumptError $ unexpectedNotConstantIndexMSG ++ show inx
-          where unexpectedLazyIndexMSG = "GetElementPtr error. Indices into structs must be constatnts that do not depend on global references. we can probably fix this, but did not expect tit to show up, please report. /n /t Index to gep was: \n \t"
-                unexpectedNotConstantIndexMSG = "GetElementPtr error. Indices into structs must be constatnts, instead found: "
+isGEPaggregate ::
+  VReg -> Ty -> [MAOperand VReg MWord] -> Statefully $ [MA2Instruction VReg MWord]
+isGEPaggregate _ _ [] = return $ []
+isGEPaggregate ret (Tarray _ elemsT) (inx:inxs) = do
+  (rm, multiplication) <- constantMultiplication (tySize elemsT) inx
+  continuation <- isGEPaggregate ret elemsT inxs
+  return $ multiplication ++
+  -- offset = indes * size type 
+    [MRAM.Iadd ret (AReg ret) rm] ++
+    continuation
+isGEPaggregate ret (Tstruct types) (inx:inxs) = 
+  case inx of
+    (LImm (SConst i)) -> do
+      offset <- return $ sum $ map tySize $ takeEnum i $ types  
+      continuation <- isGEPaggregate ret (types !! (fromEnum i)) inxs -- FIXME add checks for struct bounds
+      return $ MRAM.Iadd ret (AReg ret) (LImm $ SConst offset) : continuation
+    (LImm lc) -> assumptError $ unexpectedLazyIndexMSG ++ show lc 
+    _ -> assumptError $ unexpectedNotConstantIndexMSG ++ show inx
+  where unexpectedLazyIndexMSG = "GetElementPtr error. Indices into structs must be constatnts that do not depend on global references. we can probably fix this, but did not expect tit to show up, please report. /n /t Index to gep was: \n \t"
+        unexpectedNotConstantIndexMSG = "GetElementPtr error. Indices into structs must be constatnts, instead found: "
                                 
-        isGEPaggregate _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
+isGEPaggregate _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
+
+isExtractValue :: Env -> LLVM.Operand -> [] -> VReg ->  [MIRInstr () MWord]
 
     
 -- ** Conversions
