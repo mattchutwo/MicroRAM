@@ -183,19 +183,27 @@ freshName = do
 -- |I
 type BinopInstruction = VReg -> MAOperand VReg MWord -> MAOperand VReg MWord ->
   MA2Instruction VReg MWord
-isBinop ::
-  Env
-  -> Maybe VReg
-  -> LLVM.Operand
-  -> LLVM.Operand
-  -> BinopInstruction
-  -> Hopefully $ [MA2Instruction VReg MWord]
-isBinop _ Nothing _ _ _ = Right $ [] --  without return is a noop
-isBinop env (Just ret) op1 op2 bop = do
-  a <- operand2operand env op1
-  b <- operand2operand env op2
-  return $ [bop ret a b]
-
+isBinop
+  :: Env
+     -> Maybe VReg
+     -> LLVM.Operand
+     -> LLVM.Operand
+     -> BinopInstruction
+     -> Statefully [MIRInstr () MWord]
+isBinop env ret op1 op2 bopisBinop = lift $ toRTL <$> isBinop' env ret op1 op2 bopisBinop
+  where isBinop' ::
+          Env
+          -> Maybe VReg
+          -> LLVM.Operand
+          -> LLVM.Operand
+          -> BinopInstruction
+          -> Hopefully $ [MA2Instruction VReg MWord]
+        isBinop' _ Nothing _ _ _ = Right $ [] --  without return is a noop
+        isBinop' env (Just ret) op1 op2 bop = do
+          a <- operand2operand env op1
+          b <- operand2operand env op2
+          return $ [bop ret a b]
+  
 -- ** Comparisons
 {- Unfortunately MRAM always puts a comparisons in the "flag"
    So if we want the value we need to do 2 operations to get the value.
@@ -304,9 +312,9 @@ isInstruction :: Env -> Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr
 -- *** Arithmetic
 isInstruction env ret instr =
   case instr of
-    (LLVM.Add _ _ o1 o2 _)   -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iadd
-    (LLVM.Sub _ _ o1 o2 _)   -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Isub
-    (LLVM.Mul _ _ o1 o2 _)   -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Imull
+    (LLVM.Add _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Iadd
+    (LLVM.Sub _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Isub
+    (LLVM.Mul _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Imull
     (LLVM.SDiv _ _ _o1 _o2 ) -> implError "Signed division is hard! SDiv"
     (LLVM.SRem _o1 _o2 _)    -> implError "Signed division is hard! SRem"
     (LLVM.FAdd _ _o1 _o2 _)  -> floatError
@@ -314,14 +322,14 @@ isInstruction env ret instr =
     (LLVM.FMul _ _o1 _o2 _)  -> floatError
     (LLVM.FDiv _ _o1 _o2 _)  -> floatError
     (LLVM.FRem _ _o1 _o2 _)  -> floatError
-    (LLVM.UDiv _ o1 o2 _)    -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iudiv -- this is easy
-    (LLVM.URem o1 o2 _)      -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iumod -- this is eay
-    (LLVM.Shl _ _ o1 o2 _)   -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ishl
-    (LLVM.LShr _ o1 o2 _)    -> lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ishr
+    (LLVM.UDiv _ o1 o2 _)    -> isBinop env ret o1 o2 MRAM.Iudiv -- this is easy
+    (LLVM.URem o1 o2 _)      -> isBinop env ret o1 o2 MRAM.Iumod -- this is eay
+    (LLVM.Shl _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Ishl
+    (LLVM.LShr _ o1 o2 _)    -> isBinop env ret o1 o2 MRAM.Ishr
     (LLVM.AShr _ _o1 _o2 _)  ->  implError "Arithmetic shift right AShr"
-    (LLVM.And o1 o2 _)       ->  lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iand
-    (LLVM.Or o1 o2 _)        ->  lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ior
-    (LLVM.Xor o1 o2 _)       ->  lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ixor
+    (LLVM.And o1 o2 _)       ->  isBinop env ret o1 o2 MRAM.Iand
+    (LLVM.Or o1 o2 _)        ->  isBinop env ret o1 o2 MRAM.Ior
+    (LLVM.Xor o1 o2 _)       ->  isBinop env ret o1 o2 MRAM.Ixor
     (LLVM.Alloca ty Nothing _ _) -> isAlloca env ret ty constOne -- NumElements is defaulted to be one.
     (LLVM.Alloca ty (Just size) _ _) -> isAlloca env ret ty size
     (LLVM.Load _ n _ _ _)    -> withReturn ret $ isLoad env n 
@@ -340,56 +348,6 @@ isInstruction env ret instr =
         withReturn (Just ret) f = f ret
         
         
-{-isInstruction :: Env -> Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr () MWord]
--- *** Arithmetic
-
--- Add
-isInstruction env ret (LLVM.Add _ _ o1 o2 _) = lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iadd
--- Sub
-isInstruction env ret (LLVM.Sub _ _ o1 o2 _) = lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Isub
--- Mul
-isInstruction env ret (LLVM.Mul _ _ o1 o2 _) = lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Imull
--- SDiv
-isInstruction _ _ret (LLVM.SDiv _ _ _o1 _o2 ) = implError "Signed division is hard! SDiv"
--- SRem
-isInstruction _ _ret (LLVM.SRem _o1 _o2 _) = implError "Signed division is hard! SRem"
-
-
--- *** Floating Point 
--- FAdd
-isInstruction _ _ret (LLVM.FAdd _ _o1 _o2 _) = implError "Fast Multiplication FMul"
--- FSub
-isInstruction _ _ret (LLVM.FSub _ _o1 _o2 _) =  implError "Fast Multiplication FMul"
--- FMul
-isInstruction _ _ret (LLVM.FMul _ _o1 _o2 _) =  implError "Fast Multiplication FMul"
--- FDiv
-isInstruction _ _ret (LLVM.FDiv _ _o1 _o2 _) =  implError "Fast Division FDiv"
--- FRem
-isInstruction _ _ret (LLVM.FRem _ _o1 _o2 _) = floatError
-
--- *** Unsigned operations
--- UDiv
-isInstruction env ret (LLVM.UDiv _ o1 o2 _) = lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iudiv -- this is easy
--- URem
-isInstruction env ret (LLVM.URem o1 o2 _) = lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iumod -- this is eay
-
-
--- *** Shift operations
--- Shl
-isInstruction env ret (LLVM.Shl _ _ o1 o2 _) = lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ishl
--- LShr
-isInstruction env ret (LLVM.LShr _ o1 o2 _) = lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ishr
--- AShr
-isInstruction _ _ret (LLVM.AShr _ _o1 _o2 _) =  implError "Arithmetic shift right AShr"
-
--- *** Logical
---And
-isInstruction env ret (LLVM.And o1 o2 _) =  lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Iand
---Or
-isInstruction env ret (LLVM.Or o1 o2 _) =  lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ior
---Xor
-isInstruction env ret (LLVM.Xor o1 o2 _) =  lift $ toRTL <$> isBinop env ret o1 o2 MRAM.Ixor
--}
 -- *** Memory operations
 -- Alloca
 {- we ignore type, alignment and metadata and assume we are storing integers,
@@ -414,9 +372,6 @@ isAlloca env ret ty size = lift $ do
 
 
 -- Load
-{-isInstruction _env Nothing (LLVM.Load _ _ _ _ _) = return [] -- Optimization reconside if we care about atomics
-isInstruction env (Just ret) (LLVM.Load _ n _ _ _) = 
--}
 isLoad
   :: Env -> LLVM.Operand -> VReg -> Statefully $ [MIRInstr () MWord]
 isLoad env n ret = lift $ do 
@@ -426,9 +381,6 @@ isLoad env n ret = lift $ do
     
 -- | Store
 {- Store yields void so we can will ignore the return location -}
-
-{-isInstruction env _ (LLVM.Store _ adr cont _ _ _) =-}
-
 isStore
   :: Env
      -> LLVM.Operand
@@ -446,9 +398,6 @@ isStore env adr cont = do
    In the future, we can reserve one "register" to work as the flag, then a smart
    register allocator can actually use the flag as it was intended...
 -}
-
-{-isInstruction _env Nothing (LLVM.ICmp _pred _op1 _op2 _) =  lift $ return [] -- Optimization
-isInstruction env (Just ret) (LLVM.ICmp pred op1 op2 _) = -}
 isCompare
   :: Env
      -> IntPred.IntegerPredicate
@@ -465,7 +414,6 @@ isCompare env pred op1 op2 ret = do
 
                         
 -- *** Function Call 
-{-isInstruction env ret (LLVM.Call _ _ _ f args _ _ ) = -}
 isCall
   :: Env
      -> Maybe VReg
@@ -479,9 +427,6 @@ isCall env ret f args = lift $  do
 
 
 -- *** Phi
-{- isInstruction _env Nothing (LLVM.Phi _ _ _)  = return [] -- Phi without a name is useless
-isInstruction env (Just ret) (LLVM.Phi _typ ins _)  =
--}
 isPhi
   :: Env
   -> [(LLVM.Operand, LLVM.Name)]
@@ -491,9 +436,6 @@ isPhi env ins ret = lift $ do
   ins' <- mapM (convertPhiInput env) ins
   return $ [MirI (RPhi ret ins') ()]
 
-{- isInstruction _env Nothing (LLVM.Select _ _ _ _)  = return [] -- Select without a name is useless
-isInstruction env (Just ret) (LLVM.Select cond op1 op2 _)  =
--}
 isSelect
   :: Env
   -> LLVM.Operand
@@ -508,9 +450,6 @@ isSelect env cond op1 op2 ret = lift $ toRTL <$> do
    return [MRAM.Icmpe cond' (LImm 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
 
 -- *** GetElementPtr 
-{-isInstruction _env Nothing (LLVM.GetElementPtr _ _addr _inxs _) = return [] -- GEP without a name is useless
-isInstruction env (Just ret) (LLVM.GetElementPtr _ addr inxs _) =
--}
 isGEP
   :: Env
   -> LLVM.Operand
@@ -572,19 +511,6 @@ isGEP  env addr inxs ret = do
     
 -- ** Conversions
 -- We fit everything in size 32 bits, so extensions are trivial
-{- isInstruction _env Nothing (LLVM.SExt _ _  _) = return [] -- without a name is useless
-isInstruction _env Nothing (LLVM.ZExt _ _  _) = return [] -- without a name is useless
-isInstruction env (Just ret) (LLVM.SExt op _ _) = lift $ toRTL <$> do
-  op' <- operand2operand env op
-  return $ [MRAM.Imov ret op']
-isInstruction env (Just ret) (LLVM.ZExt op _ _) = lift $ toRTL <$> do
-  op' <- operand2operand env op
-  return $ [MRAM.Imov ret op']
-isInstruction _env Nothing (LLVM.BitCast _ _ _) = return $ [] -- without a name is useless
-isInstruction env (Just ret) (LLVM.BitCast op _typ _) = lift $ toRTL <$> do
-  op' <- operand2operand env op
-  return $ [MRAM.Imov ret op'] -}
-
 isMove :: Env -> LLVM.Operand -> VReg -> Hopefully $ [MA2Instruction VReg MWord]
 isMove env op ret = -- lift $ toRTL <$>
   do op' <- operand2operand env op
