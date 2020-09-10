@@ -630,12 +630,17 @@ isTerminator' env ret term =
          destJmp <- isBr retDest
          return $ call ++  destJmp
     (LLVM.Resume _ _ ) -> return $ makeTraceInvalid
+    (LLVM.Unreachable _) -> return $ triggerBug 
     term ->  implError $ "Terminator not yet supported. \n \t" ++ (show term)
 
 makeTraceInvalid :: [MIRInstruction () regT MWord]
 makeTraceInvalid = [MirI rtlCallValidIf  ()]
   where rtlCallValidIf = RCall TVoid Nothing (Label "__cc_valid_if") [Tint] paramZero
         paramZero = [LImm $ SConst 0]
+triggerBug :: [MIRInstruction () regT MWord]
+triggerBug = [MirI rtlCallValidIf  ()]
+  where rtlCallValidIf = RCall TVoid Nothing (Label "__cc_bug_if") [Tint] paramOne
+        paramOne = [LImm $ SConst 1]
 
 -- | Branch terminator
 isBr :: Monad m => LLVM.Name -> m [MIRInstr () MWord]
