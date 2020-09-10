@@ -312,6 +312,7 @@ isInstruction :: Env -> Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr
 -- *** Arithmetic
 isInstruction env ret instr =
   case instr of
+    -- Arithmetic
     (LLVM.Add _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Iadd
     (LLVM.Sub _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Isub
     (LLVM.Mul _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Imull
@@ -324,24 +325,32 @@ isInstruction env ret instr =
     (LLVM.FRem _ _o1 _o2 _)  -> floatError
     (LLVM.UDiv _ o1 o2 _)    -> isBinop env ret o1 o2 MRAM.Iudiv -- this is easy
     (LLVM.URem o1 o2 _)      -> isBinop env ret o1 o2 MRAM.Iumod -- this is eay
+    -- Binary
     (LLVM.Shl _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Ishl
     (LLVM.LShr _ o1 o2 _)    -> isBinop env ret o1 o2 MRAM.Ishr
     (LLVM.AShr _ _o1 _o2 _)  ->  implError "Arithmetic shift right AShr"
     (LLVM.And o1 o2 _)       ->  isBinop env ret o1 o2 MRAM.Iand
     (LLVM.Or o1 o2 _)        ->  isBinop env ret o1 o2 MRAM.Ior
     (LLVM.Xor o1 o2 _)       ->  isBinop env ret o1 o2 MRAM.Ixor
+    -- Memory
     (LLVM.Alloca ty Nothing _ _) -> isAlloca env ret ty constOne -- NumElements is defaulted to be one.
     (LLVM.Alloca ty (Just size) _ _) -> isAlloca env ret ty size
     (LLVM.Load _ n _ _ _)    -> withReturn ret $ isLoad env n 
     (LLVM.Store _ adr cont _ _ _) -> isStore env adr cont
+    -- Other
     (LLVM.ICmp pred op1 op2 _) -> withReturn ret $ isCompare env pred op1 op2
     (LLVM.Call _ _ _ f args _ _ ) -> isCall env ret f args
     (LLVM.Phi _typ ins _)  ->  withReturn ret $ isPhi env ins
     (LLVM.Select cond op1 op2 _)  -> withReturn ret $ isSelect env cond op1 op2 
     (LLVM.GetElementPtr _ addr inxs _) -> withReturn ret $ isGEP env addr inxs
-    (LLVM.SExt op _ _) -> lift $ toRTL <$> withReturn ret (isMove env op) 
-    (LLVM.ZExt op _ _) -> lift $ toRTL <$> withReturn ret (isMove env op)
+    -- Transformers
+    (LLVM.SExt op _ _)       -> lift $ toRTL <$> withReturn ret (isMove env op) 
+    (LLVM.ZExt op _ _)       -> lift $ toRTL <$> withReturn ret (isMove env op)
     (LLVM.BitCast op _typ _) -> lift $ toRTL <$> withReturn ret (isMove env op)
+    -- Exceptions
+    (LLVM.LandingPad _ _ _ _ ) -> lift $ return $ makeTraceInvalid
+    (LLVM.CatchPad _ _ _)      -> lift $ return $ makeTraceInvalid
+    (LLVM.CleanupPad _ _ _ )   -> lift $ return $ makeTraceInvalid
     instr ->  implError $ "Instruction: " ++ (show instr)
   where --withReturn :: Monad m => Maybe a -> (a -> m [b]) -> m [b]
         withReturn Nothing _ = return $ []
@@ -425,7 +434,7 @@ isCall env ret f args = lift $  do
   args' <- params2params env args
   return [MirI (RCall retT ret f' paramT args') ()]
 
-
+        
 -- *** Phi
 isPhi
   :: Env
@@ -611,40 +620,65 @@ isTerminator env (LLVM.Do term) = do
 isTerminator' :: Env
               -> LLVM.Terminator
               -> Hopefully $ [MIRInstr () MWord]
-isTerminator' _env (LLVM.Br name _) = do
+isTerminator' env term =
+  case term of 
+    (LLVM.Br name _) -> isBr name
+    (LLVM.CondBr cond name1 name2 _) -> isCondBr env cond name1 name2 
+    (LLVM.Switch cond deflt dests _ ) -> isSwitch env cond deflt dests
+    (LLVM.Ret ret _md) -> isRet env ret 
+    (LLVM.Invoke _ _ _ _ _ _ _ _ ) -> return makeTraceInvalid
+    term ->  implError $ "Terminator not yet supported. \n \t" ++ (show term)
+
+makeTraceInvalid :: [MIRInstruction () regT MWord]
+makeTraceInvalid = [MirI rtlCallValidIf  ()]
+  where rtlCallValidIf = RCall TVoid Nothing (Label "__cc_valid_if") [Tint] paramZero
+        paramZero = [LImm $ SConst 0]
+
+-- | Branch terminator
+isBr :: Monad m => LLVM.Name -> m [MIRInstr () MWord]
+isBr name =  do
   name' <- name2nameM name
-  returnRTL $ [MRAM.Ijmp $ Label (show name')] -- FIXME: This works but it's a hack. Think about labels.
-isTerminator' env (LLVM.CondBr cond name1 name2 _) = do
+  returnRTL $ [MRAM.Ijmp $ Label (show name')] -- FIXME: This works but it's a hack. Think about labels as strings.
+
+isCondBr
+  :: Env
+     -> LLVM.Operand
+     -> LLVM.Name
+     -> LLVM.Name
+     -> Hopefully  [MIRInstr () MWord]
+isCondBr env cond name1 name2 = do
   cond' <- operand2operand env cond
   loc1 <- name2nameM name1
   loc2 <- name2nameM name2 
   returnRTL $ [MRAM.Icmpe cond' (LImm 1),
-                    MRAM.Icjmp $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
-                    MRAM.Ijmp $ Label (show loc2)]
-isTerminator' env  (LLVM.Switch cond deflt dests _ ) = do
-  cond' <- operand2operand env cond
-  deflt' <- name2nameM deflt
-  switchInstrs <- mapM (isDest cond') dests
-  returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (AReg deflt')]
-  where isDest cond' (switch,dest) = do
-          switch' <- getConstant env switch
-          dest' <- name2nameM dest
-          return [MRAM.Icmpe cond' switch', MRAM.Icjmp (AReg dest')]
+                MRAM.Icjmp $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
+                MRAM.Ijmp $ Label (show loc2)]
 
-  
+isSwitch
+  :: Traversable t =>
+     Env
+     -> LLVM.Operand
+     -> LLVM.Name
+     -> t (LLVM.Constant.Constant, LLVM.Name)
+     -> Hopefully  [MIRInstr () MWord]
+isSwitch env cond deflt dests = do
+      cond' <- operand2operand env cond
+      deflt' <- name2nameM deflt
+      switchInstrs <- mapM (isDest cond') dests
+      returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (AReg deflt')]
+        where isDest cond' (switch,dest) = do
+                switch' <- getConstant env switch
+                dest' <- name2nameM dest
+                return [MRAM.Icmpe cond' switch', MRAM.Icjmp (AReg dest')]
+
 -- Possible optimisation:
--- Add just one return block, and have all others jump there.
-isTerminator' env (LLVM.Ret (Just ret) _md) = do
+-- Add just one return block, and have all others jump there.    
+isRet
+  :: Env -> Maybe LLVM.Operand -> Hopefully [MIRInstruction () VReg MWord]
+isRet env (Just ret) = do
   ret' <- operand2operand env ret
   return $ [MirI (RRet $ Just ret') ()]
-isTerminator' _env (LLVM.Ret Nothing _) =
-  return $ [MirI (RRet Nothing) ()]
-  
--- * Branching
-
-
-isTerminator' _env term = implError $ "Terminator not yet supported. \n \t" ++ (show term)
-
+isRet _ Nothing = return $ [MirI (RRet Nothing) ()]
 
 ------------------------------------------------------
 -- * Block calculation
