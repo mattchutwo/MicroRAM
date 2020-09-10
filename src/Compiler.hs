@@ -109,6 +109,7 @@ import Compiler.Errors
 import Compiler.IRs
 import Compiler.InstructionSelection
 import Compiler.Legalize
+import Compiler.RemovePhi
 import Compiler.RegisterAlloc
 import Compiler.CallingConvention
 import Compiler.Globals
@@ -128,6 +129,7 @@ compile :: Word -> LLVM.Module
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Legalize Instructions" $ justCompile legalize)
+  >>= (tagPass "Remove Phi Nodes" $ justCompile removePhi)
   >>= (tagPass "Register Allocation" $ justCompile $ registerAlloc def)
   >>= (tagPass "Calling Convention" $ justCompile callingConvention)
   >>= (tagPass "Remove Globals" $ replaceGlobals)

@@ -105,7 +105,6 @@ initializeFunctionArgs (LFunction fname mdata typ typs stackSize blocks) =
     wordToBSS = BSS.toShort . BSC.pack . show -- TODO: Double check this.
 
 
--- Assumes that instructions are in SSA form.
 registerAllocFunc :: Monoid mdata => Registers -> LFunction mdata VReg MWord -> Hopefully $ LFunction mdata VReg MWord
 registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') = do
 
@@ -207,36 +206,25 @@ spillRegister spillReg isArg pos blocks = do
       iid' <- getNextInstructionId name
       ((BB (name, iid) [inst] [] [(name, iid')]):) <$> flatten name iid' dag insts insts'
 
-
-    -- Assumes SSA.
     spillIRInstruction :: LTLInstr mdata VReg wrdT -> StateT RAState Hopefully [LTLInstr mdata VReg wrdT]
-    spillIRInstruction instr | Set.member spillReg (writeRegisters instr) = do
-      -- Generate new reg.
+    spillIRInstruction instr = do
+      -- Create a new temporary register to store the value stored/loaded from
+      -- the stack.
       reg <- generateNewRegister
-
-      -- Replace spillReg with reg.
+      -- Replace the spilled register with the new temporary.
+      --
+      -- We could potentially do better by using separate temporaries for the
+      -- input and output sides, but that only applies to instructions that
+      -- read and write the same virtual register, which should be fairly rare.
       let instr' = substituteRegisters (Map.singleton spillReg reg) instr
-
-      -- Append push to stack instruction.
+      -- Add stack access before/after if needed.
       let ty = getTyForRegister spillReg $ Just instr
-      let push = IRI (Lsetstack reg Local pos ty) mempty
-
-      return [instr', push]
-
-    spillIRInstruction instr | Set.member spillReg (readRegisters instr) = do
-      -- Generate new reg.
-      reg <- generateNewRegister
-
-      -- Replace spillReg with reg.
-      let instr' = substituteRegisters (Map.singleton spillReg reg) instr
-
-      -- Prepend load from stack instruction.
-      let ty = getTyForRegister spillReg instr
       let load = IRI (Lgetstack Local pos ty reg) mempty
-      
-      return [load, instr']
-
-    spillIRInstruction instr = return [instr]
+      let store = IRI (Lsetstack reg Local pos ty) mempty
+      return $
+        (if Set.member spillReg (readRegisters instr) then [load] else []) ++
+        [instr'] ++
+        (if Set.member spillReg (writeRegisters instr) then [store] else [])
 
     generateNewRegister = do
       reg <- (\i -> Name $ "_reg_alloc" <> BSS.toShort (BSC.pack $ show $ raNextRegister i)) <$> get
@@ -396,78 +384,3 @@ computeInterferenceGraph liveness allRegs = -- argRegs =
 
 trivialRegisterAlloc :: Rprog String MWord -> Hopefully $ Lprog String VReg MWord
 trivialRegisterAlloc = rtlToLtl
-
-
-
-
--- -- * TRIVIAL PHI REMOVIAL
--- -- ALL OF THIS SHOULD GO ONCE THE REAL REGISTER ALLOCATION IS READY
--- -- TODO: delete everything bellow this.
--- 
--- {- | Moves all `Phi`s back to the other block as Imov instruction
--- Example:
--- If you have `RPhi r2 (r1, block0)` we remove that instruction and add the following at the end of  `block0`: `Imove r2 r1`.
--- 
--- It works in two steps:
--- 1.  Remove all the phi's and store the info of what register needs to move where, in what block.
--- 2. Add, at the end of every block, the necessary move instructions calculated in the last step.
--- 
--- -}
--- -- | Map2 is a mpa that takes two keys and returns one value
--- type Map2 t1 t2 t3 = Map.Map t1 (Map.Map t2 t3) 
--- 
--- replacePhi :: Rprog () MWord -> Rprog () MWord
--- replacePhi prog = addPhiMoves $ abstractPhi prog
--- 
--- -- | removes all occurrences of Phi, and stores the move information in a map
--- -- (Name,Name) represents the name of the function and the name of the block.
--- type AbstractPhiProgram = (Rprog () MWord, Map2 Name Name [(VReg, MAOperand VReg MWord)])
--- abstractPhi :: Rprog () MWord -> AbstractPhiProgram
--- abstractPhi (IRprog tenv globs code) =
---   let (phiMap, code') = abstractPhiCode code in
---     (IRprog tenv globs code', phiMap)
--- 
---   where abstractPhiCode code = foldr abstractPhiFunc (Map.empty, []) code
---  
---         abstractPhiFunc (Function name ret args code) (phiMap, funcs) =
---           let (phiMapF, code') = foldr abstractPhiBlock (Map.empty, [])  code in
---             (Map.insert name phiMapF phiMap, Function name ret args code' : funcs)
--- 
---         abstractPhiBlock (BB name code term dagd) (phiMap, blocks) =
---           let (phiMapB, code') = abstractPhiBody code in
---             (Map.unionWith (++) phiMapB phiMap, BB name code' term dagd : blocks)
--- 
---         abstractPhiBody (IRI (RPhi vreg phiBacks) mdata: codeTl) =
---           let (phiMapB, code') = abstractPhiBody codeTl in
---             (Map.unionWith (++) (turnPhis vreg phiBacks) phiMapB, code') 
---         abstractPhiBody code = (Map.empty,code)
--- 
---         turnPhis vreg phiBacks = foldr (turnPhi vreg) Map.empty phiBacks
---         turnPhi vreg (val, label) phiMap =
---           Map.insertWith (++) label [(vreg,val)] phiMap 
---         
--- 
---           
--- -- | Adds all the abstract PHi information as `Imov` instructions
--- addPhiMoves :: AbstractPhiProgram -> Rprog () MWord
--- addPhiMoves (prog, phiMap) = prog {code = map (addPhiFunc phiMap) $ code prog}
---   where addPhiFunc phiMap (Function name ret args code) =
---           Function name ret args (map (addPhiBlock (Map.lookup name phiMap)) code)
--- 
---         addPhiBlock ::
---           (Maybe $ Map.Map Name [(VReg, MAOperand VReg MWord)])
---           -> BB Name $ RTLInstr () MWord
---           -> BB Name $ RTLInstr () MWord
---         addPhiBlock Nothing block = block
---         addPhiBlock (Just phiMap) (BB name code term dagd) =
---           (BB name (code ++ (phiMap2Instructions $ Map.lookup name phiMap)) term dagd)
--- 
---         phiMap2Instructions ::
---           Maybe [(VReg, MAOperand VReg MWord)]
---           -> [RTLInstr () MWord]
---         phiMap2Instructions Nothing = []
---         phiMap2Instructions (Just ls) = map phiPair2instr ls
---         
---         phiPair2instr (reg, op) = MRI (MRAM.Imov reg op) () 
---         
-

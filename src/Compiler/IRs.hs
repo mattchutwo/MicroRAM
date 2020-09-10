@@ -119,7 +119,7 @@ data Function nameT paramT blockT = Function
   , funcRetTy :: paramT    -- ^ Return type
   , funcArgTys :: [paramT] -- ^ Types of arguments
   , funcBlocks :: [blockT] -- ^ Function code as a list of blocks
-  , funcNextReg :: Word    -- ^ 
+  , funcNextReg :: Word    -- ^ The index of the next unused register
   }
   deriving (Show, Functor)
 
@@ -134,8 +134,7 @@ traverseOpIRInstr fop (IRI irinst metadata) =
   IRI <$> (traverse fop irinst) <*> (pure metadata)
 
 
--- | Marks a block to know what blocks can jump to it
--- Seems like it's not used. **FIXME:** REMOVE?
+-- | The possible successors of a block.  Used in register allocation.
 type DAGinfo name = [name]
 
 -- | Basic blocks:
