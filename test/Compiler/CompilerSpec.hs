@@ -62,7 +62,7 @@ testLoops = testGroup "Conditionals, Branching and loops" $
   compileTest
     "Or with phi"
     "test/programs/or.ll"
-    60 1 : 
+    100 1 : 
   {-  compileTest
     "Input text into numbers"
     "test/programs/returnInput.ll"
