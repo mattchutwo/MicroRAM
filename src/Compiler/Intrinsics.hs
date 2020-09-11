@@ -53,7 +53,7 @@ cc_test_add [x, y] (Just dest) = return [MirM (Iadd dest x y) ()]
 cc_test_add _ _ = progError "bad arguments"
 
 cc_noop :: IntrinsicImpl () w
-cc_noop _ _ = return [MirM (Imov (NewName 0) (AReg $ NewName 0)) ()]
+cc_noop _ _ = return []
 
 intrinsics :: Map String (IntrinsicImpl () MWord)
 intrinsics = Map.fromList $ map (\(x, y) -> ("Name " ++ show x, y)) $
