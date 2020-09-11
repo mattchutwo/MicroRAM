@@ -629,9 +629,14 @@ isTerminator' env ret term =
       do call <- isCall env ret f args
          destJmp <- isBr retDest
          return $ call ++  destJmp
-    (LLVM.Resume _ _ ) -> return $ makeTraceInvalid
-    (LLVM.Unreachable _) -> return $ triggerBug 
+    -- `Resume` and `Unreachable` still need to terminate the block after
+    -- flagging the error, so we add an `answer` instruction, which is defined
+    -- to stall or halt execution.
+    (LLVM.Resume _ _ ) -> return $ makeTraceInvalid ++ halt
+    (LLVM.Unreachable _) -> return $ triggerBug ++ halt
     term ->  implError $ "Terminator not yet supported. \n \t" ++ (show term)
+  where
+    halt = [MirM (MRAM.Ianswer (LImm $ SConst 0)) ()]
 
 makeTraceInvalid :: [MIRInstruction () regT MWord]
 makeTraceInvalid = [MirI rtlCallValidIf  ()]
