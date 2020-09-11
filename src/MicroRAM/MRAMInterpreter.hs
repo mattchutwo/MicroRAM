@@ -33,8 +33,9 @@ module MicroRAM.MRAMInterpreter
 
 import Control.Monad
 import Control.Monad.State
-import Control.Lens (makeLenses, ix, at, lens, (.=), (%=), use, Lens', _1, _2)
+import Control.Lens (makeLenses, ix, at, to, lens, (^.), (.=), (%=), use, Lens', _1, _2, _3)
 import Data.Bits
+import Data.Foldable
 import Data.List (intercalate)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
@@ -220,6 +221,11 @@ stepAnswer op2 = do
 nextPc :: InterpM r s Hopefully ()
 nextPc = sMach . mPc %= (+ 1)
 
+finishInstr :: InterpM r s Hopefully ()
+finishInstr = do
+  sMach . mPc %= (+ 1)
+  sMach . mCycle %= (+ 1)
+
 
 wordBits :: Int
 wordBits = finiteBitSize (0 :: MWord)
@@ -293,6 +299,7 @@ data Advice =
     MWord      -- ^ address
     MWord      -- ^ value
     MemOpType  -- ^ read or write
+  | Advise MWord
   | Stutter
   deriving (Eq, Read, Show, Generic)
 
@@ -307,17 +314,22 @@ renderAdvc advs = concat $ map renderAdvc' advs
 
 type AdviceMap = Map MWord [Advice]
 
+-- | Helper function to record advice.  This is used by `adviceHandler` and
+-- also by any other handlers that want to record advice of their own.
+recordAdvice :: Regs r => Lens' s AdviceMap -> Advice -> InterpM r s Hopefully ()
+recordAdvice adviceMap adv = do
+  cycle <- use $ sMach . mCycle
+  sExt . adviceMap . at cycle %= Just . (adv:) . maybe [] id
+
 adviceHandler :: Regs r => Lens' s AdviceMap -> InstrHandler r s
 adviceHandler advice (Istore op2 r1) = do
   addr <- opVal op2
   val <- regVal r1
-  cycle <- use $ sMach . mCycle
-  sExt . advice . at cycle .= Just [MemOp addr val MOStore]
+  recordAdvice advice (MemOp addr val MOStore)
 adviceHandler advice (Iload _rd op2) = do
   addr <- opVal op2
   val <- use $ sMach . mMemWord addr
-  cycle <- use $ sMach . mCycle
-  sExt . advice . at cycle .= Just [MemOp addr val MOLoad]
+  recordAdvice advice (MemOp addr val MOLoad)
 adviceHandler _ _ = return ()
 
 
@@ -342,17 +354,8 @@ data Alloc = Alloc
   , _aFreed :: Bool
   }
 
-data MemErrors = MemErrors
-  -- | Addresses where a store occurred after the end of an allocated block.
-  -- These addresses can be poisoned during a `malloc` call.
-  { _meOutOfBounds :: Set MWord
-  -- | Addresses that were loaded or stored after the containing block was
-  -- freed.  These addresses can be poisoned during a `free` call.
-  , _meUseAfterFree :: Set MWord
-  -- | Addresses that were accessed despite not being allocated yet.  These can
-  -- be poisoned before the start of `main`.
-  , _meUnallocated :: Set MWord
-  }
+data MemErrorKind = OutOfBounds | UseAfterFree | Unallocated
+  deriving (Show, Eq)
 
 data AllocState = AllocState
   -- | A map for tracking all allocations made by the program, including those
@@ -363,18 +366,24 @@ data AllocState = AllocState
   { _asAllocs :: Map MWord Alloc
   -- | The next unused address.  Used for future allocations.
   , _asFrontier :: MWord
-  , _asMemErrors :: MemErrors
+  -- | The address of each `malloc` performed by the program.  This is passed
+  -- to the second run so it can replicate the same `malloc` behavior, without
+  -- having to repeat the same allocation logic.  (Currently, the logic is
+  -- simple - just a bump pointer - but it will become a bit more complex in
+  -- the future to handle "use before alloc" errors, initial memory, and more
+  -- efficient usage of the address space.)
+  , _asMallocAddrs :: Seq MWord
+  , _asMemErrors :: Seq (MemErrorKind, MWord)
   }
 
 makeLenses ''Alloc
-makeLenses ''MemErrors
 makeLenses ''AllocState
 
 heapStart :: MWord
 heapStart = 0x10000000
 
 initAllocState :: AllocState
-initAllocState = AllocState Map.empty heapStart (MemErrors Set.empty Set.empty Set.empty)
+initAllocState = AllocState Map.empty heapStart Seq.empty Seq.empty
 
 redzoneSize :: MWord
 redzoneSize = 128
@@ -391,26 +400,38 @@ blockStartAddr addr = addr .&. complement (size - 1)
     sizeClass = addr `shiftR` 58
     size = 1 `shiftL` fromIntegral sizeClass
 
+-- | Compute the bounds of the usable space in the block containing `addr`.
+blockBounds :: MWord -> (MWord, MWord)
+blockBounds addr = (start, end)
+  where
+    sizeClass = addr `shiftR` 58
+    size = 1 `shiftL` fromIntegral sizeClass
+    start = addr .&. complement (size - 1)
+    -- The last word of the block is reserved for metadata.
+    end = start + size - 1
+
 -- | Check the allocation status of `addr`, and record a memory error if it
 -- isn't valid.
 checkAccess :: Regs r => Lens' s AllocState -> MWord -> InterpM r s Hopefully ()
 checkAccess _ addr | addr < heapStart = return ()
 checkAccess allocState addr = do
-  let start = blockStartAddr addr
+  let (start, end) = blockBounds addr
   optAlloc <- use $ sExt . allocState . asAllocs . at start
   case optAlloc of
-    Just (Alloc len _) | addr >= start + len -> do
+    -- We check against `end` to avoid complaining about accesses of the
+    -- block's metadata word.
+    Just (Alloc len _) | start + len <= addr && addr < end -> do
       traceM $ "detected out-of-bounds access at " ++ showHex addr ++
         ", after the block at " ++ showHex start
-      sExt . allocState . asMemErrors . meOutOfBounds %= Set.insert addr
-    Just (Alloc _ True) -> do
+      sExt . allocState . asMemErrors %= (Seq.|> (OutOfBounds, addr))
+    Just (Alloc _ True) | start <= addr && addr < end -> do
       traceM $ "detected use-after-free at " ++ showHex addr ++
         ", in the block at " ++ showHex start
-      sExt . allocState . asMemErrors . meUseAfterFree %= Set.insert addr
+      sExt . allocState . asMemErrors  %= (Seq.|> (UseAfterFree, addr))
     Nothing -> do
       traceM $ "detected bad access at " ++ showHex addr ++
         ", in the unallocated block at " ++ showHex start
-      sExt . allocState . asMemErrors . meUnallocated %= Set.insert addr
+      sExt . allocState . asMemErrors  %= (Seq.|> (Unallocated, addr))
     _ -> return ()
 
 allocHandler :: Regs r => Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
@@ -426,12 +447,13 @@ allocHandler allocState nextH (Iextval "malloc" rd [sizeOp]) = do
 
   let ptr = addr .|. (fromIntegral sizeClass `shiftL` 58)
   sExt . allocState . asAllocs %= Map.insert ptr (Alloc size False)
+  sExt . allocState . asMallocAddrs %= (Seq.|> ptr)
 
   traceM $ "malloc " ++ show size ++ " words (extended to " ++ show size' ++
     ") at " ++ showHex ptr
 
   sMach . mReg rd .= ptr
-  nextPc
+  finishInstr
 allocHandler allocState nextH (Iext "free" [ptrOp]) = do
   ptr <- opVal ptrOp
 
@@ -450,7 +472,11 @@ allocHandler allocState nextH (Iext "free" [ptrOp]) = do
     _ -> return ()
 
   sExt . allocState . asAllocs . ix ptr . aFreed .= True
-  nextPc
+  finishInstr
+allocHandler allocState nextH (Iextval "advise_poison" rd [_lo, _hi]) = do
+  -- Always return 0 (don't poison)
+  sMach . mReg rd .= 0
+  finishInstr
 allocHandler allocState nextH instr@(Istore op2 _r1) = do
   addr <- opVal op2
   checkAccess allocState addr
@@ -463,6 +489,110 @@ allocHandler _ nextH instr = nextH instr
 
 showHex :: MWord -> String
 showHex w = "0x" ++ Numeric.showHex w ""
+
+
+-- Memory handling, second pass
+
+data MemInfo = MemInfo
+  { _miMallocAddrs :: Seq MWord
+  , _miPoisonAddr :: Maybe MWord
+  }
+
+makeLenses ''MemInfo
+
+doAdvise :: Regs r => Lens' s AdviceMap -> r -> MWord -> InterpM r s Hopefully ()
+doAdvise advice rd val = do
+  recordAdvice advice (Advise val)
+  sMach . mReg rd .= val
+
+memErrorHandler :: Regs r => Lens' s MemInfo -> Lens' s AdviceMap ->
+  InstrHandler r s -> InstrHandler r s
+memErrorHandler info advice _nextH (Iextval "malloc" rd [_size]) = do
+  val <- maybe (assumptError "ran out of malloc addrs") return =<<
+    use (sExt . info . miMallocAddrs . to (Seq.lookup 0))
+  sExt . info . miMallocAddrs %= Seq.drop 1
+  doAdvise advice rd val
+  finishInstr
+memErrorHandler _info _advice _nextH (Iext "free" [_ptr]) = finishInstr
+memErrorHandler info advice _nextH (Iextval "advise_poison" rd [loOp, hiOp]) = do
+  lo <- opVal loOp
+  hi <- opVal hiOp
+  optAddr <- use $ sExt . info . miPoisonAddr
+  case optAddr of
+    Just addr | lo <= addr && addr < hi -> do
+      doAdvise advice rd addr
+      -- Poisoning a second time would be a prover error.
+      sExt . info . miPoisonAddr .= Nothing
+    _ -> do
+      doAdvise advice rd 0
+  finishInstr
+memErrorHandler _info _advice nextH instr = nextH instr
+
+
+-- Top-level interpreter
+
+observer :: InstrHandler r s -> InstrHandler r s -> InstrHandler r s
+observer obs nextH instr = obs instr >> nextH instr
+
+execTraceHandler :: Regs r =>
+  Lens' s (Seq (ExecutionState r)) ->
+  Lens' s AdviceMap ->
+  InstrHandler r s -> InstrHandler r s
+execTraceHandler eTrace eAdvice nextH instr = do
+  nextH instr
+  s <- getStateWithAdvice eAdvice
+  sExt . eTrace %= (Seq.|> s)
+
+runWith :: Regs r => InstrHandler r s -> Word -> InterpState r s -> Hopefully (InterpState r s)
+runWith handler steps initState = evalStateT go initState
+  where
+    go = do
+      replicateM_ (fromIntegral steps) goStep
+      get
+
+    goStep = do
+      pc <- use $ sMach . mPc
+      i <- fetchInstr pc
+      handler i
+
+runPass1 :: Regs r => Word -> MachineState r -> Hopefully MemInfo
+runPass1 steps initMach' = do
+  final <- runWith handler steps initState
+  return $ getMemInfo $ final ^. sExt
+  where
+    initState = InterpState initAllocState initMach'
+    handler = allocHandler id $ stepInstr
+
+    getMemInfo :: AllocState -> MemInfo
+    getMemInfo as = MemInfo (as ^. asMallocAddrs) (getPoisonAddr $ as ^. asMemErrors)
+
+    getPoisonAddr :: Seq (MemErrorKind, MWord) -> Maybe MWord
+    getPoisonAddr errs = case filter (\(kind,_) -> kind /= Unallocated) $ toList errs of
+      (_, x) : _ -> Just x
+      [] -> Nothing
+
+runPass2 :: Regs r => Word -> MachineState r -> MemInfo -> Hopefully (Trace r)
+runPass2 steps initMach' memInfo = do
+  -- The first entry of the trace is always the initial state.  Then `steps`
+  -- entries follow after it.
+  initExecState <- evalStateT (getStateWithAdvice eAdvice) initState
+  final <- runWith handler steps initState
+  return $ initExecState : toList (final ^. sExt . eTrace)
+  where
+    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach'
+
+    eTrace :: Lens' (a, b, c) a
+    eTrace = _1
+    eAdvice :: Lens' (a, b, c) b
+    eAdvice = _2
+    eMemInfo :: Lens' (a, b, c) c
+    eMemInfo = _3
+
+    handler =
+      execTraceHandler eTrace eAdvice $
+      observer (adviceHandler eAdvice) $
+      memErrorHandler eMemInfo eAdvice $
+      stepInstr
 
 
 -- Old public definitions
@@ -520,28 +650,15 @@ initMach prog imem = MachineState
 
 -- | Produce the trace of a program
 run :: Regs mreg => CompilationResult (Prog mreg) -> Trace mreg
-run (CompUnit prog trLen _ _ initMem _) = case runStateT (go trLen) initState of
+run (CompUnit prog trLen _ _ initMem _) = case go of
   Left e -> error $ describeError e
-  Right (x, _s) -> x
+  Right x -> x
   where
-    go 0 = return []
-    go n = do
-      -- The first of the `n` states is simply the initial state.  So we only
-      -- run `n-1` steps of actual execution.
-      s <- getStateWithAdvice _1
-      go' [s] (n - 1)
-
-    go' tr 0 = return $ reverse tr
-    go' tr n = do
-      pc <- use $ sMach . mPc
-      i <- fetchInstr pc
-      adviceHandler _1 i
-      (allocHandler _2 $ traceHandler $ stepInstr) i
-
-      s <- getStateWithAdvice _1
-      go' (s : tr) (n - 1)
-
-    initState = InterpState (mempty, initAllocState) $ initMach prog initMem
+    go = do
+      let initMach' = initMach prog initMem
+      memInfo <- runPass1 (trLen - 1) initMach'
+      tr <- runPass2 (trLen - 1) initMach' memInfo
+      return tr
 
 -- | Execute the program and return the result.
 execAnswer :: Regs mreg => CompilationResult (Prog mreg) -> MWord

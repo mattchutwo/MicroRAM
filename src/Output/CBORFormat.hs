@@ -364,7 +364,12 @@ encodeAdvice  (MemOp addr val opTyp) =
   <> encode addr
   <> encode val
   <> encode opTyp
-  
+
+encodeAdvice (Advise w) =
+  encodeListLen 2
+  <> encodeString "Advise"
+  <> encode w
+
 encodeAdvice  Stutter =
   encodeListLen 1 <>
   encodeString "Stutter"
