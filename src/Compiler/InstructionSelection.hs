@@ -635,11 +635,11 @@ isTerminator' env ret term =
 
 makeTraceInvalid :: [MIRInstruction () regT MWord]
 makeTraceInvalid = [MirI rtlCallValidIf  ()]
-  where rtlCallValidIf = RCall TVoid Nothing (Label "__cc_valid_if") [Tint] paramZero
+  where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_valid_if") [Tint] paramZero
         paramZero = [LImm $ SConst 0]
 triggerBug :: [MIRInstruction () regT MWord]
 triggerBug = [MirI rtlCallValidIf  ()]
-  where rtlCallValidIf = RCall TVoid Nothing (Label "__cc_bug_if") [Tint] paramOne
+  where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_bug_if") [Tint] paramOne
         paramOne = [LImm $ SConst 1]
 
 -- | Branch terminator

@@ -39,6 +39,10 @@ testTrivial = testGroup "Trivial programs" $
     "21 + 21"
     "test/programs/compute42.ll"
     70 42 :
+  compileTest
+    "Trivial intrinsic call"
+    "test/programs/intrinsicAdd.ll"
+    50 120 :
     []
 
 -- Conditionals, Branching and loops
