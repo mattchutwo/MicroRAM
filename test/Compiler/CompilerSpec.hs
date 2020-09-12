@@ -46,15 +46,15 @@ testLoops = testGroup "Conditionals, Branching and loops" $
   compileTest
     "Fibonacci loop (not optimized)"
     "test/programs/fibSlow.ll"
-    520 34 :
+    820 34 :
   compileTest
     "Easy function call"
     "test/programs/easyFunction.ll"
-    60 42 : 
+    70 42 : 
   compileTest
     "More easy function calls"
     "test/programs/callingConventions.ll"
-    70 42 : 
+    100 42 : 
   compileTest
     "Factorial with recursive calls"
     "test/programs/factRec.ll"
@@ -84,7 +84,7 @@ testGEP = testGroup "Test structs and arrays with GetElementPtr" $
     compileTest
     "Linked list length 3"
     "test/programs/easyLinkedList.ll"
-    140 16 :
+    240 16 :
     []
     
 
