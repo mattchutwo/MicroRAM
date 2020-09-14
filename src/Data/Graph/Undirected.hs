@@ -8,6 +8,7 @@ module Data.Graph.Undirected (
   ) where
 
 import qualified Data.Graph.Haggle as HGL
+import qualified Data.List as List
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -50,15 +51,17 @@ fromEdges edges = Graph graph vmap
       | otherwise = error "fromEdges: Invalid Graph."
 
 
-color :: forall color n e . (Ord color, Ord n, Show n) => [color] -> Graph n e -> Either n (Map n color)
-color colors' (Graph graph vmap) = 
-  -- TODO Sort nodes by some priority for spilling.
-  let sortedNodes = map (vertexToNode graph) $ HGL.vertices graph in
+color :: forall color n e . (Ord color, Ord n, Show n) => [color] -> (n -> Int) -> (n -> Bool) -> Graph n e -> Either n (Map n color)
+color colors' spillNodeWeight canSpill (Graph graph vmap) = 
+  -- Sort nodes by some priority for spilling.
+  let nodes = map (\n -> (negate (spillNodeWeight n), n)) $ map (vertexToNode graph) $ HGL.vertices graph in
+  let sortedNodes = map snd $ List.sortOn fst nodes in
   go sortedNodes graph
 
   where
     go :: [n] -> HGL.PatriciaTree n e -> Either n (Map n color)
     go _sortedNodes graph | HGL.isEmpty graph = Right mempty
+    go [] graph = error "color: No more available nodes left. Unreachable."
     go sortedNodes graph =
       -- Find a node with less than k edges.
       case findNode sortedNodes graph of
@@ -119,13 +122,14 @@ color colors' (Graph graph vmap) =
         -- Not in graph, so it has less than k edges.
         Just (n, ns)
       Just v ->
-        if length (HGL.successors g v) < k then
+        if length (HGL.successors g v) + length (HGL.predecessors graph v) < k then
           Just (n, ns)
         else
           (\(n',ns) -> (n', n:ns)) <$> findNode ns g
 
-    spillNode (h:_) = Left h
-    spillNode _     = error "color: No nodes available to spill."
+    spillNode (h:_) | canSpill h = Left h
+    spillNode (_:t)              = spillNode t
+    spillNode []                 = error "color: No nodes available to spill." -- TODO: Propagate compiler error.
 
     colors = Set.fromList colors'
     

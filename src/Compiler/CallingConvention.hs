@@ -10,9 +10,9 @@ import           Compiler.Common
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.Registers
+import           MicroRAM (MWord)
 import qualified MicroRAM as MRAM
 import           Util.Util
-import MicroRAM (MWord)
 
 -- | Update functions to conform to the calling convention.
 -- Currently uses callee saved registers.
@@ -28,7 +28,12 @@ callingConventionFunc :: LFunction () VReg MWord -> LFunction () VReg MWord
 callingConventionFunc lf@(LFunction _fname _mdata _typ _typs _stackSize []) = lf
 callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:blocks)) = 
     -- Get all registers that the function writes to.
-    let registers = Set.toList $ Set.unions $ map (\(BB _ insts insts' _) -> Set.unions $ map writeRegisters (insts' ++ insts)) blocks in
+    let isMain = fname == "Name \"main\"" in    -- TODO: Improve this.
+    let registers = if isMain then
+            []
+          else
+            Set.toList $ Set.unions $ map (\(BB _ insts insts' _) -> Set.unions $ map writeRegisters (insts' ++ insts)) (firstBlock:blocks)
+    in
 
     -- Prepend a push (given stack size).
     let firstBlock' = calleeSave stackSize registers firstBlock in

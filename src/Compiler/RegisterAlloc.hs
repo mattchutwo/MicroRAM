@@ -56,7 +56,7 @@ type Registers = [VReg]
 
 
 
-registerAlloc ::  Monoid mdata => RegisterAllocOptions -> Rprog mdata MWord -> Hopefully $ Lprog mdata VReg MWord
+registerAlloc :: (Monoid mdata) => RegisterAllocOptions -> Rprog mdata MWord -> Hopefully $ Lprog mdata VReg MWord
 registerAlloc (RegisterAllocOptions numRegisters) rprog = do
   -- Convert to ltl.
   lprog <- rtlToLtl rprog
@@ -105,7 +105,7 @@ initializeFunctionArgs (LFunction fname mdata typ typs stackSize blocks) =
     wordToBSS = BSS.toShort . BSC.pack . show -- TODO: Double check this.
 
 
-registerAllocFunc :: Monoid mdata => Registers -> LFunction mdata VReg MWord -> Hopefully $ LFunction mdata VReg MWord
+registerAllocFunc :: (Monoid mdata) => Registers -> LFunction mdata VReg MWord -> Hopefully $ LFunction mdata VReg MWord
 registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') = do
 
   (rtlBlocks, rast) <- flip runStateT (RAState 0 0 mempty) $ do
@@ -145,7 +145,12 @@ registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') =
       -- -- Sort registers by spill cost (lowest cost first).
       -- let sortedTemporaries = sortTemporaries liveness blocks
 
-      let registerMappingOrSpilled = Graph.color registers interferenceGraph
+      let weightFunc n = 
+            -- Map from nodes to number of edges they're present in for liveness.
+            let weightMap = foldr (\s m -> foldr (\r m -> Map.insertWith (+) r 1 m) m s) mempty liveness in
+            Map.findWithDefault 0 n weightMap
+
+      let registerMappingOrSpilled = Graph.color registers weightFunc (not . isSpillReg) interferenceGraph
 
       case registerMappingOrSpilled of
         Left spillReg -> do
@@ -162,6 +167,9 @@ registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') =
 
         Right coloring ->
           lift $ applyColoring coloring blocks
+
+    isSpillReg (Name n) = "_reg_alloc" `BSC.isPrefixOf` BSS.fromShort n
+    isSpillReg _ = False
 
 
     -- -- Sort registers by spill cost (highest cost first).
