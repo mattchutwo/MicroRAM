@@ -43,6 +43,10 @@ testTrivial = testGroup "Trivial programs" $
     "Trivial intrinsic call"
     "test/programs/intrinsicAdd.ll"
     50 120 :
+  compileTest
+    "Function call with multiple args"
+    "test/programs/multiArgs.ll"
+    110 123 :
     []
 
 -- Conditionals, Branching and loops

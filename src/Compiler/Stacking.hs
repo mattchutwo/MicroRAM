@@ -183,8 +183,8 @@ funCallInstructions ::
   -> [MAInstruction mreg MWord]
 funCallInstructions _ ret f _ args =
   -- Push all arguments to stack
-  -- Mant architectures store arguemnts backwards, we don't
-  pushN args ++
+  -- We store arguments backwards
+  pushN (reverse args) ++
   -- Push return addres
     [Imov ax HereLabel,
      Iadd ax ax (LImm 6) -- FIXME: The compiler should do this addition
