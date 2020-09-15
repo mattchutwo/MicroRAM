@@ -47,10 +47,12 @@ import Compiler.LazyConstants
 import Compiler.Errors
 import Compiler.Common
 import Compiler.IRs
+import Compiler.TraceInstrs
 import Util.Util
 
 import MicroRAM (MWord) 
 import qualified MicroRAM as MRAM
+
 
 {-| Notes on this instruction generation :
 
@@ -474,7 +476,9 @@ isCall
 isCall env ret f args = do
   (f',retT,paramT) <- function2function (tenv env) f
   args' <- params2params env args
-  return [MirI (RCall retT ret f' paramT args') ()]
+  return $
+    maybeTraceIR ("call " ++ show f') ([optRegName ret, f'] ++ args') ++
+    [MirI (RCall retT ret f' paramT args') ()]
 
         
 -- *** Phi
@@ -748,8 +752,9 @@ isRet
   :: Env -> Maybe LLVM.Operand -> Hopefully [MIRInstruction () VReg MWord]
 isRet env (Just ret) = do
   ret' <- operand2operand env ret
-  return $ [MirI (RRet $ Just ret') ()]
-isRet _ Nothing = return $ [MirI (RRet Nothing) ()]
+  return $ maybeTraceIR "return" [ret'] ++ [MirI (RRet $ Just ret') ()]
+isRet _env Nothing =
+  return $ maybeTraceIR "return" [] ++ [MirI (RRet Nothing) ()]
 
 ------------------------------------------------------
 -- * Block calculation
@@ -796,10 +801,11 @@ blockJumpsTo term = do
 isBlock:: Env -> LLVM.BasicBlock -> Statefully (BB Name $ MIRInstr () MWord)
 isBlock  env (LLVM.BasicBlock name instrs term) = do
   body <- isInstrs env instrs
+  let body' = maybeTraceIR ("enter " ++ show name) [] ++ body
   end <- lift $ isTerminator env term
   jumpsTo <- lift $ blockJumpsTo term
   name' <- lift $ name2nameM name
-  return $ BB name' body end jumpsTo
+  return $ BB name' body' end jumpsTo
 
 isBlocks :: Env ->  [LLVM.BasicBlock] -> Statefully [BB Name $ MIRInstr () MWord]
 isBlocks env = mapM (isBlock env)
