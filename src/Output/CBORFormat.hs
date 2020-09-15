@@ -169,6 +169,13 @@ encodeInstr (Istore operand r2   ) = list2CBOR $ encodeString "store"  : encodeN
 encodeInstr (Iload r1 operand    ) = list2CBOR $ encodeString "load"   : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Iread r1 operand    ) = list2CBOR $ encodeString "read"   : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Ianswer operand     ) = list2CBOR $ encodeString "answer" : encodeNull : encodeNull : (encodeOperand' operand) 
+-- `Iext` and `Iextval` should have been compiled away by a previous pass, but
+-- it's sometimes useful for debugging to include them in the output CBOR.  The
+-- witness checker generator doesn't support these instructions at all, so how
+-- we encode the operands doesn't really matter - it's only for human
+-- consumption.
+encodeInstr (Iext name ops       ) = list2CBOR $ encodeString "ext" : encodeString name : concatMap encodeOperand' ops
+encodeInstr (Iextval name rd ops ) = list2CBOR $ encodeString "ext" : encodeString name : encode rd : concatMap encodeOperand' ops
 
 decodeOperands :: (Serialise regT, Serialise wrdT) => Int -> Decoder s ([regT], Operand regT wrdT)
 decodeOperands 0 = fail "invalid number of operands: 0"

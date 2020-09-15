@@ -109,6 +109,7 @@ module MicroRAM
   MWord,
   ) where
 
+import Data.Text (Text)
 import Data.Word (Word64)
 import GHC.Generics -- Helps testing
 
@@ -173,6 +174,8 @@ data Instruction' regT operand1 operand2 =
                               --  store it in ri, and set flag = 0; otherwise store 0W in ri and set flag = 1.
                               --  __To be removed__
   | Ianswer operand2          -- ^  stall or halt (and the return value is [A]u)
+  | Iext Text [operand2]      -- ^ Custom instruction with no return value
+  | Iextval Text regT [operand2] -- ^ Custom instruction, returning a value
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
   

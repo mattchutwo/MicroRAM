@@ -5,6 +5,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-
 Module      : MRAM Interpreter
 Description : Interpreter for MicrRAM programs
@@ -34,10 +35,12 @@ import Control.Monad
 import Control.Monad.State
 import Control.Lens (makeLenses, ix, at, lens, (.=), (%=), use, Lens')
 import Data.Bits
+import Data.List (intercalate)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import qualified Data.Text as Text
 
 import GHC.Generics
 
@@ -45,6 +48,8 @@ import Compiler.Errors
 import Compiler.Registers
 import Compiler.CompilationUnit
 import MicroRAM
+
+import Debug.Trace
 
 
 data Mem = Mem MWord (Map MWord MWord)
@@ -135,6 +140,9 @@ stepInstr i = do
 
     Iread rd op2 -> stepRead rd op2
     Ianswer op2 -> stepAnswer op2
+
+    Iext name _ -> assumptError $ "unhandled extension instruction " ++ show name
+    Iextval name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
 
   sMach . mCycle %= (+ 1)
 
@@ -304,6 +312,20 @@ adviceHandler advice (Iload _rd op2) = do
 adviceHandler _ _ = return ()
 
 
+-- Trace handler (for debugging)
+
+traceHandler :: Regs r => InstrHandler r s -> InstrHandler r s
+traceHandler _nextH (Iext "trace" ops) = do
+  vals <- mapM opVal ops
+  traceM $ "TRACE " ++ intercalate ", " (map show vals)
+  nextPc
+traceHandler _nextH (Iext name ops) | Just desc <- Text.stripPrefix "trace_" name = do
+  vals <- mapM opVal ops
+  traceM $ "TRACE[" ++ Text.unpack desc ++ "] " ++ intercalate ", " (map show vals)
+  nextPc
+traceHandler nextH instr = nextH instr
+
+
 -- Old public definitions
 
 type Mem' = (MWord, Map MWord MWord)
@@ -375,7 +397,7 @@ run (CompUnit prog trLen _ _ initMem _) = case runStateT (go trLen) initState of
       pc <- use $ sMach . mPc
       i <- fetchInstr pc
       adviceHandler id i
-      stepInstr i
+      (traceHandler $ stepInstr) i
 
       s <- getStateWithAdvice id
       go' (s : tr) (n - 1)
