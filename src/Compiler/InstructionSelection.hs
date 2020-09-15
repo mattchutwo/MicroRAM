@@ -736,11 +736,11 @@ isSwitch env cond deflt dests = do
       cond' <- operand2operand env cond
       deflt' <- name2nameM deflt
       switchInstrs <- mapM (isDest cond') dests
-      returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (AReg deflt')]
+      returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Label $ show deflt')]
         where isDest cond' (switch,dest) = do
                 switch' <- getConstant env switch
                 dest' <- name2nameM dest
-                return [MRAM.Icmpe cond' switch', MRAM.Icjmp (AReg dest')]
+                return [MRAM.Icmpe cond' switch', MRAM.Icjmp (Label $ show dest')]
 
 -- Possible optimisation:
 -- Add just one return block, and have all others jump there.    
