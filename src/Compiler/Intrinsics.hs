@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-|
 Module      : Intrinsic lowering
@@ -18,6 +19,7 @@ import Data.Map (Map)
 
 import Compiler.Errors
 import Compiler.IRs
+import Compiler.LazyConstants
 
 import MicroRAM
 
@@ -55,13 +57,33 @@ cc_test_add _ _ = progError "bad arguments"
 cc_noop :: IntrinsicImpl () w
 cc_noop _ _ = return []
 
+cc_trap :: IntrinsicImpl () MWord
+cc_trap _ _ = return [
+  MirM (Iext "trace_trap" []) (),
+  MirM (Ianswer (LImm $ SConst 0)) ()] -- TODO
+
 intrinsics :: Map String (IntrinsicImpl () MWord)
-intrinsics = Map.fromList $ map (\(x, y) -> ("Name " ++ show x, y)) $
+intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   [ ("__cc_test_add", cc_test_add)
   , ("__cc_valid_if", cc_noop)  -- TODO
   , ("__cc_bug_if", cc_noop)  -- TODO
+
+  , ("llvm.lifetime.start.p0i8", cc_noop)
+  , ("llvm.lifetime.end.p0i8", cc_noop)
+
+  -- Exception handling
+  , ("__gxx_personality_v0", cc_trap)
+  , ("__cxa_allocate_exception", cc_trap)
+  , ("__cxa_throw", cc_trap)
+  , ("__cxa_begin_catch", cc_trap)
+  , ("__cxa_end_catch", cc_trap)
+  , ("llvm.eh.typeid.for", cc_trap)
+
+  -- Explicit trap
+  , ("__cxa_pure_virtual", cc_trap)
+  , ("llvm.trap", cc_trap)
   ]
 
 lowerIntrinsics :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
 lowerIntrinsics prog = expandInstrs (expandIntrinsicCall intrinsics) prog
-  
+
