@@ -43,10 +43,11 @@ import qualified LLVM.AST.Typed as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.IntegerPredicate as IntPred
 
-import Compiler.LazyConstants
 import Compiler.Errors
 import Compiler.Common
 import Compiler.IRs
+import Compiler.Layout
+import Compiler.LazyConstants
 import Compiler.TraceInstrs
 import Util.Util
 
@@ -62,7 +63,6 @@ import qualified MicroRAM as MRAM
    
 
 -}
-type LLVMTypeEnv = Map.Map LLVM.Name LLVM.Type
 -- | Environment to keep track of global and type definitions
 data Env = Env {tenv :: LLVMTypeEnv, globs :: Set.Set LLVM.Name}
 
@@ -417,10 +417,10 @@ isAlloca
      -> LLVM.Type
      -> LLVM.Operand
      -> Statefully $ [MIRInstruction () VReg MWord]
-isAlloca env ret ty size = lift $ do
-  ty' <- type2type (tenv env) ty
-  size' <- operand2operand env size
-  return [MirI (RAlloc ret ty' size') ()]
+isAlloca env ret ty count = lift $ do
+  let tySize = sizeOf (tenv env) ty
+  count' <- operand2operand env count
+  return [MirI (RAlloc ret tySize count') ()]
 
 
 

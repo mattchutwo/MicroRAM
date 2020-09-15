@@ -228,17 +228,17 @@ stackLTLInstr (LRet Nothing) = return epilogue
 stackLTLInstr (LRet (Just _retVal)) =
   return epilogue 
   -- (Imov ax retVal) : epilogue -- Calling convention inserts the move to ax for us, so we skip it here. Can we move `restoreLTLInstruction` here?
-stackLTLInstr (LAlloc reg typ n) = do
+stackLTLInstr (LAlloc reg sz n) = do
   -- Return the current sp (that's the base of the new allocation)
   copySp <- return $ smartMovMaybe reg sp
-  -- sp = sp + n * |typ| 
-  increaseSp <- incrSP typ n
+  -- sp = sp + n * sz
+  increaseSp <- incrSP sz n
   return $ copySp ++ increaseSp
-  where incrSP :: (Regs mreg) => Ty -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]    
+  where incrSP :: (Regs mreg) => Word -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]
         incrSP typ (AReg r) = return $
-          [Imull r r (LImm $ fromIntegral $ tySize typ),
+          [Imull r r (LImm $ fromIntegral sz),
            Iadd sp sp (AReg r)]
-        incrSP typ (LImm n) = return $ [Iadd sp sp (LImm $ n * fromIntegral (tySize typ))]
+        incrSP typ (LImm n) = return $ [Iadd sp sp (LImm $ n * fromIntegral sz)]
         incrSP _ _ = assumptError $ "Operand not supported for allocation size. Probably a mistake in the Register allocator. \n"
   -- Compute the size of the allocated memory
   

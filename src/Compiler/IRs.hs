@@ -206,7 +206,7 @@ data RTLInstr' operand =
   | RRet (Maybe operand) -- ^ return this value
   | RAlloc
     (Maybe VReg) -- ^ return register (gives location)
-    Ty   -- ^ type of the allocated thing
+    Word    -- ^ size of the allocated thing
     operand -- ^ number of things allocated
   | RPhi VReg [(operand,Name)] -- ^ Static Single Assignment function `phi`
   deriving (Show, Functor, Foldable, Traversable)
@@ -269,7 +269,7 @@ data LTLInstr' mreg wrdT operand =
   | LRet (Maybe operand) -- ^ return this value
   | LAlloc
     (Maybe mreg) -- ^ return register (gives location)
-    Ty   -- ^ type of the allocated thing
+    Word    -- ^ size of the allocated thing
     operand -- ^ number of things allocated
   deriving (Show, Functor, Foldable, Traversable)
   
@@ -347,6 +347,6 @@ rtlToLtl (IRprog tenv globals code) = do
      -> Hopefully $ LTLInstr' VReg wrdT (MAOperand VReg wrdT)
    convertInstruction (RCall t mr f ts as) = return $ LCall t mr f ts as
    convertInstruction (RRet mo) = return $ LRet mo
-   convertInstruction (RAlloc mr t o) = return $ LAlloc mr t o
+   convertInstruction (RAlloc mr s o) = return $ LAlloc mr s o
    convertInstruction (RPhi _ _) = implError "Phi. Not implemented in the trivial Register allocation."
    
