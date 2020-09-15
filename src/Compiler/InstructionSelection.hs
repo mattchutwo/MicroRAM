@@ -113,6 +113,7 @@ operand2operand _ _= implError "operand, probably metadata"
 
 -- | Get the value of `op`, masking off high bits if necessary to emulate
 -- truncation to the appropriate width (determined by the LLVM type of `op`).
+-- | Similar to isTruncate
 operand2operandTrunc :: Env
                      -> LLVM.Operand
                      -> Statefully (MAOperand VReg MWord, [MA2Instruction VReg MWord])
@@ -143,8 +144,8 @@ type2type tenv (LLVM.ArrayType size elemT) = do
   elemT' <- type2type tenv elemT
   size' <- return $ size -- wrdFromwrd64 
   return $ Tarray size' elemT'
-type2type _ (LLVM.StructureType True _) = assumptError "Can't pack structs yet."
-type2type tenv (LLVM.StructureType False tys) = Tstruct <$> mapM (type2type tenv) tys
+--type2type _ (LLVM.StructureType True _) = assumptError "Can't pack structs yet."
+type2type tenv (LLVM.StructureType _ tys) = Tstruct <$> mapM (type2type tenv) tys
 type2type tenv (LLVM.NamedTypeReference name) = do
   case Map.lookup name tenv of
     Just ty -> type2type tenv ty
@@ -328,10 +329,10 @@ isInstruction env ret instr =
     -- Binary
     (LLVM.Shl _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Ishl
     (LLVM.LShr _ o1 o2 _)    -> isBinop env ret o1 o2 MRAM.Ishr
-    (LLVM.AShr _ _o1 _o2 _)  ->  implError "Arithmetic shift right AShr"
-    (LLVM.And o1 o2 _)       ->  isBinop env ret o1 o2 MRAM.Iand
-    (LLVM.Or o1 o2 _)        ->  isBinop env ret o1 o2 MRAM.Ior
-    (LLVM.Xor o1 o2 _)       ->  isBinop env ret o1 o2 MRAM.Ixor
+    (LLVM.AShr _ o1 o2 _)    -> isArithShr env ret o1 o2
+    (LLVM.And o1 o2 _)       -> isBinop env ret o1 o2 MRAM.Iand
+    (LLVM.Or o1 o2 _)        -> isBinop env ret o1 o2 MRAM.Ior
+    (LLVM.Xor o1 o2 _)       -> isBinop env ret o1 o2 MRAM.Ixor
     -- Memory
     (LLVM.Alloca ty Nothing _ _) -> isAlloca env ret ty constOne -- NumElements is defaulted to be one.
     (LLVM.Alloca ty (Just size) _ _) -> isAlloca env ret ty size
@@ -347,7 +348,10 @@ isInstruction env ret instr =
     -- Transformers
     (LLVM.SExt op _ _)       -> lift $ toRTL <$> withReturn ret (isMove env op) 
     (LLVM.ZExt op _ _)       -> lift $ toRTL <$> withReturn ret (isMove env op)
+    (LLVM.PtrToInt op _ty _) -> lift $ toRTL <$> withReturn ret (isMove env op)
+    (LLVM.IntToPtr op _ty _) -> lift $ toRTL <$> withReturn ret (isMove env op)
     (LLVM.BitCast op _typ _) -> lift $ toRTL <$> withReturn ret (isMove env op)
+    (LLVM.Trunc op ty _ )    -> lift $ toRTL <$> withReturn ret (isTruncate env op ty)
     -- Exceptions
     (LLVM.LandingPad _ _ _ _ ) -> lift $ return $ makeTraceInvalid
     (LLVM.CatchPad _ _ _)      -> lift $ return $ makeTraceInvalid
@@ -355,8 +359,46 @@ isInstruction env ret instr =
     instr ->  implError $ "Instruction: " ++ (show instr)
   where withReturn Nothing _ = return $ []
         withReturn (Just ret) f = f ret
-        
-        
+
+{- | Implements arithmetic shift right in terms of other binary operations like so:
+@
+   int s = -((unsigned) x >> wrdsize);
+   int sar = (s^x) >> n ^ s;
+@
+or
+@
+ nsign = (shr x wrdsize)
+ sign  = nsign * - 1
+ ret''  = (xor sign x)
+ ret'   = shr ret' n
+ ret    = xor ret' sign
+-}
+
+isArithShr :: Env
+     -> Maybe VReg
+     -> LLVM.Operand
+     -> LLVM.Operand
+     -> Statefully [MIRInstr () MWord]
+isArithShr _ Nothing _ _ = return []
+isArithShr env (Just ret) o1 o2 = do
+  o1' <- lift $ operand2operand env o1
+  o2' <- lift $ operand2operand env o2
+  nsign <- freshName
+  sign  <- freshName
+  ret'' <- freshName
+  ret'  <- freshName
+  returnRTL
+    [ MRAM.Ishr nsign o1' (LImm $ SConst $ toEnum $ finiteBitSize zerow),
+      MRAM.Imull sign (AReg nsign) (LImm $ SConst $ monew),
+      MRAM.Ixor  ret'' (AReg sign) o1',
+      MRAM.Ishr  ret'  (AReg sign) o2',
+      MRAM.Ixor  ret (AReg ret') (AReg sign)]
+  where zerow,monew :: MWord
+        zerow = 0
+        monew = 0-1
+
+
+    
 -- *** Memory operations
 -- Alloca
 {- we ignore type, alignment and metadata and assume we are storing integers,
@@ -514,7 +556,23 @@ isGEPaggregate ret (Tstruct types) (inx:inxs) =
                                 
 isGEPaggregate _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
 
-    
+
+
+-- similar to operand2operandTrunc
+isTruncate :: Env
+           -> LLVM.Operand
+           -> LLVM.Type
+           -> VReg
+           -> Hopefully [MA2Instruction VReg MWord]
+isTruncate env op ty ret = do
+  op' <- operand2operand env op
+  case ty of
+    LLVM.IntegerType w | w < 64 -> do
+      return $ [MRAM.Iand ret op' (LImm $ SConst $ (1 `shiftL` fromIntegral w) - 1)]
+    _ -> assumptError $ "Can't truncate non integer type " ++ show ty 
+  
+
+                       
 -- ** Conversions
 -- We fit everything in size 32 bits, so extensions are trivial
 isMove :: Env -> LLVM.Operand -> VReg -> Hopefully $ [MA2Instruction VReg MWord]
@@ -924,7 +982,7 @@ constant2lazyConst env (LLVM.Constant.GetElementPtr _bounds addr inxs  ) = do
   addr' <- constant2OnelazyConst env addr
   ty' <- return $ LLVM.typeOf addr
   inxs' <- mapM (constant2OnelazyConst env) inxs
-  constGEP ty' addr' inxs'
+  constGEP (tenv env) ty' addr' inxs'
 constant2lazyConst env (LLVM.Constant.PtrToInt op1 _typ                ) = constant2lazyConst env op1
 constant2lazyConst env (LLVM.Constant.IntToPtr op1 _typ                ) = constant2lazyConst env op1
 constant2lazyConst env (LLVM.Constant.BitCast  op1 _typ                ) = constant2lazyConst env op1
@@ -966,18 +1024,18 @@ constant2lazyConst tenv _globs (LLVM.Constant.TokenNone                        )
 constant2lazyConst _ c = implError $ "Constant not supported yet for global initializers: " ++ show c
 
 
-constGEP :: LLVM.Type
+constGEP :: LLVMTypeEnv
+         -> LLVM.Type
          -> LazyConst String MWord
          -> [LazyConst String MWord]
          -> Hopefully $ [LazyConst String MWord]
-constGEP (LLVM.PointerType _refT _) _ [] = assumptError "GetElementPtr should have at least one index. "
-constGEP (LLVM.PointerType refT _) ptr (inx:inxs) = do
+constGEP _ (LLVM.PointerType _refT _) _ [] = assumptError "GetElementPtr should have at least one index. "
+constGEP tenv (LLVM.PointerType refT _) ptr (inx:inxs) = do
   typ' <- type2type tenv refT
   ofs <- return $ inx * (SConst $ tySize typ')
   final <- constGEP' typ' (ptr + ofs) inxs
   return [final]
-  where tenv = undefined -- FIXME
-        constGEP' :: Ty
+  where constGEP' :: Ty
                   -> LazyConst String MWord
                   -> [LazyConst String MWord]
                   -> Hopefully $ LazyConst String MWord 
@@ -990,7 +1048,7 @@ constGEP (LLVM.PointerType refT _) ptr (inx:inxs) = do
                              flip (constGEP' (tys !! (fromEnum inx'))) inxs (ptr + (SConst $ ofs'))
             _ -> implError $ "GetElementPtr called with a lazy constant. That means that a global reference (or funciton pointer) was used to compute those indices. That is invalid."
         constGEP' ty _ _ = assumptError $ "GetElementPtr must be called on an agregate type (the first type must be a pointer) but found a non aggregate one: \n \t " ++ show ty 
-constGEP ty _ _ = assumptError $ "GetElementPtr expects a pointer type, but found: \n \t" ++ show ty
+constGEP _ ty _ _ = assumptError $ "GetElementPtr expects a pointer type, but found: \n \t" ++ show ty
 
 
 
