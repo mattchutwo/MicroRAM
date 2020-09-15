@@ -335,16 +335,16 @@ adviceHandler _ _ = return ()
 
 -- Trace handler (for debugging)
 
-traceHandler :: Regs r => InstrHandler r s -> InstrHandler r s
-traceHandler _nextH (Iext "trace" ops) = do
+traceHandler :: Regs r => Bool -> InstrHandler r s -> InstrHandler r s
+traceHandler active _nextH (Iext "trace" ops) = do
   vals <- mapM opVal ops
-  traceM $ "TRACE " ++ intercalate ", " (map show vals)
+  when active $ traceM $ "TRACE " ++ intercalate ", " (map show vals)
   nextPc
-traceHandler _nextH (Iext name ops) | Just desc <- Text.stripPrefix "trace_" name = do
+traceHandler active _nextH (Iext name ops) | Just desc <- Text.stripPrefix "trace_" name = do
   vals <- mapM opVal ops
-  traceM $ "TRACE[" ++ Text.unpack desc ++ "] " ++ intercalate ", " (map show vals)
+  when active $ traceM $ "TRACE[" ++ Text.unpack desc ++ "] " ++ intercalate ", " (map show vals)
   nextPc
-traceHandler nextH instr = nextH instr
+traceHandler _active nextH instr = nextH instr
 
 
 -- Memory allocation tracking
@@ -561,7 +561,7 @@ runPass1 steps initMach' = do
   return $ getMemInfo $ final ^. sExt
   where
     initState = InterpState initAllocState initMach'
-    handler = allocHandler id $ stepInstr
+    handler = traceHandler True $ allocHandler id $ stepInstr
 
     getMemInfo :: AllocState -> MemInfo
     getMemInfo as = MemInfo (as ^. asMallocAddrs) (getPoisonAddr $ as ^. asMemErrors)
@@ -592,6 +592,7 @@ runPass2 steps initMach' memInfo = do
       execTraceHandler eTrace eAdvice $
       observer (adviceHandler eAdvice) $
       memErrorHandler eMemInfo eAdvice $
+      traceHandler False $
       stepInstr
 
 
