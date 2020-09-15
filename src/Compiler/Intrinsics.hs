@@ -11,11 +11,17 @@ Stability   : prototype
 
 module Compiler.Intrinsics
     ( lowerIntrinsics,
+      renameLLVMIntrinsicImpls,
     ) where
 
 
+import Control.Monad
+import qualified Data.ByteString.Short as Short
+import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
+import qualified Data.Text as Text
 
 import Compiler.Errors
 import Compiler.IRs
@@ -87,3 +93,34 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
 lowerIntrinsics :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
 lowerIntrinsics prog = expandInstrs (expandIntrinsicCall intrinsics) prog
 
+
+-- | Rename C/LLVM implementations of LLVM intrinsics to line up with their
+-- intrinsic name.
+--
+-- The problem this solves is that we can't directly define a function with a
+-- name like `llvm.memset.p0i8.i64` in C.  Instead, we define a function name
+-- `__llvm__memset__p0i8__i64`, then this pass renames it to the dotted form.
+-- (It also renames the empty definition of the dotted form to `orig.llvm.foo`,
+-- to avoid conflicts later on.)
+renameLLVMIntrinsicImpls :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
+renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
+  where
+    renameList :: [(Name, Name)]
+    renameList = do
+      Function nm _ _ _ _ <- code
+      Name ss <- return nm
+      Just name <- return $ Text.stripPrefix "__llvm__" $ toText ss
+      return (nm, Name $ fromText $ "llvm." <> Text.replace "__" "." name)
+
+    renameMap = Map.fromList renameList
+    removeSet = Set.fromList $ map snd renameList
+
+    code' :: [MIRFunction () MWord]
+    code' = do
+      Function nm rty atys bbs nr <- code
+      guard $ not $ Set.member nm removeSet
+      let nm' = maybe nm id $ Map.lookup nm renameMap
+      return $ Function nm' rty atys bbs nr
+
+    fromText t = Short.toShort $ BSU.fromString $ Text.unpack t
+    toText s = Text.pack $ BSU.toString $ Short.fromShort s
