@@ -43,10 +43,11 @@ import qualified LLVM.AST.Typed as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.IntegerPredicate as IntPred
 
-import Compiler.LazyConstants
 import Compiler.Errors
 import Compiler.Common
 import Compiler.IRs
+import Compiler.Layout
+import Compiler.LazyConstants
 import Compiler.TraceInstrs
 import Util.Util
 
@@ -62,7 +63,6 @@ import qualified MicroRAM as MRAM
    
 
 -}
-type LLVMTypeEnv = Map.Map LLVM.Name LLVM.Type
 -- | Environment to keep track of global and type definitions
 data Env = Env {tenv :: LLVMTypeEnv, globs :: Set.Set LLVM.Name}
 
@@ -364,7 +364,7 @@ isInstruction env ret instr =
 
 {- | Implements arithmetic shift right in terms of other binary operations like so:
 @
-   int s = -((unsigned) x >> wrdsize);
+   int s = -((unsigned) x >> (wrdsize - 1));
    int sar = (s^x) >> n ^ s;
 @
 or
@@ -389,15 +389,18 @@ isArithShr env (Just ret) o1 o2 = do
   sign  <- freshName
   ret'' <- freshName
   ret'  <- freshName
-  returnRTL
-    [ MRAM.Ishr nsign o1' (LImm $ SConst $ toEnum $ (finiteBitSize zerow - 1)),
-      MRAM.Imull sign (AReg nsign) (LImm $ SConst $ monew),
+  returnRTL $
+    [ MRAM.Ishr nsign o1' (LImm $ SConst $ fromIntegral width - 1),
+      MRAM.Imull sign (AReg nsign)
+        (LImm $ SConst $ complement 0 `shiftR` (64 - fromIntegral width)),
       MRAM.Ixor  ret'' (AReg sign) o1',
       MRAM.Ishr  ret'  (AReg ret'') o2',
       MRAM.Ixor  ret (AReg ret') (AReg sign)]
-  where zerow,monew :: MWord
-        zerow = 0
-        monew = 0-1
+  where
+    width = case LLVM.typeOf o1 of
+      LLVM.IntegerType bits -> bits
+      ty -> error $ "don't know how to do ashr on non-integer type " ++ show ty
+
     
 -- *** Memory operations
 -- Alloca
@@ -415,10 +418,10 @@ isAlloca
      -> LLVM.Type
      -> LLVM.Operand
      -> Statefully $ [MIRInstruction () VReg MWord]
-isAlloca env ret ty size = lift $ do
-  ty' <- type2type (tenv env) ty
-  size' <- operand2operand env size
-  return [MirI (RAlloc ret ty' size') ()]
+isAlloca env ret ty count = lift $ do
+  let tySize = sizeOf (tenv env) ty
+  count' <- operand2operand env count
+  return [MirI (RAlloc ret tySize count') ()]
 
 
 

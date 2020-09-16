@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-|
 Module      : Intrinsic lowering
@@ -10,14 +11,21 @@ Stability   : prototype
 
 module Compiler.Intrinsics
     ( lowerIntrinsics,
+      renameLLVMIntrinsicImpls,
     ) where
 
 
+import Control.Monad
+import qualified Data.ByteString.Short as Short
+import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
+import qualified Data.Text as Text
 
 import Compiler.Errors
 import Compiler.IRs
+import Compiler.LazyConstants
 
 import MicroRAM
 
@@ -55,13 +63,64 @@ cc_test_add _ _ = progError "bad arguments"
 cc_noop :: IntrinsicImpl () w
 cc_noop _ _ = return []
 
+cc_trap :: IntrinsicImpl () MWord
+cc_trap _ _ = return [
+  MirM (Iext "trace_trap" []) (),
+  MirM (Ianswer (LImm $ SConst 0)) ()] -- TODO
+
 intrinsics :: Map String (IntrinsicImpl () MWord)
-intrinsics = Map.fromList $ map (\(x, y) -> ("Name " ++ show x, y)) $
+intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   [ ("__cc_test_add", cc_test_add)
   , ("__cc_valid_if", cc_noop)  -- TODO
   , ("__cc_bug_if", cc_noop)  -- TODO
+
+  , ("llvm.lifetime.start.p0i8", cc_noop)
+  , ("llvm.lifetime.end.p0i8", cc_noop)
+
+  -- Exception handling
+  , ("__gxx_personality_v0", cc_trap)
+  , ("__cxa_allocate_exception", cc_trap)
+  , ("__cxa_throw", cc_trap)
+  , ("__cxa_begin_catch", cc_trap)
+  , ("__cxa_end_catch", cc_trap)
+  , ("llvm.eh.typeid.for", cc_trap)
+
+  -- Explicit trap
+  , ("__cxa_pure_virtual", cc_trap)
+  , ("llvm.trap", cc_trap)
   ]
 
 lowerIntrinsics :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
 lowerIntrinsics prog = expandInstrs (expandIntrinsicCall intrinsics) prog
-  
+
+
+-- | Rename C/LLVM implementations of LLVM intrinsics to line up with their
+-- intrinsic name.
+--
+-- The problem this solves is that we can't directly define a function with a
+-- name like `llvm.memset.p0i8.i64` in C.  Instead, we define a function name
+-- `__llvm__memset__p0i8__i64`, then this pass renames it to the dotted form.
+-- (It also renames the empty definition of the dotted form to `orig.llvm.foo`,
+-- to avoid conflicts later on.)
+renameLLVMIntrinsicImpls :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
+renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
+  where
+    renameList :: [(Name, Name)]
+    renameList = do
+      Function nm _ _ _ _ <- code
+      Name ss <- return nm
+      Just name <- return $ Text.stripPrefix "__llvm__" $ toText ss
+      return (nm, Name $ fromText $ "llvm." <> Text.replace "__" "." name)
+
+    renameMap = Map.fromList renameList
+    removeSet = Set.fromList $ map snd renameList
+
+    code' :: [MIRFunction () MWord]
+    code' = do
+      Function nm rty atys bbs nr <- code
+      guard $ not $ Set.member nm removeSet
+      let nm' = maybe nm id $ Map.lookup nm renameMap
+      return $ Function nm' rty atys bbs nr
+
+    fromText t = Short.toShort $ BSU.fromString $ Text.unpack t
+    toText s = Text.pack $ BSU.toString $ Short.fromShort s
