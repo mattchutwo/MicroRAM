@@ -364,7 +364,7 @@ isInstruction env ret instr =
 
 {- | Implements arithmetic shift right in terms of other binary operations like so:
 @
-   int s = -((unsigned) x >> wrdsize);
+   int s = -((unsigned) x >> (wrdsize - 1));
    int sar = (s^x) >> n ^ s;
 @
 or
@@ -389,15 +389,17 @@ isArithShr env (Just ret) o1 o2 = do
   sign  <- freshName
   ret'' <- freshName
   ret'  <- freshName
-  returnRTL
-    [ MRAM.Ishr nsign o1' (LImm $ SConst $ toEnum $ finiteBitSize zerow),
-      MRAM.Imull sign (AReg nsign) (LImm $ SConst $ monew),
+  returnRTL $
+    [ MRAM.Ishr nsign o1' (LImm $ SConst $ fromIntegral width - 1),
+      MRAM.Imull sign (AReg nsign)
+        (LImm $ SConst $ complement 0 `shiftR` (64 - fromIntegral width)),
       MRAM.Ixor  ret'' (AReg sign) o1',
-      MRAM.Ishr  ret'  (AReg sign) o2',
+      MRAM.Ishr  ret'  (AReg ret'') o2',
       MRAM.Ixor  ret (AReg ret') (AReg sign)]
-  where zerow,monew :: MWord
-        zerow = 0
-        monew = 0-1
+  where
+    width = case LLVM.typeOf o1 of
+      LLVM.IntegerType bits -> bits
+      ty -> error $ "don't know how to do ashr on non-integer type " ++ show ty
 
 
     

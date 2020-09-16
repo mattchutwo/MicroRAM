@@ -47,6 +47,10 @@ testTrivial = testGroup "Trivial programs" $
     "Function call with multiple args"
     "test/programs/multiArgs.ll"
     110 123 :
+  compileTest
+    "arithmetic shift right"
+    "test/programs/arithShr.ll"
+    600 8 :
     []
 
 -- Conditionals, Branching and loops
