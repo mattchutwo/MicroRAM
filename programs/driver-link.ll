@@ -757,7 +757,7 @@ fopen.exit.thread:                                ; preds = %2
 
 ; Function Attrs: nounwind uwtable
 define dso_local i64* @malloc_words(i64) local_unnamed_addr #3 {
-  %2 = tail call i64* @__cc_malloc(i64 %0) #15
+  %2 = tail call i64* @__cc_malloc(i64 %0) #21
   %3 = ptrtoint i64* %2 to i64
   %4 = lshr i64 %3, 58
   %5 = shl i64 1, %4
@@ -774,12 +774,12 @@ define dso_local i64* @malloc_words(i64) local_unnamed_addr #3 {
 
 13:                                               ; preds = %8, %1
   %14 = phi i32 [ 0, %1 ], [ %12, %8 ]
-  tail call void @__cc_valid_if(i32 %14) #15
+  tail call void @__cc_valid_if(i32 %14) #21
   %15 = getelementptr inbounds i64, i64* %2, i64 %5
   %16 = getelementptr inbounds i64, i64* %15, i64 -1
-  tail call void @__cc_write_and_poison(i64* nonnull %16, i64 1) #15
+  tail call void @__cc_write_and_poison(i64* nonnull %16, i64 1) #21
   %17 = getelementptr inbounds i64, i64* %2, i64 %0
-  %18 = tail call i64* @__cc_advise_poison(i64* %17, i64* nonnull %16) #15
+  %18 = tail call i64* @__cc_advise_poison(i64* %17, i64* nonnull %16) #21
   %19 = icmp eq i64* %18, null
   br i1 %19, label %25, label %20
 
@@ -788,8 +788,8 @@ define dso_local i64* @malloc_words(i64) local_unnamed_addr #3 {
   %22 = icmp ult i64* %18, %16
   %23 = and i1 %22, %21
   %24 = zext i1 %23 to i32
-  tail call void @__cc_valid_if(i32 %24) #15
-  tail call void @__cc_write_and_poison(i64* nonnull %18, i64 0) #15
+  tail call void @__cc_valid_if(i32 %24) #21
+  tail call void @__cc_write_and_poison(i64* nonnull %18, i64 0) #21
   br label %25
 
 25:                                               ; preds = %20, %13
@@ -817,16 +817,16 @@ define dso_local void @free_words(i64*) local_unnamed_addr #3 {
   %8 = and i64 %7, %4
   %9 = icmp ne i64 %8, 0
   %10 = zext i1 %9 to i32
-  tail call void @__cc_bug_if(i32 %10) #15
-  tail call void @__cc_free(i64* nonnull %0) #15
+  tail call void @__cc_bug_if(i32 %10) #21
+  tail call void @__cc_free(i64* nonnull %0) #21
   %11 = getelementptr inbounds i64, i64* %0, i64 %6
   %12 = getelementptr inbounds i64, i64* %11, i64 -1
-  %13 = tail call i64 @__cc_read_poisoned(i64* nonnull %12) #15
+  %13 = tail call i64 @__cc_read_poisoned(i64* nonnull %12) #21
   %14 = icmp ne i64 %13, 1
   %15 = zext i1 %14 to i32
-  tail call void @__cc_bug_if(i32 %15) #15
-  tail call void @__cc_write_poisoned(i64* nonnull %12, i64 0) #15
-  %16 = tail call i64* @__cc_advise_poison(i64* nonnull %0, i64* nonnull %12) #15
+  tail call void @__cc_bug_if(i32 %15) #21
+  tail call void @__cc_write_poisoned(i64* nonnull %12, i64 0) #21
+  %16 = tail call i64* @__cc_advise_poison(i64* nonnull %0, i64* nonnull %12) #21
   %17 = icmp eq i64* %16, null
   br i1 %17, label %27, label %18
 
@@ -835,13 +835,13 @@ define dso_local void @free_words(i64*) local_unnamed_addr #3 {
   %20 = and i64 %19, 7
   %21 = icmp eq i64 %20, 0
   %22 = zext i1 %21 to i32
-  tail call void @__cc_valid_if(i32 %22) #15
+  tail call void @__cc_valid_if(i32 %22) #21
   %23 = icmp uge i64* %16, %0
   %24 = icmp ult i64* %16, %12
   %25 = and i1 %24, %23
   %26 = zext i1 %25 to i32
-  tail call void @__cc_valid_if(i32 %26) #15
-  tail call void @__cc_write_and_poison(i64* nonnull %16, i64 0) #15
+  tail call void @__cc_valid_if(i32 %26) #21
+  tail call void @__cc_write_and_poison(i64* nonnull %16, i64 0) #21
   br label %27
 
 27:                                               ; preds = %18, %3, %1
@@ -856,48 +856,32 @@ declare dso_local i64 @__cc_read_poisoned(i64*) local_unnamed_addr #9
 
 declare dso_local void @__cc_write_poisoned(i64*, i64) local_unnamed_addr #9
 
-; Function Attrs: nounwind uwtable
-define dso_local noalias i8* @malloc(i64) local_unnamed_addr #3 {
-  %2 = tail call i64* @malloc_words(i64 %0)
-  %3 = bitcast i64* %2 to i8*
-  ret i8* %3
-}
-
-; Function Attrs: nounwind uwtable
-define dso_local void @free(i8*) local_unnamed_addr #3 {
-  %2 = bitcast i8* %0 to i64*
-  tail call void @free_words(i64* %2)
-  ret void
-}
-
 ; Function Attrs:  norecurse nounwind uwtable
-define dso_local nonnull i8* @memcpy(i8* nonnull returned, i8* nocapture nonnull readonly, i64) local_unnamed_addr #10 {
+define dso_local void @__llvm__memcpy__p0i8__p0i8__i64(i8* nocapture, i8* nocapture readonly, i64) local_unnamed_addr #10 {
   %4 = icmp eq i64 %2, 0
   br i1 %4, label %5, label %6
 
 5:                                                ; preds = %6, %3
-  ret i8* %0
+  ret void
 
 6:                                                ; preds = %6, %3
-  %7 = phi i64 [ %13, %6 ], [ 0, %3 ]
-  %8 = phi i8* [ %12, %6 ], [ %1, %3 ]
-  %9 = phi i8* [ %11, %6 ], [ %0, %3 ]
-  %10 = load i8, i8* %8, align 1, !tbaa !59
-  store i8 %10, i8* %9, align 1, !tbaa !59
-  %11 = getelementptr inbounds i8, i8* %9, i64 1
-  %12 = getelementptr inbounds i8, i8* %8, i64 1
-  %13 = add nuw i64 %7, 1
-  %14 = icmp eq i64 %13, %2
-  br i1 %14, label %5, label %6
+  %7 = phi i64 [ %11, %6 ], [ 0, %3 ]
+  %8 = getelementptr inbounds i8, i8* %1, i64 %7
+  %9 = load i8, i8* %8, align 1, !tbaa !59
+  %10 = getelementptr inbounds i8, i8* %0, i64 %7
+  store i8 %9, i8* %10, align 1, !tbaa !59
+  %11 = add nuw i64 %7, 1
+  %12 = icmp eq i64 %11, %2
+  br i1 %12, label %5, label %6
 }
 
 ; Function Attrs:  norecurse nounwind uwtable writeonly
-define dso_local i8* @memset(i8* returned, i8 signext, i64) local_unnamed_addr #11 {
+define dso_local void @__llvm__memset__p0i8__i64(i8* nocapture, i8 zeroext, i64) local_unnamed_addr #11 {
   %4 = icmp eq i64 %2, 0
   br i1 %4, label %5, label %6
 
 5:                                                ; preds = %6, %3
-  ret i8* %0
+  ret void
 
 6:                                                ; preds = %6, %3
   %7 = phi i64 [ %9, %6 ], [ 0, %3 ]
@@ -906,6 +890,20 @@ define dso_local i8* @memset(i8* returned, i8 signext, i64) local_unnamed_addr #
   %9 = add nuw i64 %7, 1
   %10 = icmp eq i64 %9, %2
   br i1 %10, label %5, label %6
+}
+
+; Function Attrs: nounwind uwtable
+define dso_local noalias i8* @malloc(i64) local_unnamed_addr #3 {
+  %2 = tail call i64* @malloc_words(i64 %0) #22
+  %3 = bitcast i64* %2 to i8*
+  ret i8* %3
+}
+
+; Function Attrs: nounwind uwtable
+define dso_local void @free(i8*) local_unnamed_addr #3 {
+  %2 = bitcast i8* %0 to i64*
+  tail call void @free_words(i64* %2) #22
+  ret void
 }
 
 ; Function Attrs: norecurse nounwind readonly uwtable
@@ -960,10 +958,10 @@ define dso_local i64 @strlen(i8* nonnull) local_unnamed_addr #12 {
 
 ; Function Attrs: nounwind uwtable
 define dso_local noalias i8* @strdup(i8* nonnull) local_unnamed_addr #3 {
-  %2 = tail call i64 @strlen(i8* %0) #16
+  %2 = tail call i64 @strlen(i8* %0) #23
   %3 = add i64 %2, 1
-  %4 = tail call noalias i8* @malloc(i64 %3) #15
-  %5 = tail call i8* @strcpy(i8* %4, i8* %0) #15
+  %4 = tail call noalias i8* @malloc(i64 %3) #21
+  %5 = tail call i8* @strcpy(i8* %4, i8* %0) #21
   ret i8* %4
 }
 
@@ -1021,6 +1019,9 @@ attributes #17 = { noreturn }
 attributes #18 = { noreturn nounwind }
 attributes #19 = { builtin nounwind }
 attributes #20 = { builtin }
+attributes #21 = { nobuiltin nounwind }
+attributes #22 = { nobuiltin }
+attributes #23 = { nobuiltin nounwind readonly }
 
 !llvm.ident = !{!18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18, !18}
 !llvm.module.flags = !{!19, !20, !21}

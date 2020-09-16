@@ -130,6 +130,7 @@ compile :: Word -> LLVM.Module
         -> Hopefully $ CompilationResult (MRAM.Program Name MWord)
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
+  >>= (tagPass "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
   >>= (tagPass "Lower Intrinsics" $ justCompile lowerIntrinsics)
   >>= (tagPass "Legalize Instructions" $ justCompile legalize)
   >>= (tagPass "Localize Labels" $ justCompile localizeLabels)

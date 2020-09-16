@@ -116,8 +116,8 @@ stepInstr i = do
     Iumulh rd r1 op2 -> stepBinary umulh mulOverflow rd r1 op2
     Ismulh rd r1 op2 -> stepBinary smulh signedMulOverflow rd r1 op2
     -- TODO div/mod vs quot/rem?
-    Iudiv rd r1 op2 -> stepBinary div (\_ y _ -> y == 0) rd r1 op2
-    Iumod rd r1 op2 -> stepBinary mod (\_ y _ -> y == 0) rd r1 op2
+    Iudiv rd r1 op2 -> stepBinary safeDiv (\_ y _ -> y == 0) rd r1 op2
+    Iumod rd r1 op2 -> stepBinary safeMod (\_ y _ -> y == 0) rd r1 op2
 
     Ishl rd r1 op2 -> stepBinary shiftL' (\x _ _ -> msb x) rd r1 op2
     Ishr rd r1 op2 -> stepBinary shiftR' (\x _ _ -> lsb x) rd r1 op2
@@ -245,6 +245,12 @@ umulh x y = fromInteger $ (toInteger x * toInteger y) `shiftR` wordBits
 
 smulh :: MWord -> MWord -> MWord
 smulh x y = fromInteger $ (toSignedInteger x * toSignedInteger y) `shiftR` wordBits
+
+safeDiv :: MWord -> MWord -> MWord
+safeDiv x y = if y == 0 then 0 else x `div` y
+
+safeMod :: MWord -> MWord -> MWord
+safeMod x y = if y == 0 then 0 else x `mod` y
 
 shiftL' :: MWord -> MWord -> MWord
 shiftL' x y = x `shiftL` fromIntegral y
