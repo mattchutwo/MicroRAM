@@ -8,10 +8,12 @@ module MicroRAM.InterpreterSpec (main) where
 
 import Test.Tasty
 import Test.Tasty.QuickCheck
-import qualified Test.QuickCheck.Property as Prop (succeeded, failed, reason, Result) 
+import qualified Test.QuickCheck.Property as Prop (succeeded, failed, reason, Result)
 
 import Compiler.Registers
 import Compiler.CompilationUnit
+
+import Data.Bits
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
@@ -21,7 +23,10 @@ import MicroRAM.MRAMInterpreter
 
 main :: IO ()
 main = defaultMain tests
-  -- defaultMain (testGroup "Our Library Tests" testSuite) -- testSuit defined at eof
+
+tests :: TestTree
+tests = testGroup "Testing the Interpreter for  MicroRAM"
+  [test1,test2,test3,test4,test5, test6, testAshr]
 
 -- * Pretty printers
 _ppList :: Show a => [a] -> IO ()
@@ -209,5 +214,42 @@ test6 :: TestTree
 test6 = testProperty "Test over/underflow for adition and substraction"
         $ \n -> (n :: Word) >= 0 ==> simpl_exec prog6 n /= Just 42
 
-tests :: TestTree
-tests = testGroup "Testing the Interpreter for  MicroRAM" [test1,test2,test3,test4,test5, test6]
+
+
+
+--progAshr :: Program Reg MWord
+progAshr
+  :: Num regT =>
+     MWord -> MWord -> [Instruction' regT regT (Operand regT MWord)]
+progAshr input shift = 
+  [ Imov 5 o1',
+    Ishr  nsign 5 (Const $ toEnum $ (finiteBitSize zerow -1)),
+    Imull sign  (nsign) (Const $ monew),
+    Ixor  ret'' (sign) o1' ,
+    Ishr  ret'  (ret'') o2',
+    Ixor  ret   (ret') (Reg sign)]
+  where o1' = Const input
+        o2' = Const shift
+        nsign = 4
+        sign  = 3
+        ret'' = 2
+        ret'  = 1
+        ret   = 0
+        zerow,monew :: MWord
+        zerow = 0
+        monew = 0-1 
+  
+--test6 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
+testAshr :: TestTree
+testAshr = testProperty "Test implementation of arithmetic shift right"
+        $ \inpt -> (inpt :: Int) == inpt ==>
+                   \shift ->  (shift :: Int) >= 0 ==>
+                              exec (progAshr (binaryFromInt inpt) (binaryFromInt shift)) 6 [] ==
+                              Just (binaryFromInt $ inpt `shiftR` shift)
+binaryFromInt :: Int -> MWord
+binaryFromInt n =
+  if n >= 0 then toEnum n else maxBound - (toEnum (-1- n))
+_binaryToInt :: MWord -> Int
+_binaryToInt w =
+  let halfBound :: MWord; halfBound = maxBound `quot` 2 in  
+  if w <= halfBound then fromEnum w else - (fromEnum ((maxBound - w))) - 1

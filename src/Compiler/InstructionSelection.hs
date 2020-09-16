@@ -390,16 +390,14 @@ isArithShr env (Just ret) o1 o2 = do
   ret'' <- freshName
   ret'  <- freshName
   returnRTL
-    [ MRAM.Ishr nsign o1' (LImm $ SConst $ toEnum $ finiteBitSize zerow),
+    [ MRAM.Ishr nsign o1' (LImm $ SConst $ toEnum $ (finiteBitSize zerow - 1)),
       MRAM.Imull sign (AReg nsign) (LImm $ SConst $ monew),
       MRAM.Ixor  ret'' (AReg sign) o1',
-      MRAM.Ishr  ret'  (AReg sign) o2',
+      MRAM.Ishr  ret'  (AReg ret'') o2',
       MRAM.Ixor  ret (AReg ret') (AReg sign)]
   where zerow,monew :: MWord
         zerow = 0
         monew = 0-1
-
-
     
 -- *** Memory operations
 -- Alloca
