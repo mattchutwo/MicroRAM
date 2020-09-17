@@ -18,12 +18,12 @@ import           Compiler.RegisterAlloc.Internal
 -- import Debug.Trace
 
 -- If the target instruction is Nothing, it's a return edge.
-type LivenessResult instname = Map (instname, instname) (Set VReg) -- Could make this a Graph
+type LivenessResult instname reg = Map (instname, instname) (Set reg) -- Could make this a Graph
 
 -- A good resource: https://www.seas.upenn.edu/~cis341/current/lectures/lec22.pdf
-livenessAnalysis :: Ord name -- => (Show name, Show wrdT, Show mdata) 
-  => [BB name (LTLInstr mdata VReg wrdT)] 
-  -> Hopefully (LivenessResult name)
+livenessAnalysis :: (Eq reg, Ord reg, Ord name) -- => (Show name, Show wrdT, Show mdata) 
+  => [BB name (LTLInstr mdata reg wrdT)] 
+  -> Hopefully (LivenessResult name reg)
 livenessAnalysis blocks = do -- trace (show blocks) $ do
 
   -- Reverse topological sort the CFG.

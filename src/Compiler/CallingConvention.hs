@@ -17,14 +17,14 @@ import           Util.Util
 -- | Update functions to conform to the calling convention.
 -- Currently uses callee saved registers.
 -- This should be run after register allocation.
-callingConvention :: Lprog () VReg MWord -> Hopefully $ Lprog () VReg MWord
+callingConvention :: (Regs reg, Ord reg) => Lprog () reg MWord -> Hopefully $ Lprog () reg MWord
 callingConvention lprog = do
     let code' = map callingConventionFunc $ code lprog
 
     return $ lprog {code = code'}
 
 
-callingConventionFunc :: LFunction () VReg MWord -> LFunction () VReg MWord
+callingConventionFunc :: (Regs reg, Ord reg) => LFunction () reg MWord -> LFunction () reg MWord
 callingConventionFunc lf@(LFunction _fname _mdata _typ _typs _stackSize []) = lf
 callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:blocks)) = 
     -- Get all registers that the function writes to.

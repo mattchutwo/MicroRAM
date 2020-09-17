@@ -96,7 +96,8 @@ execution of programs.
 
 -}
 module Compiler
-    ( compile, --compileStraight
+    ( compile --compileStraight
+    , module Export
     ) where
 
 import qualified LLVM.AST as LLVM
@@ -106,12 +107,12 @@ import Util.Util
 
 import Compiler.CompilationUnit
 import Compiler.Errors
-import Compiler.IRs
 import Compiler.InstructionSelection
 import Compiler.Intrinsics
 import Compiler.Legalize
 import Compiler.RemovePhi
 import Compiler.RegisterAlloc
+import Compiler.RegisterAlloc as Export (AReg)
 import Compiler.CallingConvention
 import Compiler.Globals
 import Compiler.Stacking
@@ -127,7 +128,7 @@ import qualified MicroRAM as MRAM  (Program)
 f <.> g = \x -> return $ f $ g x 
 
 compile :: Word -> LLVM.Module
-        -> Hopefully $ CompilationResult (MRAM.Program Name MWord)
+        -> Hopefully $ CompilationResult (MRAM.Program AReg MWord)
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
