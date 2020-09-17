@@ -347,11 +347,11 @@ mram =  fromMRAMFile "test/return42.micro"
 
 -- jpProgComp :: Word -> IO (Program VReg MWord)
 jpProgComp len = do
-    m <- fromLLVMFile "test/programs/fibSlow.ll"
+    m <- fromLLVMFile "programs/driver-link.ll"
     return $ either undefined id $
       compile len m
 
-jpProg :: IO (Program VReg MWord)
+jpProg :: IO (Program AReg MWord)
 jpProg = do
     m <- fromLLVMFile "test/programs/fibSlow.ll"
     return $ either undefined id $
