@@ -651,14 +651,13 @@ initMach prog imem = MachineState
 
 -- | Produce the trace of a program
 run :: Regs mreg => CompilationResult (Prog mreg) -> Trace mreg
-run (CompUnit prog trLen _ _ initMem _) = case go of
+run (CompUnit progs trLen _ _ initMem _) = case go of
   Left e -> error $ describeError e
   Right x -> x
   where
     go = do
-      let initMach' = initMach prog initMem
-      memInfo <- runPass1 (trLen - 1) initMach'
-      tr <- runPass2 (trLen - 1) initMach' memInfo
+      memInfo <- runPass1 (trLen - 1) (initMach (highProg progs) initMem)
+      tr <- runPass2 (trLen - 1) (initMach (lowProg progs) initMem) memInfo
       return tr
 
 -- | Execute the program and return the result.

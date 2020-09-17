@@ -36,7 +36,21 @@ data CompilationUnit a prog = CompUnit
   , intermediateInfo :: a -- Other stuff we carry during compilation, but starts and ends as `()`
   }
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
-type CompilationResult prog = CompilationUnit () prog
+
+-- | Multiple variants of the compiled program.
+data MultiProg prog = MultiProg
+  -- | "High-level" variant, used for the first interpreter pass.  Contains
+  -- extension instructions (`Iext` + `Iextval`) in their original forms,
+  -- partly for instrumentation purposes.
+  { highProg :: prog
+  -- | "Low-level" variant, used for the second interpreter pass.  Does not
+  -- contain extension instructions, with the exception of `Iextadvise`, which
+  -- gets serialized as a plain `Iadvise` instead.
+  , lowProg :: prog
+  }
+  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
+
+type CompilationResult prog = CompilationUnit () (MultiProg prog)
 
 prog2unit :: Word -> prog -> CompilationUnit () prog
 prog2unit len p = CompUnit p len InfinityRegs [] [] ()
