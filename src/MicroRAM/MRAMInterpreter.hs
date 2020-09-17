@@ -510,14 +510,13 @@ doAdvise advice rd val = do
 
 memErrorHandler :: Regs r => Lens' s MemInfo -> Lens' s AdviceMap ->
   InstrHandler r s -> InstrHandler r s
-memErrorHandler info advice _nextH (Iextval "malloc" rd [_size]) = do
+memErrorHandler info advice _nextH (Iextadvise "malloc" rd [_size]) = do
   val <- maybe (assumptError "ran out of malloc addrs") return =<<
     use (sExt . info . miMallocAddrs . to (Seq.lookup 0))
   sExt . info . miMallocAddrs %= Seq.drop 1
   doAdvise advice rd val
   finishInstr
-memErrorHandler _info _advice _nextH (Iext "free" [_ptr]) = finishInstr
-memErrorHandler info advice _nextH (Iextval "advise_poison" rd [loOp, hiOp]) = do
+memErrorHandler info advice _nextH (Iextadvise "advise_poison" rd [loOp, hiOp]) = do
   lo <- opVal loOp
   hi <- opVal hiOp
   optAddr <- use $ sExt . info . miPoisonAddr

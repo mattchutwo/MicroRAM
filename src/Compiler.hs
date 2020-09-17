@@ -108,10 +108,10 @@ import Util.Util
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.IRs
-
 import Compiler.InstructionSelection
 import Compiler.Intrinsics
 import Compiler.Legalize
+import Compiler.Extension
 import Compiler.RemovePhi
 import Compiler.RegisterAlloc
 import Compiler.RegisterAlloc as Export (AReg)
@@ -154,6 +154,8 @@ compile :: Word -> LLVM.Module
 compile len llvmProg = do
   ir <- compile1 len llvmProg
   high <- compile2 ir
-  low <- compile2 ir
+  low <- return ir
+    >>= (tagPass "Lower Extension Instructions" $ justCompile lowerExtensionInstrs)
+    >>= compile2
   -- Return both programs, using the analysis data from the final one.
   return $ low { programCU = MultiProg (programCU high) (programCU low) }
