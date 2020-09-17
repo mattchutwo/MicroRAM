@@ -174,8 +174,12 @@ data Instruction' regT operand1 operand2 =
                               --  store it in ri, and set flag = 0; otherwise store 0W in ri and set flag = 1.
                               --  __To be removed__
   | Ianswer operand2          -- ^  stall or halt (and the return value is [A]u)
+  -- Advice
+  | Iadvise regT              -- ^ load nondeterministic advice into ri
+  -- Extensions
   | Iext Text [operand2]      -- ^ Custom instruction with no return value
   | Iextval Text regT [operand2] -- ^ Custom instruction, returning a value
+  | Iextadvise Text regT [operand2] -- ^ Like `Iextval`, but gets serialized as `Iadvise`
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
   

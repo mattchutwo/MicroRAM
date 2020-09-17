@@ -145,8 +145,11 @@ stepInstr i = do
     Iread rd op2 -> stepRead rd op2
     Ianswer op2 -> stepAnswer op2
 
+    Iadvise _ -> assumptError $ "unhandled advice request"
+
     Iext name _ -> assumptError $ "unhandled extension instruction " ++ show name
     Iextval name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
+    Iextadvise name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
 
   sMach . mCycle %= (+ 1)
 
