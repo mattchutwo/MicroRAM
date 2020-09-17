@@ -21,7 +21,7 @@ module Debug.Debugger where
 
 import qualified GHC.Generics as G
 import Data.Data
-import Data.Default
+--import Data.Default
 
 import Text.PrettyPrint.Tabulate
 import Text.PrettyPrint.Boxes hiding ((<>))
@@ -35,15 +35,15 @@ import qualified LLVM.AST as LLVM
 
 -- Local 
 import Compiler
-import Compiler.CallingConvention
+--import Compiler.CallingConvention
 import Compiler.CompilationUnit
-import Compiler.InstructionSelection
+--import Compiler.InstructionSelection
 import Compiler.IRs
-import Compiler.Legalize
-import Compiler.RegisterAlloc
+--import Compiler.Legalize
+--import Compiler.RegisterAlloc
 import Compiler.Registers
-import Compiler.RemoveLabels
-import Compiler.Stacking
+--import Compiler.RemoveLabels
+--import Compiler.Stacking
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
@@ -295,15 +295,16 @@ pprintInst (Iload r1 op) = (pprintReg r1) <>" = *("<> (pprintOp op) <> ")"
 pprintInst (Ianswer op) = "ans "<> (pprintOp op)
 pprintInst i = show i -- TODO
 
+pprintReg :: Name -> String
 pprintReg r | r == ax = "%ax"
 pprintReg r | r == bp = "%bp"
 pprintReg r | r == sp = "%sp"
 pprintReg (NewName r) = "%" <> show r
 pprintReg r = show r
 
+pprintOp :: Show a => Operand Name a -> String
 pprintOp (Reg r) = pprintReg r
 pprintOp (Const c) = show c
-pprintOp o = show o -- TODO
 
 pprintFromFile :: FilePath -> IO ()
 pprintFromFile file = do
@@ -351,6 +352,8 @@ jpProgComp len = do
     return $ either undefined id $
       compile len m
 
+{- SC: Broken after resgiter allocation was moved to
+   work on compilation units, not just programs.
 jpProg :: IO (Program VReg MWord)
 jpProg = do
     m <- fromLLVMFile "test/programs/fibSlow.ll"
@@ -360,7 +363,9 @@ jpProg = do
       >>= registerAlloc def
       >>= callingConvention
       >>= stacking
-      >>= removeLabelsProg -- SC: This might not work anymore since the compilation passs now takes the entire compilation unit. I have added this function o the interface to make it work, but if you are using this debugger you should probably update it. 
+      >>= removeLabelsProg 
+-}
+
 cs :: CustomSummary mreg
 cs = defaultSummary {theseMem = [0..27]}
 --inp :: [MWord]

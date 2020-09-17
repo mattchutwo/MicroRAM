@@ -138,7 +138,7 @@ buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed 
 
 compUnit2Output :: Regs reg => CompilationResult (Program reg MWord) -> Output reg
 compUnit2Output (CompUnit p trLen regData aData initMem _) =
-  let regNum = countRegs p in
+  let regNum = getRegNum regData in
   let circParams = buildCircuitParameters trLen regData aData regNum in
   PublicOutput p circParams initMem    
 
@@ -147,7 +147,7 @@ compUnit2Output (CompUnit p trLen regData aData initMem _) =
 -- The input Trace should be an infinite stream which we truncate by the given length.
 secretOutput :: Regs reg => Trace reg -> CompilationResult (Program reg MWord) -> Output reg
 secretOutput tr (CompUnit p trLen regData aData initM _) =
-  let regNum = countRegs p in
+  let regNum = getRegNum regData in
   let circParams = buildCircuitParameters trLen regData aData regNum in
     SecretOutput p circParams
     -- initMem
@@ -172,8 +172,12 @@ fullOutput compUnit =
   secretOutput (run compUnit) compUnit 
 
 
+getRegNum :: RegisterData -> Word
+getRegNum InfinityRegs = 0
+getRegNum (NumRegisters n) = toEnum n 
 
 -- | We only look at what registers are assigned too
+
 countRegs :: Regs regT => Program regT MWord -> Word
 countRegs p = maximum $ map getRegAssign p
   where getRegAssign (Iand reg1 _reg2 _  ) =  toWord reg1  

@@ -38,15 +38,17 @@ import qualified Data.Set as Set
 import           Compiler.Errors
 
 import           Compiler.Common
+import           Compiler.CompilationUnit
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.RegisterAlloc.Liveness
+import           Compiler.Registers
 import           MicroRAM (MWord)
 import qualified MicroRAM as MRAM
 import           Util.Util
 
 data RegisterAllocOptions = RegisterAllocOptions {
-    _registerAllocNumRegisters :: Word
+    registerAllocNumRegisters :: Word
   }
 
 instance Default RegisterAllocOptions where
@@ -55,24 +57,34 @@ instance Default RegisterAllocOptions where
 type Registers = [VReg]
 
 
-
-registerAlloc :: (Monoid mdata) => RegisterAllocOptions -> Rprog mdata MWord -> Hopefully $ Lprog mdata VReg MWord
-registerAlloc (RegisterAllocOptions numRegisters) rprog = do
-  -- Convert to ltl.
-  lprog <- rtlToLtl rprog
-
-  -- JP: Load arguments from stack? 
-  -- Replace `Name "0"` with `Lgetstack Incoming 0 _ _`, ...
-  let code' = map initializeFunctionArgs $ code lprog
-
-  -- Run register allocation.
-  code <- mapM (registerAllocFunc registers) code'
-
-  return $ lprog {code = code}
-
+registerAlloc :: (Monoid mdata)
+              => RegisterAllocOptions
+              -> CompilationUnit a (Rprog mdata MWord)
+              -> Hopefully $ CompilationUnit a (Lprog mdata VReg MWord)
+registerAlloc opt comp = do
+  regData <- return $ NumRegisters $ fromEnum $ numRegisters
+  lprog   <- registerAllocProg (programCU comp)
+  return $ comp {programCU = lprog, regData = regData}
   where
+    registerAllocProg :: (Monoid mdata)
+                      => Rprog mdata MWord
+                      -> Hopefully $ Lprog mdata VReg MWord
+    registerAllocProg rprog = do
+      -- Convert to ltl.
+      lprog <- rtlToLtl rprog
+               
+      -- JP: Load arguments from stack? 
+      -- Replace `Name "0"` with `Lgetstack Incoming 0 _ _`, ...
+      let code' = map initializeFunctionArgs $ code lprog
+
+      -- Run register allocation.
+      code <- mapM (registerAllocFunc registers) code'
+
+      return $ lprog {code = code}
+
     -- Available registers.
     -- First three registers are reserved.
+    numRegisters = registerAllocNumRegisters opt
     registers = map NewName [3..numRegisters-1]
 
 -- Register allocator state.
