@@ -316,8 +316,10 @@ applyColoring coloring = mapM applyBasicBlock
     applyMRIInstruction (MRAM.Iload r1 op) = MRAM.Iload <$> applyReg r1 <*> applyOperand op
     applyMRIInstruction (MRAM.Iread r1 op) = MRAM.Iread <$> applyReg r1 <*> applyOperand op
     applyMRIInstruction (MRAM.Ianswer op) = MRAM.Ianswer <$> applyOperand op
+    applyMRIInstruction (MRAM.Iadvise r1) = MRAM.Iadvise <$> applyReg r1
     applyMRIInstruction (MRAM.Iext name ops) = MRAM.Iext name <$> mapM applyOperand ops
     applyMRIInstruction (MRAM.Iextval name rd ops) = MRAM.Iextval name <$> applyReg rd <*> mapM applyOperand ops
+    applyMRIInstruction (MRAM.Iextadvise name rd ops) = MRAM.Iextadvise name <$> applyReg rd <*> mapM applyOperand ops
 
     applyReg :: reg0 -> Hopefully reg
     applyReg r | Just r' <- Map.lookup r coloring = return r'
