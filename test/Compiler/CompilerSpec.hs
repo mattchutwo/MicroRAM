@@ -51,10 +51,6 @@ testTrivial = testGroup "Trivial programs" $
     "arithmetic shift right"
     "test/programs/arithShr.ll"
     600 8 :
-  compileTest
-    "field memset"
-    "test/programs/fieldMemset-link.ll"
-    650 3 :
     []
 
 -- Conditionals, Branching and loops

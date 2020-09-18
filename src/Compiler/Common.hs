@@ -66,26 +66,10 @@ data Ty =
 
 -- | Determines the relative size of types (relative to a 32bit integer/64bit)
 tySize ::  Ty -> MWord
-tySize typ =
-  case typ of
-    Tarray length subTyp -> length * (tySizeAggregated subTyp) * 4
-    Tstruct tys -> sum $ map tySizeAggregated tys   
-    TVoid -> 0
-    _ -> 1 -- Pointers have the same sizer as Tint
-  where
-    {- TEMPORARY SOLUTION:
-       Hybrid Memory model
-
-If you have `struct { int a,b,c,d; }` and you set the four fields to `1,0,0,2`, LLVM may decide to coalesce the writes to `b` and `c` into a single `memset(&x.b, 0, 8)`, which interacts badly with our current memory model. 
-
-If we rearranged the struct layout to put the fields at offsets `0,4,8,12` instead of `0,1,2,3`, then this would mostly work. Specifically, for all aggregate types (structs and arrays) integer fields will take 4 words space.
--} 
-    tySizeAggregated typ =
-      case typ of
-        Tarray length subTyp -> length * (tySizeAggregated subTyp) * 4
-        Tstruct tys -> sum $ map tySizeAggregated tys   
-        TVoid -> 0
-        _ -> 1 -- Pointers have the same sizer as Tint
+tySize (Tarray length subTyp) = length * (tySize subTyp)
+tySize (Tstruct tys) = sum $ map tySize tys   
+tySize TVoid = 0 -- Pointers have the same sizer as Tint
+tySize _ = 1 -- Pointers have the same sizer as Tint
 
 
 type TypeEnv = Map.Map Name Ty
