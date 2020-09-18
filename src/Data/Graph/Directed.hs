@@ -4,6 +4,7 @@ module Data.Graph.Directed (
     DiGraph
   , edges
   , fromEdges
+  , nodes
   , predecessors
   , setNodeLabels
   , successors
@@ -62,6 +63,12 @@ predecessors' (DiGraph g l _) nid = HGL.lookupVertexForLabel nid l >>= mapM (HGL
     -- preds = HGL.predecessors -- JP: Digraph doesn't implement this?
     -- TODO: More efficient way to do this
     preds g v = map HGL.edgeSource $ filter (\e -> HGL.edgeDest e == v) $ HGL.edges g
+
+nodes :: DiGraph nid n e -> [nid]
+nodes = maybe (error "nodes: Invalid DiGraph.") id . nodes'
+
+nodes' :: DiGraph nid n e -> Maybe [nid]
+nodes' (DiGraph g _ _) = mapM (HGL.vertexLabel g) $ HGL.vertices g
 
 edges :: DiGraph nid n e -> [(nid,nid)]
 edges = maybe (error "edges: Invalid DiGraph.") id . edges'

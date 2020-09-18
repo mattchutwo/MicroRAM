@@ -3,6 +3,8 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : CBOR Format
@@ -141,7 +143,8 @@ instance (Serialise regT, Serialise wrdT) => Serialise (Operand regT wrdT) where
     decode = decodeOperand
 
 
-encodeInstr :: (Serialise regT, Serialise wrdT) => Instruction regT wrdT -> Encoding
+encodeInstr :: forall regT wrdT. (Serialise regT, Serialise wrdT) =>
+  Instruction regT wrdT -> Encoding
 encodeInstr (Iand r1 r2 operand  ) = list2CBOR $ encodeString "and"    : encode r1  : encode r2  : (encodeOperand' operand)
 encodeInstr (Ior r1 r2 operand   ) = list2CBOR $ encodeString "or"     : encode r1  : encode r2  : (encodeOperand' operand) 
 encodeInstr (Ixor r1 r2 operand  ) = list2CBOR $ encodeString "xor"    : encode r1  : encode r2  : (encodeOperand' operand) 
@@ -169,6 +172,7 @@ encodeInstr (Istore operand r2   ) = list2CBOR $ encodeString "store"  : encodeN
 encodeInstr (Iload r1 operand    ) = list2CBOR $ encodeString "load"   : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Iread r1 operand    ) = list2CBOR $ encodeString "read"   : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Ianswer operand     ) = list2CBOR $ encodeString "answer" : encodeNull : encodeNull : (encodeOperand' operand) 
+encodeInstr (Iadvise r1          ) = list2CBOR $ encodeString "advise" : encode r1  : encodeNull : [encode False, encodeNull]
 -- `Iext` and `Iextval` should have been compiled away by a previous pass, but
 -- it's sometimes useful for debugging to include them in the output CBOR.  The
 -- witness checker generator doesn't support these instructions at all, so how
@@ -176,6 +180,9 @@ encodeInstr (Ianswer operand     ) = list2CBOR $ encodeString "answer" : encodeN
 -- consumption.
 encodeInstr (Iext name ops       ) = list2CBOR $ encodeString "ext" : encodeString name : concatMap encodeOperand' ops
 encodeInstr (Iextval name rd ops ) = list2CBOR $ encodeString "ext" : encodeString name : encode rd : concatMap encodeOperand' ops
+-- `Iextadvise` is `Iadvise` plus a hint to the interpreter.  We serialize it
+-- just like a plain `Iadvise`.
+encodeInstr (Iextadvise _ r1 _   ) = encodeInstr @regT @wrdT (Iadvise r1)
 
 decodeOperands :: (Serialise regT, Serialise wrdT) => Int -> Decoder s ([regT], Operand regT wrdT)
 decodeOperands 0 = fail "invalid number of operands: 0"
@@ -220,8 +227,9 @@ decodeInstr = do
       "load"    -> Iload   <$> decode     <*  decodeNull <*> decodeOperand'
       "read"    -> Iread   <$> decode     <*  decodeNull <*> decodeOperand'
       "answer"  -> Ianswer <$  decodeNull <*  decodeNull <*> decodeOperand' 
+      "advise"  -> Iadvise <$> decode     <*  decodeNull <*  decodeBool <* decodeNull
       _ -> fail $ "invalid instruction encoding. Tag: " ++ show tag ++ "."
-  
+
 instance (Serialise regT, Serialise ops) => Serialise (Instruction regT ops) where
     encode = encodeInstr
     decode = decodeInstr
@@ -364,7 +372,12 @@ encodeAdvice  (MemOp addr val opTyp) =
   <> encode addr
   <> encode val
   <> encode opTyp
-  
+
+encodeAdvice (Advise w) =
+  encodeListLen 2
+  <> encodeString "Advise"
+  <> encode w
+
 encodeAdvice  Stutter =
   encodeListLen 1 <>
   encodeString "Stutter"

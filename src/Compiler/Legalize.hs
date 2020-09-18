@@ -156,8 +156,11 @@ legalizeInstr' (MirM i m) = do
     Iread rd o2 -> return $ Iread rd o2
     Ianswer o2 -> return $ Ianswer o2
 
+    Iadvise rd -> return $ Iadvise rd
+
     Iext name ops -> return $ Iext name ops
     Iextval name rd ops -> return $ Iextval name rd ops
+    Iextadvise name rd ops -> return $ Iextadvise name rd ops
   return $ MRI i' m
 
 legalizeInstrs :: [MIRInstr m w] -> Statefully m w [RTLInstr m w]

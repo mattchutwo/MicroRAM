@@ -68,11 +68,45 @@ cc_trap _ _ = return [
   MirM (Iext "trace_trap" []) (),
   MirM (Ianswer (LImm $ SConst 0)) ()] -- TODO
 
+cc_malloc :: IntrinsicImpl () w
+cc_malloc [size] (Just dest) = return [MirM (Iextval "malloc" dest [size]) ()]
+cc_malloc _ _ = progError "bad arguments"
+
+cc_free :: IntrinsicImpl () w
+cc_free [ptr] Nothing = return [MirM (Iext "free" [ptr]) ()]
+cc_free _ _ = progError "bad arguments"
+
+cc_advise_poison :: IntrinsicImpl () w
+cc_advise_poison [lo, hi] (Just dest) = return [MirM (Iextval "advise_poison" dest [lo, hi]) ()]
+cc_advise_poison _ _ = progError "bad arguments"
+
+cc_write_and_poison :: IntrinsicImpl () w
+cc_write_and_poison [ptr, val] Nothing =
+  return [MirM (Istore ptr val) ()] -- TODO
+cc_write_and_poison _ _ = progError "bad arguments"
+
+cc_write_poisoned :: IntrinsicImpl () w
+cc_write_poisoned [ptr, val] Nothing =
+  return [MirM (Istore ptr val) ()] -- TODO
+cc_write_poisoned _ _ = progError "bad arguments"
+
+cc_read_poisoned :: IntrinsicImpl () w
+cc_read_poisoned [ptr] (Just dest) =
+  return [MirM (Iload dest ptr) ()] -- TODO
+cc_read_poisoned _ _ = progError "bad arguments"
+
 intrinsics :: Map String (IntrinsicImpl () MWord)
 intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   [ ("__cc_test_add", cc_test_add)
   , ("__cc_valid_if", cc_noop)  -- TODO
   , ("__cc_bug_if", cc_noop)  -- TODO
+
+  , ("__cc_malloc", cc_malloc)
+  , ("__cc_free", cc_free)
+  , ("__cc_advise_poison", cc_advise_poison)
+  , ("__cc_write_and_poison", cc_write_and_poison)
+  , ("__cc_write_poisoned", cc_write_poisoned)
+  , ("__cc_read_poisoned", cc_read_poisoned)
 
   , ("llvm.lifetime.start.p0i8", cc_noop)
   , ("llvm.lifetime.end.p0i8", cc_noop)

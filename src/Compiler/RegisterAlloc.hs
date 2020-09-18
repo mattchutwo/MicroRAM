@@ -232,25 +232,33 @@ spillRegister spillReg isArg pos blocks = do
       iid' <- getNextInstructionId name
       ((BB (name, iid) [inst] [] [(name, iid')]):) <$> flatten name iid' dag insts insts'
 
-    spillIRInstruction :: LTLInstr mdata VReg wrdT -> StateT RAState Hopefully [LTLInstr mdata VReg wrdT]
-    spillIRInstruction instr = do
-      -- Create a new temporary register to store the value stored/loaded from
-      -- the stack.
-      reg <- generateNewRegister
-      -- Replace the spilled register with the new temporary.
-      --
-      -- We could potentially do better by using separate temporaries for the
-      -- input and output sides, but that only applies to instructions that
-      -- read and write the same virtual register, which should be fairly rare.
-      let instr' = substituteRegisters (Map.singleton spillReg reg) instr
-      -- Add stack access before/after if needed.
-      let ty = getTyForRegister spillReg $ Just instr
-      let load = IRI (Lgetstack Local pos ty reg) mempty
-      let store = IRI (Lsetstack reg Local pos ty) mempty
-      return $
-        (if Set.member spillReg (readRegisters instr) then [load] else []) ++
-        [instr'] ++
-        (if Set.member spillReg (writeRegisters instr) then [store] else [])
+    spillIRInstruction instr
+      | containsReadRegs || containsWriteRegs = do
+        -- Create a new temporary register to store the value stored/loaded from
+        -- the stack.
+        reg <- generateNewRegister
+        -- Replace the spilled register with the new temporary.
+        --
+        -- We could potentially do better by using separate temporaries for the
+        -- input and output sides, but that only applies to instructions that
+        -- read and write the same virtual register, which should be fairly rare.
+        let instr' = substituteRegisters (Map.singleton spillReg reg) instr
+        -- Add stack access before/after if needed.
+        let ty = getTyForRegister spillReg $ Just instr
+        let load = IRI (Lgetstack Local pos ty reg) mempty
+        let store = IRI (Lsetstack reg Local pos ty) mempty
+        return $
+          (if containsReadRegs then [load] else []) ++
+          [instr'] ++
+          (if containsWriteRegs then [store] else [])
+
+      | otherwise =
+        return [instr]
+
+        where
+          containsReadRegs = Set.member spillReg $ readRegisters instr
+          containsWriteRegs = Set.member spillReg $ writeRegisters instr
+
 
     generateNewRegister = do
       reg <- (\i -> Name $ "_reg_alloc" <> BSS.toShort (BSC.pack $ show $ raNextRegister i)) <$> get
@@ -308,8 +316,10 @@ applyColoring coloring = mapM applyBasicBlock
     applyMRIInstruction (MRAM.Iload r1 op) = MRAM.Iload <$> applyReg r1 <*> applyOperand op
     applyMRIInstruction (MRAM.Iread r1 op) = MRAM.Iread <$> applyReg r1 <*> applyOperand op
     applyMRIInstruction (MRAM.Ianswer op) = MRAM.Ianswer <$> applyOperand op
+    applyMRIInstruction (MRAM.Iadvise r1) = MRAM.Iadvise <$> applyReg r1
     applyMRIInstruction (MRAM.Iext name ops) = MRAM.Iext name <$> mapM applyOperand ops
     applyMRIInstruction (MRAM.Iextval name rd ops) = MRAM.Iextval name <$> applyReg rd <*> mapM applyOperand ops
+    applyMRIInstruction (MRAM.Iextadvise name rd ops) = MRAM.Iextadvise name <$> applyReg rd <*> mapM applyOperand ops
 
     applyReg :: reg0 -> Hopefully reg
     applyReg r | Just r' <- Map.lookup r coloring = return r'
