@@ -4,7 +4,7 @@ int main()
 {
   int n, first = 0, second = 1, next, c;
   n = SECRET_NUMBER; 
-  for (c = 0; c < n; c++)
+  for (c = 0; c <= n; c++)
   {
     if (c <= 1)
       next = c;

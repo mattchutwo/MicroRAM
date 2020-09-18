@@ -47,6 +47,7 @@ dependencies:
 - text
 - filepath
 - directory
+- lens
 
 library:
   source-dirs: src

@@ -24,7 +24,11 @@ The cheesecloth compiler translates LLVM modules to MicroRAM as diagramed below:
        | Register allocation
   +----v----+
   |         +---+
-  |   LTL   |   |Globals
+  |         |   | Calling conventions
+  |         <---+
+  |   LTL   |
+  |         +---+
+  |         |   | Globals
   |         <---+
   +----+----+
        | Stacking
@@ -72,6 +76,8 @@ execution of programs.
 
 * __Register Allocation__ (`registerAlloc`): Register allocation
 
+* __Calling Convention__ (`callingConvention`): Saving callee saved registersto the stack.
+
 * __Gloabls__ (`replaceGlobals`): Converts globals into initial memory and replaces all
   uses of global variables with the constant pointer to their
   location in memory.         
@@ -90,7 +96,8 @@ execution of programs.
 
 -}
 module Compiler
-    ( compile, --compileStraight
+    ( compile --compileStraight
+    , module Export
     ) where
 
 import qualified LLVM.AST as LLVM
@@ -100,17 +107,19 @@ import Util.Util
 
 import Compiler.CompilationUnit
 import Compiler.Errors
-import Compiler.IRs
 import Compiler.InstructionSelection
+import Compiler.Intrinsics
 import Compiler.Legalize
 import Compiler.RemovePhi
 import Compiler.RegisterAlloc
+import Compiler.RegisterAlloc as Export (AReg)
 import Compiler.CallingConvention
 import Compiler.Globals
 import Compiler.Stacking
 import Compiler.Sparsity
 import Compiler.RemoveLabels
 import Compiler.Analysis
+import Compiler.LocalizeLabels
 
 import MicroRAM (MWord)
 import qualified MicroRAM as MRAM  (Program) 
@@ -119,16 +128,19 @@ import qualified MicroRAM as MRAM  (Program)
 f <.> g = \x -> return $ f $ g x 
 
 compile :: Word -> LLVM.Module
-        -> Hopefully $ CompilationUnit (MRAM.Program Name MWord)
+        -> Hopefully $ CompilationResult (MRAM.Program AReg MWord)
 compile len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
+  >>= (tagPass "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
+  >>= (tagPass "Lower Intrinsics" $ justCompile lowerIntrinsics)
   >>= (tagPass "Legalize Instructions" $ justCompile legalize)
+  >>= (tagPass "Localize Labels" $ justCompile localizeLabels)
   >>= (tagPass "Edge split" $ justCompile edgeSplit)
-  >>= (tagPass "Remove phi" $ justCompile removePhi)
-  >>= (tagPass "Register Allocation" $ justCompile $ registerAlloc def)
+  >>= (tagPass "Remove Phi Nodes" $ justCompile removePhi)
+  >>= (tagPass "Register Allocation" $ registerAlloc def)
   >>= (tagPass "Calling Convention" $ justCompile callingConvention)
   >>= (tagPass "Remove Globals" $ replaceGlobals)
   >>= (tagPass "Stacking" $ justCompile stacking)
   >>= (tagPass "Computing Sparsity" $ justAnalyse (SparsityData <.> sparsity))
-  >>= (tagPass "Removing labels" $ justCompile removeLabels)
+  >>= (tagPass "Removing labels" $ removeLabels)
           

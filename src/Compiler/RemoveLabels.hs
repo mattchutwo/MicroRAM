@@ -31,7 +31,8 @@ TODO: It can all be done in 2 passes. Optimize?
 
 -}
 module Compiler.RemoveLabels
-    ( removeLabels, 
+    ( removeLabels,
+      removeLabelsProg
     ) where
 
 
@@ -42,7 +43,9 @@ import qualified Data.Map.Strict as Map
 
 import Util.Util
 
+import Compiler.CompilationUnit
 import Compiler.Errors
+import Compiler.LazyConstants
 
 -- * Assembler
 
@@ -57,11 +60,12 @@ naturals = iterate (1 +) 1
 type LabelMap = Map.Map String Wrd
 getLabel :: LabelMap -> String -> Hopefully Wrd
 getLabel lmap lbl =
-  case Map.lookup  lbl lmap of
+  case Map.lookup lbl lmap of
     Just w -> Right w
     Nothing -> assumptError $ "Code label called but not defined. Label" ++ (show lbl)
 
 data State = State { pc :: Wrd, lMap :: LabelMap}
+
 initState :: State
 initState = State 0 Map.empty
 
@@ -72,6 +76,8 @@ createMapStep st (NBlock name code) =
   State ( pc st + (fromIntegral $ length code)) (update oldMap name)
   where location = pc st
         oldMap = lMap st
+        update lm (Just nm) | Map.member nm lm =
+          error $ "duplicate definition of label " ++ show nm
         update lm (Just nm) = Map.insert nm location lm
         update lm _ = lm
 
@@ -98,14 +104,18 @@ flatten maProg = foldl flattenStep [] maProg
 -- | Translate the operands
 -- This takes the current instruction to translate 'HereLabel'
 translateOperand :: LabelMap -> Wrd -> MAOperand regT Wrd -> Hopefully (Operand regT Wrd)
-translateOperand _ _ (AReg r) = Right $ Reg r
-translateOperand _ _ (LConst c) =  Right $ Const c
+translateOperand _ _ (AReg r) = return $  Reg r
+translateOperand _ _ (LImm (SConst sc)) =  return $  Const sc
+translateOperand labelMap _ (LImm lc) =
+  return $ Const $ makeConcreteConst fullMap lc
+  where fullMap = addDefault labelMap
+  --assumptError $ "There should be no lazy constants at this point. Found a Lazy Constant LConst. \n"
 translateOperand _ _ (Glob g) =  assumptError $ "There should be no globals at this point. Found \n" ++
-                                 "Glob " ++ g
+                                 "Glob " ++ show g
 translateOperand lmap _ (Label lbl) = do
   location <- getLabel lmap lbl 
-  Right $ Const location
-translateOperand _ loc (HereLabel) = Right $ Const loc
+  return $  Const location
+translateOperand _ loc (HereLabel) = return $  Const loc
 
 translatePair:: Monad m =>
   (w -> a -> m b) ->
@@ -119,6 +129,10 @@ translateProgram:: Monad m =>
   m [(Instruction' regT regT b)]
 translateProgram f = mapM (translatePair f)
 
+
+-- Reoplaces labels with the real value.
+-- In the future it will ALSO replace lazy constants with immediates.
+-- (Remember we stillneed "HERE LABEL", which cannot (should not) be replaced by lazy constants)
 replaceLabels:: LabelMap -> [MAInstruction regT Wrd] -> Hopefully $ Program regT Wrd
 replaceLabels lm amProg = translateProgram (translateOperand lm) numberedProg
   where numberedProg = zip amProg naturals 
@@ -126,7 +140,35 @@ replaceLabels lm amProg = translateProgram (translateOperand lm) numberedProg
 
 -- ** Assemble : put all steps together
 
-removeLabels :: MAProgram regT Wrd -> Hopefully $ Program regT Wrd
-removeLabels massProg = replaceLabels lMap flatProg
+-- Old way of doing it.
+removeLabelsProg :: MAProgram regT Wrd -> Hopefully $ Program regT Wrd
+removeLabelsProg massProg = replaceLabels lMap flatProg
   where lMap     = createMap massProg
         flatProg = flatten massProg
+
+removeLabelsInitMem :: LabelMap -> LazyInitialMem -> Hopefully $ InitialMem
+removeLabelsInitMem lmap lInitMem =
+  let fullMap = addDefault lmap in
+    mapM (removeLabelsSegment fullMap) lInitMem
+  where removeLabelsSegment :: (String -> Wrd) -> LazyInitSegment -> Hopefully $ InitMemSegment
+        removeLabelsSegment labelMap (lMem, initSegment) =
+          return $ initSegment {content =  removeLabelInitialValues labelMap lMem}
+        removeLabelInitialValues :: (String -> Wrd) -> Maybe [LazyConst String Wrd] -> Maybe [Wrd]
+        removeLabelInitialValues labelMap lMem =  map (makeConcreteConst labelMap) <$> lMem
+addDefault :: LabelMap -> String -> Wrd
+addDefault labelMap name =
+  case Map.lookup name labelMap of
+    Just x -> x
+    Nothing -> 0  -- Adds a default. Checking undefined names and labels should be done at Instruction Selection.
+                  -- So, here we asssume all funcitons are in the map and the default will never be returned.
+      
+
+-- ** Remove labels from the entire CompilationUnit
+removeLabels :: (CompilationUnit LazyInitialMem $ MAProgram regT Wrd)
+             -> Hopefully $ CompilationUnit () (Program regT Wrd)
+removeLabels compUnit = do
+  lMap <- return $ createMap $ programCU compUnit
+  prog' <- replaceLabels lMap $ flatten $ programCU compUnit
+  initMem <- removeLabelsInitMem lMap $ intermediateInfo compUnit
+  return $ compUnit {programCU = prog' , initM = initMem, intermediateInfo = ()}
+  

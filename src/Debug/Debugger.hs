@@ -21,10 +21,10 @@ module Debug.Debugger where
 
 import qualified GHC.Generics as G
 import Data.Data
-import Data.Default
+--import Data.Default
 
 import Text.PrettyPrint.Tabulate
-import Text.PrettyPrint.Boxes
+import Text.PrettyPrint.Boxes hiding ((<>))
 import Text.Printf
 
 
@@ -34,14 +34,16 @@ import Util.Util
 import qualified LLVM.AST as LLVM
 
 -- Local 
+import Compiler
+--import Compiler.CallingConvention
 import Compiler.CompilationUnit
-import Compiler.InstructionSelection
+--import Compiler.InstructionSelection
 import Compiler.IRs
-import Compiler.Legalize
-import Compiler.RegisterAlloc
+--import Compiler.Legalize
+--import Compiler.RegisterAlloc
 import Compiler.Registers
-import Compiler.RemoveLabels
-import Compiler.Stacking
+--import Compiler.RemoveLabels
+--import Compiler.Stacking
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
@@ -72,7 +74,7 @@ data CustomSummary mreg = CS
 memSummarySize :: Integer
 memSummarySize = 5
 
-toSummaryMem :: [MWord] -> Mem -> [MWord]
+toSummaryMem :: [MWord] -> Mem' -> [MWord]
 toSummaryMem theseLocations m =
   map (\loc -> load loc m) theseLocations
   
@@ -232,7 +234,7 @@ fromLLVMFile = llvmParse
 
 fromMRAMFile :: (Read mreg, Regs mreg) =>
                 FilePath
-             -> IO $ CompilationUnit (Program mreg MWord)
+             -> IO $ CompilationResult (Program mreg MWord)
 fromMRAMFile file = do
   contents <- readFile file
   return $ read contents
@@ -257,10 +259,52 @@ summaryFromFile file cs length = do
 
 -- * Pretty printing
 
-pprint :: CompilationUnit (Program Name MWord) -> String
+pprint :: CompilationResult (Program Name MWord) -> String
 pprint compUnit =
   let prog = programCU compUnit in
-  concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ show inst ++ "\n") $ enumerate prog
+  -- concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ show inst ++ "\n") $ enumerate prog
+  concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ pprintInst inst ++ "\n") $ enumerate prog
+
+pprintInst :: Instruction' Name Name (Operand Name MWord) -> String
+pprintInst (Iand r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" && "<> (pprintOp op)
+pprintInst (Ior r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" || "<> (pprintOp op)
+pprintInst (Ixor r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" ^ "<> (pprintOp op)
+pprintInst (Inot r1 op) = (pprintReg r1) <>" = ! "<> (pprintOp op)
+pprintInst (Iadd r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" + "<> (pprintOp op)
+pprintInst (Isub r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" - "<> (pprintOp op)
+pprintInst (Imull r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" * "<> (pprintOp op)
+pprintInst (Iumulh r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" * "<> (pprintOp op)
+pprintInst (Ismulh r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" * "<> (pprintOp op)
+pprintInst (Iudiv r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" / "<> (pprintOp op)
+pprintInst (Iumod r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" % "<> (pprintOp op)
+-- pprintInst (Ishl r1 r2 op) = (pprintReg r1) (pprintReg r2) (pprintOp op)
+-- pprintInst (Ishr r1 r2 op) = (pprintReg r1) (pprintReg r2) (pprintOp op)
+-- pprintInst (Icmpe r1 op) = (pprintReg r1) (pprintOp op)
+-- pprintInst (Icmpa r1 op) = (pprintReg r1) (pprintOp op)
+-- pprintInst (Icmpae r1 op) = (pprintReg r1) (pprintOp op)
+-- pprintInst (Icmpg r1 op) = (pprintReg r1) (pprintOp op)
+-- pprintInst (Icmpge r1 op) = (pprintReg r1) (pprintOp op)
+pprintInst (Imov r1 op) = (pprintReg r1) <>" = "<> (pprintOp op)
+pprintInst (Icmov r1 op) = (pprintReg r1) <>" = "<> (pprintOp op)
+pprintInst (Ijmp op) = "jmp "<> (pprintOp op)
+pprintInst (Icjmp op) = "jmp "<> (pprintOp op)
+pprintInst (Icnjmp op) = "jmp "<> (pprintOp op)
+pprintInst (Istore op r1) = "*("<> (pprintOp op) <>") = "<> (pprintReg r1)
+pprintInst (Iload r1 op) = (pprintReg r1) <>" = *("<> (pprintOp op) <> ")"
+-- pprintInst (Iread r1 op) = (pprintReg r1) (pprintOp op)
+pprintInst (Ianswer op) = "ans "<> (pprintOp op)
+pprintInst i = show i -- TODO
+
+pprintReg :: Name -> String
+pprintReg r | r == ax = "%ax"
+pprintReg r | r == bp = "%bp"
+pprintReg r | r == sp = "%sp"
+pprintReg (NewName r) = "%" <> show r
+pprintReg r = show r
+
+pprintOp :: Show a => Operand Name a -> String
+pprintOp (Reg r) = pprintReg r
+pprintOp (Const c) = show c
 
 pprintFromFile :: FilePath -> IO ()
 pprintFromFile file = do
@@ -289,34 +333,45 @@ fromAscii = toEnum
 
 -- Example
 myfile, myllvmfile:: FilePath
-myfile = "test/programs/return42.micro" -- "programs/returnInput.micro"
+myfile = "test/programs/easyArray.micro" -- "programs/returnInput.micro"
 myllvmfile = "programs/returnInput.ll"
 
 pprintMyFile :: IO ()
 pprintMyFile = pprintFromFile myfile
 
-mram :: IO $ CompilationUnit (Program Name MWord)
+mram :: IO $ CompilationResult (Program Name MWord)
 mram =  fromMRAMFile "test/return42.micro"
 
 {- | Example
 -- summaryFromFile myfile myCS 300
 -}
 
+-- jpProgComp :: Word -> IO (Program VReg MWord)
+jpProgComp len = do
+    m <- fromLLVMFile "programs/driver-link.ll"
+    return $ either undefined id $
+      compile len m
+
+{- SC: Broken after resgiter allocation was moved to
+   work on compilation units, not just programs.
 jpProg :: IO (Program VReg MWord)
 jpProg = do
-    m <- fromLLVMFile "test/programs/returnArgc.ll"
+    m <- fromLLVMFile "test/programs/fibSlow.ll"
     return $ either undefined id $
       instrSelect m
       >>= legalize
       >>= registerAlloc def
+      >>= callingConvention
       >>= stacking
-      >>= removeLabels
+      >>= removeLabelsProg 
+-}
+
 cs :: CustomSummary mreg
 cs = defaultSummary {theseMem = [0..27]}
 --inp :: [MWord]
 --inp = buildInitMem ["one","two", "three"]
 
--- m' <- jpProg
+-- m' <- prog2unit 200 <$> jpProg
 -- putStrLn $ pprint m'
--- printSummary cs (run inp m') 28
+-- printSummary cs (run m') 28
 

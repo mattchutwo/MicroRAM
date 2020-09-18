@@ -39,6 +39,18 @@ testTrivial = testGroup "Trivial programs" $
     "21 + 21"
     "test/programs/compute42.ll"
     70 42 :
+  compileTest
+    "Trivial intrinsic call"
+    "test/programs/intrinsicAdd.ll"
+    50 120 :
+  compileTest
+    "Function call with multiple args"
+    "test/programs/multiArgs.ll"
+    110 123 :
+  compileTest
+    "arithmetic shift right"
+    "test/programs/arithShr.ll"
+    600 8 :
     []
 
 -- Conditionals, Branching and loops
@@ -46,15 +58,15 @@ testLoops = testGroup "Conditionals, Branching and loops" $
   compileTest
     "Fibonacci loop (not optimized)"
     "test/programs/fibSlow.ll"
-    470 34 :
+    820 34 :
   compileTest
     "Easy function call"
     "test/programs/easyFunction.ll"
-    60 42 : 
+    70 42 : 
   compileTest
     "More easy function calls"
     "test/programs/callingConventions.ll"
-    70 42 : 
+    100 42 : 
   compileTest
     "Factorial with recursive calls"
     "test/programs/factRec.ll"
@@ -88,7 +100,7 @@ testGEP = testGroup "Test structs and arrays with GetElementPtr" $
     compileTest
     "Linked list length 3"
     "test/programs/easyLinkedList.ll"
-    140 16 :
+    240 16 :
     []
     
 

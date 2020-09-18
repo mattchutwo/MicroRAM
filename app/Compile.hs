@@ -69,7 +69,7 @@ main = do
   output fr $ secretOut
   ifio (doubleCheck fr) $ print "Nothing to check"
   
-  where output :: FlagRecord -> Output Name -> IO ()
+  where output :: FlagRecord -> Output AReg -> IO ()
         output fr out = case fileOut fr of
                            Just file -> L.writeFile file $ serialOutput out
                            Nothing   -> putStrLn $ printOutputWithFormat (outFormat fr) out
@@ -79,7 +79,7 @@ main = do
             
  
       
-callBackend :: FlagRecord -> IO $ CompilationUnit (Program Name MWord)
+callBackend :: FlagRecord -> IO $ CompilationResult (Program AReg MWord)
 callBackend fr = do  
   -- Retrieve program from file
   llvmModule <- llvmParse $ llvmFile fr

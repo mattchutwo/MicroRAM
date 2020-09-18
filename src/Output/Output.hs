@@ -136,18 +136,18 @@ buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed 
           let sparc2' = Map.map fromIntegral sparc2 in  -- Make into Words
             Map.unionWith min sparc2' spar1
 
-compUnit2Output :: Regs reg => CompilationUnit (Program reg MWord) -> Output reg
-compUnit2Output (CompUnit p trLen regData aData initMem) =
-  let regNum = countRegs p in
+compUnit2Output :: Regs reg => CompilationResult (Program reg MWord) -> Output reg
+compUnit2Output (CompUnit p trLen regData aData initMem _) =
+  let regNum = getRegNum regData in
   let circParams = buildCircuitParameters trLen regData aData regNum in
   PublicOutput p circParams initMem    
 
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).
 -- The input Trace should be an infinite stream which we truncate by the given length.
-secretOutput :: Regs reg => Trace reg -> CompilationUnit (Program reg MWord) -> Output reg
-secretOutput tr (CompUnit p trLen regData aData initM) =
-  let regNum = countRegs p in
+secretOutput :: Regs reg => Trace reg -> CompilationResult (Program reg MWord) -> Output reg
+secretOutput tr (CompUnit p trLen regData aData initM _) =
+  let regNum = getRegNum regData in
   let circParams = buildCircuitParameters trLen regData aData regNum in
     SecretOutput p circParams
     -- initMem
@@ -166,14 +166,18 @@ outputTrace
   :: (Enum a1, Regs mreg) => a1 -> [ExecutionState mreg] -> Word -> [StateOut]
 outputTrace len tr regBound = takeEnum len $ map (state2out regBound) tr
 
-fullOutput :: Regs reg => CompilationUnit (Program reg MWord) -> Output reg
+fullOutput :: Regs reg => CompilationResult (Program reg MWord) -> Output reg
 fullOutput compUnit =
   let _mem = flatInitMem $ initM compUnit in 
   secretOutput (run compUnit) compUnit 
 
 
+getRegNum :: RegisterData -> Word
+getRegNum InfinityRegs = 0
+getRegNum (NumRegisters n) = toEnum n 
 
 -- | We only look at what registers are assigned too
+
 countRegs :: Regs regT => Program regT MWord -> Word
 countRegs p = maximum $ map getRegAssign p
   where getRegAssign (Iand reg1 _reg2 _  ) =  toWord reg1  

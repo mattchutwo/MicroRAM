@@ -6,28 +6,34 @@ module Compiler.CallingConvention where
 import qualified Data.Set as Set
 
 import           Compiler.Errors
+import           Compiler.Common
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.Registers
+import           MicroRAM (MWord)
 import qualified MicroRAM as MRAM
 import           Util.Util
-import MicroRAM (MWord)
 
 -- | Update functions to conform to the calling convention.
 -- Currently uses callee saved registers.
 -- This should be run after register allocation.
-callingConvention :: Lprog () VReg MWord -> Hopefully $ Lprog () VReg MWord
+callingConvention :: (Regs reg, Ord reg) => Lprog () reg MWord -> Hopefully $ Lprog () reg MWord
 callingConvention lprog = do
     let code' = map callingConventionFunc $ code lprog
 
     return $ lprog {code = code'}
 
 
-callingConventionFunc :: LFunction () VReg MWord -> LFunction () VReg MWord
+callingConventionFunc :: (Regs reg, Ord reg) => LFunction () reg MWord -> LFunction () reg MWord
 callingConventionFunc lf@(LFunction _fname _mdata _typ _typs _stackSize []) = lf
 callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:blocks)) = 
     -- Get all registers that the function writes to.
-    let registers = Set.toList $ Set.unions $ map (\(BB _ insts insts' _) -> Set.unions $ map writeRegisters (insts' ++ insts)) blocks in
+    let isMain = fname == "Name \"main\"" in    -- TODO: Improve this.
+    let registers = if isMain then
+            []
+          else
+            Set.toList $ Set.unions $ map (\(BB _ insts insts' _) -> Set.unions $ map writeRegisters (insts' ++ insts)) (firstBlock:blocks)
+    in
 
     -- Prepend a push (given stack size).
     let firstBlock' = calleeSave stackSize registers firstBlock in
