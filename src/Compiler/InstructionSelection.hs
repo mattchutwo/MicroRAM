@@ -149,10 +149,15 @@ type2type tenv (LLVM.ArrayType size elemT) = do
 --type2type _ (LLVM.StructureType True _) = assumptError "Can't pack structs yet."
 type2type tenv (LLVM.StructureType _ tys) = Tstruct <$> mapM (type2type tenv) tys
 type2type tenv (LLVM.NamedTypeReference name) = do
-  case Map.lookup name tenv of
-    Just ty -> type2type tenv ty
-    Nothing -> assumptError $ "Type not defined: \n \t" ++ show name ++ ".\n" 
+  ty <- typeDef tenv name
+  type2type tenv ty
 type2type _ t = implError $ "Type conversion of the following llvm type: \n \t " ++ (show t)
+
+typeDef :: LLVMTypeEnv -> LLVM.Name -> Hopefully LLVM.Type  
+typeDef tenv name =
+  case Map.lookup name tenv of
+    Just ty -> return $ ty
+    Nothing -> assumptError $ "Type not defined: \n \t" ++ show name ++ ".\n" 
 
 
 -- | toRTL lifts simple MicroRAM instruction into RTL.
@@ -519,48 +524,54 @@ isGEP  env addr inxs ret = do
   -- inxs' <- lift $ mapM operand2operand env inxs
   instructions <- isGEPptr env ret ty' addr' inxs
   return $ map (\instr -> MirM instr ()) instructions
-  where isGEPptr ::
-          Env
+  where isGEPptr
+          :: Env
           -> VReg
           -> LLVM.Type
           -> MAOperand VReg MWord
           -> [LLVM.Operand] -- [MAOperand VReg Word]
           -> Statefully $ [MA2Instruction VReg MWord]
         isGEPptr _ _ _ _ [] = assumptError "Getelementptr called with no indices"
-        isGEPptr env ret (LLVM.PointerType refT _) base (inx:inxs) = do
-          typ' <-  lift $ type2type (tenv env) refT
+        isGEPptr env ret (LLVM.PointerType refT _x) base (inx:inxs) = do
+          _typ' <-  lift $ type2type (tenv env) refT
           inxOp <- lift $ operand2operand env inx
           inxs' <- lift $ mapM (operand2operand env) inxs
-          continuation <- isGEPaggregate ret typ' inxs'
+          continuation <- isGEPaggregate env ret refT inxs'
           rtemp <- freshName
-          return $ [MRAM.Imull rtemp inxOp (LImm $ SConst $ tySize typ'),
+          return $ [MRAM.Imull rtemp inxOp (LImm $ SConst $ sizeOf (tenv env) refT),
                   MRAM.Iadd ret (AReg rtemp) base] ++
             continuation
         isGEPptr _ _ llvmTy _ _ =
           assumptError $ "getElementPtr called in a no-pointer type: " ++ show llvmTy
 
-isGEPaggregate ::
-  VReg -> Ty -> [MAOperand VReg MWord] -> Statefully $ [MA2Instruction VReg MWord]
-isGEPaggregate _ _ [] = return $ []
-isGEPaggregate ret (Tarray _ elemsT) (inx:inxs) = do
-  (rm, multiplication) <- constantMultiplication (tySize elemsT) inx
-  continuation <- isGEPaggregate ret elemsT inxs
+isGEPaggregate
+  :: Env
+  -> VReg
+  -> LLVM.Type
+  -> [MAOperand VReg MWord]
+  -> Statefully $ [MA2Instruction VReg MWord]
+isGEPaggregate _ _ _ [] = return $ []
+isGEPaggregate env ret (LLVM.ArrayType _ elemsT) (inx:inxs) = do
+  (rm, multiplication) <- constantMultiplication (sizeOf (tenv env) elemsT) inx
+  continuation <- isGEPaggregate env ret elemsT inxs
   return $ multiplication ++
   -- offset = indes * size type 
     [MRAM.Iadd ret (AReg ret) rm] ++
     continuation
-isGEPaggregate ret (Tstruct types) (inx:inxs) = 
+isGEPaggregate env ret (LLVM.StructureType _ types) (inx:inxs) = 
   case inx of
     (LImm (SConst i)) -> do
-      offset <- return $ sum $ map tySize $ takeEnum i $ types  
-      continuation <- isGEPaggregate ret (types !! (fromEnum i)) inxs -- FIXME add checks for struct bounds
+      offset <- return $ sum $ map (sizeOf $ tenv env) $ takeEnum i $ types  
+      continuation <- isGEPaggregate env ret (types !! (fromEnum i)) inxs -- FIXME add checks for struct bounds
       return $ MRAM.Iadd ret (AReg ret) (LImm $ SConst offset) : continuation
     (LImm lc) -> assumptError $ unexpectedLazyIndexMSG ++ show lc 
     _ -> assumptError $ unexpectedNotConstantIndexMSG ++ show inx
   where unexpectedLazyIndexMSG = "GetElementPtr error. Indices into structs must be constatnts that do not depend on global references. we can probably fix this, but did not expect tit to show up, please report. /n /t Index to gep was: \n \t"
         unexpectedNotConstantIndexMSG = "GetElementPtr error. Indices into structs must be constatnts, instead found: "
-                                
-isGEPaggregate _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
+isGEPaggregate env ret (LLVM.NamedTypeReference name) inx = do
+  typ <- lift $ typeDef (tenv env) name
+  isGEPaggregate env ret typ inx
+isGEPaggregate _ _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
 
 
 
@@ -919,9 +930,10 @@ nameOfGlobals defs = Set.fromList $ concat $ map nameOfGlobal defs
 isGlobVar :: Env -> LLVM.Global -> Hopefully $ GlobalVariable MWord
 isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) = do
   typ' <- type2type (tenv env) typ
+  size' <- return $ sizeOf (tenv env) typ
   init' <- flatInit env init
   -- TODO: Want to check init' is the right length?
-  return $ GlobalVariable (name2name name) const typ' init' (sectionIsSecret sectn)
+  return $ GlobalVariable (name2name name) const typ' init' size' (sectionIsSecret sectn)
   where flatInit :: Env ->
                     Maybe LLVM.Constant.Constant ->
                     Hopefully $ Maybe [LazyConst String MWord]
@@ -947,115 +959,84 @@ constant2OnelazyConst ::
   -> Hopefully $ LazyConst String MWord
 constant2OnelazyConst env c = do
   cs' <- constant2lazyConst env c
-  case cs' of
-    [x] -> return x
-    ls -> assumptError $ "Expected a constant of size 1, but found constant of size " ++ (show $ length ls) ++
-      ". Probaly an aggregate value was used where a non-aggregate one was expected."
-      
-  
+  fromHybridMemory (tenv env) (LLVM.typeOf c) cs'    
 
 constant2lazyConst :: 
   Env
   -> LLVM.Constant.Constant
   -> Hopefully $ [LazyConst String MWord]
-constant2lazyConst _ (LLVM.Constant.Int _ val                        ) = returnL $ SConst $ fromInteger val
-constant2lazyConst _ (LLVM.Constant.Null _ty                         ) = returnL $ SConst $ fromInteger 0
-constant2lazyConst env (LLVM.Constant.AggregateZero ty                 ) = do
-  ty' <- type2type (tenv env) ty
-  return $ replicate (fromEnum $ tySize ty') $ SConst 0 
-  -- implError $ "Is this a zero initialized aggregate element?" ++ show (LLVM.Constant.AggregateZero ty) 
-constant2lazyConst env (LLVM.Constant.Struct _name _pack vals          ) = concat <$> mapM (constant2lazyConst env) vals 
-constant2lazyConst env (LLVM.Constant.Array _ty vals                   ) = concat <$> mapM (constant2lazyConst env) vals
-constant2lazyConst _ (LLVM.Constant.Undef _ty                        ) = returnL $ SConst $ fromInteger 0
-constant2lazyConst env (LLVM.Constant.GlobalReference _ty name          ) = do
-  _ <- checkName (globs env) name
-  name' <- return $ show $ name2name name
-  returnL $ LConst $ \ge -> ge name'
-constant2lazyConst env (LLVM.Constant.Add _ _ op1 op2                  ) = bop2lazyConst env (+) op1 op2
-constant2lazyConst env (LLVM.Constant.Sub  _ _ op1 op2                 ) = bop2lazyConst env (-) op1 op2
-constant2lazyConst env (LLVM.Constant.Mul  _ _ op1 op2                 ) = bop2lazyConst env (*) op1 op2
-constant2lazyConst env (LLVM.Constant.UDiv  _ op1 op2                  ) = bop2lazyConst env quot op1 op2
-constant2lazyConst _ (LLVM.Constant.SDiv _ _op1 _op2                 ) =
-  implError $ "Signed division is not implemented."
-constant2lazyConst env (LLVM.Constant.URem op1 op2                     ) = bop2lazyConst env rem op1 op2
-constant2lazyConst _ (LLVM.Constant.SRem _op1 _op2                   ) = 
-  implError $ "Signed reminder is not implemented."
---constant2lazyConst env (LLVM.Constant.Shl _ _ op1 op2                  ) = undefined -- bop2lazyConst globs shift op1 op2
---constant2lazyConst tenv _globs (LLVM.Constant.LShr _ _ op1                     ) = undefined
---constant2lazyConst tenv _globs (LLVM.Constant.AShr _ _ op1                     ) = undefined
-constant2lazyConst env (LLVM.Constant.And op1 op2                      ) = bop2lazyConst env (.&.) op1 op2
-constant2lazyConst env (LLVM.Constant.Or op1 op2                       ) = bop2lazyConst env (.|.) op1 op2
-constant2lazyConst env (LLVM.Constant.Xor op1 op2                      ) = bop2lazyConst env xor op1 op2
-constant2lazyConst env (LLVM.Constant.GetElementPtr _bounds addr inxs  ) = do
-  addr' <- constant2OnelazyConst env addr
-  ty' <- return $ LLVM.typeOf addr
-  inxs' <- mapM (constant2OnelazyConst env) inxs
-  constGEP (tenv env) ty' addr' inxs'
-constant2lazyConst env (LLVM.Constant.PtrToInt op1 _typ                ) = constant2lazyConst env op1
-constant2lazyConst env (LLVM.Constant.IntToPtr op1 _typ                ) = constant2lazyConst env op1
-constant2lazyConst env (LLVM.Constant.BitCast  op1 _typ                ) = constant2lazyConst env op1
---constant2lazyConst tenv _globs (LLVM.Constant.ICmp pred _op2 _typ              ) = undefined
---constant2lazyConst tenv _globs (LLVM.Constant.Select cond tVal fVal            ) = undefined
---constant2lazyConst tenv _globs (LLVM.Constant.ExtractValue aggr _inds          ) = undefined
---constant2lazyConst tenv _globs (LLVM.Constant.InsertValue aggr elem _inds      ) = undefined
--- Vector         
-constant2lazyConst _ (LLVM.Constant.Vector _mems                     ) =  
-  implError $ "Vectors not yet supported."
-constant2lazyConst _ (LLVM.Constant.ExtractElement _vect _indx       ) = 
-  implError $ "Vectors not yet supported."
-constant2lazyConst _ (LLVM.Constant.InsertElement _vect _elem _indx  ) = 
-  implError $ "Vectors not yet supported."
-constant2lazyConst _ (LLVM.Constant.ShuffleVector _op1 _op2 _mask    ) = 
-  implError $ "Vectors not yet supported."
-{-
--- Floating points
-constant2lazyConst tenv _globs (LLVM.Constant.Float _                          ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.FAdd _op1 _op2                   ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.FSub _op1 _op2                   ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.FMul _op1 _op2                   ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.FDiv _op1 _op2                   ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.FRem _op1 _op2                   ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.FPToUI _op _typ                  ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.FPToSI _op _typ                  ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.UIToFP _op _typ                  ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.SIToFP _op _typ                  ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.FPTrunc _op _typ                 ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.FPExt _op _typ                   ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.FCmp _ _op1 _op2                 ) = undefined
--- Extensions -- Truncation
-constant2lazyConst tenv _globs (LLVM.Constant.ZExt _ _                         ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.SExt _ _                         ) = undefined
-constant2lazyConst tenv _globs (LLVM.Constant.Trunc _ _                        ) = undefined
--- Tokens
-constant2lazyConst tenv _globs (LLVM.Constant.TokenNone                        ) = undefined
--}
-constant2lazyConst _ c = implError $ "Constant not supported yet for global initializers: " ++ show c
-
-
+constant2lazyConst env c =
+  case c of
+    (LLVM.Constant.Int _ val                        ) -> returnHybrid (SConst $ fromInteger val) 
+    (LLVM.Constant.Null _ty                         ) -> returnHybrid (SConst $ fromInteger 0)
+    (LLVM.Constant.AggregateZero ty                 ) -> do
+      return $ replicate (fromEnum $ sizeOf (tenv env) ty) $ SConst 0 
+    (LLVM.Constant.Struct _name _pack vals          ) -> concat <$> mapM (constant2lazyConst env) vals 
+    (LLVM.Constant.Array _ty vals                   ) -> concat <$> mapM (constant2lazyConst env) vals
+    (LLVM.Constant.Undef _ty                        ) -> returnHybrid $ SConst $ fromInteger 0
+    (LLVM.Constant.GlobalReference _ty name          ) -> do
+      _ <- checkName (globs env) name
+      name' <- return $ show $ name2name name
+      returnHybrid $ LConst $ \ge -> ge name'
+    (LLVM.Constant.Add _ _ op1 op2                  ) -> bop2lazyConst env (+) op1 op2 >>= returnHybrid
+    (LLVM.Constant.Sub  _ _ op1 op2                 ) -> bop2lazyConst env (-) op1 op2 >>= returnHybrid
+    (LLVM.Constant.Mul  _ _ op1 op2                 ) -> bop2lazyConst env (*) op1 op2 >>= returnHybrid
+    (LLVM.Constant.UDiv  _ op1 op2                  ) -> bop2lazyConst env quot op1 op2 >>= returnHybrid
+    (LLVM.Constant.SDiv _ _op1 _op2                 ) ->
+      implError $ "Signed division is not implemented."
+    (LLVM.Constant.URem op1 op2                     ) -> bop2lazyConst env rem op1 op2 >>= returnHybrid
+    (LLVM.Constant.SRem _op1 _op2                   ) -> 
+      implError $ "Signed reminder is not implemented."
+    (LLVM.Constant.And op1 op2                      ) -> bop2lazyConst env (.&.) op1 op2 >>= returnHybrid
+    (LLVM.Constant.Or op1 op2                       ) -> bop2lazyConst env (.|.) op1 op2 >>= returnHybrid
+    (LLVM.Constant.Xor op1 op2                      ) -> bop2lazyConst env xor op1 op2   >>= returnHybrid
+    (LLVM.Constant.GetElementPtr _bounds addr inxs  ) -> do
+      addr' <- constant2OnelazyConst env addr
+      ty' <- return $ LLVM.typeOf addr
+      inxs' <- mapM (constant2OnelazyConst env) inxs
+      constGEP (tenv env) ty' addr' inxs' >>= returnHybrid
+    (LLVM.Constant.PtrToInt op1 _typ                ) -> constant2lazyConst env op1
+    (LLVM.Constant.IntToPtr op1 _typ                ) -> constant2lazyConst env op1
+    (LLVM.Constant.BitCast  op1 _typ                ) -> constant2lazyConst env op1
+    (LLVM.Constant.Vector _mems                     ) ->  
+      implError $ "Vectors not yet supported."
+    (LLVM.Constant.ExtractElement _vect _indx       ) -> 
+      implError $ "Vectors not yet supported."
+    (LLVM.Constant.InsertElement _vect _elem _indx  ) -> 
+      implError $ "Vectors not yet supported."
+    (LLVM.Constant.ShuffleVector _op1 _op2 _mask    ) -> 
+      implError $ "Vectors not yet supported."
+    c -> implError $ "Constant not supported yet for global initializers: " ++ show c
+  where
+    ty = LLVM.typeOf c
+    returnHybrid :: LazyConst String MWord -> Hopefully [LazyConst String MWord]
+    returnHybrid x = return $ fitHybridMemory (tenv env) ty x 
+        
 constGEP :: LLVMTypeEnv
          -> LLVM.Type
          -> LazyConst String MWord
          -> [LazyConst String MWord]
-         -> Hopefully $ [LazyConst String MWord]
+         -> Hopefully $ LazyConst String MWord
 constGEP _ (LLVM.PointerType _refT _) _ [] = assumptError "GetElementPtr should have at least one index. "
 constGEP tenv (LLVM.PointerType refT _) ptr (inx:inxs) = do
-  typ' <- type2type tenv refT
-  ofs <- return $ inx * (SConst $ tySize typ')
-  final <- constGEP' typ' (ptr + ofs) inxs
-  return [final]
-  where constGEP' :: Ty
+  _typ' <- type2type tenv refT
+  ofs <- return $ inx * (SConst $ sizeOf tenv refT)
+  final <- constGEP' tenv refT(ptr + ofs) inxs
+  return $ final
+  where constGEP' :: LLVMTypeEnv
+                  -> LLVM.Type
                   -> LazyConst String MWord
                   -> [LazyConst String MWord]
                   -> Hopefully $ LazyConst String MWord 
-        constGEP' _ ptr [] = return ptr
-        constGEP' (Tarray _ elemsT) ptr (inx:inxs) = 
-           flip (constGEP' elemsT) inxs (ptr + inx * (SConst $ tySize elemsT))
-        constGEP' (Tstruct tys) ptr (inx:inxs) =
+        constGEP' _ _ ptr [] = return ptr
+        constGEP' env (LLVM.ArrayType _ elemsT) ptr (inx:inxs) = 
+           flip (constGEP' env elemsT) inxs (ptr + inx * (SConst $ sizeOf env elemsT))
+        constGEP' env (LLVM.StructureType True tys) ptr (inx:inxs) =
           case inx of
-            SConst inx' -> let ofs' = sum $ map tySize $ takeEnum inx' $ tys in
-                             flip (constGEP' (tys !! (fromEnum inx'))) inxs (ptr + (SConst $ ofs'))
+            SConst inx' -> let ofs' = sum $ map (sizeOf env) $ takeEnum inx' $ tys in
+                             flip (constGEP' env (tys !! (fromEnum inx'))) inxs (ptr + (SConst $ ofs'))
             _ -> implError $ "GetElementPtr called with a lazy constant. That means that a global reference (or funciton pointer) was used to compute those indices. That is invalid."
-        constGEP' ty _ _ = assumptError $ "GetElementPtr must be called on an agregate type (the first type must be a pointer) but found a non aggregate one: \n \t " ++ show ty 
+        constGEP' _ ty _ _ = assumptError $ "GetElementPtr must be called on an agregate type (the first type must be a pointer) but found a non aggregate one: \n \t " ++ show ty 
 constGEP _ ty _ _ = assumptError $ "GetElementPtr expects a pointer type, but found: \n \t" ++ show ty
 
 
@@ -1066,13 +1047,13 @@ bop2lazyConst :: Env
               -> (MWord -> MWord -> MWord)
               -> LLVM.Constant.Constant
               -> LLVM.Constant.Constant
-              -> Hopefully $ [LazyConst String MWord]
+              -> Hopefully $ LazyConst String MWord
 bop2lazyConst env bop op1 op2 = do
   op1s <- constant2lazyConst env op1
   op1' <- getUniqueWord op1s
   op2s <- constant2lazyConst env op2
   op2' <- getUniqueWord op2s
-  returnL $ lazyBop bop op1' op2'  
+  return $ lazyBop bop op1' op2'  
   where getUniqueWord :: [LazyConst String MWord] -> Hopefully $ LazyConst String MWord
         getUniqueWord [op1'] = return op1' 
         getUniqueWord _ = assumptError "Tryed to compute a binary operation with an aggregate value." 

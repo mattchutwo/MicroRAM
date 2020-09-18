@@ -30,7 +30,6 @@ module Compiler.Common (
   )
   where
 
-import MicroRAM(MWord)
 
 
 import Data.ByteString.Short
@@ -39,6 +38,8 @@ import qualified Data.Map as Map
 
 import Compiler.Registers
 import Compiler.LazyConstants
+
+import MicroRAM(MWord)
 
 
 
@@ -65,14 +66,15 @@ data Ty =
   deriving (Show)
 
 -- | Determines the relative size of types (relative to a 32bit integer/64bit)
+
 tySize ::  Ty -> MWord
 tySize typ =
   case typ of
-    Tarray length subTyp -> length * (tySizeAggregated subTyp) * 4
-    Tstruct tys -> sum $ map tySizeAggregated tys   
+    Tarray length subTyp -> length * (tySize subTyp) * 4
+    Tstruct tys -> sum $ map tySize tys   
     TVoid -> 0
     _ -> 1 -- Pointers have the same sizer as Tint
-  where
+{-  where
     {- TEMPORARY SOLUTION:
        Hybrid Memory model
 
@@ -86,7 +88,7 @@ If we rearranged the struct layout to put the fields at offsets `0,4,8,12` inste
         Tstruct tys -> sum $ map tySizeAggregated tys   
         TVoid -> 0
         _ -> 1 -- Pointers have the same sizer as Tint
-
+-}
 
 type TypeEnv = Map.Map Name Ty
 
@@ -102,6 +104,7 @@ data GlobalVariable wrdT = GlobalVariable
   , isConstant :: Bool
   , gType :: Ty
   , initializer :: Maybe [LazyConst String wrdT]
+  , gSize :: MWord
   , secret :: Bool
   } deriving (Show)
 type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"

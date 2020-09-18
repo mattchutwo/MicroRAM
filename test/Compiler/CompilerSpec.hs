@@ -16,7 +16,7 @@ import qualified Test.QuickCheck.Monadic as QCM
 import Test.Tasty.QuickCheck
 
 main :: IO ()
-main = defaultMain tests
+main = defaultMain tests -- justOne -- 
 
 {-tests' = testGroup "Compiler tests" $
         map (executionTest "Return argc" "test/programs/fibSlow.ll" [1,1,1,1,1,1,1,1,1,1]) $
@@ -27,6 +27,14 @@ nats = iterate ((+) 1) 0 -}
 tests, testTrivial, testLoops, testGEP :: TestTree
 tests = testGroup "Compiler tests" $
         [testTrivial, testLoops, testGEP]
+
+
+justOne = testGroup " Trivial programs" $
+    compileTest
+    "Trivial struct"
+    "test/programs/easyStruct.ll"
+    50 3 :
+    []
 
     
 -- Trivial test, just to see the basics are working

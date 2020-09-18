@@ -154,7 +154,7 @@ returnBlock = NBlock (Just "_ret_") [Ianswer (AReg ax)]
 
 
 -- | prologue: allocates the stack at the beggining of the function
-prologue :: Regs mreg => Word -> [MAInstruction mreg MWord]
+prologue :: Regs mreg => MWord -> [MAInstruction mreg MWord]
 prologue size =
     [Iadd sp sp (LImm $ fromIntegral size + 1)] 
 
@@ -234,11 +234,11 @@ stackLTLInstr (LAlloc reg sz n) = do
   -- sp = sp + n * sz
   increaseSp <- incrSP sz n
   return $ copySp ++ increaseSp
-  where incrSP :: (Regs mreg) => Word -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]
-        incrSP typ (AReg r) = return $
+  where incrSP :: (Regs mreg) => MWord -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]
+        incrSP sz (AReg r) = return $
           [Imull r r (LImm $ fromIntegral sz),
            Iadd sp sp (AReg r)]
-        incrSP typ (LImm n) = return $ [Iadd sp sp (LImm $ n * fromIntegral sz)]
+        incrSP sz (LImm n) = return $ [Iadd sp sp (LImm $ n * fromIntegral sz)]
         incrSP _ _ = assumptError $ "Operand not supported for allocation size. Probably a mistake in the Register allocator. \n"
   -- Compute the size of the allocated memory
   

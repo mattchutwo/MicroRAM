@@ -20,6 +20,7 @@ module Compiler.Globals
 import qualified Data.Map as Map
 
 import Compiler.Common
+--import Compiler.Layout
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.LazyConstants
@@ -83,10 +84,10 @@ lazyMemoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg
           GlobalVariable MWord
           -> (LazyInitialMem, Map.Map String MWord)
           -> (LazyInitialMem, Map.Map String MWord)
-        memoryFromGlobal (GlobalVariable name isConst gTy init secret) (initMem, gMap) =
+        memoryFromGlobal (GlobalVariable name isConst _gTy init size secret) (initMem, gMap) =
           let newLoc = newLocation initMem in
           let newLazySegment =
-                (init, InitMemSegment secret isConst newLoc (fromIntegral $ tySize gTy) Nothing) in -- __FIXME__
+                (init, InitMemSegment secret isConst newLoc (fromIntegral $ size) Nothing) in -- __FIXME__
           (newLazySegment:initMem, Map.insert (show name) newLoc gMap)
           
         newLocation :: LazyInitialMem -> MWord

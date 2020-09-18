@@ -78,7 +78,7 @@ registerAlloc (RegisterAllocOptions numRegisters) rprog = do
 -- Register allocator state.
 data RAState = RAState {
     raNextRegister :: Word
-  , raNextStackPosition :: Word
+  , raNextStackPosition :: MWord
   , raNextInstructionForBlock :: Map Name Int
   -- , raRegisterStackPosition :: Map VReg Word
   }
@@ -183,7 +183,7 @@ registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') =
 
 
 
-spillRegister :: forall name mdata wrdT . (Monoid mdata, name ~ (Name, Int)) => VReg -> Bool -> Word -> [BB name (LTLInstr mdata VReg wrdT)] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
+spillRegister :: forall name mdata wrdT . (Monoid mdata, name ~ (Name, Int)) => VReg -> Bool -> MWord -> [BB name (LTLInstr mdata VReg wrdT)] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
 spillRegister spillReg isArg pos blocks = do
   blocks' <- mapM spillBlock blocks
   return $ concat blocks'

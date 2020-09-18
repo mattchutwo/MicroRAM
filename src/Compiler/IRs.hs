@@ -206,7 +206,7 @@ data RTLInstr' operand =
   | RRet (Maybe operand) -- ^ return this value
   | RAlloc
     (Maybe VReg) -- ^ return register (gives location)
-    Word    -- ^ size of the allocated thing
+    MRAM.MWord    -- ^ size of the allocated thing
     operand -- ^ number of things allocated
   | RPhi VReg [(operand,Name)] -- ^ Static Single Assignment function `phi`
   deriving (Show, Functor, Foldable, Traversable)
@@ -258,8 +258,8 @@ data Slot =
 -- JP: wrdT is unused. Drop?
 -- SC: Should be wrdT instead of Word everywhere. FIXME
 data LTLInstr' mreg wrdT operand =
-    Lgetstack Slot Word Ty mreg -- load from the stack into a register
-  | Lsetstack mreg Slot Word Ty -- store into the stack from a register
+    Lgetstack Slot MRAM.MWord Ty mreg -- load from the stack into a register
+  | Lsetstack mreg Slot MRAM.MWord Ty -- store into the stack from a register
   | LCall
       Ty
       (Maybe mreg) -- ^ return register
@@ -269,7 +269,7 @@ data LTLInstr' mreg wrdT operand =
   | LRet (Maybe operand) -- ^ return this value
   | LAlloc
     (Maybe mreg) -- ^ return register (gives location)
-    Word    -- ^ size of the allocated thing
+    MRAM.MWord    -- ^ size of the allocated thing
     operand -- ^ number of things allocated
   deriving (Show, Functor, Foldable, Traversable)
   
@@ -291,7 +291,7 @@ data LFunction mdata mreg wrdT = LFunction {
   , funMetadata :: mdata
   , retType :: Ty
   , paramTypes :: [Ty]
-  , stackSize :: Word
+  , stackSize :: MRAM.MWord
   , funBody:: [BB Name $ LTLInstr mdata mreg wrdT]
   } deriving (Show)
 
