@@ -140,7 +140,7 @@ compUnit2Output :: Regs reg => CompilationResult (Program reg MWord) -> Output r
 compUnit2Output (CompUnit p trLen regData aData initMem _) =
   let regNum = getRegNum regData in
   let circParams = buildCircuitParameters trLen regData aData regNum in
-  PublicOutput p circParams initMem    
+  PublicOutput (lowProg p) circParams initMem
 
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).
@@ -149,7 +149,7 @@ secretOutput :: Regs reg => Trace reg -> CompilationResult (Program reg MWord) -
 secretOutput tr (CompUnit p trLen regData aData initM _) =
   let regNum = getRegNum regData in
   let circParams = buildCircuitParameters trLen regData aData regNum in
-    SecretOutput p circParams
+    SecretOutput (lowProg p) circParams
     -- initMem
     initM
     -- Trace (trace should be trimmed already)

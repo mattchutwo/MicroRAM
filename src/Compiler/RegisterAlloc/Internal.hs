@@ -49,8 +49,10 @@ writeRegistersMRIInstruction (MRAM.Istore _ _) = mempty -- writeRegistersOperand
 writeRegistersMRIInstruction (MRAM.Iload r1 _) = Set.singleton r1
 writeRegistersMRIInstruction (MRAM.Iread r1 _) = Set.singleton r1
 writeRegistersMRIInstruction (MRAM.Ianswer _) = mempty
+writeRegistersMRIInstruction (MRAM.Iadvise rd) = Set.singleton rd
 writeRegistersMRIInstruction (MRAM.Iext _ _) = mempty
 writeRegistersMRIInstruction (MRAM.Iextval _ rd _) = Set.singleton rd
+writeRegistersMRIInstruction (MRAM.Iextadvise _ rd _) = Set.singleton rd
 
 writeRegistersLTLInstruction :: Ord reg => LTLInstr' reg mdata (MAOperand reg wrdT) -> Set reg
 writeRegistersLTLInstruction (Lgetstack _ _ _ r1) = Set.singleton r1
@@ -99,8 +101,10 @@ readRegistersMRIInstruction (MRAM.Istore op r1) = readRegistersOperand op <> Set
 readRegistersMRIInstruction (MRAM.Iload _ op) = readRegistersOperand op
 readRegistersMRIInstruction (MRAM.Iread _ op) = readRegistersOperand op
 readRegistersMRIInstruction (MRAM.Ianswer op) = readRegistersOperand op
+readRegistersMRIInstruction (MRAM.Iadvise _) = Set.empty
 readRegistersMRIInstruction (MRAM.Iext _ ops) = Set.unions $ map readRegistersOperand ops
 readRegistersMRIInstruction (MRAM.Iextval _ _ ops) = Set.unions $ map readRegistersOperand ops
+readRegistersMRIInstruction (MRAM.Iextadvise _ _ ops) = Set.unions $ map readRegistersOperand ops
 
 
 readRegistersLTLInstruction :: Ord reg => LTLInstr' reg mdata (MAOperand reg wrdT) -> Set reg
@@ -151,8 +155,10 @@ substituteMRIInstruction substs (MRAM.Istore op r1) = MRAM.Istore (substituteOpe
 substituteMRIInstruction substs (MRAM.Iload r1 op) = MRAM.Iload (substituteRegister substs r1) (substituteOperand substs op)
 substituteMRIInstruction substs (MRAM.Iread r1 op) = MRAM.Iread (substituteRegister substs r1) (substituteOperand substs op)
 substituteMRIInstruction substs (MRAM.Ianswer op) = MRAM.Ianswer (substituteOperand substs op)
+substituteMRIInstruction substs (MRAM.Iadvise r1) = MRAM.Iadvise (substituteRegister substs r1)
 substituteMRIInstruction substs (MRAM.Iext name ops) = MRAM.Iext name (map (substituteOperand substs) ops)
 substituteMRIInstruction substs (MRAM.Iextval name rd ops) = MRAM.Iextval name (substituteRegister substs rd) (map (substituteOperand substs) ops)
+substituteMRIInstruction substs (MRAM.Iextadvise name rd ops) = MRAM.Iextadvise name (substituteRegister substs rd) (map (substituteOperand substs) ops)
 
 substituteLTLInstruction :: Ord reg => Map reg reg -> LTLInstr' reg mdata (MAOperand reg wrdT) -> LTLInstr' reg mdata (MAOperand reg wrdT)
 substituteLTLInstruction substs (Lgetstack s w t r1) = Lgetstack s w t (substituteRegister substs r1)

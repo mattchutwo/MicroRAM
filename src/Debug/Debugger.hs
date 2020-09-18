@@ -261,7 +261,7 @@ summaryFromFile file cs length = do
 
 pprint :: CompilationResult (Program Name MWord) -> String
 pprint compUnit =
-  let prog = programCU compUnit in
+  let prog = lowProg $ programCU compUnit in
   -- concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ show inst ++ "\n") $ enumerate prog
   concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ pprintInst inst ++ "\n") $ enumerate prog
 
