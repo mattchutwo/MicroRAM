@@ -137,6 +137,7 @@ compile1 len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Lower Intrinsics" $ justCompile lowerIntrinsics)
   >>= (tagPass "Legalize Instructions" $ justCompile legalize)
   >>= (tagPass "Localize Labels" $ justCompile localizeLabels)
+  >>= (tagPass "Edge split" $ justCompile edgeSplit)
 
 compile2 :: CompilationUnit () (Rprog () MWord) ->
   Hopefully (CompilationUnit () (MRAM.Program AReg MWord))

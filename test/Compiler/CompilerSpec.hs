@@ -71,6 +71,10 @@ testLoops = testGroup "Conditionals, Branching and loops" $
     "Factorial with recursive calls"
     "test/programs/factRec.ll"
     600 120 :
+  compileTest
+    "Or with phi"
+    "test/programs/or.ll"
+    100 1 : 
   {-  compileTest
     "Input text into numbers"
     "test/programs/returnInput.ll"
