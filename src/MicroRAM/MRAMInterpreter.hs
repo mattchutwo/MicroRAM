@@ -41,8 +41,6 @@ import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
-import qualified Data.Set as Set
-import Data.Set (Set)
 import qualified Data.Text as Text
 import qualified Numeric
 
@@ -313,6 +311,7 @@ renderAdvc advs = concat $ map renderAdvc' advs
   where renderAdvc' :: Advice -> String
         renderAdvc' (MemOp addr v MOStore) = "Store: " ++ show addr ++ "->" ++ show v
         renderAdvc' (MemOp  addr v MOLoad) = "Load: " ++ show addr ++ "->" ++ show v
+        renderAdvc' (Advise v) = "Advise: " ++ show v
         renderAdvc' (Stutter) = "...Stutter..."
 
 type AdviceMap = Map MWord [Advice]
@@ -396,13 +395,6 @@ ceilLog2 0 = 1
 ceilLog2 n = wordBits - countLeadingZeros (n - 1)
 
 
--- | Compute the start address of the block containing `addr`.
-blockStartAddr :: MWord -> MWord
-blockStartAddr addr = addr .&. complement (size - 1)
-  where
-    sizeClass = addr `shiftR` 58
-    size = 1 `shiftL` fromIntegral sizeClass
-
 -- | Compute the bounds of the usable space in the block containing `addr`.
 blockBounds :: MWord -> (MWord, MWord)
 blockBounds addr = (start, end)
@@ -438,7 +430,7 @@ checkAccess allocState addr = do
     _ -> return ()
 
 allocHandler :: Regs r => Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
-allocHandler allocState nextH (Iextval "malloc" rd [sizeOp]) = do
+allocHandler allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
   size <- opVal sizeOp
   let sizeClass = ceilLog2 (size + 1)
   let size' = 1 `shiftL` sizeClass
@@ -457,7 +449,7 @@ allocHandler allocState nextH (Iextval "malloc" rd [sizeOp]) = do
 
   sMach . mReg rd .= ptr
   finishInstr
-allocHandler allocState nextH (Iext "free" [ptrOp]) = do
+allocHandler allocState _nextH (Iext "free" [ptrOp]) = do
   ptr <- opVal ptrOp
 
   let sizeClass = ptr `shiftR` 58
@@ -476,7 +468,7 @@ allocHandler allocState nextH (Iext "free" [ptrOp]) = do
 
   sExt . allocState . asAllocs . ix ptr . aFreed .= True
   finishInstr
-allocHandler allocState nextH (Iextval "advise_poison" rd [_lo, _hi]) = do
+allocHandler _allocState _nextH (Iextval "advise_poison" rd [_lo, _hi]) = do
   -- Always return 0 (don't poison)
   sMach . mReg rd .= 0
   finishInstr
