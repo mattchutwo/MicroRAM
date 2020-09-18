@@ -165,8 +165,6 @@ removePhiFunc f@(Function name retTy argTys blocks nextReg) = do
             return (move : body, preBody, Set.insert dest writtenRegs)
         ) ([], [], Set.empty) ms
       return $ reverse revPreBody ++ reverse revBody
-        
-
       
 
     -- Collect information about phi nodes in the function.
@@ -174,58 +172,6 @@ removePhiFunc f@(Function name retTy argTys blocks nextReg) = do
     -- | Map `predecessor -> successor -> assignments`.
     phiMoves :: Map Name (Map Name [(VReg, MAOperand VReg wrdT, mdata)])
     phiMoves = funcPhiMoves f
-
-    -- | Map `successor -> predecessor -> assignments`.
-    -- phiMoves :: Map Name (Map Name [(VReg, MAOperand VReg wrdT, mdata)])
-    -- phiMoves = funcPhiMoves f
-
-
-    -- -- Modify existing blocks
-
-    -- blocks' = map (fixJumps . removePhis) blocks
-
-    -- fixJumps :: BB Name (RTLInstr mdata wrdT) -> BB Name (RTLInstr mdata wrdT)
-    -- fixJumps (BB name body term dag) = BB name body (map (fixJump name) term) (fixDag name dag)
-
-    -- fixJump :: Name -> RTLInstr mdata wrdT -> RTLInstr mdata wrdT
-    -- fixJump pred (MRI (Ijmp (Label succ)) mdata) = MRI (Ijmp (jumpDest pred succ)) mdata
-    -- fixJump pred (MRI (Icjmp (Label succ)) mdata) = MRI (Icjmp (jumpDest pred succ)) mdata
-    -- fixJump pred (MRI (Icnjmp (Label succ)) mdata) = MRI (Icnjmp (jumpDest pred succ)) mdata
-    -- fixJump _ instr = instr
-
-    -- jumpDest :: Name -> String -> MAOperand VReg wrdT
-    -- jumpDest pred succStr = nameLabel $ fixSucc pred (read succStr)
-
-    -- fixDag pred succs = map (fixSucc pred) succs
-
-    -- fixSucc pred succ = case Map.lookup (pred, succ) edgeIndex of
-    --   Just idx -> makeEdgeBlockName pred succ idx
-    --   Nothing -> error $ "no edge index for " ++ show (pred, succ)
-
-
-    -- -- Build new blocks to place along the previous CFG edges.
-
-    -- buildEdgeBlock :: ((Name, Name), Int) -> StateT Word Hopefully (BB Name (RTLInstr mdata wrdT))
-    -- buildEdgeBlock ((pred, succ), edgeIdx) = do
-    --   let name = makeEdgeBlockName pred succ edgeIdx
-    --   let moves = maybe [] id $ Map.lookup succ phiMoves >>= Map.lookup pred
-    --   (revBody, revPreBody, _) <- foldM (\(body, preBody, writtenRegs) (dest, op, mdata) -> do
-    --     -- Generate an `Imov`, and record that `dest` was written.  However, if
-    --     -- `op` reads from a previously written register, then we have to store
-    --     -- the value to a temporary first, then read from the temporary later.
-    --     case op of
-    --       AReg r | Set.member r writtenRegs -> do
-    --         tmpReg <- NewName <$> get <* modify (+1)
-    --         let move = MRI (Imov dest (AReg tmpReg)) mdata
-    --         let preMove = MRI (Imov tmpReg op) mdata
-    --         return (move : body, preMove : preBody, Set.insert dest writtenRegs)
-    --       _ -> do
-    --         let move = MRI (Imov dest op) mdata
-    --         return (move : body, preBody, Set.insert dest writtenRegs)
-    --     ) ([], [], Set.empty) moves
-    --   let body = reverse revPreBody ++ reverse revBody
-    --   let term = [MRI (Ijmp $ nameLabel succ) mempty]
-    --   return $ BB name body term [succ]
 
 nameLabel :: Name -> MAOperand VReg wrdT
 nameLabel n@(Name _) = Label $ show n
