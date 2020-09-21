@@ -5,6 +5,7 @@ module Compiler.Layout
   alignOf,
   fitHybridMemory,
   fromHybridMemory,
+  offsetOfStructElement,
 ) where
 
 import Data.Bits
@@ -48,12 +49,21 @@ alignOf tenv ty = case ty of
   NamedTypeReference name -> alignOf tenv $ typeDef tenv name
   _ -> error $ "unsupported type " ++ show ty ++ " in alignOf"
 
+
+alignTo :: (Bits a, Num a) => a -> a -> a
+alignTo a x = (x + a - 1) .&. complement (a - 1)
+
 sizeOfStruct :: LLVMTypeEnv -> [Type] -> MWord
 sizeOfStruct tenv tys =
   alignTo (alignOfStruct tenv tys) $
   foldl (\pos ty -> alignTo (alignOf tenv ty) pos + sizeOf tenv ty) 0 tys
-  where
-    alignTo a x = (x + a - 1) .&. complement (a - 1)
+
+offsetOfStructElement :: LLVMTypeEnv -> [Type] -> MWord
+offsetOfStructElement tenv (ty_head:tys) =
+  alignTo (alignOf tenv ty_head) $
+  foldl (\pos ty -> alignTo (alignOf tenv ty) pos + sizeOf tenv ty) 0 tys
+offsetOfStructElement _ [] = 0
+  
 
 alignOfStruct :: LLVMTypeEnv -> [Type] -> MWord
 alignOfStruct tenv tys = maximum (map (alignOf tenv) tys)

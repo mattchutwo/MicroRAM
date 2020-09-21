@@ -1030,12 +1030,20 @@ constGEP tenv (LLVM.PointerType refT _) ptr (inx:inxs) = do
         constGEP' _ _ ptr [] = return ptr
         constGEP' env (LLVM.ArrayType _ elemsT) ptr (inx:inxs) = 
            flip (constGEP' env elemsT) inxs (ptr + inx * (SConst $ sizeOf env elemsT))
-        constGEP' env (LLVM.StructureType True tys) ptr (inx:inxs) =
+        constGEP' env (LLVM.StructureType packed tys) ptr (inx:inxs) =
           case inx of
-            SConst inx' -> let ofs' = sum $ map (sizeOf env) $ takeEnum inx' $ tys in
-                             flip (constGEP' env (tys !! (fromEnum inx'))) inxs (ptr + (SConst $ ofs'))
-            _ -> implError $ "GetElementPtr called with a lazy constant. That means that a global reference (or funciton pointer) was used to compute those indices. That is invalid."
-        constGEP' _ ty _ _ = assumptError $ "GetElementPtr must be called on an agregate type (the first type must be a pointer) but found a non aggregate one: \n \t " ++ show ty 
+            SConst inx' ->
+              let ofs' = if packed then
+                          sum $ map (sizeOf env) $ takeEnum inx' $ tys
+                        else
+                          offsetOfStructElement tenv $ (takeEnum $ inx' + 1) $ tys
+              in flip (constGEP' env (tys !! (fromEnum inx'))) inxs (ptr + (SConst $ ofs'))
+            _ -> implError $ "GetElementPtr called with a lazy constant. That means that a global reference (or funciton pointer) was used to compute those indices. That is invalid, indices should be constant."
+        constGEP' env (LLVM.NamedTypeReference name) ptr inxs = do
+          ty' <- typeDef env name
+          constGEP' env ty' ptr inxs
+        constGEP' _ ty _ _ = assumptError $ "GetElementPtr must be called on an agregate type (the first type must be a pointer) but found a non aggregate one: \n \t " ++ show ty
+        
 constGEP _ ty _ _ = assumptError $ "GetElementPtr expects a pointer type, but found: \n \t" ++ show ty
 
 
