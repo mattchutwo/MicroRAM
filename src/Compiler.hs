@@ -96,7 +96,8 @@ execution of programs.
 
 -}
 module Compiler
-    ( compile, --compileStraight
+    ( compile --compileStraight
+    , module Export
     ) where
 
 import qualified LLVM.AST as LLVM
@@ -110,8 +111,10 @@ import Compiler.IRs
 import Compiler.InstructionSelection
 import Compiler.Intrinsics
 import Compiler.Legalize
+import Compiler.Extension
 import Compiler.RemovePhi
 import Compiler.RegisterAlloc
+import Compiler.RegisterAlloc as Export (AReg)
 import Compiler.CallingConvention
 import Compiler.Globals
 import Compiler.Stacking
@@ -126,19 +129,34 @@ import qualified MicroRAM as MRAM  (Program)
 (<.>) :: Monad m => (b -> c) -> (a -> b) -> a -> m c
 f <.> g = \x -> return $ f $ g x 
 
-compile :: Word -> LLVM.Module
-        -> Hopefully $ CompilationResult (MRAM.Program Name MWord)
-compile len llvmProg = (return $ prog2unit len llvmProg)
+compile1 :: Word -> LLVM.Module ->
+  Hopefully (CompilationUnit () (Rprog () MWord))
+compile1 len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
   >>= (tagPass "Lower Intrinsics" $ justCompile lowerIntrinsics)
   >>= (tagPass "Legalize Instructions" $ justCompile legalize)
   >>= (tagPass "Localize Labels" $ justCompile localizeLabels)
+  >>= (tagPass "Edge split" $ justCompile edgeSplit)
+
+compile2 :: CompilationUnit () (Rprog () MWord) ->
+  Hopefully (CompilationUnit () (MRAM.Program AReg MWord))
+compile2 prog = return prog
   >>= (tagPass "Remove Phi Nodes" $ justCompile removePhi)
-  >>= (tagPass "Register Allocation" $ justCompile $ registerAlloc def)
+  >>= (tagPass "Register Allocation" $ registerAlloc def)
   >>= (tagPass "Calling Convention" $ justCompile callingConvention)
   >>= (tagPass "Remove Globals" $ replaceGlobals)
   >>= (tagPass "Stacking" $ justCompile stacking)
   >>= (tagPass "Computing Sparsity" $ justAnalyse (SparsityData <.> sparsity))
   >>= (tagPass "Removing labels" $ removeLabels)
-          
+
+compile :: Word -> LLVM.Module
+        -> Hopefully $ CompilationResult (MRAM.Program AReg MWord)
+compile len llvmProg = do
+  ir <- compile1 len llvmProg
+  high <- compile2 ir
+  low <- return ir
+    >>= (tagPass "Lower Extension Instructions" $ justCompile lowerExtensionInstrs)
+    >>= compile2
+  -- Return both programs, using the analysis data from the final one.
+  return $ low { programCU = MultiProg (programCU high) (programCU low) }

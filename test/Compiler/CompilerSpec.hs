@@ -59,10 +59,6 @@ testTrivial = testGroup "Trivial programs" $
     "arithmetic shift right"
     "test/programs/arithShr.ll"
     600 8 :
-  compileTest
-    "field memset"
-    "test/programs/fieldMemset-link.ll"
-    650 3 :
     []
 
 -- Conditionals, Branching and loops
@@ -83,6 +79,10 @@ testLoops = testGroup "Conditionals, Branching and loops" $
     "Factorial with recursive calls"
     "test/programs/factRec.ll"
     600 120 :
+  compileTest
+    "Or with phi"
+    "test/programs/or.ll"
+    100 1 : 
   {-  compileTest
     "Input text into numbers"
     "test/programs/returnInput.ll"

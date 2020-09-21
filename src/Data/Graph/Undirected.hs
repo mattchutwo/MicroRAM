@@ -25,7 +25,7 @@ insertVertex n (Graph g vm) =
   let vm' = Map.insert n v vm in
   Graph g' vm'
 
-fromEdges :: forall n e . Show e => Show n => Ord n => [(n,n,e)] -> Graph n e
+fromEdges :: forall n e . Ord n => [(n,n,e)] -> Graph n e
 fromEdges edges = Graph graph vmap
 
   where

@@ -406,7 +406,6 @@ isArithShr env (Just ret) o1 o2 = do
       LLVM.IntegerType bits -> bits
       ty -> error $ "don't know how to do ashr on non-integer type " ++ show ty
 
-
     
 -- *** Memory operations
 -- Alloca

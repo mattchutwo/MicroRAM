@@ -174,8 +174,10 @@ instrType inst =
     Iload _ _     -> [Kload  , KmemOp]     
     Iread _ _     -> [Kread  ]     
     Ianswer _     -> [Kanswer]           
+    Iadvise _     -> []
     Iext _ _      -> []
     Iextval _ _ _ -> []
+    Iextadvise _ _ _ -> []
 
 
 -- * Computing Sparsity
