@@ -47,7 +47,7 @@ sizeOfStruct tenv tys =
   alignTo (alignOfStruct tenv tys) $
   foldl (\pos ty -> alignTo (alignOf tenv ty) pos + sizeOf tenv ty) 0 tys
   where
-    alignTo a x = (x + a - 1) .&. complement a
+    alignTo a x = (x + a - 1) .&. complement (a - 1)
 
 alignOfStruct :: LLVMTypeEnv -> [Type] -> Word
 alignOfStruct tenv tys = maximum (map (alignOf tenv) tys)
