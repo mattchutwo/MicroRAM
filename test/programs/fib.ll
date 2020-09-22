@@ -24,7 +24,7 @@ define i32 @main() #0 {
 8:                                                ; preds = %24, %0
   %9 = load i32, i32* %6, align 4
   %10 = load i32, i32* %2, align 4
-  %11 = icmp slt i32 %9, %10
+  %11 = icmp sle i32 %9, %10
   br i1 %11, label %12, label %27
 
 12:                                               ; preds = %8

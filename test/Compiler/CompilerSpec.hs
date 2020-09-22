@@ -100,6 +100,10 @@ testGEP = testGroup "Test structs and arrays with GetElementPtr" $
     "Trivial struct"
     "test/programs/easyStruct.ll"
     50 3 :
+    compileTest
+    "Trivial struct Packed"
+    "test/programs/easyStructPack.ll"
+    50 3 :
 {-  WAIT FOR FUNCTIONS TO WORK.
     compileTest
     "Simple Binary Tree"

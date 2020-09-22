@@ -10,10 +10,12 @@ static int SECRET_NUMBER2 __attribute__((section("__DATA,__secret"))) = 5;
 
 struct Point 
 { 
-   int x, y; 
+  int x;
+  char y;
+  long z;
 }; 
 
 int main() {
-  struct Point mypoint = {SECRET_NUMBER1, SECRET_NUMBER2};
-  return mypoint.x;
+  struct Point mypoint = {SECRET_NUMBER2, 'b', SECRET_NUMBER1};
+  return mypoint.z;
 };

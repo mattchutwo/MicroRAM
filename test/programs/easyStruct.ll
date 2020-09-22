@@ -3,25 +3,29 @@ source_filename = "test/programs/easyStruct.c"
 target datalayout = "e-m:o-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-apple-macosx10.15.0"
 
-%struct.Point = type { i32, i32 }
+%struct.Point = type { i32, i8, i64 }
 
-@SECRET_NUMBER1 = internal global i32 3, section "__DATA,__secret", align 4
 @SECRET_NUMBER2 = internal global i32 5, section "__DATA,__secret", align 4
+@SECRET_NUMBER1 = internal global i32 3, section "__DATA,__secret", align 4
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable
 define i32 @main() #0 {
   %1 = alloca i32, align 4
-  %2 = alloca %struct.Point, align 4
+  %2 = alloca %struct.Point, align 8
   store i32 0, i32* %1, align 4
   %3 = getelementptr inbounds %struct.Point, %struct.Point* %2, i32 0, i32 0
-  %4 = load i32, i32* @SECRET_NUMBER1, align 4
-  store i32 %4, i32* %3, align 4
+  %4 = load i32, i32* @SECRET_NUMBER2, align 4
+  store i32 %4, i32* %3, align 8
   %5 = getelementptr inbounds %struct.Point, %struct.Point* %2, i32 0, i32 1
-  %6 = load i32, i32* @SECRET_NUMBER2, align 4
-  store i32 %6, i32* %5, align 4
-  %7 = getelementptr inbounds %struct.Point, %struct.Point* %2, i32 0, i32 0
-  %8 = load i32, i32* %7, align 4
-  ret i32 %8
+  store i8 98, i8* %5, align 4
+  %6 = getelementptr inbounds %struct.Point, %struct.Point* %2, i32 0, i32 2
+  %7 = load i32, i32* @SECRET_NUMBER1, align 4
+  %8 = sext i32 %7 to i64
+  store i64 %8, i64* %6, align 8
+  %9 = getelementptr inbounds %struct.Point, %struct.Point* %2, i32 0, i32 2
+  %10 = load i64, i64* %9, align 8
+  %11 = trunc i64 %10 to i32
+  ret i32 %11
 }
 
 attributes #0 = { noinline nounwind optnone ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
