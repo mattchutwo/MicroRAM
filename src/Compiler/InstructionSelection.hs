@@ -55,6 +55,18 @@ import MicroRAM (MWord)
 import qualified MicroRAM as MRAM
 
 
+{-
+import qualified Control.Exception as Exc
+import System.IO.Unsafe
+import qualified LLVM.AST.AddrSpace as LLVM.AST.AddrSpace
+
+{-# NOINLINE unsafeCleanup #-}
+unsafeCleanup :: a -> Maybe a
+unsafeCleanup x = unsafePerformIO $ Exc.catch (x `seq` return (Just x)) handler
+    where
+    handler exc = return Nothing  `const`  (exc :: Exc.ErrorCall)
+-}
+
 {-| Notes on this instruction generation :
 
    TO DOs:
@@ -542,7 +554,6 @@ isGEP  env addr inxs ret = do
             continuation
         isGEPptr _ _ llvmTy _ _ =
           assumptError $ "getElementPtr called in a no-pointer type: " ++ show llvmTy
-
 isGEPaggregate
   :: Env
   -> VReg
@@ -557,11 +568,15 @@ isGEPaggregate env ret (LLVM.ArrayType _ elemsT) (inx:inxs) = do
   -- offset = indes * size type 
     [MRAM.Iadd ret (AReg ret) rm] ++
     continuation
-isGEPaggregate env ret (LLVM.StructureType _ types) (inx:inxs) = 
+isGEPaggregate env ret (LLVM.StructureType packed types) (inx:inxs) = 
   case inx of
     (LImm (SConst i)) -> do
-      offset <- return $ sum $ map (sizeOf $ tenv env) $ takeEnum i $ types  
-      continuation <- isGEPaggregate env ret (types !! (fromEnum i)) inxs -- FIXME add checks for struct bounds
+      new_type <- return $ types !! (fromEnum i)
+      offset <- if packed then
+                  return $ sum $ map (sizeOf $ tenv env) $ takeEnum i $ types
+                else
+                  return $ offsetOfStructElement (tenv env) new_type $ (takeEnum i) $ types
+      continuation <- isGEPaggregate env ret (new_type) inxs -- FIXME add checks for struct bounds
       return $ MRAM.Iadd ret (AReg ret) (LImm $ SConst offset) : continuation
     (LImm lc) -> assumptError $ unexpectedLazyIndexMSG ++ show lc 
     _ -> assumptError $ unexpectedNotConstantIndexMSG ++ show inx
@@ -958,7 +973,9 @@ constant2OnelazyConst ::
   -> Hopefully $ LazyConst String MWord
 constant2OnelazyConst env c = do
   cs' <- constant2lazyConst env c
-  fromHybridMemory (tenv env) (LLVM.typeOf c) cs'    
+  fromHybridMemory (tenv env) (typeOfConstant c) cs'
+
+
 
 constant2lazyConst :: 
   Env
@@ -973,7 +990,7 @@ constant2lazyConst env c =
     (LLVM.Constant.Struct _name _pack vals          ) -> concat <$> mapM (constant2lazyConst env) vals 
     (LLVM.Constant.Array _ty vals                   ) -> concat <$> mapM (constant2lazyConst env) vals
     (LLVM.Constant.Undef _ty                        ) -> returnHybrid $ SConst $ fromInteger 0
-    (LLVM.Constant.GlobalReference _ty name          ) -> do
+    (LLVM.Constant.GlobalReference _ty name         ) -> do
       _ <- checkName (globs env) name
       name' <- return $ show $ name2name name
       returnHybrid $ LConst $ \ge -> ge name'
@@ -991,7 +1008,7 @@ constant2lazyConst env c =
     (LLVM.Constant.Xor op1 op2                      ) -> bop2lazyConst env xor op1 op2   >>= returnHybrid
     (LLVM.Constant.GetElementPtr _bounds addr inxs  ) -> do
       addr' <- constant2OnelazyConst env addr
-      ty' <- return $ LLVM.typeOf addr
+      ty' <- return $ typeOfConstant addr
       inxs' <- mapM (constant2OnelazyConst env) inxs
       constGEP (tenv env) ty' addr' inxs' >>= returnHybrid
     (LLVM.Constant.PtrToInt op1 _typ                ) -> constant2lazyConst env op1
@@ -1007,7 +1024,7 @@ constant2lazyConst env c =
       implError $ "Vectors not yet supported."
     c -> implError $ "Constant not supported yet for global initializers: " ++ show c
   where
-    ty = LLVM.typeOf c
+    ty = typeOfConstant c
     returnHybrid :: LazyConst String MWord -> Hopefully [LazyConst String MWord]
     returnHybrid x = return $ fitHybridMemory (tenv env) ty x 
         
@@ -1033,10 +1050,11 @@ constGEP tenv (LLVM.PointerType refT _) ptr (inx:inxs) = do
         constGEP' env (LLVM.StructureType packed tys) ptr (inx:inxs) =
           case inx of
             SConst inx' ->
-              let ofs' = if packed then
-                          sum $ map (sizeOf env) $ takeEnum inx' $ tys
-                        else
-                          offsetOfStructElement tenv $ (takeEnum $ inx' + 1) $ tys
+              let new_type = (tys !! (fromEnum inx')) in
+                let ofs' = if packed then
+                             sum $ map (sizeOf env) $ takeEnum inx' $ tys
+                           else
+                             offsetOfStructElement tenv new_type $ (takeEnum $ inx') $ tys
               in flip (constGEP' env (tys !! (fromEnum inx'))) inxs (ptr + (SConst $ ofs'))
             _ -> implError $ "GetElementPtr called with a lazy constant. That means that a global reference (or funciton pointer) was used to compute those indices. That is invalid, indices should be constant."
         constGEP' env (LLVM.NamedTypeReference name) ptr inxs = do
