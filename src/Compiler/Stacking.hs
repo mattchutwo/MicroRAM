@@ -137,8 +137,12 @@ premain =
 -- Sends main to the returnBlock
 premain :: Regs mreg => [NamedBlock mreg MWord]
 premain = return $
-  --findArguments ++
-  NBlock Nothing $ Imov ax (Label "_ret_") : (push ax) ++
+  NBlock Nothing $
+  -- poison address 0
+  [Ipoison (AReg sp) sp, Iadd sp sp (LImm 1)] ++
+  -- push return address for main 
+  Imov ax (Label "_ret_") : (push ax) ++
+  -- set stack frame
   Istore (AReg sp) bp :  -- Store "old" base pointer 
   Imov bp (AReg sp) :    -- set base pointer to the stack pointer
   callMain              -- jump to main

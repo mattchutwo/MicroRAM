@@ -42,7 +42,7 @@ testTrivial = testGroup "Trivial programs" $
   compileTest
     "Return 42"
     "test/programs/return42.ll"
-    25 42 :
+    30 42 :
   compileTest
     "21 + 21"
     "test/programs/compute42.ll"
