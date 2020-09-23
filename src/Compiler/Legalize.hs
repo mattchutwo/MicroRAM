@@ -156,6 +156,7 @@ legalizeInstr' (MirM i m) = do
     Iread rd o2 -> return $ Iread rd o2
     Ianswer o2 -> return $ Ianswer o2
 
+    Ipoison o2 o1 -> Istore <$> pure o2 <*> op2reg o1
     Iadvise rd -> return $ Iadvise rd
 
     Iext name ops -> return $ Iext name ops

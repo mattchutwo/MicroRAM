@@ -729,12 +729,10 @@ isTerminator' env ret term =
 
 makeTraceInvalid :: [MIRInstruction () regT MWord]
 makeTraceInvalid = [MirI rtlCallValidIf  ()]
-  where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_valid_if") [Tint] paramZero
-        paramZero = [LImm $ SConst 0]
+  where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_invalid") [Tint] []
 triggerBug :: [MIRInstruction () regT MWord]
 triggerBug = [MirI rtlCallValidIf  ()]
-  where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_bug_if") [Tint] paramOne
-        paramOne = [LImm $ SConst 1]
+  where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_bug") [Tint] []
 
 -- | Branch terminator
 isBr :: Monad m => LLVM.Name -> m [MIRInstr () MWord]
