@@ -172,6 +172,7 @@ encodeInstr (Istore operand r2   ) = list2CBOR $ encodeString "store"  : encodeN
 encodeInstr (Iload r1 operand    ) = list2CBOR $ encodeString "load"   : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Iread r1 operand    ) = list2CBOR $ encodeString "read"   : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Ianswer operand     ) = list2CBOR $ encodeString "answer" : encodeNull : encodeNull : (encodeOperand' operand) 
+encodeInstr (Ipoison operand r2  ) = list2CBOR $ encodeString "poison" : encodeNull : encode r2  : (encodeOperand' operand) 
 encodeInstr (Iadvise r1          ) = list2CBOR $ encodeString "advise" : encode r1  : encodeNull : [encode False, encodeNull]
 -- `Iext` and `Iextval` should have been compiled away by a previous pass, but
 -- it's sometimes useful for debugging to include them in the output CBOR.  The
@@ -226,7 +227,8 @@ decodeInstr = do
       "store"   -> flip Istore  <$  decodeNull <*> decode     <*> decodeOperand' 
       "load"    -> Iload   <$> decode     <*  decodeNull <*> decodeOperand'
       "read"    -> Iread   <$> decode     <*  decodeNull <*> decodeOperand'
-      "answer"  -> Ianswer <$  decodeNull <*  decodeNull <*> decodeOperand' 
+      "answer"  -> Ianswer <$  decodeNull <*  decodeNull <*> decodeOperand'
+      "poison"  -> flip Ipoison  <$  decodeNull <*> decode     <*> decodeOperand'  
       "advise"  -> Iadvise <$> decode     <*  decodeNull <*  decodeBool <* decodeNull
       _ -> fail $ "invalid instruction encoding. Tag: " ++ show tag ++ "."
 

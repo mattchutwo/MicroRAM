@@ -80,6 +80,14 @@ execution of programs. The instructions (inspired by the TinyRAM language
 +--------+---------+----------------------------------------------+--------------+
 | answer | A       | stall or halt (ret. value is [A]u)           | (2)          |
 +--------------------------------------------------------------------------------+
+| New instructions not present in TinyRAM:                                       |
++--------------------------------------------------------------------------------+
+| poison | ri A    | store [ri] at address [A]u and poison it     |              |
++--------------------------------------------------------------------------------+
+| advice | ri      | Receive advice to ri                         |              |
++--------------------------------------------------------------------------------+
+| ext    | ??      | extensions                                   |              |
++--------------------------------------------------------------------------------+
 | (answer) answer causes a stall (i.e., not increment pc) or a halt              |
 |         (i.e., the computation stops); the choice between the two is undefined.|
 +--------------------------------------------------------------------------------+
@@ -176,6 +184,8 @@ data Instruction' regT operand1 operand2 =
   | Ianswer operand2          -- ^  stall or halt (and the return value is [A]u)
   -- Advice
   | Iadvise regT              -- ^ load nondeterministic advice into ri
+  -- Poison
+  | Ipoison operand2 operand1
   -- Extensions
   | Iext Text [operand2]      -- ^ Custom instruction with no return value
   | Iextval Text regT [operand2] -- ^ Custom instruction, returning a value

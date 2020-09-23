@@ -141,7 +141,8 @@ stepInstr i = do
     Iload rd op2 -> stepLoad rd op2
 
     Iread rd op2 -> stepRead rd op2
-    Ianswer op2 -> stepAnswer op2
+    Ianswer op2  -> stepAnswer op2
+    Ipoison op2 r1 -> stepStore op2 r1
 
     Iadvise _ -> assumptError $ "unhandled advice request"
 

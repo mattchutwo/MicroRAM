@@ -316,6 +316,7 @@ applyColoring coloring = mapM applyBasicBlock
     applyMRIInstruction (MRAM.Iload r1 op) = MRAM.Iload <$> applyReg r1 <*> applyOperand op
     applyMRIInstruction (MRAM.Iread r1 op) = MRAM.Iread <$> applyReg r1 <*> applyOperand op
     applyMRIInstruction (MRAM.Ianswer op) = MRAM.Ianswer <$> applyOperand op
+    applyMRIInstruction (MRAM.Ipoison op r1) = MRAM.Istore <$> applyOperand op <*> applyReg r1
     applyMRIInstruction (MRAM.Iadvise r1) = MRAM.Iadvise <$> applyReg r1
     applyMRIInstruction (MRAM.Iext name ops) = MRAM.Iext name <$> mapM applyOperand ops
     applyMRIInstruction (MRAM.Iextval name rd ops) = MRAM.Iextval name <$> applyReg rd <*> mapM applyOperand ops
