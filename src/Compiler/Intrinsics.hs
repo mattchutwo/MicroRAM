@@ -108,8 +108,6 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("__cc_free", cc_free)
   , ("__cc_advise_poison", cc_advise_poison)
   , ("__cc_write_and_poison", cc_write_and_poison)
---  , ("__cc_write_poisoned", cc_write_poisoned)
---  , ("__cc_read_poisoned", cc_read_poisoned)
 
   , ("llvm.lifetime.start.p0i8", cc_noop)
   , ("llvm.lifetime.end.p0i8", cc_noop)

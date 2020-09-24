@@ -139,7 +139,7 @@ premain :: Regs mreg => [NamedBlock mreg MWord]
 premain = return $
   NBlock Nothing $
   -- poison address 0
-  [Ipoison (AReg sp) sp, Iadd sp sp (LImm 1)] ++
+  [Ipoison (LImm 0) sp, Iadd sp sp (LImm 1)] ++
   -- push return address for main 
   Imov ax (Label "_ret_") : (push ax) ++
   -- set stack frame

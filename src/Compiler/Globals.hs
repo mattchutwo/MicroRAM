@@ -91,7 +91,7 @@ lazyMemoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg
           (newLazySegment:initMem, Map.insert (show name) newLoc gMap)
           
         newLocation :: LazyInitialMem -> MWord
-        newLocation [] = 0
+        newLocation [] = 1 -- 0 is reserved
         newLocation ((_,InitMemSegment _ _ loc len _):_) = loc + len
           
 

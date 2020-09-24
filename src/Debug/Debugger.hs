@@ -84,7 +84,7 @@ defaultSummary = CS True True Nothing True [0..4] True True False
 defaultCSInt :: CustomSummary Int 
 defaultCSInt = defaultSummary
 
-defaultCSName :: CustomSummary Name 
+defaultCSName :: CustomSummary AReg 
 defaultCSName = defaultSummary
 
 
@@ -213,7 +213,7 @@ printSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer sAdvice) t n =do
 -- Example
 {- | Example
 @
-t::Trace Name
+t::Trace AReg
 t = [init_state [] [],init_state [] [] ]
 @
 
@@ -232,23 +232,20 @@ PC   Flag  Ansr   Regs                                Mem
 fromLLVMFile :: FilePath -> IO LLVM.Module
 fromLLVMFile = llvmParse
 
-fromMRAMFile :: (Read mreg, Regs mreg) =>
-                FilePath
-             -> IO $ CompilationResult (Program mreg MWord)
+fromMRAMFile :: FilePath
+             -> IO $ CompilationResult (Program AReg MWord)
 fromMRAMFile file = do
-  contents <- readFile file
+  contents <-  readFile file
   return $ read contents
   
-runFromFile  :: (Read mreg, Regs mreg) =>
-  FilePath -> IO (Trace mreg)
+runFromFile  :: FilePath -> IO (Trace AReg)
 runFromFile file = do
   prog <- fromMRAMFile file
   return $ run prog
   
 summaryFromFile ::
-  (Read mreg, Regs mreg) =>
   FilePath ->
-  CustomSummary mreg ->
+  CustomSummary AReg ->
   Int -> IO ()
 summaryFromFile file cs length = do
   trace <- runFromFile file
@@ -259,13 +256,12 @@ summaryFromFile file cs length = do
 
 -- * Pretty printing
 
-pprint :: CompilationResult (Program Name MWord) -> String
+pprint :: CompilationResult (Program Int MWord) -> String
 pprint compUnit =
   let prog = lowProg $ programCU compUnit in
-  -- concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ show inst ++ "\n") $ enumerate prog
-  concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ pprintInst inst ++ "\n") $ enumerate prog
+    concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ pprintInst inst ++ "\n") $ enumerate prog
 
-pprintInst :: Instruction' Name Name (Operand Name MWord) -> String
+pprintInst :: Instruction' AReg AReg (Operand AReg MWord) -> String
 pprintInst (Iand r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" && "<> (pprintOp op)
 pprintInst (Ior r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" || "<> (pprintOp op)
 pprintInst (Ixor r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" ^ "<> (pprintOp op)
@@ -295,14 +291,14 @@ pprintInst (Iload r1 op) = (pprintReg r1) <>" = *("<> (pprintOp op) <> ")"
 pprintInst (Ianswer op) = "ans "<> (pprintOp op)
 pprintInst i = show i -- TODO
 
-pprintReg :: Name -> String
+pprintReg :: AReg -> String
 pprintReg r | r == ax = "%ax"
 pprintReg r | r == bp = "%bp"
 pprintReg r | r == sp = "%sp"
-pprintReg (NewName r) = "%" <> show r
+pprintReg r = "%" <> show r
 pprintReg r = show r
 
-pprintOp :: Show a => Operand Name a -> String
+pprintOp :: Show a => Operand AReg a -> String
 pprintOp (Reg r) = pprintReg r
 pprintOp (Const c) = show c
 
@@ -311,15 +307,15 @@ pprintFromFile file = do
   prog <- fromMRAMFile file
   putStr $ pprint prog
 
-readProg :: String -> Program Name MWord
+readProg :: String -> Program AReg MWord
 readProg = read
 
-firstRegs :: Word -> [Name]
+firstRegs :: Word -> [AReg]
 firstRegs bound = map fromWord $ map (2*) [0..bound] 
 
-myCS :: CustomSummary Name
+myCS :: CustomSummary AReg
 myCS = defaultCSName
-  {theseRegs = Just $ firstRegs 7
+  {theseRegs = Just $ [0..7]
   ,theseMem = [0..15]
   ,showAdvice = True}
 
@@ -333,20 +329,21 @@ fromAscii = toEnum
 
 -- Example
 myfile, myllvmfile:: FilePath
-myfile = "test/programs/easyArray.micro" -- "programs/returnInput.micro"
+myfile = "test/programs/easyLinkedList.micro" -- "programs/returnInput.micro"
 myllvmfile = "programs/returnInput.ll"
 
 pprintMyFile :: IO ()
 pprintMyFile = pprintFromFile myfile
 
-mram :: IO $ CompilationResult (Program Name MWord)
+mram :: IO $ CompilationResult (Program AReg MWord)
 mram =  fromMRAMFile "test/return42.micro"
 
 {- | Example
--- summaryFromFile myfile myCS 300
+summaryFromFile myfile myCS 300
 -}
 
 -- jpProgComp :: Word -> IO (Program VReg MWord)
+jpProgComp :: Word -> IO (CompilationResult (Program AReg MWord))
 jpProgComp len = do
     m <- fromLLVMFile "programs/driver-link.ll"
     return $ either undefined id $
