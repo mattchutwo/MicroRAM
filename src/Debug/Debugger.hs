@@ -281,10 +281,10 @@ pprintInst (Iumod r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" % "<> 
 -- pprintInst (Icmpg r1 op) = (pprintReg r1) (pprintOp op)
 -- pprintInst (Icmpge r1 op) = (pprintReg r1) (pprintOp op)
 pprintInst (Imov r1 op) = (pprintReg r1) <>" = "<> (pprintOp op)
-pprintInst (Icmov r1 op) = (pprintReg r1) <>" = "<> (pprintOp op)
+pprintInst (Icmov r1 op) = (pprintReg r1) <>" = flag ? "<> (pprintOp op) <>" : "<> (pprintReg r1) 
 pprintInst (Ijmp op) = "jmp "<> (pprintOp op)
-pprintInst (Icjmp op) = "jmp "<> (pprintOp op)
-pprintInst (Icnjmp op) = "jmp "<> (pprintOp op)
+pprintInst (Icjmp op) = "cjmp "<> (pprintOp op)
+pprintInst (Icnjmp op) = "cnjmp "<> (pprintOp op)
 pprintInst (Istore op r1) = "*("<> (pprintOp op) <>") = "<> (pprintReg r1)
 pprintInst (Iload r1 op) = (pprintReg r1) <>" = *("<> (pprintOp op) <> ")"
 -- pprintInst (Iread r1 op) = (pprintReg r1) (pprintOp op)
@@ -315,7 +315,8 @@ firstRegs bound = map fromWord $ map (2*) [0..bound]
 
 myCS :: CustomSummary AReg
 myCS = defaultCSName
-  {theseRegs = Just $ [0..7]
+  {theseRegs = Just $ [0..2]
+  ,showMem = False
   ,theseMem = [0..15]
   ,showAdvice = True}
 
@@ -329,7 +330,7 @@ fromAscii = toEnum
 
 -- Example
 myfile, myllvmfile:: FilePath
-myfile = "test/programs/easyLinkedList.micro" -- "programs/returnInput.micro"
+myfile = "test/programs/MallocOOB/mallocOOB.c.micro" -- "programs/returnInput.micro"
 myllvmfile = "programs/returnInput.ll"
 
 pprintMyFile :: IO ()

@@ -12,11 +12,18 @@ import Compiler.Errors
 
 import LLVMutil.LLVMIO
 import Test.Tasty
+import Test.Tasty.Ingredients
+
+
 import qualified Test.QuickCheck.Monadic as QCM
 import Test.Tasty.QuickCheck
 
 main :: IO ()
-main = defaultMain tests -- justOne -- 
+main = defaultMain testsWithOptions 
+
+-- We can't generate inputs right now, so set test number to 1
+testsWithOptions = localOption (QuickCheckTests 1) tests
+
 
 {-tests' = testGroup "Compiler tests" $
         map (executionTest "Return argc" "test/programs/fibSlow.ll" [1,1,1,1,1,1,1,1,1,1]) $
@@ -26,7 +33,7 @@ nats = iterate ((+) 1) 0 -}
 
 tests, testTrivial, testLoops, testGEP :: TestTree
 tests = testGroup "Compiler tests" $
-        [testTrivial, testLoops, testGEP]
+        [testTrivial, testLoops, testGEP, testDatastruct]
 
 
 justOne = testGroup " Trivial programs" $
@@ -114,8 +121,19 @@ testGEP = testGroup "Test structs and arrays with GetElementPtr" $
     "test/programs/easyLinkedList.ll"
     240 16 :
     []
-    
 
+testDatastruct = testGroup "Test data structures" $
+  compileTest
+  "Linked list generic"
+  "test/programs/LinkedList/linkedList.c.ll"
+  1500 42 :
+  compileTest
+  "Binary search tree"
+  "test/programs/binaryTree/binaryTree.c.ll"
+  2400 30 :
+  []
+  
+  
 -- tests = testGroup "Compiler tests" [instructionSelectionTests]
 
 

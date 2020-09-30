@@ -94,8 +94,6 @@ define %struct.node* @new_node(i32, i32) #0 {
   ret %struct.node* %18
 }
 
-declare i8* @malloc(i64) #1
-
 ; Function Attrs: noinline nounwind optnone ssp uwtable
 define %struct.node* @insert(%struct.node*, i32, i32) #0 {
   %4 = alloca %struct.node*, align 8
@@ -195,6 +193,137 @@ define i32 @main() #0 {
   ret i32 %27
 }
 
+; Function Attrs: nounwind uwtable
+define dso_local noalias i8* @malloc(i64) local_unnamed_addr #3 {
+  %2 = tail call i64* @malloc_words(i64 %0) #22
+  %3 = bitcast i64* %2 to i8*
+  ret i8* %3
+}
+
+; Function Attrs: nounwind uwtable
+define dso_local void @free(i8*) local_unnamed_addr #3 {
+  %2 = bitcast i8* %0 to i64*
+  tail call void @free_words(i64* %2) #22
+  ret void
+}
+
+
+; Function Attrs: nounwind uwtable
+define dso_local i64* @malloc_words(i64) local_unnamed_addr #3 {
+  %2 = tail call i64* @__cc_malloc(i64 %0) #21
+  %3 = ptrtoint i64* %2 to i64
+  %4 = lshr i64 %3, 58
+  %5 = shl i64 1, %4
+  %6 = add i64 %0, 1
+  %7 = icmp ult i64 %5, %6
+  br i1 %7, label %12, label %8
+
+8:                                                ; preds = %1
+  %9 = add i64 %5, -1
+  %10 = and i64 %9, %3
+  %11 = icmp eq i64 %10, 0
+  br i1 %11, label %13, label %12
+
+12:                                               ; preds = %8, %1
+  tail call void @__cc_flag_invalid() #21
+  br label %13
+
+13:                                               ; preds = %12, %8
+  %14 = getelementptr inbounds i64, i64* %2, i64 %5
+  %15 = getelementptr inbounds i64, i64* %14, i64 -1
+  tail call void @__cc_write_and_poison(i64* nonnull %15, i64 1) #21
+  %16 = getelementptr inbounds i64, i64* %2, i64 %0
+  %17 = tail call i64* @__cc_advise_poison(i64* %16, i64* nonnull %15) #21
+  %18 = icmp eq i64* %17, null
+  br i1 %18, label %25, label %19
+
+19:                                               ; preds = %13
+  %20 = icmp ugt i64* %16, %17
+  %21 = icmp uge i64* %17, %15
+  %22 = or i1 %20, %21
+  br i1 %22, label %23, label %24
+
+23:                                               ; preds = %19
+  tail call void @__cc_flag_invalid() #21
+  br label %24
+
+24:                                               ; preds = %23, %19
+  tail call void @__cc_write_and_poison(i64* nonnull %17, i64 0) #21
+  br label %25
+
+25:                                               ; preds = %24, %13
+  ret i64* %2
+}
+
+
+
+declare dso_local i64* @__cc_malloc(i64) local_unnamed_addr #9
+
+declare dso_local void @__cc_write_and_poison(i64*, i64) local_unnamed_addr #9
+
+declare dso_local i64* @__cc_advise_poison(i64*, i64*) local_unnamed_addr #9
+
+declare dso_local void @__cc_flag_bug() local_unnamed_addr #9
+
+declare dso_local void @__cc_flag_invalid() local_unnamed_addr #9
+
+declare dso_local void @__cc_free(i64*) local_unnamed_addr #9
+
+; Function Attrs: nounwind uwtable
+define dso_local void @free_words(i64*) local_unnamed_addr #3 {
+  %2 = icmp eq i64* %0, null
+  br i1 %2, label %27, label %3
+
+3:                                                ; preds = %1
+  %4 = ptrtoint i64* %0 to i64
+  %5 = lshr i64 %4, 58
+  %6 = shl i64 1, %5
+  %7 = add i64 %6, -1
+  %8 = and i64 %7, %4
+  %9 = icmp eq i64 %8, 0
+  br i1 %9, label %11, label %10
+
+10:                                               ; preds = %3
+  tail call void @__cc_flag_bug() #21
+  br label %11
+
+11:                                               ; preds = %10, %3
+  store i64 0, i64* %0, align 8, !tbaa !59
+  tail call void @__cc_free(i64* nonnull %0) #21
+  %12 = getelementptr inbounds i64, i64* %0, i64 %6
+  %13 = getelementptr inbounds i64, i64* %12, i64 -1
+  %14 = tail call i64* @__cc_advise_poison(i64* nonnull %0, i64* nonnull %13) #21
+  %15 = icmp eq i64* %14, null
+  br i1 %15, label %27, label %16
+
+16:                                               ; preds = %11
+  %17 = ptrtoint i64* %14 to i64
+  %18 = and i64 %17, 7
+  %19 = icmp eq i64 %18, 0
+  br i1 %19, label %21, label %20
+
+20:                                               ; preds = %16
+  tail call void @__cc_flag_invalid() #21
+  br label %21
+
+21:                                               ; preds = %20, %16
+  %22 = icmp ult i64* %14, %0
+  %23 = icmp uge i64* %14, %13
+  %24 = or i1 %22, %23
+  br i1 %24, label %25, label %26
+
+25:                                               ; preds = %21
+  tail call void @__cc_flag_invalid() #21
+  br label %26
+
+26:                                               ; preds = %25, %21
+  tail call void @__cc_write_and_poison(i64* nonnull %14, i64 0) #21
+  br label %27
+
+27:                                               ; preds = %26, %11, %1
+  ret void
+}
+
 attributes #0 = { noinline nounwind optnone ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
 attributes #1 = { "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "no-infs-fp-math"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
 
@@ -205,3 +334,5 @@ attributes #1 = { "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk
 !1 = !{i32 1, !"wchar_size", i32 4}
 !2 = !{i32 7, !"PIC Level", i32 2}
 !3 = !{!"Apple clang version 11.0.3 (clang-1103.0.32.29)"}
+
+

@@ -5,6 +5,10 @@
            Could be made better by taking the data as input.
 
 *******************************************************************************/
+#include <stdlib.h>
+
+extern int SECRET_NUMBER __attribute__((section("__DATA,__secret")));
+
 
 struct node
 {
@@ -57,16 +61,16 @@ int main()
     insert(root,5,10);
     insert(root,1,2);
     insert(root,15,30);
-    insert(root,9,18);
-    insert(root,7,14);
-    insert(root,12,24);
-    insert(root,30,60);
-    insert(root,25,50);
-    insert(root,40,80);
-    insert(root, 45,90);
+    //insert(root,9,18);
+    //insert(root,7,14);
+    //insert(root,12,24);
+    //insert(root,30,60);
+    //insert(root,25,50);
+    //insert(root,40,80);
+    //insert(root, 45,90);
     insert(root, 42,84);
 
-    return search(root,42);
+    return search(root,SECRET_NUMBER);
 }
 
 
