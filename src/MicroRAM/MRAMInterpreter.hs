@@ -309,7 +309,7 @@ opVal (Const w) = return w
 
 -- | Memory operation advice: nondeterministic advice to help the
 -- witness checker chekc the memory consistency. 
-data MemOpType = MOStore | MOLoad
+data MemOpType = MOStore | MOLoad | MOPoison
   deriving (Eq, Read, Show, Generic)
 
 -- | This information is passed the witness checker as nondeterministic
@@ -330,6 +330,7 @@ renderAdvc advs = concat $ map renderAdvc' advs
   where renderAdvc' :: Advice -> String
         renderAdvc' (MemOp addr v MOStore) = "Store: " ++ show addr ++ "->" ++ show v
         renderAdvc' (MemOp  addr v MOLoad) = "Load: " ++ show addr ++ "->" ++ show v
+        renderAdvc' (MemOp addr v MOPoison) = "Poison: " ++ show addr ++ "->" ++ show v
         renderAdvc' (Advise v) = "Advise: " ++ show v
         renderAdvc' (Stutter) = "...Stutter..."
 
@@ -351,6 +352,10 @@ adviceHandler advice (Iload _rd op2) = do
   addr <- opVal op2
   val <- use $ sMach . mMemWord addr
   recordAdvice advice (MemOp addr val MOLoad)
+adviceHandler advice (Ipoison op2 r1) = do
+  addr <- opVal op2
+  val <- regVal r1
+  recordAdvice advice (MemOp addr val MOPoison)
 adviceHandler _ _ = return ()
 
 
@@ -537,6 +542,7 @@ memErrorHandler info advice _nextH (Iextadvise "advise_poison" rd [loOp, hiOp]) 
       -- Poisoning a second time would be a prover error.
       sExt . info . miPoisonAddr .= Nothing
     _ -> do
+      traceM $ "NO to advice: "
       doAdvise advice rd 0
   finishInstr
 memErrorHandler _info _advice nextH instr = nextH instr
@@ -621,6 +627,8 @@ data ExecutionState mreg = ExecutionState {
   , regs :: RegBank mreg MWord
   -- | Memory state
   , mem :: Mem'
+  -- | Locations that have been poisoned
+  , psn :: Poison
   -- | Nondeterministic advice for the last step
   , advice :: [Advice]
   -- | The flag (a boolean register)
@@ -643,10 +651,11 @@ getStateWithAdvice advice = do
   -- Retrieve advice for the cycle that just finished executing.
   adv <- use $ sExt . advice . ix (cycle - 1)
   flag <- use $ sMach . mFlag
-  let bug = False
+  bug <- use $ sMach . mBug
+  psn <- use $ sMach . mPsn
   let inv = False
   answer <- use $ sMach . mAnswer
-  return $ ExecutionState pc regs mem adv flag bug inv (maybe 0 id answer)
+  return $ ExecutionState pc regs mem psn adv flag bug inv (maybe 0 id answer)
 
 type Prog mreg = Program mreg MWord
 type Trace mreg = [ExecutionState mreg]
@@ -660,6 +669,7 @@ initMach prog imem = MachineState
   , _mProg = Seq.fromList prog
   , _mMem = Mem 0 $ flatInitMem imem
   , _mPsn = Set.empty
+  , _mBug = False
   , _mAnswer = Nothing
   }
 
