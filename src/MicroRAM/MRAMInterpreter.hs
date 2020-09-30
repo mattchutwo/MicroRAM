@@ -39,6 +39,8 @@ import Data.Foldable
 import Data.List (intercalate)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
+import qualified Data.Set as Set
+import Data.Set (Set, member)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Text as Text
@@ -53,7 +55,7 @@ import MicroRAM
 
 import Debug.Trace
 
-
+type Poison = Set MWord
 data Mem = Mem MWord (Map MWord MWord)
 
 data MachineState r = MachineState
@@ -63,8 +65,10 @@ data MachineState r = MachineState
   , _mFlag :: Bool
   , _mProg :: Seq (Instruction r MWord)
   , _mMem :: Mem
+  , _mPsn :: Poison
+  , _mBug :: Bool
   , _mAnswer :: Maybe MWord
-  }
+  }  
 makeLenses ''MachineState
 
 data InterpState r s = InterpState
@@ -142,7 +146,7 @@ stepInstr i = do
 
     Iread rd op2 -> stepRead rd op2
     Ianswer op2  -> stepAnswer op2
-    Ipoison op2 r1 -> stepStore op2 r1
+    Ipoison op2 r1 -> stepStore op2 r1 >> poison op2
 
     Iadvise _ -> assumptError $ "unhandled advice request"
 
@@ -192,10 +196,17 @@ stepJump cond op2 = do
   ok <- cond <$> use (sMach . mFlag)
   if ok then sMach . mPc .= y else nextPc
 
+checkPoison :: MWord -> InterpM r s Hopefully ()
+checkPoison addr = do
+  psn <- use $ sMach . mPsn
+  when (addr `member` psn) setBug
+  where setBug = sMach . mBug .= True
+
 stepStore :: Regs r => Operand r MWord -> r -> InterpM r s Hopefully ()
 stepStore op2 r1 = do
   addr <- opVal op2
   val <- regVal r1
+  checkPoison addr
   sMach . mMemWord addr .= val
   nextPc
 
@@ -203,8 +214,15 @@ stepLoad :: Regs r => r -> Operand r MWord -> InterpM r s Hopefully ()
 stepLoad rd op2 = do
   addr <- opVal op2
   val <- use $ sMach . mMemWord addr
+  checkPoison addr
   sMach . mReg rd .= val
   nextPc
+
+poison :: Regs r => Operand r MWord -> InterpM r s Hopefully ()
+poison op2 = do
+  addr <- opVal op2
+  sMach . mPsn %= (Set.insert addr)
+  -- don't modify pc. This is not a full step!
 
 stepRead :: Regs r => r -> Operand r MWord -> InterpM r s Hopefully ()
 stepRead rd _op2 = do
@@ -641,6 +659,7 @@ initMach prog imem = MachineState
   , _mFlag = False
   , _mProg = Seq.fromList prog
   , _mMem = Mem 0 $ flatInitMem imem
+  , _mPsn = Set.empty
   , _mAnswer = Nothing
   }
 
