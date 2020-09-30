@@ -19,3 +19,4 @@ temp/*
 *.c.o
 *.c.opt.bc
 test/programs/**/*.c.bc
+**/*.micro
