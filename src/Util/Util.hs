@@ -9,9 +9,15 @@ Stability   : experimental
 -}
 
 module Util.Util where
+import qualified Numeric
 
 -- | Lift this usefull operator to types
 type ($) a b = a b
+
+-- | Pretty print Hex code
+showHex :: (Integral a, Show a) => a -> [Char]
+showHex w = "0x" ++ Numeric.showHex w ""
+
 
 -- | From the Python function of the same name. :D
 enumerate :: (Num n, Enum n) => [a] -> [(n, a)]

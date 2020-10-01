@@ -19,7 +19,8 @@ Current semantics follows the TinyRAM paper.
 
 module MicroRAM.MRAMInterpreter
   ( -- * Execute a program
-    run, execAnswer,
+    Executor,
+    run, execAnswer, execBug,
     -- * Trace
     ExecutionState(..),
     Trace, 
@@ -44,7 +45,6 @@ import Data.Set (Set, member)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Text as Text
-import qualified Numeric
 
 import GHC.Generics (Generic)
 
@@ -52,6 +52,7 @@ import Compiler.Errors
 import Compiler.Registers
 import Compiler.CompilationUnit
 import MicroRAM
+import Util.Util
 
 import Debug.Trace
 
@@ -431,30 +432,30 @@ blockBounds addr = (start, end)
 
 -- | Check the allocation status of `addr`, and record a memory error if it
 -- isn't valid.
-checkAccess :: Regs r => Lens' s AllocState -> MWord -> InterpM r s Hopefully ()
-checkAccess _ addr | addr < heapStart = return ()
-checkAccess allocState addr = do
+checkAccess :: Regs r => Bool -> Lens' s AllocState -> MWord -> InterpM r s Hopefully ()
+checkAccess _ _ addr | addr < heapStart = return ()
+checkAccess verbose allocState addr = do
   let (start, end) = blockBounds addr
   optAlloc <- use $ sExt . allocState . asAllocs . at start
   case optAlloc of
     -- We check against `end` to avoid complaining about accesses of the
     -- block's metadata word.
     Just (Alloc len _) | start + len <= addr && addr < end -> do
-      traceM $ "detected out-of-bounds access at " ++ showHex addr ++
+      when verbose $ traceM $ "detected out-of-bounds access at " ++ showHex addr ++
         ", after the block at " ++ showHex start
       sExt . allocState . asMemErrors %= (Seq.|> (OutOfBounds, addr))
     Just (Alloc _ True) | start <= addr && addr < end -> do
-      traceM $ "detected use-after-free at " ++ showHex addr ++
+      when verbose $ traceM $ "detected use-after-free at " ++ showHex addr ++
         ", in the block at " ++ showHex start
       sExt . allocState . asMemErrors  %= (Seq.|> (UseAfterFree, addr))
     Nothing -> do
-      traceM $ "detected bad access at " ++ showHex addr ++
+      when verbose $ traceM $ "detected bad access at " ++ showHex addr ++
         ", in the unallocated block at " ++ showHex start
       sExt . allocState . asMemErrors  %= (Seq.|> (Unallocated, addr))
     _ -> return ()
 
-allocHandler :: Regs r => Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
-allocHandler allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
+allocHandler :: Regs r => Bool -> Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
+allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
   size <- opVal sizeOp
   let sizeClass = ceilLog2 (size + 1)
   let size' = 1 `shiftL` sizeClass
@@ -468,47 +469,43 @@ allocHandler allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
   sExt . allocState . asAllocs %= Map.insert ptr (Alloc size False)
   sExt . allocState . asMallocAddrs %= (Seq.|> ptr)
 
-  traceM $ "malloc " ++ show size ++ " words (extended to " ++ show size' ++
+  when verbose $ traceM $ "malloc " ++ show size ++ " words (extended to " ++ show size' ++
     ") at " ++ showHex ptr
 
   sMach . mReg rd .= ptr
   finishInstr
-allocHandler allocState _nextH (Iext "free" [ptrOp]) = do
+allocHandler verbose allocState _nextH (Iext "free" [ptrOp]) = do
   ptr <- opVal ptrOp
 
   let sizeClass = ptr `shiftR` 58
   let size' = (1 :: MWord) `shiftL` fromIntegral sizeClass
-  traceM $ "free " ++ show size' ++ " words at " ++ showHex ptr
+  when verbose $ traceM $ "free " ++ show size' ++ " words at " ++ showHex ptr
 
   cur <- use $ sExt . allocState . asAllocs . at ptr
   case cur of
     Just (Alloc _ True) -> do
-      traceM $ "detected double free at " ++ showHex ptr
+      when verbose $ traceM $ "detected double free at " ++ showHex ptr
       -- This kind of bug is detected automatically - no advice required.
     Nothing -> do
-      traceM $ "detected invalid free at " ++ showHex ptr
+      when verbose $ traceM $ "detected invalid free at " ++ showHex ptr
       -- This kind of bug is detected automatically - no advice required.
     _ -> return ()
 
   sExt . allocState . asAllocs . ix ptr . aFreed .= True
   finishInstr
-allocHandler _allocState _nextH (Iextval "advise_poison" rd [_lo, _hi]) = do
+allocHandler _verbose _allocState _nextH (Iextval "advise_poison" rd [_lo, _hi]) = do
   -- Always return 0 (don't poison)
   sMach . mReg rd .= 0
   finishInstr
-allocHandler allocState nextH instr@(Istore op2 _r1) = do
+allocHandler verbose  allocState nextH instr@(Istore op2 _r1) = do
   addr <- opVal op2
-  checkAccess allocState addr
+  checkAccess verbose allocState addr
   nextH instr
-allocHandler allocState nextH instr@(Iload _rd op2) = do
+allocHandler verbose allocState nextH instr@(Iload _rd op2) = do
   addr <- opVal op2
-  checkAccess allocState addr
+  checkAccess verbose allocState addr
   nextH instr
-allocHandler _ nextH instr = nextH instr
-
-showHex :: MWord -> String
-showHex w = "0x" ++ Numeric.showHex w ""
-
+allocHandler _ _ nextH instr = nextH instr
 
 -- Memory handling, second pass
 
@@ -542,7 +539,6 @@ memErrorHandler info advice _nextH (Iextadvise "advise_poison" rd [loOp, hiOp]) 
       -- Poisoning a second time would be a prover error.
       sExt . info . miPoisonAddr .= Nothing
     _ -> do
-      traceM $ "NO to advice: "
       doAdvise advice rd 0
   finishInstr
 memErrorHandler _info _advice nextH instr = nextH instr
@@ -574,13 +570,13 @@ runWith handler steps initState = evalStateT go initState
       i <- fetchInstr pc
       handler i
 
-runPass1 :: Regs r => Word -> MachineState r -> Hopefully MemInfo
-runPass1 steps initMach' = do
+runPass1 :: Regs r => Bool -> Word -> MachineState r -> Hopefully MemInfo
+runPass1 verbose steps initMach' = do
   final <- runWith handler steps initState
   return $ getMemInfo $ final ^. sExt
   where
     initState = InterpState initAllocState initMach'
-    handler = traceHandler True $ allocHandler id $ stepInstr
+    handler = traceHandler verbose  $ allocHandler verbose id $ stepInstr
 
     getMemInfo :: AllocState -> MemInfo
     getMemInfo as = MemInfo (as ^. asMallocAddrs) (getPoisonAddr $ as ^. asMemErrors)
@@ -673,20 +669,27 @@ initMach prog imem = MachineState
   , _mAnswer = Nothing
   }
 
+type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
-run :: Regs mreg => CompilationResult (Prog mreg) -> Trace mreg
-run (CompUnit progs trLen _ _ initMem _) = case go of
+run_v :: Regs mreg => Bool -> Executor mreg (Trace mreg)
+run_v verbose (CompUnit progs trLen _ _ initMem _) = case go of
   Left e -> error $ describeError e
   Right x -> x
   where
     go = do
-      memInfo <- runPass1 (trLen - 1) (initMach (highProg progs) initMem)
+      memInfo <- runPass1 verbose  (trLen - 1) (initMach (highProg progs) initMem)
       tr <- runPass2 (trLen - 1) (initMach (lowProg progs) initMem) memInfo
       return tr
-
+run :: Regs mreg => Executor mreg (Trace mreg)
+run = run_v False
+      
 -- | Execute the program and return the result.
-execAnswer :: Regs mreg => CompilationResult (Prog mreg) -> MWord
+execAnswer :: Regs mreg => Executor mreg MWord
 execAnswer compUnit = answer $ last $ run compUnit
+
+-- | Execute the program and tells if there was a bug.
+execBug :: Regs mreg => Executor mreg Bool
+execBug compUnit = bug_flag $ last $ run compUnit
 
 -- | Read from a location in memory
 load ::  MWord -> Mem' -> MWord

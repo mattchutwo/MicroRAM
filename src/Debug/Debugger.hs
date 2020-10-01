@@ -95,11 +95,16 @@ defaultCSName = defaultSummary
 -- | Reserved regs
 data MaybeWord = JustW MWord | NoW
   deriving (G.Generic, Data)
-
 instance Show MaybeWord where
-  show (JustW w) = show w
+  show (JustW w) = pprintConst w
   show NoW = "-"
 
+-- | Just words with automatic pretty printing
+data PrintableWords = PW MWord
+  deriving (Eq, Ord)
+instance Show PrintableWords where
+  show (PW w) = pprintConst w
+    
 lookupReg' :: Regs a => a -> RegBank a MWord -> MaybeWord
 lookupReg' a bank =
   case lookupReg a bank of
@@ -122,11 +127,11 @@ data SummaryState = SState {
   , answer_ :: MWord
   , regs_ :: ResRegs
   , registers_ :: [MaybeWord] -- Custom regs
-  , mem_ :: [MWord]
-  , psn_ :: [MWord]
+  , mem_ :: [PrintableWords]
+  , psn_ :: [PrintableWords]
   , advc_ :: String
       }
-  deriving (Show, G.Generic, Data)
+  deriving (Show, G.Generic)
 instance Tabulate (SummaryState ) ExpandWhenNested
 
 instance CellValueFormatter Word
@@ -135,6 +140,7 @@ instance CellValueFormatter MWord
 instance CellValueFormatter [MWord]
 instance CellValueFormatter MaybeWord
 instance CellValueFormatter [MaybeWord]
+instance CellValueFormatter [PrintableWords]
 
 
 toSummaryRegs :: Regs mreg => RegBank mreg MWord -> ResRegs
@@ -156,8 +162,8 @@ toSummary theseRegs theseMems st  =
   { pc_ = pc st
   , regs_ = toSummaryRegs $ regs st
   , registers_ = toSummaryRegsCustom (regs st) theseRegs
-  , mem_ = toSummaryMem theseMems (mem st) 
-  , psn_ = Set.toList (psn st) 
+  , mem_ = map PW $ toSummaryMem theseMems (mem st) 
+  , psn_ = map PW $ Set.toList (psn st) 
   , flag_ = bool2word $ flag st
   , bug_ = bool2word $ bug_flag st
   , answer_ = answer st
@@ -213,8 +219,8 @@ printSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer sBug sPoison sAd
                   ++ (fldDepends sFlag "Flag   ")   
                   ++ (fldDepends sBug "Bug   ")   
                   ++ (fldDepends sAnswer "Ansr    ") 
-                  ++ (fldDepends sPoison "Poisons")
-                  ++ (fldDepends sRegs "Regs")
+                  ++ (fldDepends sPoison "Poisons    ")
+                  ++ (fldDepends sRegs "Regs    ")
                   ++ filler
                   ++ (fldDepends sMem "Mem \t")
                   ++  "\n"
@@ -312,9 +318,15 @@ pprintReg r | r == sp = "%sp"
 pprintReg r = "%" <> show r
 --pprintReg r = show r
 
-pprintOp :: Show a => Operand AReg a -> String
+pprintOp  :: (Bounded a, Show a, Integral a) => Operand AReg a -> String
 pprintOp (Reg r) = pprintReg r
-pprintOp (Const c) = show c
+pprintOp (Const c) = pprintConst c
+
+-- | Large numbers are shown in hex 
+pprintConst :: (Bounded a, Show a, Integral a) => a -> String
+pprintConst c | c > (maxBound - 100) = "-" ++ show (maxBound - c +1)
+pprintConst c | c < 100 = show c
+pprintConst c = showHex c
 
 pprintFromFile :: FilePath -> IO ()
 pprintFromFile file = do
@@ -329,7 +341,7 @@ firstRegs bound = map fromWord $ map (2*) [0..bound]
 
 myCS :: CustomSummary AReg
 myCS = defaultCSName
-  {theseRegs = Just $ [0..2]
+  {theseRegs = Just $ [0..3]++[7,8]
   ,showMem = False
   ,theseMem = [0..15]
   ,showAdvice = True
@@ -345,7 +357,7 @@ fromAscii = toEnum
 
 -- Example
 myfile, myllvmfile:: FilePath
-myfile = "test/programs/MallocOOB/mallocOOB.c.micro" -- "programs/returnInput.micro"
+myfile = "test/programs/WrongFree/wrongFree.c.micro" -- "programs/returnInput.micro"
 myllvmfile = "programs/returnInput.ll"
 
 pprintMyFile :: IO ()

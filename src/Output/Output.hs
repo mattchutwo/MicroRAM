@@ -109,7 +109,7 @@ concretize (Just w) = w
 concretize Nothing = 0
 
 state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
-state2out bound (ExecutionState pc regs _ _ flag _ _ _) =
+state2out bound (ExecutionState pc regs _ _ _ flag _ _ _) =
   StateOut flag pc (map concretize $ regToList bound regs)
 
 

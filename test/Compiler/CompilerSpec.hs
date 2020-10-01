@@ -12,8 +12,6 @@ import Compiler.Errors
 
 import LLVMutil.LLVMIO
 import Test.Tasty
-import Test.Tasty.Ingredients
-
 
 import qualified Test.QuickCheck.Monadic as QCM
 import Test.Tasty.QuickCheck
@@ -22,6 +20,7 @@ main :: IO ()
 main = defaultMain testsWithOptions 
 
 -- We can't generate inputs right now, so set test number to 1
+testsWithOptions :: TestTree
 testsWithOptions = localOption (QuickCheckTests 1) tests
 
 
@@ -31,38 +30,41 @@ testsWithOptions = localOption (QuickCheckTests 1) tests
 nats :: [Int] 
 nats = iterate ((+) 1) 0 -}
 
-tests, testTrivial, testLoops, testGEP :: TestTree
+tests, testTrivial, testLoops, testGEP,testDatastruct, testCorrectness, testBugs, justOne :: TestTree
 tests = testGroup "Compiler tests" $
-        [testTrivial, testLoops, testGEP, testDatastruct]
+        [testCorrectness, testBugs]
 
 
 justOne = testGroup " Trivial programs" $
-    compileTest
+    compileCorrectTest
     "Trivial struct"
     "test/programs/easyStruct.ll"
     50 3 :
     []
 
-    
+-- # Test correctness of the compiler
+testCorrectness = testGroup "Compiler correctness tests" $
+                  [testTrivial, testLoops, testGEP, testDatastruct]
+
 -- Trivial test, just to see the basics are working
 testTrivial = testGroup "Trivial programs" $
-  compileTest
+  compileCorrectTest
     "Return 42"
     "test/programs/return42.ll"
     30 42 :
-  compileTest
+  compileCorrectTest
     "21 + 21"
     "test/programs/compute42.ll"
     70 42 :
-  compileTest
+  compileCorrectTest
     "Trivial intrinsic call"
     "test/programs/intrinsicAdd.ll"
     50 120 :
-  compileTest
+  compileCorrectTest
     "Function call with multiple args"
     "test/programs/multiArgs.ll"
     110 123 :
-  compileTest
+  compileCorrectTest
     "arithmetic shift right"
     "test/programs/arithShr.ll"
     600 8 :
@@ -70,175 +72,147 @@ testTrivial = testGroup "Trivial programs" $
 
 -- Conditionals, Branching and loops
 testLoops = testGroup "Conditionals, Branching and loops" $
-  compileTest
+  compileCorrectTest
     "Fibonacci loop (not optimized)"
     "test/programs/fibSlow.ll"
     820 34 :
-  compileTest
+  compileCorrectTest
     "Easy function call"
     "test/programs/easyFunction.ll"
     70 42 : 
-  compileTest
+  compileCorrectTest
     "More easy function calls"
     "test/programs/callingConventions.ll"
     100 42 : 
-  compileTest
+  compileCorrectTest
     "Factorial with recursive calls"
     "test/programs/factRec.ll"
     600 120 :
-  compileTest
+  compileCorrectTest
     "Or with phi"
     "test/programs/or.ll"
     100 1 : 
-  {-  compileTest
+  {-  compileCorrectTest
     "Input text into numbers"
     "test/programs/returnInput.ll"
     80 42 : -}
---  compileTest "Hello world" "test/programs/hello.ll" 50 [] 0 :
+--  compileCorrectTest "Hello world" "test/programs/hello.ll" 50 [] 0 :
     []
 
 -- GetElementPtr
 testGEP = testGroup "Test structs and arrays with GetElementPtr" $
-  compileTest
+  compileCorrectTest
     "Trivial array"
     "test/programs/easyArray.ll"
     50 11 :
-    compileTest
+    compileCorrectTest
     "Trivial struct"
     "test/programs/easyStruct.ll"
     50 3 :
-    compileTest
+    compileCorrectTest
     "Trivial struct Packed"
     "test/programs/easyStructPack.ll"
     50 3 :
 {-  WAIT FOR FUNCTIONS TO WORK.
-    compileTest
+    compileCorrectTest
     "Simple Binary Tree"
     "test/programs/easyBinaryTree.ll"
     100 42 :  -}
-    compileTest
+    compileCorrectTest
     "Linked list length 3"
     "test/programs/easyLinkedList.ll"
     240 16 :
     []
 
 testDatastruct = testGroup "Test data structures" $
-  compileTest
+  compileCorrectTest
   "Linked list generic"
   "test/programs/LinkedList/linkedList.c.ll"
   1500 42 :
-  compileTest
+  compileCorrectTest
   "Binary search tree"
   "test/programs/binaryTree/binaryTree.c.ll"
   2400 30 :
   []
+
+-- ## Now we test buggy programs to see if we can catch the bug
+testBugs = testGroup "Compiler bug tests" $
+  compileBugTest
+  "Use after free Bug"
+  "test/programs/UseAfterFree/useAfterFree.c.ll"
+  200 :
+  compileBugTest
+  "Invalid Free (Now a pointer given by malloc)"
+  "test/programs/WrongFree/wrongFree.c.ll"
+  200 :
+  compileBugTest
+  "Out of bounds access"
+  "test/programs/MallocOOB/mallocOOB.c.ll"
+  200 :
+  compileBugTest
+  "Free after free"
+  "test/programs/DoubleFree/DoubleFree.c.ll"
+  200 :
+  []
+
   
   
 -- tests = testGroup "Compiler tests" [instructionSelectionTests]
 
 
--- Full compilation tests
+-- # Full compilation tests
 
--- | compileTest : compile step by step llvm code from file:
-
-type AssertionInfo = IO String
-
-compileTest ::
-  String
+compileTest
+  :: Executor AReg t -- ^ executes the program and returns some result
+  -> (t -> Bool)     -- ^ tests if result is satisfactory
+  -> TestName
   -> FilePath
-  -> Word -- ^ Length
-  -> MWord  -- ^ return value
+  -> Word
   -> TestTree
-compileTest name file len ret = 
+compileTest executionFunction tester name file len = 
   testProperty name $ 
   QCM.monadicIO $ do
   --QCM.run $ putStrLn "Here"
   answer <- QCM.run $ compileTest' file len  False
   --QCM.run $ putStrLn "Here 2" 
-  QCM.assert $ answer == ret
-
-compileTest' ::
-  FilePath
-  -> Word -- ^ Length
-  -> Bool -- ^ verbose
-  -> IO MWord -- TestTree
-compileTest' file len _verb = do
-  llvmProg <- llvmParse file
-  mramProg <- handleErrorWith $ compile len llvmProg
-  return $ execAnswer mramProg
-
-
-
-
-
-
-{-    llvmModule <- llvmParse file
+  QCM.assert $ tester answer
+  where {-compileTest' ::
+          FilePath
+          -> Word -- ^ Length
+          -> Bool -- ^ verbose
+          -> IO MWord -- TestTree-}
+        compileTest' file len _verb = do
+          llvmProg <- llvmParse file
+          mramProg <- handleErrorWith $ compile len llvmProg
+          return $ executionFunction mramProg
   
 
+-- ## Full compilation tests of correctness
 
-  do
-  putStrLn "Preparing code to compile"
-  llvmModule <- llvmParse file
-  --putStrLn $ show llvmModule
-  putStrLn "Instruction selection "
-  rtlModule <- checkPass $ instrSelect llvmModule
-  --step $ show rtlModule
-  step "Register Allocation "
-  ltlModule <- checkPass $ registerAlloc def rtlModule
-  --step $ show ltlModule
-  step "Stacking "
-  asmModule <- checkPass $ stacking ltlModule
-  --putStrLn $ show asmModule 
-  putStrLn "Removing Labels"
-  mram <- checkPass $ removeLabels asmModule
-  --putStrLn $ show mram
-  putStrLn "Testing correctness"
-  return $ execAnswer mram -}
+-- | compileCorrectTest : compile step by step llvm code from file:
 
-{-
-executionTest ::
+type AssertionInfo = IO String
+
+compileCorrectTest ::
   String
   -> FilePath
-  -> [Word]
-  -> Int
+  -> Word -- ^ Length
+  -> MWord  -- ^ return value
   -> TestTree
-executionTest testName file input bound = 
-  testCaseSteps ("Compiling " ++ testName) $ \step -> do
-  --step "Preparing code to compile"
-  llvmModule <- llvmParse file
-  --step $ show llvmModule
-  --step "Instruction selection "
-  rtlModule <- checkPass $ instrSelect llvmModule
-  --step $ show rtlModule
-  --step "Register Allocation "
-  ltlModule <- checkPass $ registerAlloc def rtlModule
-  --step $ show ltlModule
-  --step "Stacking "
-  asmModule <- checkPass $ stacking ltlModule
-  --step $ show asmModule 
-  --step "Removing Labels "
-  mram <- checkPass $ removeLabels asmModule
-  --pretyPrint step mram
-  step $ show (exec_pc mram (bound) input) 
-  step $ show (exec_regs mram (bound) input) 
-  step $ show (exec_mem mram (bound) input)  
-  -- step $ show (exec_tape mram (bound) input) 
-  --step $ show (exec_flag mram (bound) input)
-  step $ "Return at step " ++ show bound ++ ": " ++ show (exec mram bound input)
-  assertEqual "Program returned the wrong value." 0 0
+compileCorrectTest name file len ret =
+  compileTest execAnswer (== ret) name file len
+
+-- ## Full compilation tests looking for bugs
+
+-- | compileCorrectTest : compile step by step llvm code from file:
+
+compileBugTest ::
+  String
+  -> FilePath
+  -> Word -- ^ Length
+  -> TestTree
+compileBugTest name file len = 
+  compileTest execBug id name file len
 
 
--}
 
-  
---checkPass :: Hopefully a -> IO a 
---checkPass (Right c) = return c
---checkPass (Left msg) = assertFailure $ "produced compilation error: " ++ (show msg)
-
---exec :: Regs mreg => MRAM.Program mreg Word -> Int -> [Word] -> Word
---exec prog bound input = answer $ (run input prog) !! bound
-
---exec_tape prog bound input = tapes $ (run input prog) !! bound
-
-
--- pretyPrint step mram = mapM (\(n,inst) -> step $ (show n) ++ ". " ++ (show inst)) $ enumerate mram

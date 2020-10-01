@@ -1,71 +1,106 @@
-; ModuleID = 'mallocOOB.c.bc'
+; ModuleID = 'useAfterFree.c.bc'
 source_filename = "llvm-link"
 target datalayout = "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-apple-macosx10.15.0"
 
-@SECRET_SIZE = local_unnamed_addr global i32 3, section "__DATA,__secret", align 4
+@SECRET_BOUND = local_unnamed_addr global i32 144, section "__DATA,__secret", align 4
 @SECRET_NUMBER = local_unnamed_addr global i32 42, section "__DATA,__secret", align 4
 
-; Function Attrs:  nounwind ssp uwtable
+; Function Attrs: nounwind ssp uwtable
 define i32 @main() local_unnamed_addr #0 {
-  %1 = load i32, i32* @SECRET_SIZE, align 4, !tbaa !4
-  %2 = sext i32 %1 to i64
-  %3 = shl nsw i64 %2, 2
-  %4 = tail call i8* @__cc_malloc(i64 %3) #5
-  %5 = ptrtoint i8* %4 to i64
-  %6 = lshr i64 %5, 58
-  %7 = shl nuw i64 1, %6
-  %8 = or i64 %3, 1
-  %9 = icmp ult i64 %7, %8
-  %10 = add i64 %7, -1
-  %11 = and i64 %10, %5
-  %12 = icmp ne i64 %11, 0
-  %13 = or i1 %9, %12
-  br i1 %13, label %14, label %15
+  %1 = tail call i8* @__cc_malloc(i64 12) #5
+  %2 = ptrtoint i8* %1 to i64
+  %3 = lshr i64 %2, 58
+  %4 = shl nuw i64 1, %3
+  %5 = icmp ult i8* %1, inttoptr (i64 1152921504606846976 to i8*)
+  %6 = add i64 %4, -1
+  %7 = and i64 %6, %2
+  %8 = icmp ne i64 %7, 0
+  %9 = or i1 %5, %8
+  br i1 %9, label %10, label %11
 
-14:                                               ; preds = %0
+10:                                               ; preds = %0
   tail call void @__cc_flag_invalid() #5
-  br label %15
+  br label %11
 
-15:                                               ; preds = %14, %0
-  %16 = getelementptr inbounds i8, i8* %4, i64 %7
-  %17 = getelementptr inbounds i8, i8* %16, i64 -1
-  tail call void @__cc_write_and_poison(i8* nonnull %17, i64 1) #5
-  %18 = getelementptr inbounds i8, i8* %4, i64 %3
-  %19 = tail call i8* @__cc_advise_poison(i8* %18, i8* nonnull %17) #5
-  %20 = icmp eq i8* %19, null
-  br i1 %20, label %malloc.exit, label %21
+11:                                               ; preds = %10, %0
+  %12 = getelementptr inbounds i8, i8* %1, i64 %4
+  %13 = getelementptr inbounds i8, i8* %12, i64 -1
+  tail call void @__cc_write_and_poison(i8* nonnull %13, i64 1) #5
+  %14 = getelementptr inbounds i8, i8* %1, i64 12
+  %15 = tail call i8* @__cc_advise_poison(i8* nonnull %14, i8* nonnull %13) #5
+  %16 = icmp eq i8* %15, null
+  br i1 %16, label %malloc.exit, label %17
 
-21:                                               ; preds = %15
-  %22 = icmp ugt i8* %18, %19
-  %23 = icmp uge i8* %19, %17
-  %24 = or i1 %22, %23
-  br i1 %24, label %25, label %26
+17:                                               ; preds = %11
+  %18 = icmp ugt i8* %14, %15
+  %19 = icmp uge i8* %15, %13
+  %20 = or i1 %18, %19
+  br i1 %20, label %21, label %22
 
-25:                                               ; preds = %21
+21:                                               ; preds = %17
   tail call void @__cc_flag_invalid() #5
-  br label %26
+  br label %22
 
-26:                                               ; preds = %25, %21
-  tail call void @__cc_write_and_poison(i8* nonnull %19, i64 0) #5
+22:                                               ; preds = %21, %17
+  tail call void @__cc_write_and_poison(i8* nonnull %15, i64 0) #5
   br label %malloc.exit
 
-malloc.exit:                                      ; preds = %15, %26
-  %27 = bitcast i8* %4 to i32*
-  store i32 21, i32* %27, align 4, !tbaa !4
-  %28 = getelementptr inbounds i8, i8* %4, i64 4
-  %29 = bitcast i8* %28 to i32*
-  store i32 22, i32* %29, align 4, !tbaa !4
-  %30 = getelementptr inbounds i8, i8* %4, i64 8
-  %31 = bitcast i8* %30 to i32*
-  store i32 23, i32* %31, align 4, !tbaa !4
-  %32 = load i32, i32* @SECRET_NUMBER, align 4, !tbaa !4
-  %33 = getelementptr inbounds i8, i8* %4, i64 12
-  %34 = bitcast i8* %33 to i32*
-  store i32 %32, i32* %34, align 4, !tbaa !4
-  %35 = getelementptr inbounds i32, i32* %27, i64 %2
-  %36 = load i32, i32* %35, align 4, !tbaa !4
-  ret i32 %36
+malloc.exit:                                      ; preds = %11, %22
+  %23 = bitcast i8* %1 to i32*
+  store i32 21, i32* %23, align 4, !tbaa !4
+  %24 = getelementptr inbounds i8, i8* %1, i64 4
+  %25 = bitcast i8* %24 to i32*
+  store i32 22, i32* %25, align 4, !tbaa !4
+  %26 = load i32, i32* @SECRET_NUMBER, align 4, !tbaa !4
+  %27 = getelementptr inbounds i8, i8* %1, i64 8
+  %28 = bitcast i8* %27 to i32*
+  store i32 %26, i32* %28, align 4, !tbaa !4
+  %29 = load i32, i32* @SECRET_BOUND, align 4, !tbaa !4
+  %30 = icmp slt i32 %29, 145
+  br i1 %30, label %31, label %free.exit.thread
+
+31:                                               ; preds = %malloc.exit
+  %32 = icmp eq i64 %7, 0
+  br i1 %32, label %34, label %33
+
+33:                                               ; preds = %31
+  tail call void @__cc_flag_bug() #5
+  br label %34
+
+34:                                               ; preds = %33, %31
+  store i8 0, i8* %1, align 1, !tbaa !8
+  tail call void @__cc_free(i8* nonnull %1) #5
+  %35 = tail call i8* @__cc_advise_poison(i8* nonnull %1, i8* nonnull %13) #5
+  %36 = icmp eq i8* %35, null
+  br i1 %36, label %free.exit, label %37
+
+37:                                               ; preds = %34
+  %38 = icmp ult i8* %35, %1
+  %39 = icmp uge i8* %35, %13
+  %40 = or i1 %38, %39
+  br i1 %40, label %41, label %42
+
+41:                                               ; preds = %37
+  tail call void @__cc_flag_invalid() #5
+  br label %42
+
+42:                                               ; preds = %41, %37
+  tail call void @__cc_write_and_poison(i8* nonnull %35, i64 0) #5
+  br label %free.exit
+
+free.exit:                                        ; preds = %42, %34
+  %.pr = load i32, i32* @SECRET_BOUND, align 4, !tbaa !4
+  %43 = icmp sgt i32 %.pr, 143
+  br i1 %43, label %free.exit.free.exit.thread_crit_edge, label %free.exit.thread
+
+free.exit.free.exit.thread_crit_edge:             ; preds = %free.exit
+  %.pre = load i32, i32* %28, align 4, !tbaa !4
+  br label %free.exit.thread
+
+free.exit.thread:                                 ; preds = %malloc.exit, %free.exit.free.exit.thread_crit_edge, %free.exit
+  %44 = phi i32 [ 22, %free.exit ], [ %.pre, %free.exit.free.exit.thread_crit_edge ], [ %26, %malloc.exit ]
+  ret i32 %44
 }
 
 declare i8* @__cc_malloc(i64) local_unnamed_addr #1
@@ -75,6 +110,10 @@ declare void @__cc_flag_invalid() local_unnamed_addr #1
 declare void @__cc_write_and_poison(i8*, i64) local_unnamed_addr #1
 
 declare i8* @__cc_advise_poison(i8*, i8*) local_unnamed_addr #1
+
+declare void @__cc_flag_bug() local_unnamed_addr #1
+
+declare void @__cc_free(i8*) local_unnamed_addr #1
 
 ; Function Attrs:  norecurse nounwind ssp uwtable
 define void @__llvm__memcpy__p0i8__p0i8__i64(i8* nocapture, i8* nocapture readonly, i64) local_unnamed_addr #2 {
@@ -202,7 +241,7 @@ define void @__llvm__memset__p0i8__i64(i8* nocapture, i8 zeroext, i64) local_unn
 ; Function Attrs: argmemonly nounwind
 declare void @llvm.memset.p0i8.i64(i8* nocapture writeonly, i8, i64, i1 immarg) #4
 
-attributes #0 = {  nounwind ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #0 = { nounwind ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
 attributes #1 = { "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "no-builtins" "no-infs-fp-math"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
 attributes #2 = {  norecurse nounwind ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-builtins" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
 attributes #3 = {  norecurse nounwind ssp uwtable writeonly "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-builtins" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
