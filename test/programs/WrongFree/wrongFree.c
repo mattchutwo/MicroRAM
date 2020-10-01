@@ -13,7 +13,7 @@ int main()
     int *array;
     int ret, array_size = 3;
     
-    array = (int*) malloc ( sizeof(int) * array_size );
+    array = (int*) malloc (sizeof(int) * array_size );
 
     array[0] = 21;
     array[1] = 22;
@@ -24,7 +24,7 @@ int main()
     // Free the array
     if (SECRET_BOUND <= 144) {
       ret = array[2];
-      free (array + SECRET_BOUND);
+      free (array + 5);
     }
 
     

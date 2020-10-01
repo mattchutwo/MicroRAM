@@ -61,60 +61,54 @@ malloc.exit:                                      ; preds = %11, %22
   br i1 %30, label %31, label %free.exit.thread
 
 31:                                               ; preds = %malloc.exit
-  %32 = sext i32 %29 to i64
-  %33 = getelementptr inbounds i32, i32* %23, i64 %32
-  %34 = bitcast i32* %33 to i8*
-  %35 = icmp eq i32* %33, null
-  br i1 %35, label %free.exit, label %36
+  %32 = getelementptr inbounds i8, i8* %1, i64 20
+  %33 = ptrtoint i8* %32 to i64
+  %34 = lshr i64 %33, 58
+  %35 = shl nuw i64 1, %34
+  %36 = add i64 %35, -1
+  %37 = and i64 %36, %33
+  %38 = icmp eq i64 %37, 0
+  br i1 %38, label %40, label %39
 
-36:                                               ; preds = %31
-  %37 = ptrtoint i32* %33 to i64
-  %38 = lshr i64 %37, 58
-  %39 = shl nuw i64 1, %38
-  %40 = add i64 %39, -1
-  %41 = and i64 %40, %37
-  %42 = icmp eq i64 %41, 0
-  br i1 %42, label %44, label %43
-
-43:                                               ; preds = %36
+39:                                               ; preds = %31
   tail call void @__cc_flag_bug() #5
-  br label %44
+  br label %40
 
-44:                                               ; preds = %43, %36
-  store i8 0, i8* %34, align 1, !tbaa !8
-  tail call void @__cc_free(i8* nonnull %34) #5
-  %45 = getelementptr inbounds i8, i8* %34, i64 %39
-  %46 = getelementptr inbounds i8, i8* %45, i64 -1
-  %47 = tail call i8* @__cc_advise_poison(i8* nonnull %34, i8* nonnull %46) #5
-  %48 = icmp eq i8* %47, null
-  br i1 %48, label %free.exit, label %49
+40:                                               ; preds = %39, %31
+  store i8 0, i8* %32, align 1, !tbaa !8
+  tail call void @__cc_free(i8* nonnull %32) #5
+  %41 = getelementptr inbounds i8, i8* %32, i64 %35
+  %42 = getelementptr inbounds i8, i8* %41, i64 -1
+  %43 = tail call i8* @__cc_advise_poison(i8* nonnull %32, i8* nonnull %42) #5
+  %44 = icmp eq i8* %43, null
+  br i1 %44, label %free.exit, label %45
 
-49:                                               ; preds = %44
-  %50 = icmp ult i8* %47, %34
-  %51 = icmp uge i8* %47, %46
-  %52 = or i1 %50, %51
-  br i1 %52, label %53, label %54
+45:                                               ; preds = %40
+  %46 = icmp ult i8* %43, %32
+  %47 = icmp uge i8* %43, %42
+  %48 = or i1 %46, %47
+  br i1 %48, label %49, label %50
 
-53:                                               ; preds = %49
+49:                                               ; preds = %45
   tail call void @__cc_flag_invalid() #5
-  br label %54
+  br label %50
 
-54:                                               ; preds = %53, %49
-  tail call void @__cc_write_and_poison(i8* nonnull %47, i64 0) #5
+50:                                               ; preds = %49, %45
+  tail call void @__cc_write_and_poison(i8* nonnull %43, i64 0) #5
   br label %free.exit
 
-free.exit:                                        ; preds = %54, %44, %31
+free.exit:                                        ; preds = %50, %40
   %.pr = load i32, i32* @SECRET_BOUND, align 4, !tbaa !4
-  %55 = icmp sgt i32 %.pr, 143
-  br i1 %55, label %free.exit.free.exit.thread_crit_edge, label %free.exit.thread
+  %51 = icmp sgt i32 %.pr, 143
+  br i1 %51, label %free.exit.free.exit.thread_crit_edge, label %free.exit.thread
 
 free.exit.free.exit.thread_crit_edge:             ; preds = %free.exit
   %.pre = load i32, i32* %23, align 4, !tbaa !4
   br label %free.exit.thread
 
 free.exit.thread:                                 ; preds = %malloc.exit, %free.exit.free.exit.thread_crit_edge, %free.exit
-  %56 = phi i32 [ %26, %free.exit ], [ %.pre, %free.exit.free.exit.thread_crit_edge ], [ 21, %malloc.exit ]
-  ret i32 %56
+  %52 = phi i32 [ %26, %free.exit ], [ %.pre, %free.exit.free.exit.thread_crit_edge ], [ 21, %malloc.exit ]
+  ret i32 %52
 }
 
 declare i8* @__cc_malloc(i64) local_unnamed_addr #1

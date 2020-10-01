@@ -75,7 +75,7 @@ void free_words(char* ptr) {
     uintptr_t region_size = 1ull << log_region_size;
 
     // Ensure `ptr` points to the start of a region.
-    __cc_bug_if((char*)ptr % (char*)region_size != 0);
+    __cc_bug_if((uintptr_t)ptr % region_size != 0);
 
     // Write to `*ptr`.  This memory access lets us catch double-free and
     // free-before-alloc by turning them into use-after-free and

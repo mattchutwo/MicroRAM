@@ -341,7 +341,7 @@ firstRegs bound = map fromWord $ map (2*) [0..bound]
 
 myCS :: CustomSummary AReg
 myCS = defaultCSName
-  {theseRegs = Just $ [0..3]++[7,8]
+  {theseRegs = Just $ [0..3] ++[5,7,8]
   ,showMem = False
   ,theseMem = [0..15]
   ,showAdvice = True
