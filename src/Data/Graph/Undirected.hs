@@ -61,7 +61,7 @@ color colors' spillNodeWeight canSpill (Graph graph vmap) =
   where
     go :: [n] -> HGL.PatriciaTree n e -> Either n (Map n color)
     go _sortedNodes graph | HGL.isEmpty graph = Right mempty
-    go [] graph = error "color: No more available nodes left. Unreachable."
+    go [] _graph = error "color: No more available nodes left. Unreachable."
     go sortedNodes graph =
       -- Find a node with less than k edges.
       case findNode sortedNodes graph of

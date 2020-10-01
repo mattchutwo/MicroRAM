@@ -18,13 +18,10 @@ module Compiler.RemovePhi
     ) where
 
 import Control.Monad.State
-import Data.Foldable
 import qualified Data.Graph.Directed as Digraph
 import qualified Data.List as List
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.String (fromString)
@@ -187,8 +184,8 @@ blockEdges (BB name _body term _dag) = Set.unions $ map go term
     go (MRI (Icnjmp (Label dest)) _) = Set.singleton (name, read dest)
     go _ = Set.empty
 
-funcEdges :: RFunction mdata wrdT -> Set (Name, Name)
-funcEdges f = Set.unions $ map blockEdges $ funcBlocks f
+_funcEdges :: RFunction mdata wrdT -> Set (Name, Name)
+_funcEdges f = Set.unions $ map blockEdges $ funcBlocks f
 
 
 

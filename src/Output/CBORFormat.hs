@@ -354,13 +354,18 @@ instance Serialise StateOut where
 -- ** Advice
 
 encodeMemOpType :: MemOpType -> Encoding
-encodeMemOpType MOStore = encodeBool True
-encodeMemOpType MOLoad = encodeBool False
+encodeMemOpType MOStore = encodeString "write"
+encodeMemOpType MOLoad = encodeString "read"
+encodeMemOpType MOPoison = encodeString "poison"
 
 decodeMemOpType :: Decoder s MemOpType
 decodeMemOpType = do
-  b <- decodeBool
-  return $ if b then MOStore else MOLoad
+  memOp <- decodeString
+  case memOp of
+    "write" -> return MOStore
+    "read" -> return MOLoad
+    "poison" -> return MOPoison
+    t -> fail $ "Memory operation not known: " ++ show t 
 
 instance Serialise MemOpType where
   decode = decodeMemOpType

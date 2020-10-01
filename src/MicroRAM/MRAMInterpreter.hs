@@ -406,6 +406,9 @@ data AllocState = AllocState
 makeLenses ''Alloc
 makeLenses ''AllocState
 
+_useALen :: Lens' Alloc MWord
+_useALen = aLen
+
 heapStart :: MWord
 heapStart = 0x10000000
 
