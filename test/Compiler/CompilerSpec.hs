@@ -200,7 +200,7 @@ compileCorrectTest ::
   -> MWord  -- ^ return value
   -> TestTree
 compileCorrectTest name file len ret =
-  compileTest execAnswer (== ret) name file len
+  compileTest (execAnswer False) (== ret) name file len
 
 -- ## Full compilation tests looking for bugs
 
@@ -212,7 +212,7 @@ compileBugTest ::
   -> Word -- ^ Length
   -> TestTree
 compileBugTest name file len = 
-  compileTest execBug id name file len
+  compileTest (execBug False) id name file len
 
 
 

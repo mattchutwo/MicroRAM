@@ -27,7 +27,7 @@ main = do
           putStrLn $ "Running program " ++ file ++ " for " ++
             (show $ traceLen compUnit) ++ " steps."
           --mramArgs <- return $ parseArgs progArgs
-          result <- return $ execAnswer compUnit
+          result <- return $ (execAnswer True) compUnit
           putStrLn $ "Result: " ++ show result
     _ -> putStrLn "Error: More than one argument provided." 
           

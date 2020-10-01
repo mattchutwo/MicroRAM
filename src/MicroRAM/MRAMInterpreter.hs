@@ -684,12 +684,12 @@ run :: Regs mreg => Executor mreg (Trace mreg)
 run = run_v False
       
 -- | Execute the program and return the result.
-execAnswer :: Regs mreg => Executor mreg MWord
-execAnswer compUnit = answer $ last $ run compUnit
+execAnswer :: Regs mreg => Bool -> Executor mreg MWord
+execAnswer verb compUnit = answer $ last $ run_v verb compUnit
 
 -- | Execute the program and tells if there was a bug.
-execBug :: Regs mreg => Executor mreg Bool
-execBug compUnit = bug_flag $ last $ run compUnit
+execBug :: Regs mreg => Bool -> Executor mreg Bool
+execBug verb compUnit = bug_flag $ last $ run_v verb compUnit
 
 -- | Read from a location in memory
 load ::  MWord -> Mem' -> MWord
