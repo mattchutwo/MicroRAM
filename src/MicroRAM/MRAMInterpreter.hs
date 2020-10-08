@@ -48,6 +48,8 @@ import qualified Data.Text as Text
 
 import GHC.Generics (Generic)
 
+import Compiler.Sparsity
+import Compiler.Analysis
 import Compiler.Errors
 import Compiler.Registers
 import Compiler.CompilationUnit
@@ -72,9 +74,19 @@ data MachineState r = MachineState
   }  
 makeLenses ''MachineState
 
+data SparsityState = SparsityState
+  { _spSpars :: Sparsity
+  , _spLastSeen :: Map.Map InstrKind Int
+  }
+makeLenses ''SparsityState
+
+initSparsSt :: Sparsity -> SparsityState
+initSparsSt spars = SparsityState spars Map.empty
+  
 data InterpState r s = InterpState
   { _sExt :: s
   , _sMach :: MachineState r
+  , _sSpars :: SparsityState
   }
 makeLenses ''InterpState
 
@@ -116,7 +128,7 @@ stepInstr i = do
     Ior rd r1 op2 -> stepBinary (.|.) (\_ _ r -> r == 0) rd r1 op2
     Ixor rd r1 op2 -> stepBinary xor (\_ _ r -> r == 0) rd r1 op2
     Inot rd op2 -> stepUnary complement (\_ r -> r == 0) rd op2
-
+    
     Iadd rd r1 op2 -> stepBinary (+) addOverflow rd r1 op2
     Isub rd r1 op2 -> stepBinary (-) subUnderflow rd r1 op2
     Imull rd r1 op2 -> stepBinary (*) mulOverflow rd r1 op2
@@ -125,37 +137,76 @@ stepInstr i = do
     -- TODO div/mod vs quot/rem?
     Iudiv rd r1 op2 -> stepBinary safeDiv (\_ y _ -> y == 0) rd r1 op2
     Iumod rd r1 op2 -> stepBinary safeMod (\_ y _ -> y == 0) rd r1 op2
-
+    
     Ishl rd r1 op2 -> stepBinary shiftL' (\x _ _ -> msb x) rd r1 op2
     Ishr rd r1 op2 -> stepBinary shiftR' (\x _ _ -> lsb x) rd r1 op2
-
+    
     Icmpe r1 op2 -> stepCompare (==) r1 op2
     Icmpa r1 op2 -> stepCompare (>) r1 op2
     Icmpae r1 op2 -> stepCompare (>=) r1 op2
     Icmpg r1 op2 -> stepCompare signedGt r1 op2
     Icmpge r1 op2 -> stepCompare signedGe r1 op2
-
+    
     Imov rd op2 -> stepMove (const True) rd op2
     Icmov rd op2 -> stepMove (== True) rd op2
-
+    
     Ijmp op2 -> stepJump (const True) op2
     Icjmp op2 -> stepJump (== True) op2
     Icnjmp op2 -> stepJump (== False) op2
-
+    
     Istore op2 r1 -> stepStore op2 r1
     Iload rd op2 -> stepLoad rd op2
-
+    
     Iread rd op2 -> stepRead rd op2
     Ianswer op2  -> stepAnswer op2
     Ipoison op2 r1 -> stepStore op2 r1 >> poison op2
-
+    
     Iadvise _ -> assumptError $ "unhandled advice request"
-
+    
     Iext name _ -> assumptError $ "unhandled extension instruction " ++ show name
     Iextval name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
     Iextadvise name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
 
   sMach . mCycle %= (+ 1)
+  
+
+-- ## Sparsity
+
+controlSparsity :: Regs r
+                => Lens' s AdviceMap
+                -> InstrHandler r s
+                -> InstrHandler r s
+controlSparsity adviceMap step instr = do 
+  stutter <- checkSparsity instr
+  if stutter then do
+    recordAdvice adviceMap Stutter
+    sMach . mCycle %= (+ 1)
+  else do
+    step instr
+checkSparsity :: Regs r => Instruction r MWord -> InterpM r s Hopefully Bool
+checkSparsity instr = do
+  kinds <- return $ instrType instr
+  stutters <- mapM sparsity kinds 
+  return $ or stutters 
+  where sparsity :: Regs r => InstrKind -> InterpM r s Hopefully Bool
+        sparsity kind = do
+          cyc <- use $ sMach . mCycle
+          lastMap <- use $ sSpars . spLastSeen
+          last <- return $ Map.findWithDefault (-1) kind lastMap
+          sSpars . spLastSeen %= (Map.insert kind (fromEnum cyc))
+          sparsity <- use $ sSpars . spSpars
+          targetSpars <- return $ Map.lookup kind sparsity
+          case targetSpars of
+            Nothing  -> return False
+            Just spc -> do
+              if sameFunctionalUnit spc last (fromEnum cyc)
+                then return True
+                else return False
+  
+        -- | Checks if two instances of the same kind would share the same functional Unit
+        -- There is one Functional unit every 'spc' cycles.
+        -- Last seen default is -1 so must use `div` 
+        sameFunctionalUnit spc last cyc = (last `div` spc) == (cyc `quot` spc)
 
 stepUnary :: Regs r => (MWord -> MWord) -> (MWord -> MWord -> Bool) ->
   r -> Operand r MWord -> InterpM r s Hopefully ()
@@ -516,7 +567,6 @@ data MemInfo = MemInfo
   { _miMallocAddrs :: Seq MWord
   , _miPoisonAddr :: Maybe MWord
   }
-
 makeLenses ''MemInfo
 
 doAdvise :: Regs r => Lens' s AdviceMap -> r -> MWord -> InterpM r s Hopefully ()
@@ -573,12 +623,12 @@ runWith handler steps initState = evalStateT go initState
       i <- fetchInstr pc
       handler i
 
-runPass1 :: Regs r => Bool -> Word -> MachineState r -> Hopefully MemInfo
-runPass1 verbose steps initMach' = do
+runPass1 :: Regs r => Bool -> Word -> Sparsity -> MachineState r -> Hopefully MemInfo
+runPass1 verbose steps spars initMach' = do
   final <- runWith handler steps initState
   return $ getMemInfo $ final ^. sExt
   where
-    initState = InterpState initAllocState initMach'
+    initState = InterpState initAllocState initMach' (initSparsSt spars)
     handler = traceHandler verbose  $ allocHandler verbose id $ stepInstr
 
     getMemInfo :: AllocState -> MemInfo
@@ -589,15 +639,15 @@ runPass1 verbose steps initMach' = do
       (_, x) : _ -> Just x
       [] -> Nothing
 
-runPass2 :: Regs r => Word -> MachineState r -> MemInfo -> Hopefully (Trace r)
-runPass2 steps initMach' memInfo = do
+runPass2 :: Regs r => Word -> Sparsity -> MachineState r -> MemInfo -> Hopefully (Trace r)
+runPass2 steps spars initMach' memInfo = do
   -- The first entry of the trace is always the initial state.  Then `steps`
   -- entries follow after it.
   initExecState <- evalStateT (getStateWithAdvice eAdvice) initState
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
-    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach'
+    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach' (initSparsSt spars)
 
     eTrace :: Lens' (a, b, c) a
     eTrace = _1
@@ -608,10 +658,12 @@ runPass2 steps initMach' memInfo = do
 
     handler =
       execTraceHandler eTrace eAdvice $
+      controlSparsity eAdvice $
       observer (adviceHandler eAdvice) $
       memErrorHandler eMemInfo eAdvice $
       traceHandler False $
       stepInstr
+
 
 
 -- Old public definitions
@@ -675,14 +727,16 @@ initMach prog imem = MachineState
 type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
 run_v :: Regs mreg => Bool -> Executor mreg (Trace mreg)
-run_v verbose (CompUnit progs trLen _ _ initMem _) = case go of
+run_v verbose (CompUnit progs trLen _ analysis initMem _) = case go of
   Left e -> error $ describeError e
   Right x -> x
   where
     go = do
-      memInfo <- runPass1 verbose  (trLen - 1) (initMach (highProg progs) initMem)
-      tr <- runPass2 (trLen - 1) (initMach (lowProg progs) initMem) memInfo
+      memInfo <- runPass1 verbose  (trLen - 1) sparsity (initMach (highProg progs) initMem)
+      tr <- runPass2 (trLen - 1) sparsity (initMach (lowProg progs) initMem) memInfo
       return tr
+    sparsity = getSparsity analysis
+      
 run :: Regs mreg => Executor mreg (Trace mreg)
 run = run_v False
       
@@ -699,3 +753,6 @@ load ::  MWord -> Mem' -> MWord
 load x (d,m)=  case Map.lookup x m of
                  Just y -> y
                  Nothing -> d
+
+
+

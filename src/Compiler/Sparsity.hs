@@ -38,7 +38,11 @@ But supporting separate compilation is easy:
 -}
 
 
-module Compiler.Sparsity (sparsity, Sparsity, InstrKind(..)) where
+module Compiler.Sparsity (
+  sparsity, forceSparsity,
+  Sparsity,
+  InstrKind(..),
+  instrType) where
 
 import qualified Data.Map as Map
 
@@ -274,3 +278,7 @@ sparsity blocks =
                      (min es1 es2)
         addEdgeEffect (OpSparsity _ls s bs es) =
           min s (bs + es)
+
+
+forceSparsity :: MAProgram r w -> Sparsity
+forceSparsity _ = Map.fromList [(KmemOp, 2)]

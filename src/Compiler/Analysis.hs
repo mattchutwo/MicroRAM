@@ -11,11 +11,9 @@ Stability   : experimental
 Metadata is produced by the compiler and passed down to the witness generator.
 
 -}
-module Compiler.Analysis
-    ( AnalysisPiece(..),
-      AnalysisData
-    ) where
+module Compiler.Analysis where
 
+import qualified Data.Map as Map
 import Compiler.Sparsity
 
 data AnalysisPiece =
@@ -23,3 +21,9 @@ data AnalysisPiece =
   deriving (Eq, Ord, Read, Show)
 
 type AnalysisData = [AnalysisPiece]
+
+-- Onl;y the first entry of sparsity will be considered. 
+getSparsity :: AnalysisData -> Sparsity 
+getSparsity [] = Map.empty
+getSparsity (SparsityData sparc: _) = sparc
+--getSparsity (_: datas) = getSparsity datas

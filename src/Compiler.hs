@@ -147,7 +147,7 @@ compile2 prog = return prog
   >>= (tagPass "Calling Convention" $ justCompile callingConvention)
   >>= (tagPass "Remove Globals" $ replaceGlobals)
   >>= (tagPass "Stacking" $ justCompile stacking)
-  >>= (tagPass "Computing Sparsity" $ justAnalyse (SparsityData <.> sparsity))
+  >>= (tagPass "Computing Sparsity" $ justAnalyse (SparsityData <.> sparsity)) 
   >>= (tagPass "Removing labels" $ removeLabels)
 
 compile :: Word -> LLVM.Module
