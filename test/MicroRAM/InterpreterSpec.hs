@@ -26,7 +26,7 @@ main = defaultMain tests
 
 tests :: TestTree
 tests = testGroup "Testing the Interpreter for  MicroRAM"
-  [test1,test2,test3,test4,test5, test6, testAshr]
+  [test1,test2,test3,test4,test5, testAshr]
 
 -- * Pretty printers
 _ppList :: Show a => [a] -> IO ()
@@ -176,44 +176,6 @@ prog5 = [Imov 0 (Const 0),
 test5 :: TestTree
 test5 = testProperty "Test adding a list of inputs" $ \xs ->
    claimEqual (exec prog5 (4 * (toEnum $ length xs)) xs)  (Just $ sum xs)
-
-
-                                                               
--- # Test 6: Arithmetics and overflows
-  {- We test a bunch of arithmetic operations
-     and the respective overflow. If anything
-     goes wrong we jump to a fail state that
-     sets r0 = 42 and loops
--}
-
-
-failSignal:: Operand Reg MWord
-failSignal = (Const 11)
-gotoFail :: Instruction' regT operand1 (Operand Reg MWord)
-gotoFail = Ijmp failSignal
-cGotoFail :: Instruction' regT operand1 (Operand Reg MWord)
-cGotoFail = Icjmp failSignal
-
-prog6 :: Program Reg MWord
-prog6 = [Imov 1 (Const 1),   -- 0. x = 1 // Test 1
-         Isub 1 1 (Const 2), -- 1. x = x - 2 (should underflow)
-         Icjmp  (Const 4),   -- 2. goto Test 2
-         gotoFail,           -- 3. fail if f = 0
-         Imov 2 (Const 10),  -- 4. y = 10 // Test 2
-         Iadd 2 2 (Const 20),-- 5. y += 20 (should not overflow and set flag to 0
-         cGotoFail,          -- 6. fail if f=1
-         Iadd 2 2 (Reg 1),  -- 7. y = x + y (Should overflow) // Test 3
-         Icjmp  (Const 10),  -- 8. goto Test 2
-         gotoFail,           -- 9 fail if f = 0
-         Ijmp (Const 10),    -- 0. loop forever
-         Imov 0 (Const 42),  -- 1. signals Failure 
-         gotoFail      -- 2. loops 
-        ]
-
---test6 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
-test6 :: TestTree
-test6 = testProperty "Test over/underflow for adition and substraction"
-        $ \n -> (n :: Word) >= 0 ==> simpl_exec prog6 n /= Just 42
 
 
 
