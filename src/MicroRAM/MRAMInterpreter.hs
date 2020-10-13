@@ -20,7 +20,7 @@ Current semantics follows the TinyRAM paper.
 module MicroRAM.MRAMInterpreter
   ( -- * Execute a program
     Executor,
-    run, execAnswer, execBug,
+    run, run_v, execAnswer, execBug,
     -- * Trace
     ExecutionState(..),
     Trace, 
