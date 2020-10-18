@@ -28,31 +28,31 @@ execution of programs. The instructions (inspired by the TinyRAM language
 +--------+---------+----------------------------------------------+--------------+
 |  Instr | operands|                   effects                    |     flag     |
 +========+=========+==============================================+==============+
-| and    | ri rj A | bitwise AND of [rj] and [A] and store in ri  | result is 0W |
+| and    | ri rj A | bitwise AND of [rj] and [A] and store in ri  |              |
 +--------+---------+----------------------------------------------+--------------+
-| or     | ri rj A | bitwise OR of [rj] and [A] and store in ri   | result is 0W |
+| or     | ri rj A | bitwise OR of [rj] and [A] and store in ri   |              |
 +--------+---------+----------------------------------------------+--------------+
-| xor    | ri rj A | bitwise XOR of [rj] and [A] and store in ri  | result is 0W |
+| xor    | ri rj A | bitwise XOR of [rj] and [A] and store in ri  |              |
 +--------+---------+----------------------------------------------+--------------+
-| not    | ri A    | bitwise NOT of [A] and store result in ri    | result is 0W |
+| not    | ri A    | bitwise NOT of [A] and store result in ri    |              |
 +--------+---------+----------------------------------------------+--------------+
-| add    | ri rj A | [rj]u + [A]u and store result in ri          | overflow     |
+| add    | ri rj A | [rj]u + [A]u and store result in ri          |              |
 +--------+---------+----------------------------------------------+--------------+
-| sub    | ri rj A | [rj]u − [A]u and store result in ri          | borrow       |
+| sub    | ri rj A | [rj]u − [A]u and store result in ri          |              |
 +--------+---------+----------------------------------------------+--------------+
-| mull   | ri rj A | [rj]u × [A]u, store least sign. bits in ri   | overflow     |
+| mull   | ri rj A | [rj]u × [A]u, store least sign. bits in ri   |              |
 +--------+---------+----------------------------------------------+--------------+
-| umulh  | ri rj A | [rj]u × [A]u, store most sign. bits in ri    | overflow     |
+| umulh  | ri rj A | [rj]u × [A]u, store most sign. bits in ri    |              |
 +--------+---------+----------------------------------------------+--------------+
-| smulh  | ri rj A | [rj]s × [A]s, store most sign. bits in ri    | over/underf. |
+| smulh  | ri rj A | [rj]s × [A]s, store most sign. bits in ri    |              |
 +--------+---------+----------------------------------------------+--------------+
-| udiv   | ri rj A | quotient of [rj]u/[A]u and store in ri       | [A]u = 0     |
+| udiv   | ri rj A | quotient of [rj]u/[A]u and store in ri       |              |
 +--------+---------+----------------------------------------------+--------------+
-| umod   | ri rj A | remainder of [rj]u/[A]u and store in ri      | [A]u = 0     |
+| umod   | ri rj A | remainder of [rj]u/[A]u and store in ri      |              |
 +--------+---------+----------------------------------------------+--------------+
-| shl    | ri rj A | shift [rj] by [A]u bits left, store in ri    | MSB of [rj]  |
+| shl    | ri rj A | shift [rj] by [A]u bits left, store in ri    |              |
 +--------+---------+----------------------------------------------+--------------+
-| shr    | ri rj A | shift [rj] by [A]u bits right, store in ri   | LSB of [rj]  |
+| shr    | ri rj A | shift [rj] by [A]u bits right, store in ri   |              |
 +--------+---------+----------------------------------------------+--------------+
 | cmpe   | ri A    | none (“compare equal”)                       | [ri] = [A]   |
 +--------+---------+----------------------------------------------+--------------+
