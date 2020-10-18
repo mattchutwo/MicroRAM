@@ -167,10 +167,12 @@ outputTrace
 outputTrace len tr regBound = takeEnum len $ map (state2out regBound) tr
 
 fullOutput :: Regs reg => CompilationResult (Program reg MWord) -> Output reg
-fullOutput compUnit =
-  let _mem = flatInitMem $ initM compUnit in 
-  secretOutput (run compUnit) compUnit 
+fullOutput compUnit = fullOutput_v False compUnit
 
+fullOutput_v :: Regs reg => Bool -> CompilationResult (Program reg MWord) -> Output reg
+fullOutput_v verbose compUnit =
+  let _mem = flatInitMem $ initM compUnit in
+  secretOutput (run_v verbose compUnit) compUnit
 
 getRegNum :: RegisterData -> Word
 getRegNum InfinityRegs = 0
