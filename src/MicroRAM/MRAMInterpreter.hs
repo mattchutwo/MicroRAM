@@ -20,7 +20,7 @@ Current semantics follows the TinyRAM paper.
 module MicroRAM.MRAMInterpreter
   ( -- * Execute a program
     Executor,
-    run, execAnswer, execBug,
+    run, run_v, execAnswer, execBug,
     -- * Trace
     ExecutionState(..),
     Trace, 
@@ -124,22 +124,22 @@ fetchInstr addr = do
 stepInstr :: Regs r => Instruction r MWord -> InterpM r s Hopefully ()
 stepInstr i = do
   case i of
-    Iand rd r1 op2 -> stepBinary (.&.) (\_ _ r -> r == 0) rd r1 op2
-    Ior rd r1 op2 -> stepBinary (.|.) (\_ _ r -> r == 0) rd r1 op2
-    Ixor rd r1 op2 -> stepBinary xor (\_ _ r -> r == 0) rd r1 op2
-    Inot rd op2 -> stepUnary complement (\_ r -> r == 0) rd op2
+    Iand rd r1 op2 -> stepBinary (.&.) rd r1 op2
+    Ior rd r1 op2 -> stepBinary (.|.) rd r1 op2
+    Ixor rd r1 op2 -> stepBinary xor rd r1 op2
+    Inot rd op2 -> stepUnary complement rd op2
     
-    Iadd rd r1 op2 -> stepBinary (+) addOverflow rd r1 op2
-    Isub rd r1 op2 -> stepBinary (-) subUnderflow rd r1 op2
-    Imull rd r1 op2 -> stepBinary (*) mulOverflow rd r1 op2
-    Iumulh rd r1 op2 -> stepBinary umulh mulOverflow rd r1 op2
-    Ismulh rd r1 op2 -> stepBinary smulh signedMulOverflow rd r1 op2
+    Iadd rd r1 op2 -> stepBinary (+) rd r1 op2
+    Isub rd r1 op2 -> stepBinary (-) rd r1 op2
+    Imull rd r1 op2 -> stepBinary (*) rd r1 op2
+    Iumulh rd r1 op2 -> stepBinary umulh rd r1 op2
+    Ismulh rd r1 op2 -> stepBinary smulh rd r1 op2
     -- TODO div/mod vs quot/rem?
-    Iudiv rd r1 op2 -> stepBinary safeDiv (\_ y _ -> y == 0) rd r1 op2
-    Iumod rd r1 op2 -> stepBinary safeMod (\_ y _ -> y == 0) rd r1 op2
+    Iudiv rd r1 op2 -> stepBinary safeDiv rd r1 op2
+    Iumod rd r1 op2 -> stepBinary safeMod rd r1 op2
     
-    Ishl rd r1 op2 -> stepBinary shiftL' (\x _ _ -> msb x) rd r1 op2
-    Ishr rd r1 op2 -> stepBinary shiftR' (\x _ _ -> lsb x) rd r1 op2
+    Ishl rd r1 op2 -> stepBinary shiftL' rd r1 op2
+    Ishr rd r1 op2 -> stepBinary shiftR' rd r1 op2
     
     Icmpe r1 op2 -> stepCompare (==) r1 op2
     Icmpa r1 op2 -> stepCompare (>) r1 op2
@@ -208,23 +208,21 @@ checkSparsity instr = do
         -- Last seen default is -1 so must use `div` 
         sameFunctionalUnit spc last cyc = (last `div` spc) == (cyc `quot` spc)
 
-stepUnary :: Regs r => (MWord -> MWord) -> (MWord -> MWord -> Bool) ->
+stepUnary :: Regs r => (MWord -> MWord) ->
   r -> Operand r MWord -> InterpM r s Hopefully ()
-stepUnary f flag rd op2 = do
+stepUnary f rd op2 = do
   y <- opVal op2
   let result = f y
   sMach . mReg rd .= result
-  sMach . mFlag .= flag y result
   nextPc
 
-stepBinary :: Regs r => (MWord -> MWord -> MWord) -> (MWord -> MWord -> MWord -> Bool) ->
+stepBinary :: Regs r => (MWord -> MWord -> MWord) ->
   r -> r -> Operand r MWord -> InterpM r s Hopefully ()
-stepBinary f flag rd r1 op2 = do
+stepBinary f rd r1 op2 = do
   x <- regVal r1
   y <- opVal op2
   let result = f x y
   sMach . mReg rd .= result
-  sMach . mFlag .= flag x y result
   nextPc
 
 stepCompare :: Regs r => (MWord -> MWord -> Bool) ->
@@ -305,22 +303,6 @@ wordBits = finiteBitSize (0 :: MWord)
 toSignedInteger :: MWord -> Integer
 toSignedInteger x = toInteger x - if msb x then 1 `shiftL` wordBits else 0
 
-addOverflow :: MWord -> MWord -> MWord -> Bool
-addOverflow x _ r = r < x
-
-subUnderflow :: MWord -> MWord -> MWord -> Bool
-subUnderflow x _ r = r > x
-
-mulOverflow :: MWord -> MWord -> MWord -> Bool
-mulOverflow x y _ = toInteger x * toInteger y > toInteger (maxBound :: MWord)
-
-signedMulOverflow :: MWord -> MWord -> MWord -> Bool
-signedMulOverflow x y _ = r' < low || r' > high
-  where
-    r' = toInteger x * toInteger y
-    low = negate $ 1 `shiftL` (wordBits - 1)
-    high = (1 `shiftL` (wordBits - 1)) - 1
-
 umulh :: MWord -> MWord -> MWord
 umulh x y = fromInteger $ (toInteger x * toInteger y) `shiftR` wordBits
 
@@ -338,8 +320,6 @@ shiftL' x y = x `shiftL` fromIntegral y
 shiftR' :: MWord -> MWord -> MWord
 shiftR' x y = x `shiftR` fromIntegral y
 
-lsb :: MWord -> Bool
-lsb w = testBit w 0
 msb :: MWord -> Bool
 msb w = testBit w (wordBits - 1)
 

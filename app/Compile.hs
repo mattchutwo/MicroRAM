@@ -65,7 +65,7 @@ main = do
   -- --------------
   -- Interpreter
   -- --------------
-  secretOut <- return $ fullOutput microProg
+  secretOut <- return $ fullOutput_v (verbose fr) microProg
   output fr $ secretOut
   ifio (doubleCheck fr) $ print "Nothing to check"
   
