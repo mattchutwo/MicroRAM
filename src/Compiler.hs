@@ -129,8 +129,10 @@ import qualified MicroRAM as MRAM  (Program)
 (<.>) :: Monad m => (b -> c) -> (a -> b) -> a -> m c
 f <.> g = \x -> return $ f $ g x 
 
-compile1 :: Word -> LLVM.Module ->
-  Hopefully (CompilationUnit () (Rprog () MWord))
+compile1
+  :: Word
+  -> LLVM.Module
+  -> Hopefully (CompilationUnit () (Rprog () MWord))
 compile1 len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
@@ -139,24 +141,25 @@ compile1 len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Localize Labels" $ justCompile localizeLabels)
   >>= (tagPass "Edge split" $ justCompile edgeSplit)
 
-compile2 :: CompilationUnit () (Rprog () MWord) ->
+compile2
+  :: Maybe Int
+  -> CompilationUnit () (Rprog () MWord) ->
   Hopefully (CompilationUnit () (MRAM.Program AReg MWord))
-compile2 prog = return prog
+compile2 spars prog = return prog
   >>= (tagPass "Remove Phi Nodes" $ justCompile removePhi)
   >>= (tagPass "Register Allocation" $ registerAlloc def)
   >>= (tagPass "Calling Convention" $ justCompile callingConvention)
   >>= (tagPass "Remove Globals" $ replaceGlobals)
   >>= (tagPass "Stacking" $ justCompile stacking)
-  >>= (tagPass "Computing Sparsity" $ justAnalyse (SparsityData <.> sparsity)) 
+  >>= (tagPass "Computing Sparsity" $ justAnalyse (SparsityData <.> (forceSparsity spars))) 
   >>= (tagPass "Removing labels" $ removeLabels)
 
-compile :: Word -> LLVM.Module
-        -> Hopefully $ CompilationResult (MRAM.Program AReg MWord)
-compile len llvmProg = do
+compile :: Word -> LLVM.Module -> Maybe Int -> Hopefully $ CompilationResult (MRAM.Program AReg MWord)
+compile len llvmProg spars = do
   ir <- compile1 len llvmProg
-  high <- compile2 ir
+  high <- compile2 spars ir
   low <- return ir
     >>= (tagPass "Lower Extension Instructions" $ justCompile lowerExtensionInstrs)
-    >>= compile2
+    >>= compile2 spars
   -- Return both programs, using the analysis data from the final one.
   return $ low { programCU = MultiProg (programCU high) (programCU low) }

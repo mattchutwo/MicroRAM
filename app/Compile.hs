@@ -18,7 +18,7 @@ import Compiler
 import Compiler.CompilationUnit
 import Compiler.Errors
 import LLVMutil.LLVMIO
-import Compiler.IRs
+-- import Compiler.IRs
 
 import Output.Output
 import Output.CBORFormat
@@ -30,7 +30,7 @@ main = do
   fr <- parseOptions file len options
   ifio (beginning fr <= end fr) $ do
     putStrLn "Nothing to do here. Beginning comes later than end. Did you use -from-mram and -just-llvm? "
-    exitWith ExitSuccess
+    exitSuccess
   -- --------------
   -- Run Frontend
   -- --------------
@@ -89,7 +89,7 @@ callBackend fr = do
       putStrLn $ "Found no trace, can't compile."
       exitWith ExitSuccess
     Just trLength -> do
-      compiledProg <- handleErrorWith (compile trLength llvmModule)
+      compiledProg <- handleErrorWith (compile trLength llvmModule $ spars fr)
       return compiledProg
 
 data Flag
@@ -104,6 +104,7 @@ data Flag
    | FromLLVM
    | JustMRAM
    | MRAMout (Maybe String)
+   | MemSparsity Int
    -- Interpreter flags
    | FromMRAM
    | Output String
@@ -131,6 +132,7 @@ data FlagRecord = FlagRecord
   , trLen :: Maybe Word
   , llvmFile :: String -- Defaults to a temporary one if not wanted.
   , mramFile :: Maybe String
+  , spars :: Maybe Int
   -- Interpreter
   , fileOut :: Maybe String
   , end :: Stages
@@ -154,6 +156,7 @@ defaultFlags name len =
     len 
     "temp/temp.ll" -- Default we use to temporarily store compilation FIXME!
     Nothing
+    Nothing
     --
     Nothing
     FullOutput
@@ -173,6 +176,8 @@ parseFlag (FromLLVM) fr = fr {beginning = LLVMLang, llvmFile = fileIn fr} -- In 
 parseFlag (JustLLVM) fr = fr {end = max LLVMLang $ end fr}
 
 parseFlag (JustMRAM) fr = fr {end = max MRAMLang $ end fr}
+parseFlag (MemSparsity s) fr = fr {spars = Just s}
+
 -- Interpreter flags
 parseFlag (FromMRAM) fr = fr {beginning = MRAMLang} -- In this case we are reading the fileIn
 parseFlag (MRAMout (Just outFile)) fr = fr {mramFile = Just outFile}
@@ -208,10 +213,10 @@ options =
   , Option []    ["pretty-hex"]  (NoArg PrettyHex)               "Pretty print the CBOR output. Won't work if writting to file. "
   , Option []    ["flat-hex"]    (NoArg FlatFormat)               "Output in flat CBOR format. Won't work if writting to file. "
   , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
+  , Option ['s'] ["sparsity"]    (ReqArg (\s -> MemSparsity $ read s) "MEM SARSITY")               "check the result"
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)
-
 
 parseArgs :: [String] -> IO ([Flag], String, Maybe Word)
 parseArgs argv = 

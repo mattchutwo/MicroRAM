@@ -279,6 +279,8 @@ sparsity blocks =
         addEdgeEffect (OpSparsity _ls s bs es) =
           min s (bs + es)
 
-
-forceSparsity :: MAProgram r w -> Sparsity
-forceSparsity _ = Map.fromList [(KmemOp, 2)]
+-- This wrapper forces a sparsity for memory operations.
+-- Value of None triggers the original sparsity approximation. 
+forceSparsity :: Maybe Int -> MAProgram r w -> Sparsity
+forceSparsity (Just s) _ = Map.fromList [(KmemOp, s)]
+forceSparsity Nothing p = sparsity p 
