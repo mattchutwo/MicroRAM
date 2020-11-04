@@ -158,16 +158,16 @@ encodeInstr (Iudiv r1 r2 operand ) = list2CBOR $ encodeString "udiv"   : encode 
 encodeInstr (Iumod r1 r2 operand ) = list2CBOR $ encodeString "umod"   : encode r1  : encode r2  : (encodeOperand' operand) 
 encodeInstr (Ishl r1 r2 operand  ) = list2CBOR $ encodeString "shl"    : encode r1  : encode r2  : (encodeOperand' operand) 
 encodeInstr (Ishr r1 r2 operand  ) = list2CBOR $ encodeString "shr"    : encode r1  : encode r2  : (encodeOperand' operand) 
-encodeInstr (Icmpe r2 operand    ) = list2CBOR $ encodeString "cmpe"   : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Icmpa r2 operand    ) = list2CBOR $ encodeString "cmpa"   : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Icmpae r2 operand   ) = list2CBOR $ encodeString "cmpae"  : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Icmpg r2 operand    ) = list2CBOR $ encodeString "cmpg"   : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Icmpge r2 operand   ) = list2CBOR $ encodeString "cmpge"  : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Icmpe r1 r2 operand ) = list2CBOR $ encodeString "cmpe"   : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Icmpa r1 r2 operand ) = list2CBOR $ encodeString "cmpa"   : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Icmpae r1 r2 operand) = list2CBOR $ encodeString "cmpae"  : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Icmpg r1 r2 operand ) = list2CBOR $ encodeString "cmpg"   : encode r1  : encode r2  : (encodeOperand' operand) 
+encodeInstr (Icmpge r1 r2 operand) = list2CBOR $ encodeString "cmpge"  : encode r1  : encode r2  : (encodeOperand' operand) 
 encodeInstr (Imov r1 operand     ) = list2CBOR $ encodeString "mov"    : encode r1  : encodeNull : (encodeOperand' operand) 
-encodeInstr (Icmov r1 operand    ) = list2CBOR $ encodeString "cmov"   : encode r1  : encodeNull : (encodeOperand' operand) 
+encodeInstr (Icmov r1 r2 operand ) = list2CBOR $ encodeString "cmov"   : encode r1  : encode r2  : (encodeOperand' operand) 
 encodeInstr (Ijmp operand        ) = list2CBOR $ encodeString "jmp"    : encodeNull : encodeNull : (encodeOperand' operand) 
-encodeInstr (Icjmp operand       ) = list2CBOR $ encodeString "cjmp"   : encodeNull : encodeNull : (encodeOperand' operand) 
-encodeInstr (Icnjmp operand      ) = list2CBOR $ encodeString "cnjmp"  : encodeNull : encodeNull : (encodeOperand' operand) 
+encodeInstr (Icjmp r2 operand    ) = list2CBOR $ encodeString "cjmp"   : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Icnjmp r2 operand   ) = list2CBOR $ encodeString "cnjmp"  : encodeNull : encode r2  : (encodeOperand' operand) 
 encodeInstr (Istore operand r2   ) = list2CBOR $ encodeString "store"  : encodeNull : encode r2  : (encodeOperand' operand) 
 encodeInstr (Iload r1 operand    ) = list2CBOR $ encodeString "load"   : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Iread r1 operand    ) = list2CBOR $ encodeString "read"   : encode r1  : encodeNull : (encodeOperand' operand)
@@ -214,16 +214,16 @@ decodeInstr = do
       "umod"    -> Iumod   <$> decode     <*> decode     <*> decodeOperand' 
       "shl"     -> Ishl    <$> decode     <*> decode     <*> decodeOperand' 
       "shr"     -> Ishr    <$> decode     <*> decode     <*> decodeOperand' 
-      "cmpe"    -> Icmpe   <$  decodeNull <*> decode     <*> decodeOperand' 
-      "cmpa"    -> Icmpa   <$  decodeNull <*> decode     <*> decodeOperand' 
-      "cmpae"   -> Icmpae  <$  decodeNull <*> decode     <*> decodeOperand' 
-      "cmpg"    -> Icmpg   <$  decodeNull <*> decode     <*> decodeOperand' 
-      "cmpge"   -> Icmpge  <$  decodeNull <*> decode     <*> decodeOperand' 
+      "cmpe"    -> Icmpe   <$> decode     <*> decode     <*> decodeOperand' 
+      "cmpa"    -> Icmpa   <$> decode     <*> decode     <*> decodeOperand' 
+      "cmpae"   -> Icmpae  <$> decode     <*> decode     <*> decodeOperand' 
+      "cmpg"    -> Icmpg   <$> decode     <*> decode     <*> decodeOperand' 
+      "cmpge"   -> Icmpge  <$> decode     <*> decode     <*> decodeOperand' 
       "mov"     -> Imov    <$> decode     <*  decodeNull <*> decodeOperand' 
-      "cmov"    -> Icmov   <$> decode     <*  decodeNull <*> decodeOperand' 
+      "cmov"    -> Icmov   <$> decode     <*> decode     <*> decodeOperand' 
       "jmp"     -> Ijmp    <$  decodeNull <*  decodeNull <*> decodeOperand' 
-      "cjmp"    -> Icjmp   <$  decodeNull <*  decodeNull <*> decodeOperand' 
-      "cnjmp"   -> Icnjmp  <$  decodeNull <*  decodeNull <*> decodeOperand' 
+      "cjmp"    -> Icjmp   <$  decodeNull <*> decode     <*> decodeOperand' 
+      "cnjmp"   -> Icnjmp  <$  decodeNull <*> decode     <*> decodeOperand' 
       "store"   -> flip Istore  <$  decodeNull <*> decode     <*> decodeOperand' 
       "load"    -> Iload   <$> decode     <*  decodeNull <*> decodeOperand'
       "read"    -> Iread   <$> decode     <*  decodeNull <*> decodeOperand'

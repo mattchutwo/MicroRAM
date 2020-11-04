@@ -75,7 +75,7 @@ testLoops = testGroup "Conditionals, Branching and loops" $
   compileCorrectTest
     "Fibonacci loop (not optimized)"
     "test/programs/fibSlow.ll"
-    820 34 :
+    600 55 :
   compileCorrectTest
     "Easy function call"
     "test/programs/easyFunction.ll"
@@ -183,7 +183,7 @@ compileTest executionFunction tester name file len =
           -> IO MWord -- TestTree-}
         compileTest' file len _verb = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile len llvmProg
+          mramProg <- handleErrorWith $ compile len llvmProg Nothing
           return $ executionFunction mramProg
   
 

@@ -94,8 +94,8 @@ edgeSplitFunc (Function name retTy argTys blocks nextReg) =
 
     fixInstr :: Name -> RTLInstr mdata wrdT -> RTLInstr mdata wrdT
     fixInstr pred (MRI (Ijmp (Label succ)) mdata) = MRI (Ijmp (jumpDest pred succ)) mdata
-    fixInstr pred (MRI (Icjmp (Label succ)) mdata) = MRI (Icjmp (jumpDest pred succ)) mdata
-    fixInstr pred (MRI (Icnjmp (Label succ)) mdata) = MRI (Icnjmp (jumpDest pred succ)) mdata
+    fixInstr pred (MRI (Icjmp r (Label succ)) mdata) = MRI (Icjmp r (jumpDest pred succ)) mdata
+    fixInstr pred (MRI (Icnjmp r (Label succ)) mdata) = MRI (Icnjmp r (jumpDest pred succ)) mdata
     fixInstr succ (IRI (RPhi r vs) mdata) = IRI (RPhi r $ map (\(o,pred) -> (o, fixPred pred succ)) vs) mdata
     fixInstr _ instr = instr
 
@@ -180,8 +180,8 @@ blockEdges :: BB Name (RTLInstr mdata wrdT) -> Set (Name, Name)
 blockEdges (BB name _body term _dag) = Set.unions $ map go term
   where
     go (MRI (Ijmp (Label dest)) _) = Set.singleton (name, read dest)
-    go (MRI (Icjmp (Label dest)) _) = Set.singleton (name, read dest)
-    go (MRI (Icnjmp (Label dest)) _) = Set.singleton (name, read dest)
+    go (MRI (Icjmp _ (Label dest)) _) = Set.singleton (name, read dest)
+    go (MRI (Icnjmp _ (Label dest)) _) = Set.singleton (name, read dest)
     go _ = Set.empty
 
 _funcEdges :: RFunction mdata wrdT -> Set (Name, Name)
