@@ -52,25 +52,25 @@ execution of programs. The instructions (inspired by the TinyRAM language
 +--------+---------+----------------------------------------------+
 | shr    | ri rj A | shift [rj] by [A]u bits right, store in ri   |
 +--------+---------+----------------------------------------------+
-| cmpe   | ri rj A | none (“compare equal”)                       |
+| cmpe   | ri rj A | compare [rj] == [A], store the result in ri  |
 +--------+---------+----------------------------------------------+
-| cmpa   | ri rj A | none (“compare above”, unsigned)             |
+| cmpa   | ri rj A | compare [rj] >  [A]u store the result in ri  |
 +--------+---------+----------------------------------------------+
-| cmpae  | ri rj A | none (“compare above or equal”, unsigned)    |
+| cmpae  | ri rj A | compare [rj] >= [A]u store the result in ri  |
 +--------+---------+----------------------------------------------+
-| cmpg   | ri rj A | none (“compare greater”, signed)             |
+| cmpg   | ri rj A | compare [rj] >  [A], store the result in ri  |
 +--------+---------+----------------------------------------------+
-| cmpge  | ri rj A | none (“compare greater or equal”, signed)    |
+| cmpge  | ri rj A | compare [rj] >= [A], store the result in ri  |
 +--------+---------+----------------------------------------------+
 | mov    | ri A    | store [A] in ri                              |
 +--------+---------+----------------------------------------------+
-| cmov   | ri rj A | if ri <> 0, store [A] in ri                 |
+| cmov   | ri rj A | if rj <> 0, store [A] in ri                  |
 +--------+---------+----------------------------------------------+
 | jmp    | A       | set pc to [A]                                |
 +--------+---------+----------------------------------------------+
-| cjmp   | ri A    | if ri <> 0, set pc to [A] (else pc++)       |
+| cjmp   | ri A    | if ri <> 0, set pc to [A] (else pc++)        |
 +--------+---------+----------------------------------------------+
-| cnjmp  | A       | if ri = 0, set pc to [A] (else pc++)       |
+| cnjmp  | ri A    | if ri = 0, set pc to [A] (else pc++)         |
 +--------+---------+----------------------------------------------+
 | store  | A ri    | store [ri] at memory address [A]u            |
 +--------+---------+----------------------------------------------+
