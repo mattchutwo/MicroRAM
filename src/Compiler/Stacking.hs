@@ -58,6 +58,7 @@ module Compiler.Stacking
 
 
 
+import Data.Bits
 
 import MicroRAM
 
@@ -66,6 +67,7 @@ import Util.Util
 import Compiler.Errors
 import Compiler.Common
 import Compiler.IRs
+import Compiler.LazyConstants
 import Compiler.Registers
 
 type LOperand mreg =  MAOperand mreg MWord
@@ -245,11 +247,17 @@ stackLTLInstr (LAlloc reg sz n) = do
   return $ copySp ++ increaseSp
   where incrSP :: (Regs mreg) => MWord -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]
         incrSP sz (AReg r) = return $
-          [Imull r r (LImm $ fromIntegral $ wordBytes * fromIntegral sz),
+          [Imull r r (LImm $ roundUp $ fromIntegral sz),
            Iadd sp sp (AReg r)]
         incrSP sz (LImm n) = return $
-          [Iadd sp sp (LImm $ n * fromIntegral sz * fromIntegral wordBytes)]
+          [Iadd sp sp (LImm $ roundUp $ n * fromIntegral sz)]
         incrSP _ _ = assumptError $ "Operand not supported for allocation size. Probably a mistake in the Register allocator. \n"
+
+        -- | Round a constant up to the next multiple of `wordBytes`.
+        roundUp (SConst n) = SConst $ (n + fromIntegral wordBytes - 1) .&.
+          complement (fromIntegral wordBytes - 1)
+        roundUp (LConst f) = LConst $ \ge -> (f ge + fromIntegral wordBytes - 1) .&.
+          complement (fromIntegral wordBytes - 1)
   -- Compute the size of the allocated memory
   
  
