@@ -168,7 +168,7 @@ prog5 = [Imov 0 (Const 0),
          Imov 1 (Const 0),
          IloadW 2 (Reg 1),
          Iadd 0 0 (Reg 2),
-         Iadd 1 1 (Const 1),
+         Iadd 1 1 (Const 8),
          Ijmp (Const 2)]
         
 
