@@ -87,8 +87,8 @@ ax = NewName 2
 -- ** Usefull snipets
 -- sp points at the next free stack location
 push, _pop :: Regs mreg => mreg -> [MAInstruction mreg MWord]
-push r = [IstoreW (AReg sp) r,Iadd sp sp (LImm 1)]
-_pop r = [Isub  sp sp (LImm 1),IloadW r (AReg sp)]
+push r = [IstoreW (AReg sp) r,Iadd sp sp (LImm $ fromIntegral wordBytes)]
+_pop r = [Isub  sp sp (LImm $ fromIntegral wordBytes),IloadW r (AReg sp)]
 
 -- | pushOperand sometimes we want to push a constant
 -- Notice here we use ax. This can only be done at funciton entry
@@ -109,7 +109,7 @@ pushN (r:rs) = pushOperand r ++ pushN rs
 -- PopN doesn't return, just drops the top n things in the stack
 popN :: Regs mreg => Word -> [MAInstruction mreg MWord]
 popN 0 = []
-popN n = [Isub sp sp (LImm $ fromIntegral n) ]
+popN n = [Isub sp sp (LImm $ fromIntegral $ wordBytes * fromIntegral n) ]
 
 
 -- | smartMov is like Imov, but does nothing if the registers are the same
@@ -139,7 +139,8 @@ premain :: Regs mreg => [NamedBlock mreg MWord]
 premain = return $
   NBlock Nothing $
   -- poison address 0
-  [IpoisonW (LImm 0) sp, Iadd sp sp (LImm 1)] ++
+  [ IpoisonW (LImm 0) sp
+  , Imull sp sp (LImm $ fromIntegral wordBytes)] ++
   -- push return address for main 
   Imov ax (Label "_ret_") : (push ax) ++
   -- set stack frame
@@ -160,7 +161,7 @@ returnBlock = NBlock (Just "_ret_") [Ianswer (AReg ax)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => MWord -> [MAInstruction mreg MWord]
 prologue size =
-    [Iadd sp sp (LImm $ fromIntegral size + 1)] 
+    [Iadd sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size + 1))]
 
 
 -- | epilogue: deallocate the stack, then jump to return address
@@ -168,7 +169,7 @@ epilogue :: Regs mreg => [MAInstruction mreg MWord]
 epilogue =
   -- Sp is uselles at this point so we use to calculate return adress
   -- remember return value is passed in ax and bp is marking the old stack 
-  Isub sp bp (LImm 1) :
+  Isub sp bp (LImm $ fromIntegral wordBytes) :
   IloadW sp (AReg sp) : 
   [Ijmp (AReg sp)]
 
@@ -216,15 +217,19 @@ setResult (Just ret) = smartMov ret ax
 stackLTLInstr :: Regs mreg => LTLInstr' mreg MWord $ MAOperand mreg MWord
               -> Hopefully [MAInstruction mreg MWord]
 stackLTLInstr (Lgetstack Incoming offset _ reg) = return $
-   [Isub reg bp (LImm (2 + fromIntegral offset)), IloadW reg (AReg reg)]
+   [ Isub reg bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
+   , IloadW reg (AReg reg)]
 stackLTLInstr (Lsetstack reg Incoming offset _) = return $
-   [ Isub bp bp (LImm (2 + fromIntegral offset)), IstoreW (AReg bp) reg
-   , Iadd bp bp (LImm (2 + fromIntegral offset))]
+   [ Isub bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
+   , IstoreW (AReg bp) reg
+   , Iadd bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))]
 stackLTLInstr (Lgetstack Local offset _ reg) = return $
-   [Iadd reg bp (LImm $ fromIntegral offset + 1), IloadW reg (AReg reg)]  -- JP: offset+1?
+   [ Iadd reg bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
+   , IloadW reg (AReg reg)]  -- JP: offset+1?
 stackLTLInstr (Lsetstack reg Local offset _) = return $
-   [ Iadd bp bp (LImm $ fromIntegral offset + 1), IstoreW (AReg bp) reg
-   , Isub bp bp (LImm $ fromIntegral offset + 1)] -- JP: offset+1?
+   [ Iadd bp bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
+   , IstoreW (AReg bp) reg
+   , Isub bp bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))] -- JP: offset+1?
 
 stackLTLInstr (LCall typ ret f argsT args) = return $
   funCallInstructions typ ret f argsT args
@@ -240,9 +245,10 @@ stackLTLInstr (LAlloc reg sz n) = do
   return $ copySp ++ increaseSp
   where incrSP :: (Regs mreg) => MWord -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]
         incrSP sz (AReg r) = return $
-          [Imull r r (LImm $ fromIntegral sz),
+          [Imull r r (LImm $ fromIntegral $ wordBytes * fromIntegral sz),
            Iadd sp sp (AReg r)]
-        incrSP sz (LImm n) = return $ [Iadd sp sp (LImm $ n * fromIntegral sz)]
+        incrSP sz (LImm n) = return $
+          [Iadd sp sp (LImm $ n * fromIntegral sz * fromIntegral wordBytes)]
         incrSP _ _ = assumptError $ "Operand not supported for allocation size. Probably a mistake in the Register allocator. \n"
   -- Compute the size of the allocated memory
   
