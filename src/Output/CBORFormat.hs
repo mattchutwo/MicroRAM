@@ -399,7 +399,7 @@ instance Serialise MemWidth where
 
 encodeAdvice :: Advice -> Encoding 
 encodeAdvice  (MemOp addr val opTyp width) =
-  encodeListLen 4
+  encodeListLen 5
   <> encodeString "MemOp"
   <> encode addr
   <> encode val
