@@ -331,8 +331,10 @@ isInstruction env ret instr =
     -- Memory
     (LLVM.Alloca ty Nothing _ _) -> isAlloca env ret ty constOne -- NumElements is defaulted to be one.
     (LLVM.Alloca ty (Just size) _ _) -> isAlloca env ret ty size
-    (LLVM.Load _ n _ _ _)    -> withReturn ret $ isLoad env n 
-    (LLVM.Store _ adr cont _ _ _) -> isStore env adr cont
+    -- TODO: check alignment - MicroRAM memory ops are always aligned, so
+    -- unaligned LLVM loads/stores need special handling
+    (LLVM.Load _ n _ _align _)    -> withReturn ret $ isLoad env n 
+    (LLVM.Store _ adr cont _ _align _) -> isStore env adr cont
     -- Other
     (LLVM.ICmp pred op1 op2 _) -> withReturn ret $ isCompare env pred op1 op2
     (LLVM.Call _ _ _ f args _ _ ) -> lift $ isCall env ret f args
@@ -418,12 +420,23 @@ isAlloca env ret ty count = lift $ do
 
 
 
+pointerOperandWidth :: LLVM.Operand -> Hopefully MRAM.MemWidth
+pointerOperandWidth op = case LLVM.typeOf op of
+  LLVM.PointerType (LLVM.IntegerType bits) _ -> case bits of
+    8 -> return MRAM.W1
+    16 -> return MRAM.W2
+    32 -> return MRAM.W4
+    64 -> return MRAM.W8
+    _ -> progError $ "bad memory access width: " ++ show bits ++ " bits"
+  ty -> progError $ "bad pointer type in memory op: " ++ show ty
+
 -- Load
 isLoad
   :: Env -> LLVM.Operand -> VReg -> Statefully $ [MIRInstr () MWord]
 isLoad env n ret = lift $ do 
   a <- operand2operand env n
-  returnRTL $ (MRAM.Iload ret a) : []
+  w <- pointerOperandWidth n
+  returnRTL $ (MRAM.Iload w ret a) : []
 
     
 -- | Store
@@ -436,7 +449,8 @@ isStore
 isStore env adr cont = do
   cont' <- lift $ operand2operand env cont
   adr' <- lift $ operand2operand env adr
-  returnRTL [MRAM.Istore adr' cont']
+  w <- lift $ pointerOperandWidth adr
+  returnRTL [MRAM.Istore w adr' cont']
 
 
 -- *** Compare

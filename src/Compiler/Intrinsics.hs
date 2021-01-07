@@ -82,18 +82,18 @@ cc_advise_poison _ _ = progError "bad arguments"
 
 cc_write_and_poison :: IntrinsicImpl () w
 cc_write_and_poison [ptr, val] Nothing =
-  return [MirM (Ipoison ptr val) ()]
+  return [MirM (IpoisonW ptr val) ()]
 cc_write_and_poison _ _ = progError "bad arguments"
 
 cc_flag_invalid :: IntrinsicImpl () MWord
 cc_flag_invalid [] Nothing =
-  return [MirM (Ipoison zero zero) ()]
+  return [MirM (IpoisonW zero zero) ()]
   where zero = LImm $ SConst 0
 cc_flag_invalid _ _ = progError "bad arguments"
 
 cc_flag_bug :: IntrinsicImpl () MWord
 cc_flag_bug [] Nothing =
-  return [MirM (Istore zero zero) ()]
+  return [MirM (IstoreW zero zero) ()]
   where zero = LImm $ SConst 0
 cc_flag_bug _ _ = progError "bad arguments"
 

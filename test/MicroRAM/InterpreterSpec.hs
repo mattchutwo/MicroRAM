@@ -135,7 +135,7 @@ test3 = testProperty "Test fibonacci" $ \n -> (n :: Word) <= 30 ==>
 -- # Test 4: conditional + input
 
 prog4 :: Program Reg MWord
-prog4 = [Iload 1 (Const 0), --
+prog4 = [IloadW 1 (Const 0), --
          Icmpa 3 1 (Const 10), -- 1
          Icjmp 3 (Const 5),    -- 2 
          Iadd 2 2 (Const 77),-- 3
@@ -166,7 +166,7 @@ prog5 = [Iread 1 (Const 0), Iadd 0 0 (Reg 1), Icjmp (Const 4), Ijmp (Const 0), I
 -- New version with input in initial memory.
 prog5 = [Imov 0 (Const 0),
          Imov 1 (Const 0),
-         Iload 2 (Reg 1),
+         IloadW 2 (Reg 1),
          Iadd 0 0 (Reg 2),
          Iadd 1 1 (Const 1),
          Ijmp (Const 2)]

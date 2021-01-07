@@ -154,12 +154,12 @@ stepInstr i = do
     Icjmp r2 op2 -> stepJump (Reg r2) True op2
     Icnjmp r2 op2 -> stepJump (Reg r2) False op2
     
-    Istore op2 r1 -> stepStore op2 r1
-    Iload rd op2 -> stepLoad rd op2
+    Istore w op2 r1 -> stepStore w op2 r1
+    Iload w rd op2 -> stepLoad w rd op2
     
     Iread rd op2 -> stepRead rd op2
     Ianswer op2  -> stepAnswer op2
-    Ipoison op2 r1 -> stepStore op2 r1 >> poison op2
+    Ipoison w op2 r1 -> stepStore w op2 r1 >> poison w op2
     
     Iadvise _ -> assumptError $ "unhandled advice request"
     
@@ -252,26 +252,54 @@ checkPoison addr = do
   when (addr `member` psn) setBug
   where setBug = sMach . mBug .= True
 
-stepStore :: Regs r => Operand r MWord -> r -> InterpM r s Hopefully ()
-stepStore op2 r1 = do
-  addr <- opVal op2
+splitAddr :: MWord -> (MWord, Int)
+splitAddr a = (waddr, offset)
+  where
+    waddr = a `shiftR` logWordBytes
+    offset = fromIntegral $ a .&. ((1 `shiftL` logWordBytes) - 1)
+
+splitAlignedAddr :: MemWidth -> MWord -> InterpM r s Hopefully (MWord, Int)
+splitAlignedAddr w a = do
+  let (waddr, offset) = splitAddr a
+  when (offset `mod` widthInt w /= 0) $ do
+    cyc <- use $ sMach . mCycle
+    otherError $ "unaligned access of " ++ show (widthInt w) ++ " bytes at " ++
+        showHex a ++ " on cycle " ++ show cyc
+  return (waddr, offset)
+
+subBytes :: Functor f => MemWidth -> Int -> (MWord -> f MWord) -> MWord -> f MWord
+subBytes w off f x = put <$> f x'
+  where
+    offBits = off * 8
+    mask = (1 `shiftL` (widthInt w * 8)) - 1
+    -- Extract `w` bytes from `x` at `off`
+    x' = (x `shiftR` offBits) .&. mask
+    -- Insert `w` bytes of `y'` into `x` at `off`
+    put y' = (x .&. complement (mask `shiftL` offBits)) .|. ((y' .&. mask) `shiftL` offBits)
+
+stepStore :: Regs r => MemWidth -> Operand r MWord -> r -> InterpM r s Hopefully ()
+stepStore w op2 r1 = do
+  (waddr, offset) <- splitAlignedAddr w =<< opVal op2
   val <- regVal r1
-  checkPoison addr
-  sMach . mMemWord addr .= val
+  checkPoison waddr
+  sMach . mMemWord waddr . subBytes w offset .= val
   nextPc
 
-stepLoad :: Regs r => r -> Operand r MWord -> InterpM r s Hopefully ()
-stepLoad rd op2 = do
-  addr <- opVal op2
-  val <- use $ sMach . mMemWord addr
-  checkPoison addr
+stepLoad :: Regs r => MemWidth -> r -> Operand r MWord -> InterpM r s Hopefully ()
+stepLoad w rd op2 = do
+  (waddr, offset) <- splitAlignedAddr w =<< opVal op2
+  val <- use $ sMach . mMemWord waddr . subBytes w offset
+  checkPoison waddr
   sMach . mReg rd .= val
   nextPc
 
-poison :: Regs r => Operand r MWord -> InterpM r s Hopefully ()
-poison op2 = do
-  addr <- opVal op2
-  sMach . mPsn %= (Set.insert addr)
+poison :: Regs r => MemWidth -> Operand r MWord -> InterpM r s Hopefully ()
+poison w op2 = do
+  when (w /= WWord) $ do
+    pc <- use $ sMach . mPc
+    otherError $ "bad poison width " ++ show w ++ " at pc = " ++ showHex pc
+  (waddr, _offset) <- splitAlignedAddr w =<< opVal op2
+  sMach . mPsn %= (Set.insert waddr)
   -- don't modify pc. This is not a full step!
 
 stepRead :: Regs r => r -> Operand r MWord -> InterpM r s Hopefully ()
@@ -296,9 +324,6 @@ finishInstr = do
   sMach . mPc %= (+ 1)
   sMach . mCycle %= (+ 1)
 
-
-wordBits :: Int
-wordBits = finiteBitSize (0 :: MWord)
 
 toSignedInteger :: MWord -> Integer
 toSignedInteger x = toInteger x - if msb x then 1 `shiftL` wordBits else 0
@@ -351,6 +376,7 @@ data Advice =
     MWord      -- ^ address
     MWord      -- ^ value
     MemOpType  -- ^ read or write
+    MemWidth   -- ^ width of the access
   | Advise MWord
   | Stutter
   deriving (Eq, Read, Show, Generic)
@@ -360,9 +386,9 @@ data Advice =
 renderAdvc :: [Advice] -> String
 renderAdvc advs = concat $ map renderAdvc' advs
   where renderAdvc' :: Advice -> String
-        renderAdvc' (MemOp addr v MOStore) = "Store: " ++ show addr ++ "->" ++ show v
-        renderAdvc' (MemOp  addr v MOLoad) = "Load: " ++ show addr ++ "->" ++ show v
-        renderAdvc' (MemOp addr v MOPoison) = "Poison: " ++ show addr ++ "->" ++ show v
+        renderAdvc' (MemOp addr v MOStore _w) = "Store: " ++ show addr ++ "->" ++ show v
+        renderAdvc' (MemOp  addr v MOLoad _w) = "Load: " ++ show addr ++ "->" ++ show v
+        renderAdvc' (MemOp addr v MOPoison _w) = "Poison: " ++ show addr ++ "->" ++ show v
         renderAdvc' (Advise v) = "Advise: " ++ show v
         renderAdvc' (Stutter) = "...Stutter..."
 
@@ -376,18 +402,19 @@ recordAdvice adviceMap adv = do
   sExt . adviceMap . at cycle %= Just . (adv:) . maybe [] id
 
 adviceHandler :: Regs r => Lens' s AdviceMap -> InstrHandler r s
-adviceHandler advice (Istore op2 r1) = do
+adviceHandler advice (Istore w op2 r1) = do
   addr <- opVal op2
   val <- regVal r1
-  recordAdvice advice (MemOp addr val MOStore)
-adviceHandler advice (Iload _rd op2) = do
+  recordAdvice advice (MemOp addr val MOStore w)
+adviceHandler advice (Iload w _rd op2) = do
   addr <- opVal op2
-  val <- use $ sMach . mMemWord addr
-  recordAdvice advice (MemOp addr val MOLoad)
-adviceHandler advice (Ipoison op2 r1) = do
+  (waddr, offset) <- splitAlignedAddr w addr
+  val <- use $ sMach . mMemWord waddr . subBytes w offset
+  recordAdvice advice (MemOp addr val MOLoad w)
+adviceHandler advice (Ipoison w op2 r1) = do
   addr <- opVal op2
   val <- regVal r1
-  recordAdvice advice (MemOp addr val MOPoison)
+  recordAdvice advice (MemOp addr val MOPoison w)
 adviceHandler _ _ = return ()
 
 
@@ -531,11 +558,11 @@ allocHandler _verbose _allocState _nextH (Iextval "advise_poison" rd [_lo, _hi])
   -- Always return 0 (don't poison)
   sMach . mReg rd .= 0
   finishInstr
-allocHandler verbose  allocState nextH instr@(Istore op2 _r1) = do
+allocHandler verbose  allocState nextH instr@(Istore _w op2 _r1) = do
   addr <- opVal op2
   checkAccess verbose allocState addr
   nextH instr
-allocHandler verbose allocState nextH instr@(Iload _rd op2) = do
+allocHandler verbose allocState nextH instr@(Iload _w _rd op2) = do
   addr <- opVal op2
   checkAccess verbose allocState addr
   nextH instr

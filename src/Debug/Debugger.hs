@@ -305,8 +305,8 @@ pprintInst (Icmov r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <> "  ? "<
 pprintInst (Ijmp op) = "jmp "<> (pprintOp op)
 pprintInst (Icjmp r2 op) = "if " <> (pprintReg r2) <> "jmp "<> (pprintOp op)
 pprintInst (Icnjmp r2 op) = "if not" <> (pprintReg r2) <> "jmp "<> (pprintOp op)
-pprintInst (Istore op r1) = "*("<> (pprintOp op) <>") = "<> (pprintReg r1)
-pprintInst (Iload r1 op) = (pprintReg r1) <>" = *("<> (pprintOp op) <> ")"
+pprintInst (Istore _ op r1) = "*("<> (pprintOp op) <>") = "<> (pprintReg r1)
+pprintInst (Iload _ r1 op) = (pprintReg r1) <>" = *("<> (pprintOp op) <> ")"
 -- pprintInst (Iread r1 op) = (pprintReg r1) (pprintOp op)
 pprintInst (Ianswer op) = "ans "<> (pprintOp op)
 pprintInst i = show i -- TODO

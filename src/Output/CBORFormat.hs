@@ -168,11 +168,18 @@ encodeInstr (Icmov r1 r2 operand ) = list2CBOR $ encodeString "cmov"   : encode 
 encodeInstr (Ijmp operand        ) = list2CBOR $ encodeString "jmp"    : encodeNull : encodeNull : (encodeOperand' operand) 
 encodeInstr (Icjmp r2 operand    ) = list2CBOR $ encodeString "cjmp"   : encodeNull : encode r2  : (encodeOperand' operand) 
 encodeInstr (Icnjmp r2 operand   ) = list2CBOR $ encodeString "cnjmp"  : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Istore operand r2   ) = list2CBOR $ encodeString "store"  : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Iload r1 operand    ) = list2CBOR $ encodeString "load"   : encode r1  : encodeNull : (encodeOperand' operand)
+encodeInstr (Istore W1 operand r2) = list2CBOR $ encodeString "store1" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Istore W2 operand r2) = list2CBOR $ encodeString "store2" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Istore W4 operand r2) = list2CBOR $ encodeString "store4" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Istore W8 operand r2) = list2CBOR $ encodeString "store8" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Iload W1 r1 operand ) = list2CBOR $ encodeString "load1"  : encode r1  : encodeNull : (encodeOperand' operand)
+encodeInstr (Iload W2 r1 operand ) = list2CBOR $ encodeString "load2"  : encode r1  : encodeNull : (encodeOperand' operand)
+encodeInstr (Iload W4 r1 operand ) = list2CBOR $ encodeString "load4"  : encode r1  : encodeNull : (encodeOperand' operand)
+encodeInstr (Iload W8 r1 operand ) = list2CBOR $ encodeString "load8"  : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Iread r1 operand    ) = list2CBOR $ encodeString "read"   : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Ianswer operand     ) = list2CBOR $ encodeString "answer" : encodeNull : encodeNull : (encodeOperand' operand) 
-encodeInstr (Ipoison operand r2  ) = list2CBOR $ encodeString "poison" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Ipoison W8 operand r2) = list2CBOR $ encodeString "poison8" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Ipoison w _ _       ) = error $ "bad poison width " ++ show w
 encodeInstr (Iadvise r1          ) = list2CBOR $ encodeString "advise" : encode r1  : encodeNull : [encode False, encodeNull]
 -- `Iext` and `Iextval` should have been compiled away by a previous pass, but
 -- it's sometimes useful for debugging to include them in the output CBOR.  The
@@ -224,11 +231,17 @@ decodeInstr = do
       "jmp"     -> Ijmp    <$  decodeNull <*  decodeNull <*> decodeOperand' 
       "cjmp"    -> Icjmp   <$  decodeNull <*> decode     <*> decodeOperand' 
       "cnjmp"   -> Icnjmp  <$  decodeNull <*> decode     <*> decodeOperand' 
-      "store"   -> flip Istore  <$  decodeNull <*> decode     <*> decodeOperand' 
-      "load"    -> Iload   <$> decode     <*  decodeNull <*> decodeOperand'
+      "store1"  -> flip (Istore W1) <$  decodeNull <*> decode     <*> decodeOperand' 
+      "store2"  -> flip (Istore W2) <$  decodeNull <*> decode     <*> decodeOperand' 
+      "store4"  -> flip (Istore W4) <$  decodeNull <*> decode     <*> decodeOperand' 
+      "store8"  -> flip (Istore W8) <$  decodeNull <*> decode     <*> decodeOperand' 
+      "load1"   -> Iload W1 <$> decode     <*  decodeNull <*> decodeOperand'
+      "load2"   -> Iload W2 <$> decode     <*  decodeNull <*> decodeOperand'
+      "load4"   -> Iload W4 <$> decode     <*  decodeNull <*> decodeOperand'
+      "load8"   -> Iload W8 <$> decode     <*  decodeNull <*> decodeOperand'
       "read"    -> Iread   <$> decode     <*  decodeNull <*> decodeOperand'
       "answer"  -> Ianswer <$  decodeNull <*  decodeNull <*> decodeOperand'
-      "poison"  -> flip Ipoison  <$  decodeNull <*> decode     <*> decodeOperand'  
+      "poison8" -> flip (Ipoison W8) <$  decodeNull <*> decode     <*> decodeOperand'  
       "advise"  -> Iadvise <$> decode     <*  decodeNull <*  decodeBool <* decodeNull
       _ -> fail $ "invalid instruction encoding. Tag: " ++ show tag ++ "."
 
@@ -238,12 +251,12 @@ instance (Serialise regT, Serialise ops) => Serialise (Instruction regT ops) whe
 
 {- Quick test:-}
 a :: Program Word MWord
-a = [Istore (Reg 77) 1, Ijmp (Reg 42),Iadd 2 3 (Const 4)]
+a = [Istore W4 (Reg 77) 1, Ijmp (Reg 42),Iadd 2 3 (Const 4)]
 x :: Either String (Instruction' Word Word (Operand Word MWord))
 x = fromFlatTerm decode $ toFlatTerm $ encode a
 
 b :: Instruction Word MWord
-b = Istore (Reg 0) 0
+b = Istore W4 (Reg 0) 0
 y :: L.ByteString
 y = serialise b
 
@@ -372,13 +385,26 @@ instance Serialise MemOpType where
   encode = encodeMemOpType
 
 
+instance Serialise MemWidth where
+  decode = do
+    w <- decode :: Decoder s Int
+    case w of
+      1 -> return W1
+      2 -> return W2
+      4 -> return W4
+      8 -> return W8
+      _ -> fail $ "bad memory op width: " ++ show w
+  encode w = encode $ widthInt w
+
+
 encodeAdvice :: Advice -> Encoding 
-encodeAdvice  (MemOp addr val opTyp) =
+encodeAdvice  (MemOp addr val opTyp width) =
   encodeListLen 4
   <> encodeString "MemOp"
   <> encode addr
   <> encode val
   <> encode opTyp
+  <> encode width
 
 encodeAdvice (Advise w) =
   encodeListLen 2
@@ -394,7 +420,7 @@ decodeAdvice = do
   ln <- decodeListLen
   name <- decodeString
   case (ln,name) of
-    (4, "MemOp") -> MemOp <$> decode <*> decode <*> decode
+    (5, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode
     (1, "Stutter") -> return Stutter
     (ln,name) -> fail $ "Found bad advice of length " ++ show ln ++ " and name: " ++ show name 
 

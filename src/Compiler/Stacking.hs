@@ -87,8 +87,8 @@ ax = NewName 2
 -- ** Usefull snipets
 -- sp points at the next free stack location
 push, _pop :: Regs mreg => mreg -> [MAInstruction mreg MWord]
-push r = [Istore (AReg sp) r,Iadd sp sp (LImm 1)]
-_pop r = [Isub  sp sp (LImm 1),Iload r (AReg sp)]
+push r = [IstoreW (AReg sp) r,Iadd sp sp (LImm 1)]
+_pop r = [Isub  sp sp (LImm 1),IloadW r (AReg sp)]
 
 -- | pushOperand sometimes we want to push a constant
 -- Notice here we use ax. This can only be done at funciton entry
@@ -139,11 +139,11 @@ premain :: Regs mreg => [NamedBlock mreg MWord]
 premain = return $
   NBlock Nothing $
   -- poison address 0
-  [Ipoison (LImm 0) sp, Iadd sp sp (LImm 1)] ++
+  [IpoisonW (LImm 0) sp, Iadd sp sp (LImm 1)] ++
   -- push return address for main 
   Imov ax (Label "_ret_") : (push ax) ++
   -- set stack frame
-  Istore (AReg sp) bp :  -- Store "old" base pointer 
+  IstoreW (AReg sp) bp :  -- Store "old" base pointer 
   Imov bp (AReg sp) :    -- set base pointer to the stack pointer
   callMain              -- jump to main
   where callMain = return $ Ijmp $ Label $ show $ Name "main"
@@ -169,7 +169,7 @@ epilogue =
   -- Sp is uselles at this point so we use to calculate return adress
   -- remember return value is passed in ax and bp is marking the old stack 
   Isub sp bp (LImm 1) :
-  Iload sp (AReg sp) : 
+  IloadW sp (AReg sp) : 
   [Ijmp (AReg sp)]
 
 
@@ -193,13 +193,13 @@ funCallInstructions _ ret f _ args =
     [Imov ax HereLabel,
      Iadd ax ax (LImm 6) -- FIXME: The compiler should do this addition
     ] ++ push ax ++
-    [Istore (AReg sp) bp, Imov bp (AReg sp)] ++ -- Set new stack frame (sp is increased in the function)
+    [IstoreW (AReg sp) bp, Imov bp (AReg sp)] ++ -- Set new stack frame (sp is increased in the function)
   -- Run function 
     Ijmp f :
   -- The function should return to this next instruciton
   -- restore the base pointer (right before this is used to compute return address)
   Imov sp (AReg bp): -- get old sp 
-  Iload bp (AReg sp) :         -- get old bp
+  IloadW bp (AReg sp) :         -- get old bp
   -- remove arguments and return address from the stack
   (popN (fromIntegral $ (length args) + 1)) ++
   -- move the return value (allways returns to ax)
@@ -216,14 +216,14 @@ setResult (Just ret) = smartMov ret ax
 stackLTLInstr :: Regs mreg => LTLInstr' mreg MWord $ MAOperand mreg MWord
               -> Hopefully [MAInstruction mreg MWord]
 stackLTLInstr (Lgetstack Incoming offset _ reg) = return $
-   [Isub reg bp (LImm (2 + fromIntegral offset)), Iload reg (AReg reg)]
+   [Isub reg bp (LImm (2 + fromIntegral offset)), IloadW reg (AReg reg)]
 stackLTLInstr (Lsetstack reg Incoming offset _) = return $
-   [ Isub bp bp (LImm (2 + fromIntegral offset)), Istore (AReg bp) reg
+   [ Isub bp bp (LImm (2 + fromIntegral offset)), IstoreW (AReg bp) reg
    , Iadd bp bp (LImm (2 + fromIntegral offset))]
 stackLTLInstr (Lgetstack Local offset _ reg) = return $
-   [Iadd reg bp (LImm $ fromIntegral offset + 1), Iload reg (AReg reg)]  -- JP: offset+1?
+   [Iadd reg bp (LImm $ fromIntegral offset + 1), IloadW reg (AReg reg)]  -- JP: offset+1?
 stackLTLInstr (Lsetstack reg Local offset _) = return $
-   [ Iadd bp bp (LImm $ fromIntegral offset + 1), Istore (AReg bp) reg
+   [ Iadd bp bp (LImm $ fromIntegral offset + 1), IstoreW (AReg bp) reg
    , Isub bp bp (LImm $ fromIntegral offset + 1)] -- JP: offset+1?
 
 stackLTLInstr (LCall typ ret f argsT args) = return $
