@@ -68,6 +68,14 @@ testTrivial = testGroup "Trivial programs" $
     "arithmetic shift right"
     "test/programs/arithShr.ll"
     600 8 :
+  compileCorrectTest
+    "load from global"
+    "test/programs/trivial_global.ll"
+    50 10 :
+  compileCorrectTest
+    "load from global array"
+    "test/programs/trivial_global_array.ll"
+    50 10 :
     []
 
 -- Conditionals, Branching and loops

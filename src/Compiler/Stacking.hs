@@ -142,6 +142,7 @@ premain = return $
   NBlock Nothing $
   -- poison address 0
   [ IpoisonW (LImm 0) sp
+  , Iadd sp sp (LImm 1)
   , Imull sp sp (LImm $ fromIntegral wordBytes)] ++
   -- push return address for main 
   Imov ax (Label "_ret_") : (push ax) ++

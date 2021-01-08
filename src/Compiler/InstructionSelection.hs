@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 {-|
 Module      : Instruction Selection
@@ -51,7 +52,7 @@ import Compiler.LazyConstants
 import Compiler.TraceInstrs
 import Util.Util
 
-import MicroRAM (MWord) 
+import MicroRAM (MWord, MemWidth(..), pattern WWord, widthInt, wordBytes)
 import qualified MicroRAM as MRAM
 
 
@@ -428,6 +429,7 @@ pointerOperandWidth op = case LLVM.typeOf op of
     32 -> return MRAM.W4
     64 -> return MRAM.W8
     _ -> progError $ "bad memory access width: " ++ show bits ++ " bits"
+  LLVM.PointerType (LLVM.PointerType _ _) _ -> return MRAM.WWord
   ty -> progError $ "bad pointer type in memory op: " ++ show ty
 
 -- Load
@@ -924,12 +926,20 @@ nameOfGlobals defs = Set.fromList $ concat $ map nameOfGlobal defs
 
           
 isGlobVar :: Env -> LLVM.Global -> Hopefully $ GlobalVariable MWord
-isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) = do
+isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align _) = do
   typ' <- type2type (tenv env) typ
-  size' <- return $ sizeOf (tenv env) typ
+  byteSize <- return $ sizeOf (tenv env) typ
   init' <- flatInit env init
-  -- TODO: Want to check init' is the right length?
-  return $ GlobalVariable (name2name name) const typ' init' size' (sectionIsSecret sectn)
+  case init' of
+    Just initWords ->
+      when (byteSize > fromIntegral (length initWords * wordBytes)) $ assumptError $
+        "impossible: global size is " ++ show byteSize ++ " but evaluation produced only " ++
+          show (length initWords) ++ " words of initializer"
+    Nothing -> return ()
+  -- GlobalVariable size and align are given in words, not bytes.
+  let size' = (byteSize + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
+  let align' = (fromIntegral align + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
+  return $ GlobalVariable (name2name name) const typ' init' size' align' (sectionIsSecret sectn)
   where flatInit :: Env ->
                     Maybe LLVM.Constant.Constant ->
                     Hopefully $ Maybe [LazyConst String MWord]
@@ -943,10 +953,37 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ _ _) 
         sectionIsSecret _ = False
 isGlobVar _ other = unreachableError $ show other
 
+-- | Evaluate an LLVM constant and flatten its value into a list of (lazy)
+-- machine words.
 flattenConstant :: Env
                 -> LLVM.Constant.Constant
                 -> Hopefully [LazyConst String MWord]
-flattenConstant env c = constant2lazyConst env c
+flattenConstant env c = do
+    chunks <- constant2typedLazyConst env c
+    return $ go (SConst 0) 0 $ map unpack chunks
+  where
+    unpack (TypedLazyConst lc w) = (lc, widthInt w)
+
+    go ::
+      LazyConst String MWord -> Int -> [(LazyConst String MWord, Int)] ->
+      [LazyConst String MWord]
+    go _acc 0 [] = []
+    go acc _pos [] = [acc]
+    go acc pos ((lc, w) : cs)
+      | w > wordBytes = error "flattenConstant: impossible: TLC had width > word size?"
+      -- Special case for word-aligned chunks
+      | pos == 0 && w == wordBytes = lc : go acc pos cs
+      | pos + w < wordBytes = go (combine acc pos lc) (pos + w) cs
+      | pos + w == wordBytes = combine acc pos lc : go (SConst 0) 0 cs
+      | pos + w > wordBytes = combine acc pos lc :
+          go (consume (wordBytes - pos) lc) (pos + w - wordBytes) cs
+      | otherwise = error "flattenConstant: unreachable"
+
+    combine acc pos lc = acc .|. (lc `shiftL` (pos * 8))
+
+    consume amt lc = lc `shiftR` (amt * 8)
+
+
                         
 
 constant2OnelazyConst ::
@@ -954,48 +991,126 @@ constant2OnelazyConst ::
   -> LLVM.Constant.Constant
   -> Hopefully $ LazyConst String MWord
 constant2OnelazyConst env c = do
-  cs' <- constant2lazyConst env c
-  fromHybridMemory (tenv env) (typeOfConstant c) cs'
+  cs' <- constant2typedLazyConst env c
+  case cs' of
+    [TypedLazyConst lc _w] -> return lc
+    _ -> error $ "expected a single lazy constant, but got " ++ show (length cs') ++
+      " (on " ++ show c ++ ")"
 
 
 
-constant2lazyConst :: 
+-- | A `LazyConst` whose value is guaranteed to fit within `width` bytes.  Do
+-- not construct directly; use `mkTypedLazyConst` instead (which enforces the
+-- invariant).
+data TypedLazyConst = TypedLazyConst (LazyConst String MWord) MemWidth
+
+mkTypedLazyConst :: LazyConst String MWord -> MemWidth -> TypedLazyConst
+mkTypedLazyConst lc w = TypedLazyConst (lc .&. SConst mask) w
+  where mask = (1 `shiftL` (8 * MRAM.widthInt w)) - 1
+
+typedLazyUop ::
+  (LazyConst String MWord -> LazyConst String MWord) ->
+  TypedLazyConst -> TypedLazyConst
+typedLazyUop op (TypedLazyConst lc1 w1) =
+  mkTypedLazyConst (op lc1) w1
+
+typedLazyBop ::
+  (LazyConst String MWord -> LazyConst String MWord -> LazyConst String MWord) ->
+  TypedLazyConst -> TypedLazyConst -> TypedLazyConst
+typedLazyBop op (TypedLazyConst lc1 w1) (TypedLazyConst lc2 w2) =
+  mkTypedLazyConst (op lc1 lc2) (max w1 w2)
+
+instance Num TypedLazyConst where
+  (+) = typedLazyBop (+)
+  (-) = typedLazyBop (-)
+  (*) = typedLazyBop (*)
+  negate = typedLazyUop negate
+  abs = typedLazyUop abs
+  signum = typedLazyUop signum
+  fromInteger n = error "fromInteger not supported for TypedLazyConst"
+
+instance Eq TypedLazyConst where
+  _ == _ = error "(==) not supported for TypedLazyConst"
+
+instance Bits TypedLazyConst where
+  (.&.) = typedLazyBop (.&.)
+  (.|.) = typedLazyBop (.|.)
+  xor = typedLazyBop xor
+  complement = typedLazyUop complement
+  shift x b = typedLazyUop (\x -> shift x b) x
+  rotate x b = typedLazyUop (\x -> rotate x b) x
+  bitSize _ = bitSize (zeroBits :: MWord)
+  bitSizeMaybe _ = bitSizeMaybe (zeroBits :: MWord)
+  isSigned _ = isSigned (zeroBits :: MWord)
+  testBit _ _ = error "testBit not supported for TypedLazyConst"
+  bit _ = error "bit not supported for TypedLazyConst"
+  popCount _ = error "popCount not supported for TypedLazyConst"
+
+
+constant2typedLazyConst ::
   Env
   -> LLVM.Constant.Constant
-  -> Hopefully $ [LazyConst String MWord]
-constant2lazyConst env c =
+  -> Hopefully $ [TypedLazyConst]
+constant2typedLazyConst env c =
   case c of
-    (LLVM.Constant.Int _ val                        ) -> returnHybrid (SConst $ fromInteger val) 
-    (LLVM.Constant.Null _ty                         ) -> returnHybrid (SConst $ fromInteger 0)
-    (LLVM.Constant.AggregateZero ty                 ) -> do
-      return $ replicate (fromEnum $ sizeOf (tenv env) ty) $ SConst 0 
-    (LLVM.Constant.Struct _name _pack vals          ) -> concat <$> mapM (constant2lazyConst env) vals 
-    (LLVM.Constant.Array _ty vals                   ) -> concat <$> mapM (constant2lazyConst env) vals
-    (LLVM.Constant.Undef _ty                        ) -> returnHybrid $ SConst $ fromInteger 0
+    (LLVM.Constant.Int bits val                     ) -> case bits of
+      -- Special case for `i1`/bool.  We represent it as 1 byte wide.  `i1`
+      -- should never appear in memory accesses, so this shouldn't present any
+      -- problem.
+      1 -> return [mkTypedLazyConst (fromInteger val) W1]
+      8 -> return [mkTypedLazyConst (fromInteger val) W1]
+      16 -> return [mkTypedLazyConst (fromInteger val) W2]
+      32 -> return [mkTypedLazyConst (fromInteger val) W4]
+      64 -> return [mkTypedLazyConst (fromInteger val) W8]
+      _ -> implError $ "Constant.Int with width " ++ show bits ++ " is not supported"
+    (LLVM.Constant.Null _ty                         ) ->
+      return [mkTypedLazyConst (fromInteger 0) WWord]
+    (LLVM.Constant.AggregateZero ty                 ) ->
+      -- Compute the width, then emit a list of that many bytes.
+      return $ replicate (fromIntegral $ sizeOf (tenv env) ty) zeroByte
+    (LLVM.Constant.Struct _name True vals           ) ->
+      concat <$> mapM (constant2typedLazyConst env) vals
+    (LLVM.Constant.Struct _name False vals          ) -> do
+      let pads = structPadding (tenv env) $ map LLVM.typeOf vals
+      let f :: LLVM.Constant.Constant -> MWord -> Hopefully [TypedLazyConst]
+          f val pad = do
+            val' <- constant2typedLazyConst env val
+            return $ val' ++ replicate (fromIntegral pad) zeroByte
+      concat <$> zipWithM f vals pads
+    (LLVM.Constant.Array _ty vals                   ) ->
+      concat <$> mapM (constant2typedLazyConst env) vals
+    (LLVM.Constant.Undef ty                         ) ->
+      return $ replicate (fromIntegral $ sizeOf (tenv env) ty) zeroByte
     (LLVM.Constant.GlobalReference _ty name         ) -> do
       _ <- checkName (globs env) name
       name' <- return $ show $ name2name name
-      returnHybrid $ LConst $ \ge -> ge name'
-    (LLVM.Constant.Add _ _ op1 op2                  ) -> bop2lazyConst env (+) op1 op2 >>= returnHybrid
-    (LLVM.Constant.Sub  _ _ op1 op2                 ) -> bop2lazyConst env (-) op1 op2 >>= returnHybrid
-    (LLVM.Constant.Mul  _ _ op1 op2                 ) -> bop2lazyConst env (*) op1 op2 >>= returnHybrid
-    (LLVM.Constant.UDiv  _ op1 op2                  ) -> bop2lazyConst env quot op1 op2 >>= returnHybrid
+      return [mkTypedLazyConst (LConst $ \ge -> ge name') WWord]
+    (LLVM.Constant.Add _ _ op1 op2                  ) -> bop2typedLazyConst env (+) op1 op2
+    (LLVM.Constant.Sub  _ _ op1 op2                 ) -> bop2typedLazyConst env (-) op1 op2
+    (LLVM.Constant.Mul  _ _ op1 op2                 ) -> bop2typedLazyConst env (*) op1 op2
+    (LLVM.Constant.UDiv  _ op1 op2                  ) ->
+      bop2typedLazyConst env (typedLazyBop lcQuot) op1 op2
     (LLVM.Constant.SDiv _ _op1 _op2                 ) ->
       implError $ "Signed division is not implemented."
-    (LLVM.Constant.URem op1 op2                     ) -> bop2lazyConst env rem op1 op2 >>= returnHybrid
+    (LLVM.Constant.URem op1 op2                     ) ->
+      bop2typedLazyConst env (typedLazyBop lcRem) op1 op2
     (LLVM.Constant.SRem _op1 _op2                   ) -> 
       implError $ "Signed reminder is not implemented."
-    (LLVM.Constant.And op1 op2                      ) -> bop2lazyConst env (.&.) op1 op2 >>= returnHybrid
-    (LLVM.Constant.Or op1 op2                       ) -> bop2lazyConst env (.|.) op1 op2 >>= returnHybrid
-    (LLVM.Constant.Xor op1 op2                      ) -> bop2lazyConst env xor op1 op2   >>= returnHybrid
+    (LLVM.Constant.And op1 op2                      ) -> bop2typedLazyConst env (.&.) op1 op2
+    (LLVM.Constant.Or op1 op2                       ) -> bop2typedLazyConst env (.|.) op1 op2
+    (LLVM.Constant.Xor op1 op2                      ) -> bop2typedLazyConst env xor op1 op2
     (LLVM.Constant.GetElementPtr _bounds addr inxs  ) -> do
       addr' <- constant2OnelazyConst env addr
       ty' <- return $ typeOfConstant addr
       inxs' <- mapM (constant2OnelazyConst env) inxs
-      constGEP (tenv env) ty' addr' inxs' >>= returnHybrid
-    (LLVM.Constant.PtrToInt op1 _typ                ) -> constant2lazyConst env op1
-    (LLVM.Constant.IntToPtr op1 _typ                ) -> constant2lazyConst env op1
-    (LLVM.Constant.BitCast  op1 _typ                ) -> constant2lazyConst env op1
+      gepResult <- constGEP (tenv env) ty' addr' inxs'
+      -- GEP returns a pointer, which is always one word in size
+      return [mkTypedLazyConst gepResult WWord]
+    (LLVM.Constant.PtrToInt op1 _typ                ) -> constant2typedLazyConst env op1
+    (LLVM.Constant.IntToPtr op1 _typ                ) -> constant2typedLazyConst env op1
+    -- TODO: special case for bitcasting to ptr or int type: repack list of
+    -- TypedLazyConsts into a single value
+    (LLVM.Constant.BitCast  op1 _typ                ) -> constant2typedLazyConst env op1
     (LLVM.Constant.Vector _mems                     ) ->  
       implError $ "Vectors not yet supported."
     (LLVM.Constant.ExtractElement _vect _indx       ) -> 
@@ -1006,10 +1121,8 @@ constant2lazyConst env c =
       implError $ "Vectors not yet supported."
     c -> implError $ "Constant not supported yet for global initializers: " ++ show c
   where
-    ty = typeOfConstant c
-    returnHybrid :: LazyConst String MWord -> Hopefully [LazyConst String MWord]
-    returnHybrid x = return $ fitHybridMemory (tenv env) ty x 
-        
+    zeroByte = mkTypedLazyConst 0 W1
+
 constGEP :: LLVMTypeEnv
          -> LLVM.Type
          -> LazyConst String MWord
@@ -1050,18 +1163,18 @@ constGEP _ ty _ _ = assumptError $ "GetElementPtr expects a pointer type, but fo
 
 
 
-bop2lazyConst :: Env
-              -> (MWord -> MWord -> MWord)
+bop2typedLazyConst :: Env
+              -> (TypedLazyConst -> TypedLazyConst -> TypedLazyConst)
               -> LLVM.Constant.Constant
               -> LLVM.Constant.Constant
-              -> Hopefully $ LazyConst String MWord
-bop2lazyConst env bop op1 op2 = do
-  op1s <- constant2lazyConst env op1
+              -> Hopefully [TypedLazyConst]
+bop2typedLazyConst env bop op1 op2 = do
+  op1s <- constant2typedLazyConst env op1
   op1' <- getUniqueWord op1s
-  op2s <- constant2lazyConst env op2
+  op2s <- constant2typedLazyConst env op2
   op2' <- getUniqueWord op2s
-  return $ lazyBop bop op1' op2'  
-  where getUniqueWord :: [LazyConst String MWord] -> Hopefully $ LazyConst String MWord
+  return [bop op1' op2']
+  where getUniqueWord :: [TypedLazyConst] -> Hopefully TypedLazyConst
         getUniqueWord [op1'] = return op1' 
         getUniqueWord _ = assumptError "Tryed to compute a binary operation with an aggregate value." 
 

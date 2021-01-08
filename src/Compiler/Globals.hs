@@ -17,6 +17,7 @@ module Compiler.Globals
     ( replaceGlobals, 
     ) where
 
+import Data.Bits
 import qualified Data.Map as Map
 
 import Compiler.Common
@@ -84,15 +85,21 @@ lazyMemoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg
           GlobalVariable MWord
           -> (LazyInitialMem, Map.Map String MWord)
           -> (LazyInitialMem, Map.Map String MWord)
-        memoryFromGlobal (GlobalVariable name isConst _gTy init size secret) (initMem, gMap) =
-          let newLoc = newLocation initMem in
+        memoryFromGlobal (GlobalVariable name isConst _gTy init size align secret) (initMem, gMap) =
+          let newLoc = alignTo align $ newLocation initMem in
           let newLazySegment =
                 (init, InitMemSegment secret isConst newLoc (fromIntegral $ size) Nothing) in -- __FIXME__
-          (newLazySegment:initMem, Map.insert (show name) newLoc gMap)
+          -- The addresses assigned to global variable symbols must be given in
+          -- bytes, unlike all other global / init-mem related measurements,
+          -- which are in words.
+          let newByteLoc = newLoc * fromIntegral wordBytes in
+          (newLazySegment:initMem, Map.insert (show name) newByteLoc gMap)
           
         newLocation :: LazyInitialMem -> MWord
         newLocation [] = 1 -- 0 is reserved
         newLocation ((_,InitMemSegment _ _ loc len _):_) = loc + len
+
+        alignTo a x = (a + x - 1) .&. complement (a - 1)
           
 
 -- * Replace global variables with pointers to the initial memeory
