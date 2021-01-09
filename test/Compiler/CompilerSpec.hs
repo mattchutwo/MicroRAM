@@ -120,7 +120,7 @@ testGEP = testGroup "Test structs and arrays with GetElementPtr" $
     compileCorrectTest
     "Trivial struct Packed"
     "test/programs/easyStructPack.ll"
-    50 3 :
+    200 3 :
 {-  WAIT FOR FUNCTIONS TO WORK.
     compileCorrectTest
     "Simple Binary Tree"

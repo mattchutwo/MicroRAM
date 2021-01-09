@@ -334,8 +334,14 @@ isInstruction env ret instr =
     (LLVM.Alloca ty (Just size) _ _) -> isAlloca env ret ty size
     -- TODO: check alignment - MicroRAM memory ops are always aligned, so
     -- unaligned LLVM loads/stores need special handling
-    (LLVM.Load _ n _ _align _)    -> withReturn ret $ isLoad env n 
-    (LLVM.Store _ adr cont _ _align _) -> isStore env adr cont
+    (LLVM.Load _ n _ align _)
+      | fromIntegral align >= alignOf (tenv env) (pointee (LLVM.typeOf n)) ->
+        withReturn ret $ isLoad env n
+      | otherwise -> withReturn ret $ isLoadUnaligned env n
+    (LLVM.Store _ adr cont _ align _)
+      | fromIntegral align >= alignOf (tenv env) (pointee (LLVM.typeOf adr)) ->
+        isStore env adr cont
+      | otherwise -> isStoreUnaligned env adr cont
     -- Other
     (LLVM.ICmp pred op1 op2 _) -> withReturn ret $ isCompare env pred op1 op2
     (LLVM.Call _ _ _ f args _ _ ) -> lift $ isCall env ret f args
@@ -357,6 +363,9 @@ isInstruction env ret instr =
     instr ->  implError $ "Instruction: " ++ (show instr)
   where withReturn Nothing _ = return $ []
         withReturn (Just ret) f = f ret
+
+        pointee (LLVM.PointerType ty _) = ty
+        pointee ty = error $ "isInstruction: expected pointer, but got " ++ show ty
 
 {- | Implements arithmetic shift right in terms of other binary operations like so:
 @
@@ -440,7 +449,65 @@ isLoad env n ret = lift $ do
   w <- pointerOperandWidth n
   returnRTL $ (MRAM.Iload w ret a) : []
 
-    
+isLoadUnaligned
+  :: Env -> LLVM.Operand -> VReg -> Statefully $ [MIRInstr () MWord]
+isLoadUnaligned env n ret = do
+  ptr <- lift $ operand2operand env n
+  w <- lift $ pointerOperandWidth n
+
+  offset <- freshName
+  ptr0 <- freshName
+  ptr1 <- freshName
+  val0 <- freshName
+  val1 <- freshName
+  shift <- freshName
+  flag <- freshName
+
+  -- The unaligned load from `ptr` may span two `w`-sized values.  We load from
+  -- `ptr` rounded down (`ptr0`) and `ptr` rounded up (`ptr1`), then stitch the
+  -- two halves together
+
+  let lowMask :: MWord
+      lowMask = fromIntegral $ widthInt w - 1
+  let highMask :: MWord
+      highMask = complement $ fromIntegral $ widthInt w - 1
+  let valMask :: MWord
+      valMask = (1 `shiftL` widthInt w) - 1
+
+  returnRTL $
+    -- Compute the offset by which the access is unaligned
+    [ MRAM.Iand offset ptr (LImm $ SConst lowMask)
+    -- Load the two surrounding words, `val0` and `val1`
+    , MRAM.Iand ptr0 ptr (LImm $ SConst highMask)
+    , MRAM.Iload w val0 (AReg ptr0)
+    , MRAM.Iadd ptr1 (AReg ptr0) (LImm $ fromIntegral $ widthInt w)
+    , MRAM.Iload w val1 (AReg ptr1)
+    -- Shift `val0` down and `val1` up to their final positions.  Note the
+    -- extra bits will be zero-filled, so we can just OR the two together
+    -- afterward.
+    , MRAM.Imull shift (AReg offset) (LImm 8)
+    , MRAM.Ishr val0 (AReg val0) (AReg shift)
+    , MRAM.Isub shift (LImm $ fromIntegral $ 8 * widthInt w) (AReg shift)
+    , MRAM.Ishl val1 (AReg val1) (AReg shift)
+    ] ++
+    -- If `w` is word size and `offset` is zero, then the shift of `val1` might
+    -- have an out-of-range shift amount (equal to the bit width of a word).
+    -- In that case we need to explicitly zero `val1`.
+    --
+    -- If `w` is not word size, then we need to mask off the high bits of
+    -- `val1`, so that the result placed into `ret` is actually `w` bytes wide.
+    (if w == WWord then
+      [ MRAM.Icmpe flag (AReg offset) (LImm 0)
+      , MRAM.Icmov val1 (AReg flag) (LImm 0)
+      ]
+    else
+      [ MRAM.Iand val1 (AReg val1) (LImm $ SConst valMask)
+      ]
+    ) ++
+    [ MRAM.Ior ret (AReg val0) (AReg val1)
+    ]
+
+
 -- | Store
 {- Store yields void so we can will ignore the return location -}
 isStore
@@ -454,6 +521,71 @@ isStore env adr cont = do
   w <- lift $ pointerOperandWidth adr
   returnRTL [MRAM.Istore w adr' cont']
 
+isStoreUnaligned
+  :: Env
+     -> LLVM.Operand
+     -> LLVM.Operand
+     -> Statefully $ [MIRInstr () MWord]
+isStoreUnaligned env adr cont = do
+  ptr <- lift $ operand2operand env adr
+  val <- lift $ operand2operand env cont
+  w <- lift $ pointerOperandWidth adr
+
+  offset <- freshName
+  shift <- freshName
+  val0 <- freshName
+  val1 <- freshName
+  mask0 <- freshName
+  mask1 <- freshName
+  ptr0 <- freshName
+  ptr1 <- freshName
+  old0 <- freshName
+  old1 <- freshName
+  flag <- freshName
+
+  let lowMask :: MWord
+      lowMask = fromIntegral $ widthInt w - 1
+  let highMask :: MWord
+      highMask = complement $ fromIntegral $ widthInt w - 1
+  let valMask :: MWord
+      valMask = (1 `shiftL` (8 * widthInt w)) - 1
+
+  returnRTL $
+    [ MRAM.Iand offset ptr (LImm $ SConst lowMask)
+    -- Shift `val` and `valMask` into position.
+    , MRAM.Imull shift (AReg offset) (LImm 8)
+    , MRAM.Ishl val0 val (AReg shift)
+    , MRAM.Ishl mask0 (LImm $ SConst valMask) (AReg shift)
+    , MRAM.Isub shift (LImm $ fromIntegral $ 8 * widthInt w) (AReg shift)
+    , MRAM.Ishr val1 val (AReg shift)
+    , MRAM.Ishr mask1 (LImm $ SConst valMask) (AReg shift)
+    ] ++
+    (if w == WWord then
+      [ MRAM.Icmpe flag (AReg offset) (LImm 0)
+      , MRAM.Icmov mask1 (AReg flag) (LImm 0)
+      ]
+    else
+      -- It's okay to mangle the high bits of `val0`, since sub-word-sized
+      -- writes only write the lower `w` bytes.
+      []
+    ) ++
+    -- Read-modify-write the two surrounding words.  The parts indicated by
+    -- `mask0`/`mask1` are updated to contain `val0`/`val1`, while the rest
+    -- remains untouched.
+    [ MRAM.Iand ptr0 ptr (LImm $ SConst highMask)
+    , MRAM.Iload w old0 (AReg ptr0)
+    , MRAM.Inot mask0 (AReg mask0)
+    , MRAM.Iand old0 (AReg old0) (AReg mask0)
+    , MRAM.Ior old0 (AReg old0) (AReg val0)
+    , MRAM.Istore w (AReg ptr0) (AReg old0)
+
+    , MRAM.Iadd ptr1 (AReg ptr0) (LImm $ fromIntegral $ widthInt w)
+    , MRAM.Iload w old1 (AReg ptr1)
+    , MRAM.Inot mask1 (AReg mask1)
+    , MRAM.Iand old1 (AReg old1) (AReg mask1)
+    , MRAM.Ior old1 (AReg old1) (AReg val1)
+    , MRAM.Istore w (AReg ptr1) (AReg old1)
+    ]
 
 -- *** Compare
 
