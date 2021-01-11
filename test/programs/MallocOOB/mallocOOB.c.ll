@@ -1,83 +1,97 @@
-; ModuleID = 'mallocOOB.c.bc'
+; ModuleID = './MallocOOB/mallocOOB.c.bc'
 source_filename = "llvm-link"
-target datalayout = "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
-target triple = "x86_64-apple-macosx10.15.0"
+target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
+target triple = "x86_64-pc-linux-gnu"
 
-@SECRET_SIZE = local_unnamed_addr global i32 3, section "__DATA,__secret", align 4
-@SECRET_NUMBER = local_unnamed_addr global i32 42, section "__DATA,__secret", align 4
+@SECRET_SIZE = dso_local local_unnamed_addr global i32 3, section "__DATA,__secret", align 4
+@SECRET_NUMBER = dso_local local_unnamed_addr global i32 42, section "__DATA,__secret", align 4
 
-; Function Attrs:  nounwind ssp uwtable
-define i32 @main() local_unnamed_addr #0 {
+; Function Attrs:  nounwind uwtable
+define dso_local i32 @main() local_unnamed_addr #0 {
   %1 = load i32, i32* @SECRET_SIZE, align 4, !tbaa !4
   %2 = sext i32 %1 to i64
   %3 = shl nsw i64 %2, 2
   %4 = tail call i8* @__cc_malloc(i64 %3) #5
   %5 = ptrtoint i8* %4 to i64
   %6 = lshr i64 %5, 58
-  %7 = shl nuw i64 1, %6
-  %8 = or i64 %3, 1
+  %7 = shl i64 1, %6
+  %8 = add nsw i64 %3, 8
   %9 = icmp ult i64 %7, %8
-  %10 = add i64 %7, -1
-  %11 = and i64 %10, %5
-  %12 = icmp ne i64 %11, 0
-  %13 = or i1 %9, %12
-  br i1 %13, label %14, label %15
+  br i1 %9, label %14, label %10
 
-14:                                               ; preds = %0
+10:                                               ; preds = %0
+  %11 = add i64 %7, -1
+  %12 = and i64 %11, %5
+  %13 = icmp eq i64 %12, 0
+  br i1 %13, label %15, label %14
+
+14:                                               ; preds = %10, %0
   tail call void @__cc_flag_invalid() #5
   br label %15
 
-15:                                               ; preds = %14, %0
+15:                                               ; preds = %14, %10
   %16 = getelementptr inbounds i8, i8* %4, i64 %7
-  %17 = getelementptr inbounds i8, i8* %16, i64 -1
-  tail call void @__cc_write_and_poison(i8* nonnull %17, i64 1) #5
-  %18 = getelementptr inbounds i8, i8* %4, i64 %3
-  %19 = tail call i8* @__cc_advise_poison(i8* %18, i8* nonnull %17) #5
-  %20 = icmp eq i8* %19, null
-  br i1 %20, label %malloc.exit, label %21
+  %17 = getelementptr inbounds i8, i8* %16, i64 -8
+  %18 = bitcast i8* %17 to i64*
+  tail call void @__cc_write_and_poison(i64* nonnull %18, i64 1) #5
+  %19 = getelementptr inbounds i8, i8* %4, i64 %3
+  %20 = tail call i64* @__cc_advise_poison(i8* %19, i8* nonnull %17) #5
+  %21 = icmp eq i64* %20, null
+  br i1 %21, label %malloc.exit, label %22
 
-21:                                               ; preds = %15
-  %22 = icmp ugt i8* %18, %19
-  %23 = icmp uge i8* %19, %17
-  %24 = or i1 %22, %23
-  br i1 %24, label %25, label %26
+22:                                               ; preds = %15
+  %23 = ptrtoint i64* %20 to i64
+  %24 = and i64 %23, 7
+  %25 = icmp eq i64 %24, 0
+  br i1 %25, label %27, label %26
 
-25:                                               ; preds = %21
+26:                                               ; preds = %22
   tail call void @__cc_flag_invalid() #5
-  br label %26
+  br label %27
 
-26:                                               ; preds = %25, %21
-  tail call void @__cc_write_and_poison(i8* nonnull %19, i64 0) #5
+27:                                               ; preds = %26, %22
+  %28 = bitcast i64* %20 to i8*
+  %29 = icmp ugt i8* %19, %28
+  %30 = icmp uge i64* %20, %18
+  %31 = or i1 %30, %29
+  br i1 %31, label %32, label %33
+
+32:                                               ; preds = %27
+  tail call void @__cc_flag_invalid() #5
+  br label %33
+
+33:                                               ; preds = %32, %27
+  tail call void @__cc_write_and_poison(i64* nonnull %20, i64 0) #5
   br label %malloc.exit
 
-malloc.exit:                                      ; preds = %15, %26
-  %27 = bitcast i8* %4 to i32*
-  store i32 21, i32* %27, align 4, !tbaa !4
-  %28 = getelementptr inbounds i8, i8* %4, i64 4
-  %29 = bitcast i8* %28 to i32*
-  store i32 22, i32* %29, align 4, !tbaa !4
-  %30 = getelementptr inbounds i8, i8* %4, i64 8
-  %31 = bitcast i8* %30 to i32*
-  store i32 23, i32* %31, align 4, !tbaa !4
-  %32 = load i32, i32* @SECRET_NUMBER, align 4, !tbaa !4
-  %33 = getelementptr inbounds i8, i8* %4, i64 12
-  %34 = bitcast i8* %33 to i32*
-  store i32 %32, i32* %34, align 4, !tbaa !4
-  %35 = getelementptr inbounds i32, i32* %27, i64 %2
-  %36 = load i32, i32* %35, align 4, !tbaa !4
-  ret i32 %36
+malloc.exit:                                      ; preds = %15, %33
+  %34 = bitcast i8* %4 to i32*
+  store i32 21, i32* %34, align 4, !tbaa !4
+  %35 = getelementptr inbounds i8, i8* %4, i64 4
+  %36 = bitcast i8* %35 to i32*
+  store i32 22, i32* %36, align 4, !tbaa !4
+  %37 = getelementptr inbounds i8, i8* %4, i64 8
+  %38 = bitcast i8* %37 to i32*
+  store i32 23, i32* %38, align 4, !tbaa !4
+  %39 = load i32, i32* @SECRET_NUMBER, align 4, !tbaa !4
+  %40 = getelementptr inbounds i8, i8* %4, i64 16
+  %41 = bitcast i8* %40 to i32*
+  store i32 %39, i32* %41, align 4, !tbaa !4
+  %42 = getelementptr inbounds i32, i32* %34, i64 %2
+  %43 = load i32, i32* %42, align 4, !tbaa !4
+  ret i32 %43
 }
 
-declare i8* @__cc_malloc(i64) local_unnamed_addr #1
+declare dso_local i8* @__cc_malloc(i64) local_unnamed_addr #1
 
-declare void @__cc_flag_invalid() local_unnamed_addr #1
+declare dso_local void @__cc_flag_invalid() local_unnamed_addr #1
 
-declare void @__cc_write_and_poison(i8*, i64) local_unnamed_addr #1
+declare dso_local void @__cc_write_and_poison(i64*, i64) local_unnamed_addr #1
 
-declare i8* @__cc_advise_poison(i8*, i8*) local_unnamed_addr #1
+declare dso_local i64* @__cc_advise_poison(i8*, i8*) local_unnamed_addr #1
 
-; Function Attrs:  norecurse nounwind ssp uwtable
-define void @__llvm__memcpy__p0i8__p0i8__i64(i8* nocapture, i8* nocapture readonly, i64) local_unnamed_addr #2 {
+; Function Attrs:  norecurse nounwind uwtable
+define dso_local void @__llvm__memcpy__p0i8__p0i8__i64(i8* nocapture, i8* nocapture readonly, i64) local_unnamed_addr #2 {
   %4 = icmp eq i64 %2, 0
   br i1 %4, label %.loopexit, label %5
 
@@ -139,8 +153,8 @@ define void @__llvm__memcpy__p0i8__p0i8__i64(i8* nocapture, i8* nocapture readon
   br i1 %41, label %.loopexit2, label %21
 }
 
-; Function Attrs:  norecurse nounwind ssp uwtable writeonly
-define void @__llvm__memset__p0i8__i64(i8* nocapture, i8 zeroext, i64) local_unnamed_addr #3 {
+; Function Attrs:  norecurse nounwind uwtable writeonly
+define dso_local void @__llvm__memset__p0i8__i64(i8* nocapture, i8 zeroext, i64) local_unnamed_addr #3 {
   %4 = icmp eq i64 %2, 0
   br i1 %4, label %.loopexit, label %5
 
@@ -202,20 +216,20 @@ define void @__llvm__memset__p0i8__i64(i8* nocapture, i8 zeroext, i64) local_unn
 ; Function Attrs: argmemonly nounwind
 declare void @llvm.memset.p0i8.i64(i8* nocapture writeonly, i8, i64, i1 immarg) #4
 
-attributes #0 = {  nounwind ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
-attributes #1 = { "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "no-builtins" "no-infs-fp-math"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
-attributes #2 = {  norecurse nounwind ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-builtins" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
-attributes #3 = {  norecurse nounwind ssp uwtable writeonly "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-builtins" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #0 = {  nounwind uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "disable-tail-calls"="false" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-frame-pointer-elim"="false" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #1 = { "correctly-rounded-divide-sqrt-fp-math"="false" "disable-tail-calls"="false" "less-precise-fpmad"="false" "no-frame-pointer-elim"="false" "no-infs-fp-math"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #2 = {  norecurse nounwind uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "disable-tail-calls"="false" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-frame-pointer-elim"="false" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #3 = {  norecurse nounwind uwtable writeonly "correctly-rounded-divide-sqrt-fp-math"="false" "disable-tail-calls"="false" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-frame-pointer-elim"="false" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
 attributes #4 = { argmemonly nounwind }
-attributes #5 = { nobuiltin nounwind "no-builtins" }
+attributes #5 = { nobuiltin nounwind }
 
 !llvm.ident = !{!0, !0, !0, !0}
 !llvm.module.flags = !{!1, !2, !3}
 
-!0 = !{!"Apple clang version 12.0.0 (clang-1200.0.32.2)"}
-!1 = !{i32 2, !"SDK Version", [3 x i32] [i32 10, i32 15, i32 6]}
-!2 = !{i32 1, !"wchar_size", i32 4}
-!3 = !{i32 7, !"PIC Level", i32 2}
+!0 = !{!"clang version 9.0.1-12 "}
+!1 = !{i32 1, !"wchar_size", i32 4}
+!2 = !{i32 1, !"ThinLTO", i32 0}
+!3 = !{i32 1, !"EnableSplitLTOUnit", i32 0}
 !4 = !{!5, !5, i64 0}
 !5 = !{!"int", !6, i64 0}
 !6 = !{!"omnipotent char", !7, i64 0}

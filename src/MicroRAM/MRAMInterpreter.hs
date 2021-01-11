@@ -518,7 +518,7 @@ checkAccess verbose allocState addr = do
 allocHandler :: Regs r => Bool -> Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
 allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
   size <- opVal sizeOp
-  let sizeClass = ceilLog2 (size + 1)
+  let sizeClass = ceilLog2 (size + fromIntegral wordBytes)
   let size' = 1 `shiftL` sizeClass
 
   base <- use $ sExt . allocState . asFrontier
@@ -530,7 +530,7 @@ allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
   sExt . allocState . asAllocs %= Map.insert ptr (Alloc size False)
   sExt . allocState . asMallocAddrs %= (Seq.|> ptr)
 
-  when verbose $ traceM $ "malloc " ++ show size ++ " words (extended to " ++ show size' ++
+  when verbose $ traceM $ "malloc " ++ show size ++ " bytes (extended to " ++ show size' ++
     ") at " ++ showHex ptr
 
   sMach . mReg rd .= ptr
@@ -560,6 +560,9 @@ allocHandler _verbose _allocState _nextH (Iextval "advise_poison" rd [_lo, _hi])
   finishInstr
 allocHandler verbose  allocState nextH instr@(Istore _w op2 _r1) = do
   addr <- opVal op2
+  -- TODO: this misses errors when the first byte of the access is in bounds
+  -- but the later bytes are not.  However, we can't catch such errors yet,
+  -- since we can't poison only part of a word.
   checkAccess verbose allocState addr
   nextH instr
 allocHandler verbose allocState nextH instr@(Iload _w _rd op2) = do
@@ -572,7 +575,7 @@ allocHandler _ _ nextH instr = nextH instr
 
 data MemInfo = MemInfo
   { _miMallocAddrs :: Seq MWord
-  , _miPoisonAddr :: Maybe MWord
+  , _miPoisonAddrs :: Set MWord
   }
 makeLenses ''MemInfo
 
@@ -592,12 +595,13 @@ memErrorHandler info advice _nextH (Iextadvise "malloc" rd [_size]) = do
 memErrorHandler info advice _nextH (Iextadvise "advise_poison" rd [loOp, hiOp]) = do
   lo <- opVal loOp
   hi <- opVal hiOp
-  optAddr <- use $ sExt . info . miPoisonAddr
-  case optAddr of
-    Just addr | lo <= addr && addr < hi -> do
+  addrs <- use $ sExt . info . miPoisonAddrs
+  -- Find an address where the entire word at `addr` fits within `lo .. hi`.
+  case Set.lookupGE lo addrs of
+    Just addr | addr + fromIntegral wordBytes <= hi -> do
       doAdvise advice rd addr
       -- Poisoning a second time would be a prover error.
-      sExt . info . miPoisonAddr .= Nothing
+      sExt . info . miPoisonAddrs %= Set.delete addr
     _ -> do
       doAdvise advice rd 0
   finishInstr
@@ -639,12 +643,15 @@ runPass1 verbose steps spars initMach' = do
     handler = traceHandler verbose  $ allocHandler verbose id $ stepInstr
 
     getMemInfo :: AllocState -> MemInfo
-    getMemInfo as = MemInfo (as ^. asMallocAddrs) (getPoisonAddr $ as ^. asMemErrors)
+    getMemInfo as = MemInfo (as ^. asMallocAddrs) (getPoisonAddrs $ as ^. asMemErrors)
 
-    getPoisonAddr :: Seq (MemErrorKind, MWord) -> Maybe MWord
-    getPoisonAddr errs = case filter (\(kind,_) -> kind /= Unallocated) $ toList errs of
-      (_, x) : _ -> Just x
-      [] -> Nothing
+    -- | Get a set of addresses of words to poison.  We need to provide several
+    -- options for poisoning since some memory errors may not be poisonable,
+    -- depending on where exactly the error occurs.
+    getPoisonAddrs :: Seq (MemErrorKind, MWord) -> Set MWord
+    getPoisonAddrs errs = Set.fromList
+      [addr .&. complement (fromIntegral wordBytes - 1)
+        | (kind, addr) <- toList errs, kind /= Unallocated]
 
 runPass2 :: Regs r => Word -> Sparsity -> MachineState r -> MemInfo -> Hopefully (Trace r)
 runPass2 steps spars initMach' memInfo = do

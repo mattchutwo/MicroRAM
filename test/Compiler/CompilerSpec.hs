@@ -148,19 +148,19 @@ testBugs = testGroup "Compiler bug tests" $
   compileBugTest
   "Use after free Bug"
   "test/programs/UseAfterFree/useAfterFree.c.ll"
-  200 :
+  250 :
   compileBugTest
   "Invalid Free (Now a pointer given by malloc)"
   "test/programs/WrongFree/wrongFree.c.ll"
-  200 :
+  250 :
   compileBugTest
   "Out of bounds access"
   "test/programs/MallocOOB/mallocOOB.c.ll"
-  200 :
+  250 :
   compileBugTest
   "Free after free"
   "test/programs/DoubleFree/DoubleFree.c.ll"
-  200 :
+  250 :
   []
 
   
