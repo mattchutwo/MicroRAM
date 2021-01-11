@@ -16,7 +16,7 @@ MicroRAM.cabal
 temp/*
 *.ll-e
 *.link.bc
-*.c.o
+*.o
 *.c.opt.bc
 test/programs/**/*.c.bc
 **/*.micro
