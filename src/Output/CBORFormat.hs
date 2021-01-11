@@ -432,8 +432,8 @@ instance Serialise Name where
 
 -- * Serialisations and other pretty printing formats
 
-serialOutput :: Serialise reg => Output reg -> L.ByteString
-serialOutput out = toLazyByteString $ (encode $ (versionBranch version, []::[String], out))
+serialOutput :: Serialise reg => Output reg -> [String] -> L.ByteString
+serialOutput out features = toLazyByteString $ (encode $ (versionBranch version, features, out))
 
 serialInput :: Serialise reg => L.ByteString -> Either DeserialiseFailure (L.ByteString, Output reg)
 serialInput string = deserialiseFromBytes (decodeOutput) string 
@@ -450,10 +450,12 @@ data OutFormat =
   | Flat
   deriving (Eq, Ord, Show)
 
-printOutputWithFormat :: Serialise reg => OutFormat -> Output reg -> String
-printOutputWithFormat StdHex = show . serialOutput
-printOutputWithFormat PHex = ppHexOutput
-printOutputWithFormat Flat = show . flatOutput
+
+-- NOTE: ONLY StdHEX records version number. The others are for debugging only
+printOutputWithFormat :: Serialise reg => OutFormat -> Output reg -> [String] -> String
+printOutputWithFormat StdHex out features = show $ (serialOutput out features) 
+printOutputWithFormat PHex out _ = ppHexOutput out
+printOutputWithFormat Flat out _ = show . flatOutput $ out
 
 
 c :: Output Word

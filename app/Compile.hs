@@ -71,9 +71,8 @@ main = do
   
   where output :: FlagRecord -> Output AReg -> IO ()
         output fr out = case fileOut fr of
-                           Just file -> L.writeFile file $ serialOutput out
-                           Nothing   -> putStrLn $ printOutputWithFormat (outFormat fr) out
-
+                           Just file -> L.writeFile file $ serialOutput out [] -- Replace list with features
+                           Nothing   -> putStrLn $ printOutputWithFormat (outFormat fr) out [] -- Replace list with features
         -- if verbose
         giveInfo fr str = ifio (verbose fr) $ putStrLn $ str
             
