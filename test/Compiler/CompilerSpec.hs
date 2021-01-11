@@ -183,7 +183,7 @@ compileTest executionFunction tester name file len =
           -> IO MWord -- TestTree-}
         compileTest' file len _verb = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile len llvmProg
+          mramProg <- handleErrorWith $ compile len llvmProg Nothing 
           return $ executionFunction mramProg
   
 

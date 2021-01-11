@@ -39,6 +39,10 @@ import Compiler.IRs
 import MicroRAM.MRAMInterpreter
 import MicroRAM
 
+-- Get version number
+import Paths_MicroRAM (version)
+import Data.Version (Version(..))
+
 import qualified Data.Text as TXT 
 
 
@@ -429,7 +433,7 @@ instance Serialise Name where
 -- * Serialisations and other pretty printing formats
 
 serialOutput :: Serialise reg => Output reg -> L.ByteString
-serialOutput out = toLazyByteString $ (encode out)
+serialOutput out = toLazyByteString $ (encode $ (versionBranch version, []::[String], out))
 
 serialInput :: Serialise reg => L.ByteString -> Either DeserialiseFailure (L.ByteString, Output reg)
 serialInput string = deserialiseFromBytes (decodeOutput) string 
