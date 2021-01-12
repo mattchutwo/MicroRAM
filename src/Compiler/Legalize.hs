@@ -21,7 +21,7 @@ import Control.Monad.State
 import Compiler.Errors
 import Compiler.IRs
 
-import MicroRAM (Instruction'(..))
+import MicroRAM (mapInstrM)
 import           MicroRAM (MWord)
 import qualified MicroRAM as MRAM
 
@@ -112,7 +112,10 @@ legalizeInstr i = withMetadata m $ do
 legalizeInstr' :: MIRInstr m w -> Statefully m w (RTLInstr m w)
 legalizeInstr' (MirI i m) = return $ IRI i m
 legalizeInstr' (MirM i m) = do
-  i' <- case i of
+  i' <- mapInstrM return op2reg return i
+  return $ MRI i' m
+  {-
+    case i of
     Iand rd o1 (AReg r2) -> return $ Iand rd r2 o1
     Iand rd o1 o2 -> Iand rd <$> op2reg o1 <*> pure o2
     Ior rd o1 (AReg r2) -> return $ Ior rd r2 o1
@@ -162,7 +165,7 @@ legalizeInstr' (MirM i m) = do
     Iext name ops -> return $ Iext name ops
     Iextval name rd ops -> return $ Iextval name rd ops
     Iextadvise name rd ops -> return $ Iextadvise name rd ops
-  return $ MRI i' m
+-}
 
 legalizeInstrs :: [MIRInstr m w] -> Statefully m w [RTLInstr m w]
 legalizeInstrs instrs = concat <$> mapM legalizeInstr instrs

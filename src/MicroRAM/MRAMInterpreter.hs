@@ -141,18 +141,18 @@ stepInstr i = do
     Ishl rd r1 op2 -> stepBinary shiftL' rd r1 op2
     Ishr rd r1 op2 -> stepBinary shiftR' rd r1 op2
     
-    Icmpe r1 op2 -> stepCompare (==) r1 op2
-    Icmpa r1 op2 -> stepCompare (>) r1 op2
-    Icmpae r1 op2 -> stepCompare (>=) r1 op2
-    Icmpg r1 op2 -> stepCompare signedGt r1 op2
-    Icmpge r1 op2 -> stepCompare signedGe r1 op2
+    Icmpe r1 op1 op2 -> stepCompare (==) r1 op1 op2
+    Icmpa r1 op1 op2 -> stepCompare (>) r1 op1 op2
+    Icmpae r1 op1 op2 -> stepCompare (>=) r1 op1 op2
+    Icmpg r1 op1 op2 -> stepCompare signedGt r1 op1 op2
+    Icmpge r1 op1 op2 -> stepCompare signedGe r1 op1 op2
     
-    Imov rd op2 -> stepMove (const True) rd op2
-    Icmov rd op2 -> stepMove (== True) rd op2
+    Imov rd op2 -> stepMove rd (Const 1) op2
+    Icmov rd op1 op2 -> stepMove rd (Reg op1) op2
     
-    Ijmp op2 -> stepJump (const True) op2
-    Icjmp op2 -> stepJump (== True) op2
-    Icnjmp op2 -> stepJump (== False) op2
+    Ijmp op2 -> stepJump (Const 1) True op2
+    Icjmp r2 op2 -> stepJump (Reg r2) True op2
+    Icnjmp r2 op2 -> stepJump (Reg r2) False op2
     
     Istore op2 r1 -> stepStore op2 r1
     Iload rd op2 -> stepLoad rd op2
@@ -226,26 +226,26 @@ stepBinary f rd r1 op2 = do
   nextPc
 
 stepCompare :: Regs r => (MWord -> MWord -> Bool) ->
-  r -> Operand r MWord -> InterpM r s Hopefully ()
-stepCompare flag r1 op2 = do
+  r -> r -> Operand r MWord -> InterpM r s Hopefully ()
+stepCompare flag rd r1 op2 = do
   x <- regVal r1
   y <- opVal op2
-  sMach . mFlag .= flag x y
+  sMach . mReg rd .= fromIntegral (fromEnum (flag x y))
   nextPc
 
-stepMove :: Regs r => (Bool -> Bool) -> r -> Operand r MWord -> InterpM r s Hopefully ()
-stepMove cond rd op2 = do
+stepMove :: Regs r => r -> Operand r MWord -> Operand r MWord -> InterpM r s Hopefully ()
+stepMove rd cond op2 = do
   y <- opVal op2
-  ok <- cond <$> use (sMach . mFlag)
+  ok <- (/= 0) <$> (opVal cond)
   when ok $ sMach . mReg rd .= y
   nextPc
 
-stepJump :: Regs r => (Bool -> Bool) -> Operand r MWord -> InterpM r s Hopefully ()
-stepJump cond op2 = do
+stepJump :: Regs r => Operand r MWord -> Bool -> Operand r MWord -> InterpM r s Hopefully ()
+stepJump cond pos op2 = do
   y <- opVal op2
-  ok <- cond <$> use (sMach . mFlag)
-  if ok then sMach . mPc .= y else nextPc
-
+  cond' <- opVal cond
+  if pos `xnor` (0 /= cond') then sMach . mPc .= y else nextPc
+    where xnor = (==)
 checkPoison :: MWord -> InterpM r s Hopefully ()
 checkPoison addr = do
   psn <- use $ sMach . mPsn

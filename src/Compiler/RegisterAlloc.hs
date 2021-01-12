@@ -289,7 +289,8 @@ applyColoring coloring = mapM applyBasicBlock
       where mr' = maybe (pure Nothing) (\r -> Just <$> applyReg r) mr
 
     applyMRIInstruction :: MAInstruction reg0 wrdT -> Hopefully (MAInstruction reg wrdT)
-    applyMRIInstruction (MRAM.Iand r1 r2 op) = MRAM.Iand <$> applyReg r1 <*> applyReg r2 <*> applyOperand op
+    applyMRIInstruction instr = MRAM.mapInstrM applyReg applyReg applyOperand instr
+    {-applyMRIInstruction (MRAM.Iand r1 r2 op) = MRAM.Iand <$> applyReg r1 <*> applyReg r2 <*> applyOperand op
     applyMRIInstruction (MRAM.Ior r1 r2 op) = MRAM.Ior <$> applyReg r1 <*> applyReg r2 <*> applyOperand op
     applyMRIInstruction (MRAM.Ixor r1 r2 op) = MRAM.Ixor <$> applyReg r1 <*> applyReg r2 <*> applyOperand op
     applyMRIInstruction (MRAM.Inot r1 op) = MRAM.Inot <$> applyReg r1 <*> applyOperand op
@@ -320,7 +321,7 @@ applyColoring coloring = mapM applyBasicBlock
     applyMRIInstruction (MRAM.Iadvise r1) = MRAM.Iadvise <$> applyReg r1
     applyMRIInstruction (MRAM.Iext name ops) = MRAM.Iext name <$> mapM applyOperand ops
     applyMRIInstruction (MRAM.Iextval name rd ops) = MRAM.Iextval name <$> applyReg rd <*> mapM applyOperand ops
-    applyMRIInstruction (MRAM.Iextadvise name rd ops) = MRAM.Iextadvise name <$> applyReg rd <*> mapM applyOperand ops
+    applyMRIInstruction (MRAM.Iextadvise name rd ops) = MRAM.Iextadvise name <$> applyReg rd <*> mapM applyOperand ops -}
 
     applyReg :: reg0 -> Hopefully reg
     applyReg r | Just r' <- Map.lookup r coloring = return r'
