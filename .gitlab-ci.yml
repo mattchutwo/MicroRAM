@@ -1,4 +1,4 @@
-image: haskell:8
+image: fpco/stack-build:lts-8.15
 
 variables:
   STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
