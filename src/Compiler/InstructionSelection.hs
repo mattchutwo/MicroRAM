@@ -1075,7 +1075,11 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
     Nothing -> return ()
   -- GlobalVariable size and align are given in words, not bytes.
   let size' = (byteSize + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
-  let align' = (fromIntegral align + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
+  -- Force alignment to be at least 1.  LLVM allows globals with no `align`
+  -- attribute, which llvm-hs parses as an alignment of 0.  But this confuses
+  -- later passes that try to align to a multiple of zero, so we adjust the
+  -- alignment here to avoid the problem.
+  let align' = max 1 $ (fromIntegral align + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
   return $ GlobalVariable (name2name name) const typ' init' size' align' (sectionIsSecret sectn)
   where flatInit :: Env ->
                     Maybe LLVM.Constant.Constant ->
