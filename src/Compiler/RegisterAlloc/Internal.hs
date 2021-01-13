@@ -62,7 +62,6 @@ substituteRegisters substs (IRI inst mdata) = IRI (substituteLTLInstruction subs
 substituteMRIInstruction :: Ord reg => Map reg reg -> MAInstruction reg wrdT -> MAInstruction reg wrdT
 substituteMRIInstruction substs instr = MRAM.mapInstr (substituteRegister substs) (substituteRegister substs) (substituteOperand substs) instr
 
-
 substituteLTLInstruction :: Ord reg => Map reg reg -> LTLInstr' reg mdata (MAOperand reg wrdT) -> LTLInstr' reg mdata (MAOperand reg wrdT)
 substituteLTLInstruction substs (Lgetstack s w t r1) = Lgetstack s w t (substituteRegister substs r1)
 substituteLTLInstruction substs (Lsetstack r1 s w t) = Lsetstack (substituteRegister substs r1) s w t

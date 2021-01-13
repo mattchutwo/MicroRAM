@@ -68,6 +68,14 @@ testTrivial = testGroup "Trivial programs" $
     "arithmetic shift right"
     "test/programs/arithShr.ll"
     600 8 :
+  compileCorrectTest
+    "load from global"
+    "test/programs/trivial_global.ll"
+    50 10 :
+  compileCorrectTest
+    "load from global array"
+    "test/programs/trivial_global_array.ll"
+    50 10 :
     []
 
 -- Conditionals, Branching and loops
@@ -112,7 +120,7 @@ testGEP = testGroup "Test structs and arrays with GetElementPtr" $
     compileCorrectTest
     "Trivial struct Packed"
     "test/programs/easyStructPack.ll"
-    50 3 :
+    200 3 :
 {-  WAIT FOR FUNCTIONS TO WORK.
     compileCorrectTest
     "Simple Binary Tree"
@@ -140,19 +148,19 @@ testBugs = testGroup "Compiler bug tests" $
   compileBugTest
   "Use after free Bug"
   "test/programs/UseAfterFree/useAfterFree.c.ll"
-  200 :
+  250 :
   compileBugTest
   "Invalid Free (Now a pointer given by malloc)"
   "test/programs/WrongFree/wrongFree.c.ll"
-  200 :
+  250 :
   compileBugTest
   "Out of bounds access"
   "test/programs/MallocOOB/mallocOOB.c.ll"
-  200 :
+  250 :
   compileBugTest
   "Free after free"
   "test/programs/DoubleFree/DoubleFree.c.ll"
-  200 :
+  250 :
   []
 
   

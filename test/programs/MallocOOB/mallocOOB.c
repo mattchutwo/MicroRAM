@@ -17,6 +17,8 @@ int main()
     array[0] = 21;
     array[1] = 22;
     array[2] = 23;
-    array[3] = SECRET_NUMBER;
+    // NB: array[3] is not poisonable since it's part of the same word as
+    // array[2], which is in-bounds.
+    array[4] = SECRET_NUMBER;
     return array[SECRET_SIZE];;
 }

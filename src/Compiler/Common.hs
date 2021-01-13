@@ -104,7 +104,13 @@ data GlobalVariable wrdT = GlobalVariable
   , isConstant :: Bool
   , gType :: Ty
   , initializer :: Maybe [LazyConst String wrdT]
-  , gSize :: MWord
+    -- ^ A list of machine words to initialize this global
+  , gSize :: MWord    -- ^ Size of this global in words
+  , gAlign :: MWord
+    -- ^ Alignment of this global in words.  This will be 1 for most globals,
+    -- since primitives generally have alignment no greater than the word size,
+    -- but the programmer can explicitly set a higher alignment with the right
+    -- attributes.
   , secret :: Bool
   } deriving (Show)
 type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"

@@ -1,5 +1,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
 Module      : Lazy Constants
@@ -14,6 +15,7 @@ module Compiler.LazyConstants where
 
 
 
+import Data.Bits
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
@@ -64,6 +66,30 @@ instance Num wrdT => Num (LazyConst name wrdT) where
   abs    = lazyUop abs   
   signum = lazyUop signum
   fromInteger n = SConst $ fromInteger n  
+
+instance Eq (LazyConst name wrdT) where
+  _ == _ = error "(==) not supported for LazyConst"
+
+instance Bits wrdT => Bits (LazyConst name wrdT) where
+  (.&.) = lazyBop (.&.)
+  (.|.) = lazyBop (.|.)
+  xor = lazyBop xor
+  complement = lazyUop complement
+  shift x b = lazyUop (\x -> shift x b) x
+  rotate x b = lazyUop (\x -> rotate x b) x
+  bitSize _ = bitSize (zeroBits :: wrdT)
+  bitSizeMaybe _ = bitSizeMaybe (zeroBits :: wrdT)
+  isSigned _ = isSigned (zeroBits :: wrdT)
+  testBit _ _ = error "testBit not supported for LazyConst"
+  bit i = SConst (bit i)
+  popCount _ = error "popCount not supported for LazyConst"
+
+lcQuot :: Integral wrdT => LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+lcQuot = lazyBop quot
+
+lcRem :: Integral wrdT => LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+lcRem = lazyBop rem
+
 
 -- | Quick shorthand to return lists of one element
 returnL :: Monad m => a -> m [a]

@@ -38,7 +38,8 @@ tests = testGroup "Testing serialising and deserialising roundtrip"
 
 -- * Testing Programs
 
--- instance automatically derived from generics
+instance Arbitrary MemWidth where
+  arbitrary = oneof [pure W1, pure W2, pure W4, pure W8]
 instance (Arbitrary a, Arbitrary b) => Arbitrary (Operand a b) where
   arbitrary = oneof [Reg <$> arbitrary, Const <$> arbitrary]
 instance (Arbitrary a, Arbitrary b) => Arbitrary (Instruction a b) where
@@ -66,8 +67,8 @@ instance (Arbitrary a, Arbitrary b) => Arbitrary (Instruction a b) where
     , Ijmp    <$>                             arbitrary
     , Icjmp   <$>               arbitrary <*> arbitrary
     , Icnjmp  <$>               arbitrary <*> arbitrary
-    , Istore  <$>               arbitrary <*> arbitrary
-    , Iload   <$>               arbitrary <*> arbitrary
+    , Istore  <$> arbitrary <*> arbitrary <*> arbitrary
+    , Iload   <$> arbitrary <*> arbitrary <*> arbitrary
     , Iread   <$>               arbitrary <*> arbitrary
     , Ianswer <$>                             arbitrary
     ]
@@ -139,7 +140,7 @@ instance Arbitrary MemOpType where
 
 instance Arbitrary Advice where
   arbitrary = oneof $
-    [ MemOp <$> arbitrary <*> arbitrary <*> arbitrary
+    [ MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
     , return Stutter 
     ]
 

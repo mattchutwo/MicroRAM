@@ -1,14 +1,14 @@
-; ModuleID = 'binaryTree.c.bc'
+; ModuleID = './binaryTree/binaryTree.c.bc'
 source_filename = "llvm-link"
-target datalayout = "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
-target triple = "x86_64-apple-macosx10.15.0"
+target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
+target triple = "x86_64-pc-linux-gnu"
 
 %struct.node = type { i32, i32, %struct.node*, %struct.node* }
 
-@SECRET_NUMBER = local_unnamed_addr global i32 15, section "__DATA,__secret", align 4
+@SECRET_NUMBER = dso_local local_unnamed_addr global i32 15, section "__DATA,__secret", align 4
 
-; Function Attrs:  nounwind ssp uwtable
-define i32 @main() local_unnamed_addr #0 {
+; Function Attrs:  nounwind uwtable
+define dso_local i32 @main() local_unnamed_addr #0 {
   %1 = tail call fastcc %struct.node* @new_node(i32 20, i32 40)
   %2 = tail call fastcc %struct.node* @insert(%struct.node* %1, i32 5, i32 10)
   %3 = tail call fastcc %struct.node* @insert(%struct.node* %1, i32 1, i32 2)
@@ -16,89 +16,101 @@ define i32 @main() local_unnamed_addr #0 {
   %5 = tail call fastcc %struct.node* @insert(%struct.node* %1, i32 42, i32 84)
   %6 = load i32, i32* @SECRET_NUMBER, align 4, !tbaa !4
   %7 = icmp eq %struct.node* %1, null
-  br i1 %7, label %search.exit, label %.lr.ph.i
+  br i1 %7, label %search.exit, label %.preheader.i
 
-.lr.ph.i:                                         ; preds = %0, %tailrecurse.backedge.i
-  %.tr5.i = phi %struct.node* [ %.tr.be.i, %tailrecurse.backedge.i ], [ %1, %0 ]
-  %8 = getelementptr inbounds %struct.node, %struct.node* %.tr5.i, i64 0, i32 0
-  %9 = load i32, i32* %8, align 8, !tbaa !8
-  %10 = icmp eq i32 %9, %6
-  br i1 %10, label %11, label %tailrecurse.backedge.i
+.preheader.i:                                     ; preds = %0, %15
+  %8 = phi %struct.node* [ %20, %15 ], [ %1, %0 ]
+  %9 = getelementptr inbounds %struct.node, %struct.node* %8, i64 0, i32 0
+  %10 = load i32, i32* %9, align 8, !tbaa !8
+  %11 = icmp eq i32 %10, %6
+  br i1 %11, label %12, label %15
 
-11:                                               ; preds = %.lr.ph.i
-  %12 = getelementptr inbounds %struct.node, %struct.node* %.tr5.i, i64 0, i32 1
-  %13 = load i32, i32* %12, align 4, !tbaa !11
+12:                                               ; preds = %.preheader.i
+  %13 = getelementptr inbounds %struct.node, %struct.node* %8, i64 0, i32 1
+  %14 = load i32, i32* %13, align 4, !tbaa !11
   br label %search.exit
 
-tailrecurse.backedge.i:                           ; preds = %.lr.ph.i
-  %14 = icmp slt i32 %9, %6
-  %15 = getelementptr inbounds %struct.node, %struct.node* %.tr5.i, i64 0, i32 2
-  %16 = getelementptr inbounds %struct.node, %struct.node* %.tr5.i, i64 0, i32 3
-  %.tr.be.in.i = select i1 %14, %struct.node** %15, %struct.node** %16
-  %.tr.be.i = load %struct.node*, %struct.node** %.tr.be.in.i, align 8, !tbaa !12
-  %17 = icmp eq %struct.node* %.tr.be.i, null
-  br i1 %17, label %search.exit, label %.lr.ph.i
+15:                                               ; preds = %.preheader.i
+  %16 = icmp slt i32 %10, %6
+  %17 = getelementptr inbounds %struct.node, %struct.node* %8, i64 0, i32 2
+  %18 = getelementptr inbounds %struct.node, %struct.node* %8, i64 0, i32 3
+  %19 = select i1 %16, %struct.node** %17, %struct.node** %18
+  %20 = load %struct.node*, %struct.node** %19, align 8, !tbaa !12
+  %21 = icmp eq %struct.node* %20, null
+  br i1 %21, label %search.exit, label %.preheader.i
 
-search.exit:                                      ; preds = %tailrecurse.backedge.i, %0, %11
-  %18 = phi i32 [ %13, %11 ], [ 0, %0 ], [ 0, %tailrecurse.backedge.i ]
-  ret i32 %18
+search.exit:                                      ; preds = %15, %0, %12
+  %22 = phi i32 [ %14, %12 ], [ 0, %0 ], [ 0, %15 ]
+  ret i32 %22
 }
 
-; Function Attrs:  nounwind ssp uwtable
+; Function Attrs:  nounwind uwtable
 define internal fastcc noalias %struct.node* @new_node(i32, i32) unnamed_addr #0 {
-  %3 = tail call i64* @__cc_malloc(i64 24) #5
-  %4 = ptrtoint i64* %3 to i64
+  %3 = tail call i8* @__cc_malloc(i64 24) #5
+  %4 = ptrtoint i8* %3 to i64
   %5 = lshr i64 %4, 58
-  %6 = shl nuw i64 1, %5
-  %7 = icmp ult i64* %3, inttoptr (i64 1441151880758558720 to i64*)
-  %8 = add i64 %6, -1
-  %9 = and i64 %8, %4
-  %10 = icmp ne i64 %9, 0
-  %11 = or i1 %7, %10
-  br i1 %11, label %12, label %13
+  %6 = shl i64 1, %5
+  %7 = icmp ult i8* %3, inttoptr (i64 1441151880758558720 to i8*)
+  br i1 %7, label %12, label %8
 
-12:                                               ; preds = %2
+8:                                                ; preds = %2
+  %9 = add i64 %6, -1
+  %10 = and i64 %9, %4
+  %11 = icmp eq i64 %10, 0
+  br i1 %11, label %13, label %12
+
+12:                                               ; preds = %8, %2
   tail call void @__cc_flag_invalid() #5
   br label %13
 
-13:                                               ; preds = %12, %2
-  %14 = getelementptr inbounds i64, i64* %3, i64 %6
-  %15 = getelementptr inbounds i64, i64* %14, i64 -1
-  tail call void @__cc_write_and_poison(i64* nonnull %15, i64 1) #5
-  %16 = getelementptr inbounds i64, i64* %3, i64 24
-  %17 = tail call i64* @__cc_advise_poison(i64* nonnull %16, i64* nonnull %15) #5
-  %18 = icmp eq i64* %17, null
-  br i1 %18, label %malloc.exit, label %19
+13:                                               ; preds = %12, %8
+  %14 = getelementptr inbounds i8, i8* %3, i64 %6
+  %15 = getelementptr inbounds i8, i8* %14, i64 -8
+  %16 = bitcast i8* %15 to i64*
+  tail call void @__cc_write_and_poison(i64* nonnull %16, i64 1) #5
+  %17 = getelementptr inbounds i8, i8* %3, i64 24
+  %18 = tail call i64* @__cc_advise_poison(i8* nonnull %17, i8* nonnull %15) #5
+  %19 = icmp eq i64* %18, null
+  br i1 %19, label %malloc.exit, label %20
 
-19:                                               ; preds = %13
-  %20 = icmp ugt i64* %16, %17
-  %21 = icmp uge i64* %17, %15
-  %22 = or i1 %20, %21
-  br i1 %22, label %23, label %24
+20:                                               ; preds = %13
+  %21 = ptrtoint i64* %18 to i64
+  %22 = and i64 %21, 7
+  %23 = icmp eq i64 %22, 0
+  br i1 %23, label %25, label %24
 
-23:                                               ; preds = %19
+24:                                               ; preds = %20
   tail call void @__cc_flag_invalid() #5
-  br label %24
+  br label %25
 
-24:                                               ; preds = %23, %19
-  tail call void @__cc_write_and_poison(i64* nonnull %17, i64 0) #5
+25:                                               ; preds = %24, %20
+  %26 = bitcast i64* %18 to i8*
+  %27 = icmp ugt i8* %17, %26
+  %28 = icmp uge i64* %18, %16
+  %29 = or i1 %28, %27
+  br i1 %29, label %30, label %31
+
+30:                                               ; preds = %25
+  tail call void @__cc_flag_invalid() #5
+  br label %31
+
+31:                                               ; preds = %30, %25
+  tail call void @__cc_write_and_poison(i64* nonnull %18, i64 0) #5
   br label %malloc.exit
 
-malloc.exit:                                      ; preds = %13, %24
-  %25 = bitcast i64* %3 to i8*
-  %26 = bitcast i64* %3 to %struct.node*
-  %27 = bitcast i64* %3 to i32*
-  store i32 %0, i32* %27, align 8, !tbaa !8
-  %28 = getelementptr inbounds i8, i8* %25, i64 4
-  %29 = bitcast i8* %28 to i32*
-  store i32 %1, i32* %29, align 4, !tbaa !11
-  %30 = getelementptr inbounds i64, i64* %3, i64 1
-  %31 = bitcast i64* %30 to i8*
-  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 8 dereferenceable(16) %31, i8 0, i64 16, i1 false)
-  ret %struct.node* %26
+malloc.exit:                                      ; preds = %13, %31
+  %32 = bitcast i8* %3 to %struct.node*
+  %33 = bitcast i8* %3 to i32*
+  store i32 %0, i32* %33, align 8, !tbaa !8
+  %34 = getelementptr inbounds i8, i8* %3, i64 4
+  %35 = bitcast i8* %34 to i32*
+  store i32 %1, i32* %35, align 4, !tbaa !11
+  %36 = getelementptr inbounds i8, i8* %3, i64 8
+  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 8 %36, i8 0, i64 16, i1 false)
+  ret %struct.node* %32
 }
 
-; Function Attrs:  nounwind ssp uwtable
+; Function Attrs:  nounwind uwtable
 define internal fastcc %struct.node* @insert(%struct.node*, i32, i32) unnamed_addr #0 {
   %4 = icmp eq %struct.node* %0, null
   br i1 %4, label %5, label %7
@@ -128,19 +140,19 @@ define internal fastcc %struct.node* @insert(%struct.node*, i32, i32) unnamed_ad
   ret %struct.node* %0
 }
 
-declare i64* @__cc_malloc(i64) local_unnamed_addr #1
+declare dso_local i8* @__cc_malloc(i64) local_unnamed_addr #1
 
-declare void @__cc_flag_invalid() local_unnamed_addr #1
+declare dso_local void @__cc_flag_invalid() local_unnamed_addr #1
 
-declare void @__cc_write_and_poison(i64*, i64) local_unnamed_addr #1
+declare dso_local void @__cc_write_and_poison(i64*, i64) local_unnamed_addr #1
 
-declare i64* @__cc_advise_poison(i64*, i64*) local_unnamed_addr #1
+declare dso_local i64* @__cc_advise_poison(i8*, i8*) local_unnamed_addr #1
 
 ; Function Attrs: argmemonly nounwind
 declare void @llvm.memset.p0i8.i64(i8* nocapture writeonly, i8, i64, i1 immarg) #2
 
-; Function Attrs:  norecurse nounwind ssp uwtable
-define void @__llvm__memcpy__p0i8__p0i8__i64(i8* nocapture, i8* nocapture readonly, i64) local_unnamed_addr #3 {
+; Function Attrs:  norecurse nounwind uwtable
+define dso_local void @__llvm__memcpy__p0i8__p0i8__i64(i8* nocapture, i8* nocapture readonly, i64) local_unnamed_addr #3 {
   %4 = icmp eq i64 %2, 0
   br i1 %4, label %.loopexit, label %5
 
@@ -202,8 +214,8 @@ define void @__llvm__memcpy__p0i8__p0i8__i64(i8* nocapture, i8* nocapture readon
   br i1 %41, label %.loopexit2, label %21
 }
 
-; Function Attrs:  norecurse nounwind ssp uwtable writeonly
-define void @__llvm__memset__p0i8__i64(i8* nocapture, i8 zeroext, i64) local_unnamed_addr #4 {
+; Function Attrs:  norecurse nounwind uwtable writeonly
+define dso_local void @__llvm__memset__p0i8__i64(i8* nocapture, i8 zeroext, i64) local_unnamed_addr #4 {
   %4 = icmp eq i64 %2, 0
   br i1 %4, label %.loopexit, label %5
 
@@ -262,20 +274,20 @@ define void @__llvm__memset__p0i8__i64(i8* nocapture, i8 zeroext, i64) local_unn
   br i1 %33, label %.loopexit2, label %13
 }
 
-attributes #0 = {  nounwind ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
-attributes #1 = { "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "no-builtins" "no-infs-fp-math"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #0 = {  nounwind uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "disable-tail-calls"="false" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-frame-pointer-elim"="false" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #1 = { "correctly-rounded-divide-sqrt-fp-math"="false" "disable-tail-calls"="false" "less-precise-fpmad"="false" "no-frame-pointer-elim"="false" "no-infs-fp-math"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
 attributes #2 = { argmemonly nounwind }
-attributes #3 = {  norecurse nounwind ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-builtins" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
-attributes #4 = {  norecurse nounwind ssp uwtable writeonly "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-builtins" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
-attributes #5 = { nobuiltin nounwind "no-builtins" }
+attributes #3 = {  norecurse nounwind uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "disable-tail-calls"="false" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-frame-pointer-elim"="false" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #4 = {  norecurse nounwind uwtable writeonly "correctly-rounded-divide-sqrt-fp-math"="false" "disable-tail-calls"="false" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-frame-pointer-elim"="false" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "prefer-vector-width"="1" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #5 = { nobuiltin nounwind }
 
 !llvm.ident = !{!0, !0, !0, !0}
 !llvm.module.flags = !{!1, !2, !3}
 
-!0 = !{!"Apple clang version 12.0.0 (clang-1200.0.32.2)"}
-!1 = !{i32 2, !"SDK Version", [3 x i32] [i32 10, i32 15, i32 6]}
-!2 = !{i32 1, !"wchar_size", i32 4}
-!3 = !{i32 7, !"PIC Level", i32 2}
+!0 = !{!"clang version 9.0.1-12 "}
+!1 = !{i32 1, !"wchar_size", i32 4}
+!2 = !{i32 1, !"ThinLTO", i32 0}
+!3 = !{i32 1, !"EnableSplitLTOUnit", i32 0}
 !4 = !{!5, !5, i64 0}
 !5 = !{!"int", !6, i64 0}
 !6 = !{!"omnipotent char", !7, i64 0}

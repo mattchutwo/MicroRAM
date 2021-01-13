@@ -202,8 +202,8 @@ countRegs p = maximum $ map getRegAssign p
         getRegAssign (Icmpge reg1 _ _     ) =  toWord reg1 
         getRegAssign (Imov reg1 _       ) =  toWord reg1 
         getRegAssign (Icmov reg1 _ _      ) =  toWord reg1 
-        getRegAssign (Istore _ reg1     ) =  toWord reg1 
-        getRegAssign (Iload reg1 _      ) =  toWord reg1 
+        getRegAssign (Istore _ _ reg1   ) =  toWord reg1 
+        getRegAssign (Iload _ reg1 _    ) =  toWord reg1 
         getRegAssign (Iread reg1 _      ) =  toWord reg1 
         getRegAssign _ =  0 
 
