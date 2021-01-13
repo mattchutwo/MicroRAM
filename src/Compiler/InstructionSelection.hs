@@ -40,7 +40,6 @@ import Control.Monad.State.Lazy
 import qualified Data.Set as Set
 
 import qualified LLVM.AST as LLVM
-import qualified LLVM.AST.Typed as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.IntegerPredicate as IntPred
 
@@ -50,6 +49,7 @@ import Compiler.IRs
 import Compiler.Layout
 import Compiler.LazyConstants
 import Compiler.TraceInstrs
+import Compiler.TypeOf
 import Util.Util
 
 import MicroRAM (MWord, MemWidth(..), pattern WWord, widthInt, wordBytes)
@@ -134,7 +134,7 @@ operand2operandTrunc :: Env
                      -> Statefully (MAOperand VReg MWord, [MA2Instruction VReg MWord])
 operand2operandTrunc env op = do
   op' <- lift $ operand2operand env op
-  case LLVM.typeOf op of
+  case typeOf (tenv env) op of
     LLVM.IntegerType w | w < 64 -> do
       tmpReg <- freshName
       let extra = MRAM.Iand tmpReg op' (LImm $ SConst $ (1 `shiftL` fromIntegral w) - 1)
@@ -335,11 +335,11 @@ isInstruction env ret instr =
     -- TODO: check alignment - MicroRAM memory ops are always aligned, so
     -- unaligned LLVM loads/stores need special handling
     (LLVM.Load _ n _ align _)
-      | fromIntegral align >= alignOf (tenv env) (pointee (LLVM.typeOf n)) ->
+      | fromIntegral align >= alignOf (tenv env) (pointee (typeOf (tenv env) n)) ->
         withReturn ret $ isLoad env n
       | otherwise -> withReturn ret $ isLoadUnaligned env n
     (LLVM.Store _ adr cont _ align _)
-      | fromIntegral align >= alignOf (tenv env) (pointee (LLVM.typeOf adr)) ->
+      | fromIntegral align >= alignOf (tenv env) (pointee (typeOf (tenv env) adr)) ->
         isStore env adr cont
       | otherwise -> isStoreUnaligned env adr cont
     -- Other
@@ -364,6 +364,9 @@ isInstruction env ret instr =
   where withReturn Nothing _ = return $ []
         withReturn (Just ret) f = f ret
 
+        pointee (LLVM.NamedTypeReference name) = case Map.lookup name (tenv env) of
+          Just x -> pointee x
+          Nothing -> error $ "failed to resolve named type " ++ show name
         pointee (LLVM.PointerType ty _) = ty
         pointee ty = error $ "isInstruction: expected pointer, but got " ++ show ty
 
@@ -402,7 +405,7 @@ isArithShr env (Just ret) o1 o2 = do
       MRAM.Ishr  ret'  (AReg ret'') o2',
       MRAM.Ixor  ret (AReg ret') (AReg sign)]
   where
-    width = case LLVM.typeOf o1 of
+    width = case typeOf (tenv env) o1 of
       LLVM.IntegerType bits -> bits
       ty -> error $ "don't know how to do ashr on non-integer type " ++ show ty
 
@@ -430,15 +433,17 @@ isAlloca env ret ty count = lift $ do
 
 
 
-pointerOperandWidth :: LLVM.Operand -> Hopefully MRAM.MemWidth
-pointerOperandWidth op = case LLVM.typeOf op of
-  LLVM.PointerType (LLVM.IntegerType bits) _ -> case bits of
-    8 -> return MRAM.W1
-    16 -> return MRAM.W2
-    32 -> return MRAM.W4
-    64 -> return MRAM.W8
-    _ -> progError $ "bad memory access width: " ++ show bits ++ " bits"
-  LLVM.PointerType (LLVM.PointerType _ _) _ -> return MRAM.WWord
+pointerOperandWidth :: Env -> LLVM.Operand -> Hopefully MRAM.MemWidth
+pointerOperandWidth env op = case resolve (tenv env) $ typeOf (tenv env) op of
+  LLVM.PointerType ty _ -> case resolve (tenv env) ty of
+    LLVM.IntegerType bits -> case bits of
+        8 -> return MRAM.W1
+        16 -> return MRAM.W2
+        32 -> return MRAM.W4
+        64 -> return MRAM.W8
+        _ -> progError $ "bad memory access width: " ++ show bits ++ " bits"
+    LLVM.PointerType _ _ -> return MRAM.WWord
+    ty -> progError $ "bad pointee type in memory op: " ++ show ty
   ty -> progError $ "bad pointer type in memory op: " ++ show ty
 
 -- Load
@@ -446,14 +451,14 @@ isLoad
   :: Env -> LLVM.Operand -> VReg -> Statefully $ [MIRInstr () MWord]
 isLoad env n ret = lift $ do 
   a <- operand2operand env n
-  w <- pointerOperandWidth n
+  w <- pointerOperandWidth env n
   returnRTL $ (MRAM.Iload w ret a) : []
 
 isLoadUnaligned
   :: Env -> LLVM.Operand -> VReg -> Statefully $ [MIRInstr () MWord]
 isLoadUnaligned env n ret = do
   ptr <- lift $ operand2operand env n
-  w <- lift $ pointerOperandWidth n
+  w <- lift $ pointerOperandWidth env n
 
   offset <- freshName
   ptr0 <- freshName
@@ -518,7 +523,7 @@ isStore
 isStore env adr cont = do
   cont' <- lift $ operand2operand env cont
   adr' <- lift $ operand2operand env adr
-  w <- lift $ pointerOperandWidth adr
+  w <- lift $ pointerOperandWidth env adr
   returnRTL [MRAM.Istore w adr' cont']
 
 isStoreUnaligned
@@ -529,7 +534,7 @@ isStoreUnaligned
 isStoreUnaligned env adr cont = do
   ptr <- lift $ operand2operand env adr
   val <- lift $ operand2operand env cont
-  w <- lift $ pointerOperandWidth adr
+  w <- lift $ pointerOperandWidth env adr
 
   offset <- freshName
   shift <- freshName
@@ -649,7 +654,7 @@ isGEP
   -> Statefully $ [MIRInstruction () VReg MWord]
 isGEP  env addr inxs ret = do
   addr' <- lift $ operand2operand env addr
-  ty' <- lift $ typeFromOperand addr
+  ty' <- lift $ typeFromOperand env addr
   -- inxs' <- lift $ mapM operand2operand env inxs
   instructions <- isGEPptr env ret ty' addr' inxs
   return $ map (\instr -> MirM instr ()) instructions
@@ -758,8 +763,8 @@ convertPhiInput env (op, name) = do
   name' <- name2nameM name
   return (op', name')
 
-typeFromOperand :: LLVM.Operand -> Hopefully $ LLVM.Type
-typeFromOperand op = return $ LLVM.typeOf op 
+typeFromOperand :: Env -> LLVM.Operand -> Hopefully $ LLVM.Type
+typeFromOperand env op = return $ typeOf (tenv env) op 
 
 --  | Optimized multiplication by a constant
 -- If the operand is a constant, statically computes the multiplication
@@ -1070,7 +1075,11 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
     Nothing -> return ()
   -- GlobalVariable size and align are given in words, not bytes.
   let size' = (byteSize + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
-  let align' = (fromIntegral align + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
+  -- Force alignment to be at least 1.  LLVM allows globals with no `align`
+  -- attribute, which llvm-hs parses as an alignment of 0.  But this confuses
+  -- later passes that try to align to a multiple of zero, so we adjust the
+  -- alignment here to avoid the problem.
+  let align' = max 1 $ (fromIntegral align + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
   return $ GlobalVariable (name2name name) const typ' init' size' align' (sectionIsSecret sectn)
   where flatInit :: Env ->
                     Maybe LLVM.Constant.Constant ->
@@ -1203,7 +1212,7 @@ constant2typedLazyConst env c =
     (LLVM.Constant.Struct _name True vals           ) ->
       concat <$> mapM (constant2typedLazyConst env) vals
     (LLVM.Constant.Struct _name False vals          ) -> do
-      let pads = structPadding (tenv env) $ map LLVM.typeOf vals
+      let pads = structPadding (tenv env) $ map (typeOf (tenv env)) vals
       let f :: LLVM.Constant.Constant -> MWord -> Hopefully [TypedLazyConst]
           f val pad = do
             val' <- constant2typedLazyConst env val
@@ -1233,7 +1242,7 @@ constant2typedLazyConst env c =
     (LLVM.Constant.Xor op1 op2                      ) -> bop2typedLazyConst env xor op1 op2
     (LLVM.Constant.GetElementPtr _bounds addr inxs  ) -> do
       addr' <- constant2OnelazyConst env addr
-      ty' <- return $ typeOfConstant addr
+      ty' <- return $ typeOf (tenv env) addr
       inxs' <- mapM (constant2OnelazyConst env) inxs
       gepResult <- constGEP (tenv env) ty' addr' inxs'
       -- GEP returns a pointer, which is always one word in size

@@ -34,7 +34,7 @@ module MicroRAM.MRAMInterpreter
 
 import Control.Monad
 import Control.Monad.State
-import Control.Lens (makeLenses, ix, at, to, lens, (^.), (.=), (%=), use, Lens', _1, _2, _3)
+import Control.Lens (makeLenses, ix, at, to, lens, (^.), (&), (.~), (.=), (%=), use, Lens', _1, _2, _3)
 import Data.Bits
 import Data.Foldable
 import Data.List (intercalate)
@@ -404,12 +404,15 @@ recordAdvice adviceMap adv = do
 adviceHandler :: Regs r => Lens' s AdviceMap -> InstrHandler r s
 adviceHandler advice (Istore w op2 r1) = do
   addr <- opVal op2
-  val <- regVal r1
-  recordAdvice advice (MemOp addr val MOStore w)
+  (waddr, offset) <- splitAlignedAddr w addr
+  storeVal <- regVal r1
+  memVal <- use $ sMach . mMemWord waddr
+  let memVal' = memVal & subBytes w offset .~ storeVal
+  recordAdvice advice (MemOp addr memVal' MOStore w)
 adviceHandler advice (Iload w _rd op2) = do
   addr <- opVal op2
-  (waddr, offset) <- splitAlignedAddr w addr
-  val <- use $ sMach . mMemWord waddr . subBytes w offset
+  (waddr, _offset) <- splitAlignedAddr w addr
+  val <- use $ sMach . mMemWord waddr
   recordAdvice advice (MemOp addr val MOLoad w)
 adviceHandler advice (Ipoison w op2 r1) = do
   addr <- opVal op2
