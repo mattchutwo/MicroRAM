@@ -223,7 +223,7 @@ stepBinary f rd r1 op2 = do
   y <- opVal op2
   let result = f x y
   sMach . mReg rd .= result
-  nextPc
+  nextPc 
 
 stepCompare :: Regs r => (MWord -> MWord -> Bool) ->
   r -> r -> Operand r MWord -> InterpM r s Hopefully ()
