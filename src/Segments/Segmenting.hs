@@ -109,10 +109,13 @@ testProg :: Program () Word
 testProg = [Iand () () (Reg ()),
             Isub () () (Reg ()),
             Ijmp (Reg ()),
+            
             Icjmp () (Const 0),
+
             Iadd () () (Const 0),
             Isub () () (Const 0),
             Ijmp (Const 3),
+
             Iand () () (Reg ()),
             Isub () () (Const 0)
            ]
