@@ -178,6 +178,8 @@ encodeInstr (Iread r1 operand    ) = list2CBOR $ encodeString "read"   : encode 
 encodeInstr (Ianswer operand     ) = list2CBOR $ encodeString "answer" : encodeNull : encodeNull : (encodeOperand' operand) 
 encodeInstr (Ipoison operand r2  ) = list2CBOR $ encodeString "poison" : encodeNull : encode r2  : (encodeOperand' operand) 
 encodeInstr (Iadvise r1          ) = list2CBOR $ encodeString "advise" : encode r1  : encodeNull : [encode False, encodeNull]
+encodeInstr (Itaint r2 operand   ) = list2CBOR $ encodeString "taint"  : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Isink r2 operand    ) = list2CBOR $ encodeString "sink"   : encodeNull : encode r2  : (encodeOperand' operand) 
 -- `Iext` and `Iextval` should have been compiled away by a previous pass, but
 -- it's sometimes useful for debugging to include them in the output CBOR.  The
 -- witness checker generator doesn't support these instructions at all, so how

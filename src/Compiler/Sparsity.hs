@@ -137,6 +137,7 @@ data InstrKind =
   | Kread  
   | Kanswer
   | Kpoison
+  | Ktaint
   -- Larger kinds
   | KmemOp  -- Memory operations
   | Kalu    -- ALU operations
@@ -180,6 +181,8 @@ instrType inst =
     Iread _ _     -> [Kread  ]     
     Ianswer _     -> [Kanswer]     
     Ipoison _ _   -> [Kpoison, KmemOp]           
+    Itaint _ _    -> [Ktaint]
+    Isink _ _     -> [Ktaint]
     Iadvise _     -> []
     Iext _ _      -> []
     Iextval _ _ _ -> []

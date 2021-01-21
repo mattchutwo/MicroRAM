@@ -86,6 +86,10 @@ execution of programs. The instructions (inspired by the TinyRAM language
 +--------------------------------------------------------------------------------+
 | advice | ri      | Receive advice to ri                         |              |
 +--------------------------------------------------------------------------------+
+| sink   | rj A    | Signifies rj is written to a sink of label A |              |
++--------------------------------------------------------------------------------+
+| taint  | rj A    | Taints rj with label A                       |              |
++--------------------------------------------------------------------------------+
 | ext    | ??      | extensions                                   |              |
 +--------------------------------------------------------------------------------+
 | (answer) answer causes a stall (i.e., not increment pc) or a halt              |
@@ -186,6 +190,9 @@ data Instruction' regT operand1 operand2 =
   | Iadvise regT              -- ^ load nondeterministic advice into ri
   -- Poison
   | Ipoison operand2 operand1
+  -- Dynamic taint tracking operations
+  | Isink operand1 operand2
+  | Itaint operand1 operand2
   -- Extensions
   | Iext Text [operand2]      -- ^ Custom instruction with no return value
   | Iextval Text regT [operand2] -- ^ Custom instruction, returning a value
