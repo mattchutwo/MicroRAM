@@ -106,18 +106,18 @@ cut2segment blockMap (Cut instrs pc len) = do
 
 -- TESTING
 testProg :: Program () Word
-testProg = [Iand () () (Reg ()),
-            Isub () () (Reg ()),
-            Ijmp (Reg ()),
-            
-            Icjmp () (Const 0),
-
-            Iadd () () (Const 0),
-            Isub () () (Const 0),
-            Ijmp (Const 3),
-
-            Iand () () (Reg ()),
-            Isub () () (Const 0)
+testProg = [Iand () () (Reg ()),    --0
+            Isub () () (Reg ()),    --1
+            Ijmp (Reg ()),          --2
+                                    --
+            Icjmp () (Const 0),     --3
+                                    --
+            Iadd () () (Const 0),   --4
+            Isub () () (Const 0),   --5
+            Ijmp (Const 3),         --6
+                                    --
+            Iand () () (Reg ()),    --7
+            Isub () () (Const 0)    --8
            ]
 
 
