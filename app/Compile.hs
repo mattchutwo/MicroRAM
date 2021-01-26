@@ -155,7 +155,7 @@ defaultFlags name len =
     len 
     "temp/temp.ll" -- Default we use to temporarily store compilation FIXME!
     Nothing
-    Nothing
+    (Just 1)       -- Sparsity
     --
     Nothing
     FullOutput
