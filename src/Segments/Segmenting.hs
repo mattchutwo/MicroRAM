@@ -108,7 +108,7 @@ instrSuccessor blockMap pc instr =
 cut2segment :: Map.Map MWord [Int] -> Cut reg MWord -> Hopefully $ Segment reg MWord 
 cut2segment blockMap (Cut instrs pc len) = do
   succ <- cutSuccessors blockMap (Cut instrs pc len)
-  return $ Segment instrs pc len succ True -- We are hardocing everithing comes from network, for now
+  return $ Segment instrs pc len succ True -- We are hardcoing everithing comes from network, for now
 
 
 
