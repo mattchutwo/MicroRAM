@@ -19,7 +19,7 @@ Format for compiler units
 
 module Output.CBORFormat where
 import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm, FlatTerm)
-import qualified Data.Map as Map
+--import qualified Data.Map as Map
 import GHC.Generics
 
 import Codec.Serialise
@@ -39,6 +39,8 @@ import Compiler.IRs
 import MicroRAM.MRAMInterpreter
 import MicroRAM
 
+import Segments.Segmenting
+
 -- Get version number
 import Paths_MicroRAM (version)
 import Data.Version (Version(..))
@@ -52,17 +54,18 @@ import Output.Output
 -- * Full Output
 
 encodeOutput :: Serialise reg => Output reg -> Encoding
-encodeOutput (SecretOutput prog params initM trc adv) =
+encodeOutput (SecretOutput prog segs params initM trc) =
   map2CBOR $ 
   [ ("program", encode prog)
+  , ("segments", encode segs)
   , ("params", encode params)
   , ("init_mem", encode initM)
   , ("trace", encode trc)
-  , ("advice", encode adv)
   ]
-encodeOutput (PublicOutput prog params initM) =
+encodeOutput (PublicOutput prog segs params initM ) =
   map2CBOR $ 
   [ ("program", encode prog)
+  , ("segments", encode segs)
   , ("params", encode params)
   , ("init_mem", encode initM)
   ]
@@ -72,7 +75,7 @@ decodeOutput = do
   len <- decodeMapLen
   case len of
     5 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode
-    3 -> PublicOutput <$> tagDecode <*> tagDecode  <*> tagDecode
+    3 -> PublicOutput <$> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode
     n -> fail $ "Only lengths for output are 3 and 5 (Public and Secret). Insted found: " ++ show n 
     
 instance Serialise reg => Serialise (Output reg) where 
@@ -347,11 +350,12 @@ instance Serialise InitMemSegment where
 -- *** State Out 
 
 encodeStateOut :: StateOut -> Encoding
-encodeStateOut (StateOut flag pc regs) =
+encodeStateOut (StateOut flag pc regs advice) =
   map2CBOR $
   [ ("flag", encodeBool flag) 
   , ("pc", encode pc)
   , ("regs", encode regs)
+  , ("advice", encode advice)
   ]
 
 decodeStateOut :: Decoder s StateOut
@@ -359,6 +363,7 @@ decodeStateOut = do
     len <- decodeMapLen
     case len of
       3 -> StateOut <$ decodeString <*> decodeBool
+                    <* decodeString <*> decode
                     <* decodeString <*> decode
                     <* decodeString <*> decode
       _ -> fail $ "invalid state encoding. Length should be 3 but found " ++ show len
@@ -432,8 +437,11 @@ instance Serialise Advice where
   decode = decodeAdvice
   encode = encodeAdvice
 
+instance (Serialise reg) => Serialise (Segment reg MWord) where
 
+instance (Serialise reg) => Serialise (TraceChunkOut reg) where
 
+  
 -- ** Initial memory
 
 -- Serialise is derived from lists and Words.
@@ -484,12 +492,12 @@ printOutputWithFormat PHex out _ = ppHexOutput out
 printOutputWithFormat Flat out _ = show . flatOutput $ out
 
 
-c :: Output Word
-c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
-                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}]}
+-- c :: Output Word
+-- c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
+--                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}]}
 
-d :: Output Word
-d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
-                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}],
-                   trace = [], adviceOut = Map.empty}
+-- d :: Output Word
+-- d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
+--                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}],
+--                    trace = [], adviceOut = Map.empty}
  

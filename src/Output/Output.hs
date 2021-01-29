@@ -26,6 +26,10 @@ import Compiler.Analysis
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
+
+import Segments.Segmenting
+import Segments.ChooseSegments
+
 import Util.Util
 
 
@@ -52,26 +56,34 @@ import Util.Util
 -- 3. Initial Memory
 --   
 -- Notice `trace`, `advice` and `initMem` throw execptions (when called on PublicOutput)
-
+data TraceChunkOut reg = TraceChunkOut {
+  chunkSegOut :: Int
+  , chunkStatesOut :: [StateOut]}
+  deriving (Eq, Show, Generic)
+  
 data Output reg  =
   SecretOutput
   { program :: Program reg MWord
+  , segmentsOut :: [Segment reg  MWord]
   , params :: CircuitParameters
   , initMem :: InitialMem
-  , trace :: [StateOut]
-  , adviceOut :: Map.Map MWord [Advice]
+  , trace :: [TraceChunkOut reg]
   }
   | PublicOutput
   { program :: Program reg MWord
+  , segmentsOut :: [Segment reg MWord]
   , params :: CircuitParameters
   , initMem :: InitialMem
   } deriving (Eq, Show, Generic)
 
 -- | Convert between the two outputs
 mkOutputPublic :: Output reg -> Output reg
-mkOutputPublic (SecretOutput a b c _ _) = PublicOutput a b c
-mkOutputPublic (PublicOutput a b c) = PublicOutput a b c
+mkOutputPublic (SecretOutput a b c d _) = PublicOutput a b c d
+mkOutputPublic (PublicOutput a b c d) = PublicOutput a b c d
 
+mkOutputPrivate :: [TraceChunkOut reg] -> Output reg -> Output reg
+mkOutputPrivate trace (PublicOutput a b c d ) = SecretOutput a b c d trace
+mkOutputPrivate trace (SecretOutput a b c d _) = SecretOutput a b c d trace
 
 
 
@@ -99,6 +111,7 @@ data StateOut = StateOut
   { flagOut :: Bool
   , pcOut   :: MWord
   , regsOut :: [MWord]
+  , adviceOut :: [Advice]
   } deriving (Eq, Show, Generic)
 
 -- | Compiler is allowed to concretise.
@@ -109,8 +122,8 @@ concretize (Just w) = w
 concretize Nothing = 0
 
 state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
-state2out bound (ExecutionState pc regs _ _ _ flag _ _ _) =
-  StateOut flag pc (map concretize $ regToList bound regs)
+state2out bound (ExecutionState pc regs _ _ advice flag _ _ _) =
+  StateOut flag pc (map concretize $ regToList bound regs) advice
 
 
 
@@ -136,44 +149,45 @@ buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed 
           let sparc2' = Map.map fromIntegral sparc2 in  -- Make into Words
             Map.unionWith min sparc2' spar1
 
-compUnit2Output :: Regs reg => CompilationResult (Program reg MWord) -> Output reg
-compUnit2Output (CompUnit p trLen regData aData initMem _) =
+compUnit2Output :: Regs reg => [Segment reg MWord] -> CompilationResult (Program reg MWord) -> Output reg
+compUnit2Output segs (CompUnit p trLen regData aData initMem _) =
   let regNum = getRegNum regData in
   let circParams = buildCircuitParameters trLen regData aData regNum in
-  PublicOutput (lowProg p) circParams initMem
+  PublicOutput (lowProg p) segs circParams initMem
 
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).
 -- The input Trace should be an infinite stream which we truncate by the given length.
-secretOutput :: Regs reg => Trace reg -> CompilationResult (Program reg MWord) -> Output reg
-secretOutput tr (CompUnit p trLen regData aData initM _) =
-  let regNum = getRegNum regData in
-  let circParams = buildCircuitParameters trLen regData aData regNum in
-    SecretOutput (lowProg p) circParams
-    -- initMem
-    initM
-    -- Trace (trace should be trimmed already)
-    (outputTrace trLen tr (numRegs circParams))
-    -- Advice
-    (outputAdvice trLen tr)
 
-  where outputAdvice len tr = foldr joinAdvice Map.empty (takeEnum len $ zip [0..] tr)
-        joinAdvice (i,state) adviceMap = case advice state of
-                                       [] -> adviceMap
-                                       ls -> Map.insert i ls adviceMap
+-- secretOutput :: Regs reg => Trace reg -> CompilationResult (Program reg MWord) -> Output reg
+-- secretOutput tr (CompUnit p trLen regData aData initM _) =
+--   let regNum = getRegNum regData in
+--   let circParams = buildCircuitParameters trLen regData aData regNum in
+--     SecretOutput (lowProg p) circParams
+--     -- initMem
+--     initM
+--     -- Trace (trace should be trimmed already)
+--     (outputTrace trLen tr (numRegs circParams))
+--     -- Advice
+--     (outputAdvice trLen tr)
 
-outputTrace
-  :: (Enum a1, Regs mreg) => a1 -> [ExecutionState mreg] -> Word -> [StateOut]
-outputTrace len tr regBound = takeEnum len $ map (state2out regBound) tr
+--   where outputAdvice len tr = foldr joinAdvice Map.empty (takeEnum len $ zip [0..] tr)
+--         joinAdvice (i,state) adviceMap = case advice state of
+--                                        [] -> adviceMap
+--                                        ls -> Map.insert i ls adviceMap
+ 
+outputStates
+  :: (Enum a1, Regs mreg) => a1 -> Word -> [ExecutionState mreg] -> [StateOut]
+outputStates len regBound tr = takeEnum len $ map (state2out regBound) tr
 
-fullOutput :: Regs reg => CompilationResult (Program reg MWord) -> Output reg
-fullOutput compUnit = fullOutput_v False compUnit
+outputTraceChunk :: (Regs reg) => Word -> TraceChunk reg -> TraceChunkOut reg
+outputTraceChunk regBound (TraceChunk location trace) = 
+  TraceChunkOut location (map (state2out regBound) trace)
+outputTrace :: (Regs reg) => Word -> [TraceChunk reg] -> [TraceChunkOut reg]
+outputTrace regBound tr = map (outputTraceChunk regBound) tr 
 
-fullOutput_v :: Regs reg => Bool -> CompilationResult (Program reg MWord) -> Output reg
-fullOutput_v verbose compUnit =
-  let _mem = flatInitMem $ initM compUnit in
-  secretOutput (run_v verbose compUnit) compUnit
 
+  
 getRegNum :: RegisterData -> Word
 getRegNum InfinityRegs = 0
 getRegNum (NumRegisters n) = toEnum n 

@@ -1,4 +1,6 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-
 Module      : Segmenting
 Description : 
@@ -7,60 +9,66 @@ Stability   : experimental
 
 -}
 
-module Segments.Segmenting where
+module Segments.Segmenting (segmentProgram, Segment(..)) where
 
-import MicroRAM
-import qualified Data.Map as Map 
 import Compiler.Errors
+import qualified Data.Map as Map 
+import MicroRAM
 import Util.Util
-
+import GHC.Generics
 
 -- | segment: Splits a program into segments and creates a map
 -- The program is cut at every jump
 -- The map relates the beggining of each segment, in the original program, with the segment in the cut program
 data Segment reg wrd = Segment
   { segIntrs :: [Instruction reg wrd]
-    , init_pc :: Word
+    , init_pc :: MWord
     , segLen :: Int
     , segSuc :: [Int]
     , fromNetwork :: Bool }
-                     deriving Show
+                     deriving (Eq, Show, Generic)
     
 --segmenting :: Program reg wrd -> [Segment reg wrd]
 --segmenting prog = 
 
 -- | Cutting just splits a program after each jump instruction
---   and creates a map relating instructions and part sof programs
+--   and creates a map relating instructions and cuts starting there.
 data Cut reg wrd = Cut
   { cutIntrs :: [Instruction reg wrd]
-    , cutPc :: Word
+    , cutPc :: MWord
     , cutLen :: Int }
   deriving Show
-makeCut :: Word -> [Instruction reg wrd] -> Cut reg wrd
+makeCut :: MWord -> [Instruction reg wrd] -> Cut reg wrd
 makeCut pc instrs = Cut instrs pc (length instrs) 
-                                
-cuttProg :: Program reg wrd -> ([Cut reg wrd], Map.Map Word Int)
-cuttProg prog =
+
+segmentProgram :: Program reg MWord -> Hopefully $ ([Segment reg MWord], Map.Map MWord [Int])
+segmentProgram prog =
+  let (cuts, map) = cutProg prog in
+    do segs <- mapM (cut2segment map) cuts
+       return (segs, map)
+
+cutProg :: Program reg wrd -> ([Cut reg wrd], Map.Map MWord [Int])
+cutProg prog =
   let (cuts, lastCut, map) = foldr step init $ zip prog [1..]
       cuts' = (makeCut 0 lastCut): cuts
       len   = length cuts'  
-      map'  = Map.map (\n -> len - n - 1) map
-      map'' = Map.insert 0 0 map' in
+      map'  = Map.map (\ns -> (\n -> len - n - 1) <$> ns) map
+      map'' = Map.insert 0 [0] map' in
     (cuts', map'')
     
-  where init:: ([Cut reg wrd], Program reg wrd, Map.Map Word Int)
+  where init:: ([Cut reg wrd], Program reg wrd, Map.Map MWord [Int])
         init = ([], [], Map.empty)
 
 
         -- | The accumulator carries the cuts so far, the map so far and
         --   the current cut that hasn't finished.
-        step :: (Instruction reg wrd, Word)
-                -> ([Cut reg wrd],[Instruction reg wrd], Map.Map Word Int)
-                -> ([Cut reg wrd],[Instruction reg wrd], Map.Map Word Int)
+        step :: (Instruction reg wrd, MWord)
+                -> ([Cut reg wrd],[Instruction reg wrd], Map.Map MWord [Int])
+                -> ([Cut reg wrd],[Instruction reg wrd], Map.Map MWord [Int])
         step (instr, count) (cuts, currentCut, map) =
           if isJump instr
           then
-            let map' = Map.insert count (length cuts) map in 
+            let map' = Map.insert count [(length cuts)] map in 
               ((makeCut count currentCut):cuts, [instr], map')
           else
             (cuts, instr:currentCut, map)
@@ -72,32 +80,32 @@ cuttProg prog =
         isJump _ = False
 
 
-cutSuccessors :: Show reg => Map.Map Word Int -> Cut reg Word -> Hopefully $ [Int]
+cutSuccessors :: Map.Map MWord [Int] -> Cut reg MWord -> Hopefully $ [Int]
 cutSuccessors map (Cut instrs pc len) =
   instrSuccessor map (pc + toEnum len - 1)  (last instrs) 
   
-instrSuccessor :: Show reg => Map.Map Word Int -> Word -> Instruction reg Word -> Hopefully $ [Int]
+instrSuccessor :: Map.Map MWord [Int] -> MWord -> Instruction reg MWord -> Hopefully $ [Int]
 instrSuccessor blockMap pc instr =
   case instr of
     Ijmp op       -> ifConst op
-    Icjmp  _ op2  -> (:) <$> (getBlock (pc + 1)) <*> ifConst op2
-    Icnjmp _ op2  -> (:) <$> (getBlock (pc + 1)) <*> ifConst op2
+    Icjmp  _ op2  -> (++) <$> (getBlock (pc + 1)) <*> ifConst op2
+    Icnjmp _ op2  -> (++) <$> (getBlock (pc + 1)) <*> ifConst op2
     _             -> return $ []
 
-  where ifConst :: Operand regT Word -> Hopefully $ [Int]
+  where ifConst :: Operand regT MWord -> Hopefully $ [Int]
         ifConst (Reg   _) = return $ [-1]  -- Go to network
-        ifConst (Const c) = do { block <- getBlock c; return [block] }
+        ifConst (Const c) = do { block <- getBlock c; return block }
           
-        getBlock :: Word -> Hopefully Int 
+        getBlock :: MWord -> Hopefully [Int] 
         getBlock pc = 
           case Map.lookup pc blockMap of
-            Just block -> return block
+            Just blocks -> return blocks
             Nothing  -> otherError $ "Cutting segments: found jump to an instruction not at the beggining of a block. PC: "
                         ++ show pc
   
 
 -- | Cut to segment
-cut2segment :: Show reg => Map.Map Word Int -> Cut reg Word -> Hopefully $ Segment reg Word 
+cut2segment :: Map.Map MWord [Int] -> Cut reg MWord -> Hopefully $ Segment reg MWord 
 cut2segment blockMap (Cut instrs pc len) = do
   succ <- cutSuccessors blockMap (Cut instrs pc len)
   return $ Segment instrs pc len succ True -- We are hardocing everithing comes from network, for now
@@ -105,8 +113,8 @@ cut2segment blockMap (Cut instrs pc len) = do
 
 
 -- TESTING
-testProg :: Program () Word
-testProg = [Iand () () (Reg ()),    --0
+_testProg :: Program () MWord
+_testProg = [Iand () () (Reg ()),    --0
             Isub () () (Reg ()),    --1
             Ijmp (Reg ()),          --2
                                     --
@@ -121,17 +129,17 @@ testProg = [Iand () () (Reg ()),    --0
            ]
 
 
-testSegments :: Hopefully $ [Segment () Word]
-testSegments =
-  let (cs, bMap) = cuttProg testProg in
-    mapM (cut2segment bMap) cs
+_testSegments :: Hopefully $ [Segment () MWord]
+_testSegments = 
+  do (segs, _bMap) <- segmentProgram _testProg
+     return segs
 
-printSegs :: (Hopefully [Segment () Word]) -> IO ()
-printSegs segs = do
+_printSegs :: (Hopefully [Segment () MWord]) -> IO ()
+_printSegs segs = do
   case segs of
     Left error -> putStrLn $ "ERRRO: \n " ++ show error
     Right segs -> do {_ <- mapM (putStrLn . show) segs; return ()}
   return ()
-removeError :: Hopefully a -> Maybe a
-removeError (Left _) = Nothing
-removeError (Right x) = Just x
+_removeError :: Hopefully a -> Maybe a
+_removeError (Left _) = Nothing
+_removeError (Right x) = Just x

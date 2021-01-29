@@ -1,12 +1,6 @@
 {-# LANGUAGE TypeOperators #-}
 module Compile where
 
-import System.Console.GetOpt
-import System.Directory
-import System.Environment
-import System.FilePath
-import System.IO
-import System.Exit
 import qualified Data.ByteString.Lazy                  as L
 import Data.List
 
@@ -22,6 +16,15 @@ import LLVMutil.LLVMIO
 
 import Output.Output
 import Output.CBORFormat
+
+import PostProcess
+
+import System.Console.GetOpt
+import System.Directory
+import System.Environment
+import System.FilePath
+import System.IO
+import System.Exit
 
 
 main :: IO ()
@@ -44,13 +47,11 @@ main = do
   -- Run Backend
   -- --------------
   microProg <-  if (beginning fr >= LLVMLang) then -- Compile or read from file
-                  do
-                    giveInfo fr "Running the compiler backend..."
-                    callBackend fr
+                  do giveInfo fr "Running the compiler backend..."
+                     callBackend fr
                 else
-                  do
-                    flatprog <- readFile $ fileIn fr
-                    return $ read flatprog
+                  do flatprog <- readFile $ fileIn fr
+                     return $ read flatprog
   -- Maybe save the MicroRAM file
   case mramFile fr of 
     Just mramFileOut -> do
@@ -58,16 +59,20 @@ main = do
       writeFile mramFileOut $ show microProg
     Nothing -> return ()
   -- Maybe end here and output public output as CBOR
-  ifio (end fr >= MRAMLang) $ do
-    giveInfo fr $ "Output public info."
-    output fr $ compUnit2Output microProg -- return public output 
-    exitWith ExitSuccess -- Verifier mod ends here
-  -- --------------
-  -- Interpreter
-  -- --------------
-  secretOut <- return $ fullOutput_v (verbose fr) microProg
-  output fr $ secretOut
-  ifio (doubleCheck fr) $ print "Nothing to check"
+  postProcessed <- handleErrors $ postProcess_v (verbose fr) chunkSize (end fr == FullOutput) microProg
+  output fr postProcessed
+  exitWith ExitSuccess
+  
+  -- ifio (end fr >= MRAMLang) $ do
+  --   giveInfo fr $ "Output public info."
+  --   output fr $ compUnit2Output microProg -- return public output 
+  --   exitWith ExitSuccess -- Verifier mod ends here
+  -- -- --------------
+  -- -- Interpreter
+  -- -- --------------
+  -- secretOut <- return $ fullOutput_v (verbose fr) microProg
+  -- output fr $ secretOut
+  -- ifio (doubleCheck fr) $ print "Nothing to check"
   
   where output :: FlagRecord -> Output AReg -> IO ()
         output fr out = case fileOut fr of
@@ -75,7 +80,17 @@ main = do
                            Nothing   -> putStrLn $ printOutputWithFormat (outFormat fr) out [] -- Replace list with features
         -- if verbose
         giveInfo fr str = ifio (verbose fr) $ putStrLn $ str
-            
+
+        chunkSize = 5
+
+
+        
+handleErrors :: Hopefully x -> IO x
+handleErrors hx = case hx of
+  Left error -> do putStr $ show error
+                   exitWith ExitSuccess -- FAIL
+  Right x -> return x
+
  
       
 callBackend :: FlagRecord -> IO $ CompilationResult (Program AReg MWord)

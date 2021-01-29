@@ -75,9 +75,11 @@ instance Bits wrdT => Bits (LazyConst name wrdT) where
   (.|.) = lazyBop (.|.)
   xor = lazyBop xor
   complement = lazyUop complement
-  shift x b = lazyUop (\x -> shift x b) x
-  rotate x b = lazyUop (\x -> rotate x b) x
-  bitSize _ = bitSize (zeroBits :: wrdT)
+  shift x b = lazyUop (`shift` b) x
+  rotate x b = lazyUop (`rotate` b) x
+  bitSize _ = case bitSizeMaybe (zeroBits :: wrdT) of
+                Just x -> x
+                _ -> 0 
   bitSizeMaybe _ = bitSizeMaybe (zeroBits :: wrdT)
   isSigned _ = isSigned (zeroBits :: wrdT)
   testBit _ _ = error "testBit not supported for LazyConst"
