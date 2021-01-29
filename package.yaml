@@ -112,7 +112,7 @@ tests:
     - tasty
     - tasty-hunit
     - tasty-smallcheck
-  ouput:
+  output:
     main:                OutputSpec.hs
     source-dirs:         test/Output
     ghc-options:

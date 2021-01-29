@@ -75,7 +75,7 @@ decodeOutput = do
   len <- decodeMapLen
   case len of
     5 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode
-    3 -> PublicOutput <$> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode
+    4 -> PublicOutput <$> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode
     n -> fail $ "Only lengths for output are 3 and 5 (Public and Secret). Insted found: " ++ show n 
     
 instance Serialise reg => Serialise (Output reg) where 
@@ -362,7 +362,7 @@ decodeStateOut :: Decoder s StateOut
 decodeStateOut = do
     len <- decodeMapLen
     case len of
-      3 -> StateOut <$ decodeString <*> decodeBool
+      4 -> StateOut <$ decodeString <*> decodeBool
                     <* decodeString <*> decode
                     <* decodeString <*> decode
                     <* decodeString <*> decode
@@ -437,9 +437,44 @@ instance Serialise Advice where
   decode = decodeAdvice
   encode = encodeAdvice
 
+encodeSegment :: Serialise reg => (Segment reg MWord) -> Encoding
+encodeSegment (Segment segIntrs init_pc segLen segSuc fromNet) =
+  encodeListLen 5 <>
+  encode segIntrs <>
+  encode init_pc <>
+  encode segLen <>
+  encode segSuc <>
+  encode fromNet
+
+decodeSegment :: Serialise reg => Decoder s (Segment reg MWord)
+decodeSegment = do
+  ln <- decodeListLen
+  case ln of
+    5 -> Segment <$> decode <*> decode <*> decode <*> decode <*> decode
+    ln -> fail $ "Invalid segment encoding. Expected length is 5 but found" ++ show ln 
+
 instance (Serialise reg) => Serialise (Segment reg MWord) where
+  decode = decodeSegment
+  encode = encodeSegment
+
+encodeTraceChunkOut :: Serialise reg => (TraceChunkOut reg) -> Encoding
+encodeTraceChunkOut (TraceChunkOut location states) =
+  encodeListLen 2 <>
+  encode location <>
+  encode states
+
+
+decodeTraceChunkOut :: Serialise reg => Decoder s (TraceChunkOut reg)
+decodeTraceChunkOut = do
+  ln <- decodeListLen
+  case ln of
+    2 -> TraceChunkOut <$> decode <*> decode
+    ln -> fail $ "Invalid TraceChunkOut encoding. Expected length is 2 but found" ++ show ln 
+
 
 instance (Serialise reg) => Serialise (TraceChunkOut reg) where
+  decode = decodeTraceChunkOut
+  encode = encodeTraceChunkOut
 
   
 -- ** Initial memory
