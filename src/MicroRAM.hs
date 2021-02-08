@@ -126,11 +126,12 @@ module MicroRAM
   wordBits,
 
   -- * Mappiung and Folding
-  mapInstr, mapInstrM,
+  mapInstr, mapProg, mapInstrM,
   foldInstr,
   ) where
 
 import Control.Monad.Identity
+import Data.Bifunctor
 import Data.Bits
 import Data.Text (Text)
 import Data.Word (Word64)
@@ -168,6 +169,10 @@ data Operand regT wrdT where
   Reg :: regT -> Operand regT wrdT
   Const :: wrdT -> Operand regT wrdT
   deriving (Eq,Ord,Read,Show)
+
+instance Bifunctor Operand where
+  bimap regF _ (Reg r) = Reg $ regF r
+  bimap _ conF (Const c) = Const $ conF c
 
 -- | TinyRAM Instructions
 data Instruction' regT operand1 operand2 =
@@ -315,6 +320,15 @@ mapInstr ::
 mapInstr regF opF1 opF2 instr =
   runIdentity $ mapInstrM (lift regF) (lift opF1) (lift opF2) instr
   where lift f x = return $ f x
+
+mapProg ::  
+  (r1 -> r2)
+  -> (w1 -> w2)
+  -> Program r1 w1
+  -> Program r2 w2
+mapProg regF wF prog =
+  (mapInstr regF regF opF) <$> prog
+  where opF = bimap regF wF
 
 mapInstrM :: Monad m =>  
   (regT -> m regT')

@@ -48,12 +48,15 @@ import qualified Data.Text as Text
 
 import GHC.Generics (Generic)
 
-import Compiler.Sparsity
-import Compiler.Analysis
+
+--import Compiler.Analysis
 import Compiler.Errors
 import Compiler.Registers
 import Compiler.CompilationUnit
 import MicroRAM
+
+--import Sparsity.Sparsity -- TODO there should be no sparsity here. 
+
 import Util.Util
 
 import Debug.Trace
@@ -74,19 +77,11 @@ data MachineState r = MachineState
   }  
 makeLenses ''MachineState
 
-data SparsityState = SparsityState
-  { _spSpars :: Sparsity
-  , _spLastSeen :: Map.Map InstrKind Int
-  }
-makeLenses ''SparsityState
 
-initSparsSt :: Sparsity -> SparsityState
-initSparsSt spars = SparsityState spars Map.empty
   
 data InterpState r s = InterpState
   { _sExt :: s
   , _sMach :: MachineState r
-  , _sSpars :: SparsityState
   }
 makeLenses ''InterpState
 
@@ -170,43 +165,6 @@ stepInstr i = do
   sMach . mCycle %= (+ 1)
   
 
--- ## Sparsity
-
-controlSparsity :: Regs r
-                => Lens' s AdviceMap
-                -> InstrHandler r s
-                -> InstrHandler r s
-controlSparsity adviceMap step instr = do 
-  stutter <- checkSparsity instr
-  if stutter then do
-    recordAdvice adviceMap Stutter
-    sMach . mCycle %= (+ 1)
-  else do
-    step instr
-checkSparsity :: Regs r => Instruction r MWord -> InterpM r s Hopefully Bool
-checkSparsity instr = do
-  kinds <- return $ instrType instr
-  stutters <- mapM sparsity kinds 
-  return $ or stutters 
-  where sparsity :: Regs r => InstrKind -> InterpM r s Hopefully Bool
-        sparsity kind = do
-          cyc <- use $ sMach . mCycle
-          lastMap <- use $ sSpars . spLastSeen
-          last <- return $ Map.findWithDefault (-1) kind lastMap
-          sSpars . spLastSeen %= (Map.insert kind (fromEnum cyc))
-          sparsity <- use $ sSpars . spSpars
-          targetSpars <- return $ Map.lookup kind sparsity
-          case targetSpars of
-            Nothing  -> return False
-            Just spc -> do
-              if sameFunctionalUnit spc last (fromEnum cyc)
-                then return True
-                else return False
-  
-        -- | Checks if two instances of the same kind would share the same functional Unit
-        -- There is one Functional unit every 'spc' cycles.
-        -- Last seen default is -1 so must use `div` 
-        sameFunctionalUnit spc last cyc = (last `div` spc) == (cyc `quot` spc)
 
 stepUnary :: Regs r => (MWord -> MWord) ->
   r -> Operand r MWord -> InterpM r s Hopefully ()
@@ -634,12 +592,12 @@ runWith handler steps initState = evalStateT go initState
       i <- fetchInstr pc
       handler i
 
-runPass1 :: Regs r => Bool -> Word -> Sparsity -> MachineState r -> Hopefully MemInfo
-runPass1 verbose steps spars initMach' = do
+runPass1 :: Regs r => Bool -> Word -> MachineState r -> Hopefully MemInfo
+runPass1 verbose steps initMach' = do
   final <- runWith handler steps initState
   return $ getMemInfo $ final ^. sExt
   where
-    initState = InterpState initAllocState initMach' (initSparsSt spars)
+    initState = InterpState initAllocState initMach'
     handler = traceHandler verbose  $ allocHandler verbose id $ stepInstr
 
     getMemInfo :: AllocState -> MemInfo
@@ -653,15 +611,15 @@ runPass1 verbose steps spars initMach' = do
       [addr .&. complement (fromIntegral wordBytes - 1)
         | (kind, addr) <- toList errs, kind /= Unallocated]
 
-runPass2 :: Regs r => Word -> Sparsity -> MachineState r -> MemInfo -> Hopefully (Trace r)
-runPass2 steps spars initMach' memInfo = do
+runPass2 :: Regs r => Word -> MachineState r -> MemInfo -> Hopefully (Trace r)
+runPass2 steps initMach' memInfo = do
   -- The first entry of the trace is always the initial state.  Then `steps`
   -- entries follow after it.
   initExecState <- evalStateT (getStateWithAdvice eAdvice) initState
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
-    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach' (initSparsSt spars)
+    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach'
 
     eTrace :: Lens' (a, b, c) a
     eTrace = _1
@@ -672,7 +630,6 @@ runPass2 steps spars initMach' memInfo = do
 
     handler =
       execTraceHandler eTrace eAdvice $
-      controlSparsity eAdvice $
       observer (adviceHandler eAdvice) $
       memErrorHandler eMemInfo eAdvice $
       traceHandler False $
@@ -741,15 +698,14 @@ initMach prog imem = MachineState
 type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
 run_v :: Regs mreg => Bool -> Executor mreg (Trace mreg)
-run_v verbose (CompUnit progs trLen _ analysis initMem _) = case go of
+run_v verbose (CompUnit progs trLen _ _analysis initMem _) = case go of
   Left e -> error $ describeError e
   Right x -> x
   where
     go = do
-      memInfo <- runPass1 verbose  (trLen - 1) sparsity (initMach (highProg progs) initMem)
-      tr <- runPass2 (trLen - 1) sparsity (initMach (lowProg progs) initMem) memInfo
+      memInfo <- runPass1 verbose  (trLen - 1) (initMach (highProg progs) initMem)
+      tr <- runPass2 (trLen - 1) (initMach (lowProg progs) initMem) memInfo
       return tr
-    sparsity = getSparsity analysis
       
 run :: Regs mreg => Executor mreg (Trace mreg)
 run = run_v False

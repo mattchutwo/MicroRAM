@@ -31,7 +31,6 @@ import Codec.CBOR.Read
 import Codec.CBOR.Pretty
 import qualified Data.ByteString.Lazy                  as L
 
-import Compiler.Sparsity
 import Compiler.CompilationUnit
 import Compiler.Registers
 import Compiler.IRs
@@ -40,6 +39,8 @@ import MicroRAM.MRAMInterpreter
 import MicroRAM
 
 import Segments.Segmenting
+
+import Sparsity.Sparsity
 
 -- Get version number
 import Paths_MicroRAM (version)

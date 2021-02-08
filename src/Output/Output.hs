@@ -19,7 +19,6 @@ module Output.Output where
 import qualified Data.Map as Map
 import GHC.Generics
 
-import Compiler.Sparsity
 import Compiler.CompilationUnit
 import Compiler.Registers
 import Compiler.Analysis
@@ -29,6 +28,8 @@ import MicroRAM
 
 import Segments.Segmenting
 import Segments.ChooseSegments
+
+import Sparsity.Sparsity
 
 import Util.Util
 

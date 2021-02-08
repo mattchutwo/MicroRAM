@@ -21,6 +21,7 @@ import qualified Data.Set as Set
 -- import Compiler.Errors
 
 import Segments.Segmenting
+import Sparsity.Sparsity
 import Control.Monad.State.Lazy
 
 data TraceChunk reg = TraceChunk {
@@ -38,15 +39,16 @@ data PartialState reg = PartialState {
   , queueSt :: Trace reg
   , availableSegments :: Map.Map MWord [Int]
   , privLoc :: Int -- The next location of a private segment
+  , sparsityPS :: Sparsity
   } deriving Show
 
 type InstrNumber = MWord 
 type PState reg x = State (PartialState reg) x 
  
-chooseSegments :: Int -> Trace reg -> Map.Map MWord [Int] -> [Segment reg MWord] ->  [TraceChunk reg]
-chooseSegments privSize trace segmentSets segments =
+chooseSegments :: Int -> Sparsity -> Trace reg -> Map.Map MWord [Int] -> [Segment reg MWord] ->  [TraceChunk reg]
+chooseSegments privSize spar trace segmentSets segments =
   -- create starting state
-  let initSt = PartialState trace [] [] [] segmentSets (length segments)  
+  let initSt = PartialState trace [] [] [] segmentSets (length segments) spar   
   -- run the choose statement
       go = whileJust nextExecState (chooseSegment segments privSize) *> allocateQueue privSize
       finalSt = execState go initSt in 
@@ -120,11 +122,13 @@ chooseSegment segments privSize execSt = do
          _ -> return Nothing
 
 allocateQueue :: Int -> PState reg ()
-allocateQueue size =  -- TODO: Add sparsity and redundant steps for the last segment.
-  do queue <- queueSt <$> get
+allocateQueue size =
+  do queue <- reverse . queueSt <$> get
      modify (\st -> st {queueSt = []})
      currentPrivSegment <- privLoc <$> get
-     addPrivBlocks (splitPrivBlocks size currentPrivSegment $ reverse queue)
+     spar <- sparsityPS <$> get
+     --sparseQueue <- return $ stutter sp  
+     addPrivBlocks (splitPrivBlocks size currentPrivSegment $ queue)
 addPrivBlocks :: [TraceChunk reg] -> PState reg ()
 addPrivBlocks newBlocks = do
   st <- get
@@ -240,6 +244,6 @@ testSegmentSets = Map.fromList
    (7, [4])
   ]
 
-testchunks :: [TraceChunk ()]
-testchunks = chooseSegments 3 testTrace testSegmentSets testSegments'
+_testchunks :: [TraceChunk ()]
+_testchunks = chooseSegments 3 Map.empty testTrace testSegmentSets testSegments'
 

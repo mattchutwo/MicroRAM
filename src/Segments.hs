@@ -10,6 +10,7 @@ Stability   : experimental
 
 module Segments (segment, SegmentedProgram(..), chooseSegment') where
 
+import Compiler.Analysis
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.Registers
@@ -36,5 +37,6 @@ segment compRes = do
 
 chooseSegment' :: Regs reg => Int -> Trace reg -> SegmentedProgram reg -> (SegmentedProgram reg) 
 chooseSegment' privSize trace (SegmentedProgram compRes segms segMap _) =
-  let chunks = chooseSegments privSize trace segMap segms in
+  let chunks = chooseSegments privSize sparsity trace segMap segms in
     SegmentedProgram compRes segms segMap $ Just chunks
+  where sparsity = getSparsity . aData $ compRes

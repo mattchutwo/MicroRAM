@@ -38,7 +38,7 @@ But supporting separate compilation is easy:
 -}
 
 
-module Compiler.Sparsity (
+module Sparsity.Sparsity (
   sparsity, forceSparsity,
   Sparsity,
   InstrKind(..),

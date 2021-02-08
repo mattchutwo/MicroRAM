@@ -118,13 +118,15 @@ import Compiler.RegisterAlloc as Export (AReg)
 import Compiler.CallingConvention
 import Compiler.Globals
 import Compiler.Stacking
-import Compiler.Sparsity
 import Compiler.RemoveLabels
 import Compiler.Analysis
 import Compiler.LocalizeLabels
 
 import MicroRAM (MWord)
 import qualified MicroRAM as MRAM  (Program) 
+
+import Sparsity.Sparsity
+
 
 --(<.>) :: Monad m => (b -> c) -> (a -> b) -> a -> m c
 --f <.> g = return . f . g 
