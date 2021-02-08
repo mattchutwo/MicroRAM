@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -15,44 +16,72 @@ module Compiler.Intrinsics
     ) where
 
 
-import Control.Monad
+import           Control.Monad
+import           Control.Monad.State.Strict (StateT, put, get, evalStateT)
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map
 import Data.Map (Map)
+import           Data.Maybe (fromMaybe)
+import           Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.LazyConstants
+import qualified Compiler.RegisterAlloc.Internal as RA
 
 import MicroRAM
 
 
 expandInstrs :: forall f m w.
-  Applicative f => (MIRInstr m w -> f [MIRInstr m w]) -> MIRprog m w -> f (MIRprog m w)
+  Monad f => (MIRInstr m w -> StateT NextReg f [MIRInstr m w]) -> MIRprog m w -> f (MIRprog m w)
 expandInstrs f = goProg
   -- TODO: this can probably be done more cleanly with traverse or lenses
   where goProg :: MIRprog m w -> f (MIRprog m w)
         goProg (IRprog te gs code) = IRprog te gs <$> traverse goFunc code
 
         goFunc :: MIRFunction m w -> f (MIRFunction m w)
-        goFunc (Function nm rty atys bbs nr) =
-          Function nm rty atys <$> traverse goBB bbs <*> pure nr
+        goFunc (Function nm rty atys bbs nr) = evalStateT 
+          (Function nm rty atys <$> traverse goBB bbs <*> pure nr)
+          -- TODO: Could define a new register type that is disjoint by construction as Santiago suggested.
+          (findNextRegister bbs)
 
-        goBB :: BB n (MIRInstr m w) -> f (BB n (MIRInstr m w))
+        -- TODO: May want to add a `firstReg` to the `Regs` typeclass.
+        findNextRegister bbs = 
+          let rs = Set.unions $ map extractRegisters bbs in
+          let rs' = mapFilter (\case
+                  NewName n -> Just n
+                  Name _ -> Nothing
+                ) rs
+          in
+          if null rs' then
+            3
+          else
+            maximum rs'
+
+        mapFilter f = foldr (\a acc -> case f a of
+            Just x -> x:acc
+            Nothing -> acc
+          ) []
+
+        goBB :: BB n (MIRInstr m w) -> StateT NextReg f (BB n (MIRInstr m w))
         goBB (BB nm body term dag) = BB nm <$> goInstrs body <*> goInstrs term <*> pure dag
 
-        goInstrs :: [MIRInstr m w] -> f [MIRInstr m w]
+        goInstrs :: [MIRInstr m w] -> StateT NextReg f [MIRInstr m w]
         goInstrs is = concat <$> traverse f is
 
-type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> Hopefully [MIRInstr m w]
+type NextReg = Word
+type IntrinsicM = StateT NextReg Hopefully
+type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> IntrinsicM [MIRInstr m w]
 
-expandIntrinsicCall :: Show w => Map String (IntrinsicImpl m w) -> MIRInstr m w -> Hopefully [MIRInstr m w]
+expandIntrinsicCall :: Show w => Map String (IntrinsicImpl m w) -> MIRInstr m w -> IntrinsicM [MIRInstr m w]
 expandIntrinsicCall intrinMap (MirI (RCall _ dest (Label name) _ args) _meta)
   | Just impl <- Map.lookup name intrinMap =
-    tag ("bad call to intrinsic " ++ name) $ impl args dest
+    -- TODO: Fix me.
+    -- tag ("bad call to intrinsic " ++ name) $ 
+    impl args dest
 expandIntrinsicCall _ instr = return [instr]
 
 
@@ -97,6 +126,33 @@ cc_flag_bug [] Nothing =
   where zero = LImm $ SConst 0
 cc_flag_bug _ _ = progError "bad arguments"
 
+freshReg :: IntrinsicM VReg
+freshReg = do
+  r <- get
+  put $ r+1
+  return $ NewName r
+  
+
+noniSetLabel :: IntrinsicImpl () MWord
+noniSetLabel [ptr, label] Nothing = do
+  r <- freshReg
+  return $ map (\i -> MirM i ()) [
+      Iload r ptr
+    , Itaint (AReg r) label
+    , Istore ptr (AReg r)
+    ]
+noniSetLabel _ _ = progError "bad arguments"
+
+noniSink :: IntrinsicImpl () MWord
+noniSink [ptr, label] Nothing = do
+  r <- freshReg
+  return $ map (\i -> MirM i ()) [
+      Iload r ptr
+    , Isink (AReg r) label
+    ]
+  -- return $ [MirM (Isink ptr label) ()]
+  -- error $ show ptr <> " " <> show label
+noniSink _ _ = progError "bad arguments"
 
 intrinsics :: Map String (IntrinsicImpl () MWord)
 intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
@@ -123,6 +179,10 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   -- Explicit trap
   , ("__cxa_pure_virtual", cc_trap)
   , ("llvm.trap", cc_trap)
+
+  -- Dynamic taint tracking
+  , ("noniSetLabel", noniSetLabel)
+  , ("noniSink", noniSink)
   ]
 
 lowerIntrinsics :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
@@ -159,3 +219,10 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
 
     fromText t = Short.toShort $ BSU.fromString $ Text.unpack t
     toText s = Text.pack $ BSU.toString $ Short.fromShort s
+
+
+-- extractRegisters :: Ord reg => BB name (LTLInstr mdata reg wrdT) -> Set reg
+extractRegisters :: Ord reg => BB name (MIRInstruction mdata reg wrd) -> Set reg
+extractRegisters (BB _ insts insts' _) = Set.unions $ map (\i -> readRegisters i <> writeRegisters i) (insts' ++ insts)
+
+
