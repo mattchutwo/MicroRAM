@@ -17,20 +17,17 @@ module Compiler.Intrinsics
 
 
 import           Control.Monad
-import           Control.Monad.State.Strict (StateT, put, get, evalStateT)
+import           Control.Monad.State.Strict (StateT, put, get, mapStateT, runStateT)
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map
 import Data.Map (Map)
-import           Data.Maybe (fromMaybe)
-import           Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.LazyConstants
-import qualified Compiler.RegisterAlloc.Internal as RA
 
 import MicroRAM
 
@@ -43,28 +40,9 @@ expandInstrs f = goProg
         goProg (IRprog te gs code) = IRprog te gs <$> traverse goFunc code
 
         goFunc :: MIRFunction m w -> f (MIRFunction m w)
-        goFunc (Function nm rty atys bbs nr) = evalStateT 
-          (Function nm rty atys <$> traverse goBB bbs <*> pure nr)
-          -- TODO: Could define a new register type that is disjoint by construction as Santiago suggested.
-          (findNextRegister bbs)
-
-        -- TODO: May want to add a `firstReg` to the `Regs` typeclass.
-        findNextRegister bbs = 
-          let rs = Set.unions $ map extractRegisters bbs in
-          let rs' = mapFilter (\case
-                  NewName n -> Just n
-                  Name _ -> Nothing
-                ) rs
-          in
-          if null rs' then
-            3
-          else
-            maximum rs'
-
-        mapFilter f = foldr (\a acc -> case f a of
-            Just x -> x:acc
-            Nothing -> acc
-          ) []
+        goFunc (Function nm rty atys bbs nr) = do
+          (bbs', nr') <- runStateT (traverse goBB bbs) nr
+          return $ Function nm rty atys bbs' nr'
 
         goBB :: BB n (MIRInstr m w) -> StateT NextReg f (BB n (MIRInstr m w))
         goBB (BB nm body term dag) = BB nm <$> goInstrs body <*> goInstrs term <*> pure dag
@@ -79,9 +57,8 @@ type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> IntrinsicM [MIRInst
 expandIntrinsicCall :: Show w => Map String (IntrinsicImpl m w) -> MIRInstr m w -> IntrinsicM [MIRInstr m w]
 expandIntrinsicCall intrinMap (MirI (RCall _ dest (Label name) _ args) _meta)
   | Just impl <- Map.lookup name intrinMap =
-    -- TODO: Fix me.
-    -- tag ("bad call to intrinsic " ++ name) $ 
-    impl args dest
+    mapStateT (tag ("bad call to intrinsic " ++ name)) $
+      impl args dest
 expandIntrinsicCall _ instr = return [instr]
 
 
@@ -219,10 +196,5 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
 
     fromText t = Short.toShort $ BSU.fromString $ Text.unpack t
     toText s = Text.pack $ BSU.toString $ Short.fromShort s
-
-
--- extractRegisters :: Ord reg => BB name (LTLInstr mdata reg wrdT) -> Set reg
-extractRegisters :: Ord reg => BB name (MIRInstruction mdata reg wrd) -> Set reg
-extractRegisters (BB _ insts insts' _) = Set.unions $ map (\i -> readRegisters i <> writeRegisters i) (insts' ++ insts)
 
 

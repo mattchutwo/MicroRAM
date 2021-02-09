@@ -76,11 +76,6 @@ readRegisters :: Ord reg => LTLInstr mdata reg wrdT -> Set reg
 readRegisters (MRI inst _mdata) = readRegistersMRIInstruction inst
 readRegisters (IRI inst _mdata) = readRegistersLTLInstruction inst
 
--- Retrieve the read registers of an RTL instruction.
-readRegistersRTL :: Ord reg => MIRInstruction mdata reg wrdT -> Set reg
-readRegistersRTL (MirM inst _mdata) = readRegistersMRIInstruction inst
-readRegistersRTL (MirI inst _mdata) = readRegistersRTLInstruction inst
-
 readRegistersMRIInstruction :: Ord reg => MAInstruction reg wrdT -> Set reg
 readRegistersMRIInstruction (MRAM.Iand _ r2 op) = Set.singleton r2 <> readRegistersOperand op
 readRegistersMRIInstruction (MRAM.Ior _ r2 op) = Set.singleton r2 <> readRegistersOperand op
@@ -124,9 +119,6 @@ readRegistersLTLInstruction (Lsetstack r1 _ _ _) = Set.singleton r1
 readRegistersLTLInstruction (LCall _t _mr op _ts ops) = readRegistersOperand op <> mconcat (map readRegistersOperand ops)
 readRegistersLTLInstruction (LRet mo) = maybe mempty readRegistersOperand mo
 readRegistersLTLInstruction (LAlloc _mr _t op) = readRegistersOperand op
-
-readRegistersRTLInstruction :: Ord reg => RTLInstr' (MAOperand reg wrdT) -> Set reg
-readRegistersRTLInstruction = error "TODO"
 
 readRegistersOperand :: Ord reg => MAOperand reg wrdT -> Set reg
 readRegistersOperand (AReg r) = Set.singleton r
