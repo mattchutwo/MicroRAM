@@ -32,7 +32,7 @@ import Segments.ChooseSegments (TraceChunk(..))
 
 postProcess_v :: Regs reg => Bool -> Int -> Bool -> CompilationResult (Program reg MWord) -> Hopefully (Output reg)
 postProcess_v verb chunkSize private =
-  segment
+  (segment chunkSize)
   >=> (doIf private (getTrace verb chunkSize))
   >=> (doIf private recoverAdvice)
   >=> segProg2Output

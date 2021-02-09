@@ -81,7 +81,7 @@ main = do
         -- if verbose
         giveInfo fr str = ifio (verbose fr) $ putStrLn $ str
 
-        chunkSize = 5
+        chunkSize = 10
 
 
         

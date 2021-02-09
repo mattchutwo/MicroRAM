@@ -30,16 +30,21 @@ data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (P
                                               , segTrace :: Maybe [TraceChunk reg]
                                               , segAdvice :: Maybe (Map.Map MWord [Advice])}
 
-segment :: CompilationResult (Program reg MWord) -> Hopefully (SegmentedProgram reg)
-segment compRes = do 
+segment :: Int -> CompilationResult (Program reg MWord) -> Hopefully (SegmentedProgram reg)
+segment privSize compRes = do 
   (segs, segMap) <- segmentProgram $ (lowProg . programCU) compRes
-  privateSegments <- return $ mkPrivateSegments (traceLen compRes) 10 -- Should we substract the public segments?  
+  privateSegments <- return $ mkPrivateSegments (traceLen compRes) privSize -- Should we substract the public segments?  
   return $ SegmentedProgram compRes (segs ++ privateSegments) segMap Nothing Nothing
 
-chooseSegment' :: Regs reg => Int -> Trace reg -> SegmentedProgram reg -> SegmentedProgram reg 
+chooseSegment' :: Regs reg => Int -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 
 chooseSegment' privSize trace (SegmentedProgram compRes segms segMap _ adv) =
-  let chunks = chooseSegments privSize trace segMap segms in
-    SegmentedProgram compRes segms segMap (Just chunks) adv
-
+  -- Check if there are enough segments:
+  if (length segms) >= highestSegment then 
+    return $ SegmentedProgram compRes segms segMap (Just chunks) adv
+  else
+    assumptError $ "Trace is not long enough. Execution uses: " ++ (show highestSegment) ++ " segments, but only " ++ show (length segms) ++ " where generated."
+    
+  where chunks = chooseSegments privSize trace segMap segms
+        highestSegment = maximum (map chunkSeg chunks)
 mkPrivateSegments :: Word -> Int -> [Segment reg MWord]
 mkPrivateSegments len size = replicate (fromEnum len `div` size) (Segment [] [] size [] True True) 

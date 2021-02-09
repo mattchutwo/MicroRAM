@@ -29,13 +29,12 @@ data TraceChunk reg = TraceChunk {
   --deriving Eq
 
 instance Show (TraceChunk reg) where
-  show tc = "# TraceChunk: Indx = " ++ (show $ chunkSeg tc) ++ ". ChunkStates = " ++ (show $ map pc (chunkStates tc))
-  
+  show tc = "# TraceChunk: Indx = " ++ (show $ chunkSeg tc) ++ ". ChunkStates = " ++ (show $ map pc (chunkStates tc))++ ". " 
 data PartialState reg = PartialState {
-  remainingTrace :: Trace reg
-  , pubBlocks :: [TraceChunk reg]
-  , priBlocks :: [TraceChunk reg]
-  , queueSt :: Trace reg
+  nextPc :: MWord 
+  , remainingTrace :: Trace reg
+  , chunksPS :: [TraceChunk reg]
+  , queueSt :: Trace reg -- Carries the unalocated states backwards. Eventually they go on private chunks.
   , availableSegments :: Map.Map MWord [Int]
   , privLoc :: Int -- The next location of a private segment
   } deriving Show
@@ -46,64 +45,67 @@ type PState reg x = State (PartialState reg) x
 chooseSegments :: Int -> Trace reg -> Map.Map MWord [Int] -> [Segment reg MWord] ->  [TraceChunk reg]
 chooseSegments privSize trace segmentSets segments =
   -- create starting state
-  let initSt = PartialState trace [] [] [] segmentSets (length segments)  
+  let initSt = PartialState 0 (tail trace) -- Drop the first state, which is known.
+               [] [] segmentSets (length segments)  
   -- run the choose statement
-      go = whileJust nextExecState (chooseSegment segments privSize) *> allocateQueue privSize
+      go = whileM_ traceNotEmpty (chooseSegment segments privSize) *> allocateQueue privSize
       finalSt = execState go initSt in 
   -- extract values and return
-    (pubBlocks finalSt) ++ (priBlocks finalSt)
+    (reverse $ chunksPS finalSt)
 
-  where whileJust :: PState reg (Maybe a) -> (a -> PState reg b) -> PState reg ()
-        whileJust nextM f = do
-          next <- nextM
-          case next of
-            Just a -> f a *> whileJust nextM f
-            Nothing -> return ()
+  where
+    -- whilePS :: PState reg Bool -> (PState reg b) -> PState reg ()
+    -- whilePS nextM f = do
+    --   next <- nextM
+    --   if next then f *> whileJust nextM f else return ()
 
-        nextExecState :: PState reg (Maybe (ExecutionState reg))
-        nextExecState = do
-          trace' <- remainingTrace <$> get
-          case trace' of
-            x : traceTail -> do
-              modify (\st -> st{remainingTrace = traceTail})
-              return $ Just x
-            [] -> return Nothing 
-          
+    traceNotEmpty :: PState reg Bool
+    traceNotEmpty = do
+      trace' <- remainingTrace <$> get
+      return $ (not . null) trace'
+whileM_ :: (Monad m) => m Bool -> m a -> m ()
+whileM_ p f = go
+  where go = do
+          x <- p
+          if x then f >> go else return ()
+    
+
+        
 showESt :: ExecutionState mreg -> String
 showESt es = "EState at " ++ (show $ pc es) ++ ". "
 
 showQueue
-  :: (Foldable t, Functor t) => t (ExecutionState mreg) -> [Char]
+  :: (Foldable t, Functor t) => t (ExecutionState mreg) -> String
 showQueue q = "[" ++ (concat $ showESt <$> q) ++ "]"
    
 -- | chooses the next segment
-chooseSegment :: [Segment reg MWord] -> Int -> ExecutionState reg -> PState reg ()
-chooseSegment segments privSize execSt = do
-  _segmentSets <- availableSegments <$> get
-  maybeSegment <- popSegmentIn (pc execSt)
+chooseSegment :: [Segment reg MWord] -> Int -> PState reg ()
+chooseSegment segments privSize = do
+  currentPc <- nextPc <$> get
+  maybeSegment <- popSegmentIn currentPc
   case maybeSegment of
     Just segment -> do allocateQueue privSize
-                       allocateSegment segments execSt segment
-    _ -> pushQueue execSt
+                       allocateSegment segments segment
+    _ -> do execSt <- pullStates 1
+            pushQueue (head execSt) -- pop the next state and add it to the queue
          
    where
-     allocateSegment :: [Segment reg MWord] -> ExecutionState reg -> Int -> PState reg ()
-     allocateSegment segments' state' segmentIndx =
+     allocateSegment :: [Segment reg MWord] -> Int -> PState reg ()
+     allocateSegment segments' segmentIndx =
        let segment = segments' !! segmentIndx
            len = segLen segment in
-         do statesTail <- pullStates (len -1)
-            newChunk <- return $ TraceChunk segmentIndx (state' : statesTail)
-            addPubBlocks newChunk 
-               
-     addPubBlocks :: TraceChunk reg -> PState reg ()
-     addPubBlocks chunk = modify (\st -> st {pubBlocks = chunk : pubBlocks st})
-
-     -- Gets the next n states
+         do statesTail <- pullStates len
+            newChunk <- return $ TraceChunk segmentIndx (statesTail)
+            addChunks [newChunk] 
+     
+     -- Gets the next n states, update pc to match the last popped state
      pullStates :: Int -> PState reg [ExecutionState reg]
      pullStates n = do
        remTrace <- remainingTrace <$> get
-       modify (\st -> st {remainingTrace = drop n $ remTrace})
-       return $ (take n) remTrace
+       states <- return $ (take n) remTrace
+       -- Update the list AND the pc of the last popped state
+       modify (\st -> st {remainingTrace = drop n $ remTrace, nextPc = pc $ last states})
+       return $ states
      pushQueue :: ExecutionState reg -> PState reg () 
      pushQueue state' = do
        st <- get
@@ -120,15 +122,16 @@ chooseSegment segments privSize execSt = do
          _ -> return Nothing
 
 allocateQueue :: Int -> PState reg ()
-allocateQueue size =  -- TODO: Add sparsity and redundant steps for the last segment.
+allocateQueue size =  -- TODO: Add sparsity.
   do queue <- queueSt <$> get
-     modify (\st -> st {queueSt = []})
      currentPrivSegment <- privLoc <$> get
-     addPrivBlocks (splitPrivBlocks size currentPrivSegment $ reverse queue)
-addPrivBlocks :: [TraceChunk reg] -> PState reg ()
-addPrivBlocks newBlocks = do
-  st <- get
-  put (st {priBlocks = priBlocks st ++ newBlocks})
+     newChunks <- return (splitPrivBlocks size currentPrivSegment $ reverse queue)
+     modify (\st -> st {queueSt = [], privLoc = currentPrivSegment + length newChunks})
+     addChunks newChunks
+-- Chunks are added backwards!
+addChunks :: [TraceChunk reg] -> PState reg ()
+addChunks newBlocks = modify (\st -> st {chunksPS = (reverse newBlocks) ++ chunksPS st})
+
 splitPrivBlocks :: Int -> Int -> Trace reg -> [TraceChunk reg]
 splitPrivBlocks size privLoc' privTrace =
   let splitTrace = padLast size $ splitEvery size privTrace in
@@ -165,29 +168,29 @@ testTrace :: Trace ()
 testTrace =
   fakeState 0 :
   fakeState 1 :
-  fakeState 2 :  --
-  fakeState 4 :  
+  fakeState 2 :  
+  fakeState 4 :  --
   fakeState 5 :
-  fakeState 6 :  -- 
+  fakeState 6 :   
   fakeState 3 :  --
-  fakeState 4 :
+  fakeState 4 :  --
   fakeState 5 : 
-  fakeState 6 :  --
+  fakeState 6 :  
   fakeState 3 :  -- 
   fakeState 4 : 
   fakeState 5 :
   fakeState 6 :  --
-  fakeState 3 :  --
+  fakeState 3 :  
   fakeState 4 : 
-  fakeState 8 : 
-  fakeState 5 :
-  fakeState 6 :  --
-  fakeState 3 :  --
-  fakeState 7 :
   fakeState 8 :  --
+  fakeState 5 :
+  fakeState 6 :  
+  fakeState 3 :  --
+  fakeState 7 :  --
+  fakeState 8 :  
   fakeState 3 :  --
   fakeState 7 :
-  fakeState 8 : []
+  fakeState 8 : [] --
 
 pcConstraint n = [PcConst n]
 segment0 =
