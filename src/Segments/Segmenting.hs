@@ -26,8 +26,7 @@ data Segment reg wrd = Segment
     , segLen :: Int
     , segSuc :: [Int]
     , fromNetwork :: Bool
-    , toNetwork :: Bool }
-                     deriving (Eq, Show, Generic)
+    , toNetwork :: Bool } deriving (Eq, Show, Generic)
 -- | Constraints for the segment
 data Constraints =
   PcConst MWord -- | Pc constraints indicate a public segment.
@@ -48,9 +47,9 @@ makeCut pc instrs = Cut instrs pc (length instrs)
 
 segmentProgram :: Program reg MWord -> Hopefully $ ([Segment reg MWord], Map.Map MWord [Int])
 segmentProgram prog =
-  let (cuts, map) = cutProg prog in
-    do segs <- mapM (cut2segment map) cuts
-       return (segs, map)
+  let (cuts, cutMap) = cutProg prog in
+    do segs <- mapM (cut2segment cutMap) cuts
+       return (segs, cutMap)
 
 cutProg :: Program reg wrd -> ([Cut reg wrd], Map.Map MWord [Int])
 cutProg prog =
