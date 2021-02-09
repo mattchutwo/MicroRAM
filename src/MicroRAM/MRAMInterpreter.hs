@@ -34,8 +34,9 @@ module MicroRAM.MRAMInterpreter
 
 import Control.Monad
 import Control.Monad.State
-import Control.Lens (makeLenses, ix, at, to, lens, (^.), (&), (.~), (.=), (%=), use, Lens', _1, _2, _3)
+import Control.Lens (makeLenses, ix, at, to, lens, (^.), (^?), (&), (.~), (.=), (%=), use, Lens', _1, _2, _3)
 import Data.Bits
+import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.List (intercalate)
 import qualified Data.Sequence as Seq
@@ -44,7 +45,10 @@ import qualified Data.Set as Set
 import Data.Set (Set, member)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
+import Data.Word
 
 import GHC.Generics (Generic)
 
@@ -423,10 +427,30 @@ adviceHandler _ _ = return ()
 
 -- Trace handler (for debugging)
 
+readStr :: Monad m => MWord -> InterpM r s m Text
+readStr ptr = do
+  let (waddr, offset) = splitAddr ptr
+  Mem _ mem <- use $ sMach . mMem
+  let firstWord = maybe 0 id $ mem ^? ix waddr
+      firstBytes = drop offset $ splitWord firstWord
+      restWords = [maybe 0 id $ mem ^? ix waddr' | waddr' <- [waddr + 1 ..]]
+      bytes = takeWhile (/= 0) $ concat $ firstBytes : map splitWord restWords
+      bs = BS.pack bytes
+      t = Text.decodeUtf8With (\_ _ -> Just '?') bs
+  return t
+  where
+    splitWord :: MWord -> [Word8]
+    splitWord x = [fromIntegral $ x `shiftR` (i * 8) | i <- [0 .. wordBytes - 1]]
+
 traceHandler :: Regs r => Bool -> InstrHandler r s -> InstrHandler r s
 traceHandler active _nextH (Iext "trace" ops) = do
   vals <- mapM opVal ops
   when active $ traceM $ "TRACE " ++ intercalate ", " (map show vals)
+  nextPc
+traceHandler active _nextH (Iext "tracestr" [ptrOp]) = do
+  ptr <- opVal ptrOp
+  s <- readStr ptr
+  when active $ traceM $ "TRACESTR " ++ Text.unpack s
   nextPc
 traceHandler active _nextH (Iext name ops) | Just desc <- Text.stripPrefix "trace_" name = do
   vals <- mapM opVal ops
