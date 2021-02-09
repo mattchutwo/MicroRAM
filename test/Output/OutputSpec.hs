@@ -127,7 +127,7 @@ testParams = testProperty "Serialising Parameters" $
 
 -- * Testing Traces
 instance Arbitrary (StateOut) where
-  arbitrary = StateOut <$> arbitrary <*> arbitrary <*> arbitrary  <*> arbitrary
+  arbitrary = StateOut <$> arbitrary <*> arbitrary <*> arbitrary
 
 testTrace :: TestTree
 testTrace = testProperty "Serialising traces" $
@@ -156,14 +156,20 @@ instance Arbitrary InitMemSegment where
               arbitrary <*> arbitrary <*> arbitrary
 
 instance Arbitrary reg => Arbitrary (Segment reg MWord) where
-  arbitrary = Segment  <$> arbitrary <*> arbitrary <*> arbitrary  <*> arbitrary <*> arbitrary
+  arbitrary = Segment  <$> arbitrary <*> arbitrary <*> arbitrary  <*> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary SegmentOut where
+  arbitrary = SegmentOut <$> arbitrary <*> arbitrary  <*> arbitrary <*> arbitrary <*> arbitrary
 
 instance Arbitrary reg => Arbitrary (TraceChunkOut reg) where
   arbitrary = TraceChunkOut  <$> arbitrary <*> arbitrary
 
+instance Arbitrary Constraints where
+  arbitrary = PcConst <$> arbitrary
+
 instance Arbitrary reg => Arbitrary (Output reg) where
   arbitrary = oneof
-    [ SecretOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    [ SecretOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
     , PublicOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
     ]
 

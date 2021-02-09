@@ -15,7 +15,6 @@ import Control.Monad.State
 
 import qualified Data.Set as Set
 
-
 import Sparsity.Sparsity
 
 --import Debug.Trace
