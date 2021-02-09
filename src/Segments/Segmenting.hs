@@ -25,7 +25,8 @@ data Segment reg wrd = Segment
     , init_pc :: MWord
     , segLen :: Int
     , segSuc :: [Int]
-    , fromNetwork :: Bool }
+    , fromNetwork :: Bool
+    , toNetwork :: Bool }
                      deriving (Eq, Show, Generic)
     
 --segmenting :: Program reg wrd -> [Segment reg wrd]
@@ -93,7 +94,7 @@ instrSuccessor blockMap pc instr =
     _             -> return $ []
 
   where ifConst :: Operand regT MWord -> Hopefully $ [Int]
-        ifConst (Reg   _) = return $ [-1]  -- Go to network
+        ifConst (Reg   _) = return $ []  -- By default it goes to network.
         ifConst (Const c) = do { block <- getBlock c; return block }
           
         getBlock :: MWord -> Hopefully [Int] 
@@ -108,7 +109,7 @@ instrSuccessor blockMap pc instr =
 cut2segment :: Map.Map MWord [Int] -> Cut reg MWord -> Hopefully $ Segment reg MWord 
 cut2segment blockMap (Cut instrs pc len) = do
   succ <- cutSuccessors blockMap (Cut instrs pc len)
-  return $ Segment instrs pc len succ True -- We are hardcoing everithing comes from network, for now
+  return $ Segment instrs pc len succ True True -- We are hardcoing everithing comes and goes to network, for now
 
 
 

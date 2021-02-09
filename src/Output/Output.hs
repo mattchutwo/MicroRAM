@@ -64,7 +64,7 @@ data TraceChunkOut reg = TraceChunkOut {
 data Output reg  =
   SecretOutput
   { program :: Program reg MWord
-  , segmentsOut :: [Segment reg  MWord]
+  , segmentsOut :: [SegmentOut]
   , params :: CircuitParameters
   , initMem :: InitialMem
   , trace :: [TraceChunkOut reg]
@@ -72,10 +72,19 @@ data Output reg  =
   }
   | PublicOutput
   { program :: Program reg MWord
-  , segmentsOut :: [Segment reg MWord]
+  , segmentsOut :: [SegmentOut]
   , params :: CircuitParameters
   , initMem :: InitialMem
   } deriving (Eq, Show, Generic)
+
+data SegmentOut
+  = SegmentOut {initPcOut :: MWord,
+                segLenOut :: Int,
+                segSucOut :: [Int],
+                fromNetworkOut :: Bool}
+  deriving (Eq, Show, Generic)
+mkSegmentOut :: Segment reg MWord -> SegmentOut
+mkSegmentOut (Segment _ pc len suc fromNet) = SegmentOut pc len suc fromNet
 
 -- | Convert between the two outputs
 mkOutputPublic :: Output reg -> Output reg
@@ -152,9 +161,10 @@ buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed 
 
 compUnit2Output :: Regs reg => [Segment reg MWord] -> CompilationResult (Program reg MWord) -> Output reg
 compUnit2Output segs (CompUnit p trLen regData aData initMem _) =
-  let regNum = getRegNum regData in
-  let circParams = buildCircuitParameters trLen regData aData regNum in
-  PublicOutput (lowProg p) segs circParams initMem
+  let regNum = getRegNum regData
+      circParams = buildCircuitParameters trLen regData aData regNum
+      segsOut = map mkSegmentOut segs in
+  PublicOutput (lowProg p) segsOut circParams initMem
 
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).
