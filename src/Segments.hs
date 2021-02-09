@@ -27,14 +27,15 @@ import Segments.ChooseSegments
 data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (Program reg MWord)
                                               , segments :: [Segment reg MWord]
                                               , segmMap  :: Map.Map MWord [Int]
-                                              , segTrace :: Maybe [TraceChunk reg]}
+                                              , segTrace :: Maybe [TraceChunk reg]
+                                              , segAdvice :: Maybe (Map.Map MWord [Advice])}
 
 segment :: CompilationResult (Program reg MWord) -> Hopefully (SegmentedProgram reg)
 segment compRes = do 
   (segs, segMap) <- segmentProgram $ (lowProg . programCU) compRes
-  return $ SegmentedProgram compRes segs segMap Nothing
+  return $ SegmentedProgram compRes segs segMap Nothing Nothing
 
 chooseSegment' :: Regs reg => Int -> Trace reg -> SegmentedProgram reg -> (SegmentedProgram reg) 
-chooseSegment' privSize trace (SegmentedProgram compRes segms segMap _) =
+chooseSegment' privSize trace (SegmentedProgram compRes segms segMap _ adv) =
   let chunks = chooseSegments privSize trace segMap segms in
-    SegmentedProgram compRes segms segMap $ Just chunks
+    SegmentedProgram compRes segms segMap (Just chunks) adv

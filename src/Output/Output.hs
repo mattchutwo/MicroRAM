@@ -68,6 +68,7 @@ data Output reg  =
   , params :: CircuitParameters
   , initMem :: InitialMem
   , trace :: [TraceChunkOut reg]
+  , adviceOut :: Map.Map MWord [Advice]
   }
   | PublicOutput
   { program :: Program reg MWord
@@ -78,12 +79,12 @@ data Output reg  =
 
 -- | Convert between the two outputs
 mkOutputPublic :: Output reg -> Output reg
-mkOutputPublic (SecretOutput a b c d _) = PublicOutput a b c d
+mkOutputPublic (SecretOutput a b c d _ _) = PublicOutput a b c d
 mkOutputPublic (PublicOutput a b c d) = PublicOutput a b c d
 
-mkOutputPrivate :: [TraceChunkOut reg] -> Output reg -> Output reg
-mkOutputPrivate trace (PublicOutput a b c d ) = SecretOutput a b c d trace
-mkOutputPrivate trace (SecretOutput a b c d _) = SecretOutput a b c d trace
+mkOutputPrivate :: [TraceChunkOut reg] -> Map.Map MWord [Advice] -> Output reg -> Output reg
+mkOutputPrivate trace adv (PublicOutput a b c d ) = SecretOutput a b c d trace adv
+mkOutputPrivate trace adv (SecretOutput a b c d _ _) = SecretOutput a b c d trace adv
 
 
 
@@ -111,7 +112,7 @@ data StateOut = StateOut
   { flagOut :: Bool
   , pcOut   :: MWord
   , regsOut :: [MWord]
-  , adviceOut :: [Advice]
+--  , adviceOut :: [Advice]
   } deriving (Eq, Show, Generic)
 
 -- | Compiler is allowed to concretise.
@@ -122,8 +123,8 @@ concretize (Just w) = w
 concretize Nothing = 0
 
 state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
-state2out bound (ExecutionState pc regs _ _ advice flag _ _ _) =
-  StateOut flag pc (map concretize $ regToList bound regs) advice
+state2out bound (ExecutionState pc regs _ _ _advice flag _ _ _) =
+  StateOut flag pc (map concretize $ regToList bound regs) -- Advice is ignored
 
 
 

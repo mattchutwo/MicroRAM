@@ -20,17 +20,21 @@ import Compiler.Registers
 
 import Control.Monad
 
+import qualified Data.Map as Map
+
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
 import Output.Output
 
 import Segments
+import Segments.ChooseSegments (TraceChunk(..))
 
 postProcess_v :: Regs reg => Bool -> Int -> Bool -> CompilationResult (Program reg MWord) -> Hopefully (Output reg)
 postProcess_v verb chunkSize private =
   segment
   >=> (doIf private (getTrace verb chunkSize))
+  >=> (doIf private recoverAdvice)
   >=> segProg2Output
 
   where doIf :: Monad m => Bool -> (a -> m a) -> a -> m a
@@ -41,12 +45,33 @@ getTrace :: Regs reg => Bool -> Int -> SegmentedProgram reg -> Hopefully (Segmen
 getTrace verb chunkSize segProg = do
   flatTrace <- return $ run_v verb $ compiled segProg
   return $ chooseSegment' chunkSize flatTrace segProg
+
+recoverAdvice :: SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
+recoverAdvice segProg = do
+  adv <- return $ case segTrace segProg of
+                      Nothing -> Nothing -- No trace, no advice
+                      Just tr -> Just $ adviceSt $ foldOverChunks emptyAdvice tr gatherAdvice
+  return $ segProg {segAdvice = adv}
+    
+  where gatherAdvice :: AdviceState -> ExecutionState reg -> AdviceState
+        gatherAdvice (AdviceState adv cyc) exSt =
+          AdviceState (Map.insert cyc (advice exSt) adv) (cyc + 1) 
+
+        foldOverChunks :: st -> [TraceChunk reg] -> (st -> ExecutionState reg -> st) -> st
+        foldOverChunks st trace f = foldl (foldOverChunkInside f) st trace  
+        foldOverChunkInside :: (st -> ExecutionState reg -> st) -> st -> TraceChunk reg -> st
+        foldOverChunkInside f st' chunk = foldl f st' (chunkStates chunk)
         
+data AdviceState = AdviceState {adviceSt :: Map.Map MWord [Advice], cycleSt :: MWord}
+emptyAdvice :: AdviceState
+emptyAdvice = AdviceState Map.empty 0
+  
 segProg2Output :: Regs reg => SegmentedProgram reg -> Hopefully (Output reg)
-segProg2Output (SegmentedProgram comp segs _segMap segTra) =
-  return $ case segTra of
-             Nothing -> publ
-             Just trace -> mkOutputPrivate (traceOut trace) publ
+segProg2Output (SegmentedProgram comp segs _segMap segTra segAdv) =
+  case (segTra, segAdv) of
+    (Nothing, Nothing) -> return publ
+    (Just trace, Just adv)  -> return $ mkOutputPrivate (traceOut trace) adv publ
+    _ -> assumptError $ "Trace and advice BOTH needed to create private output. Found \n Trace: " ++ (show segTra) ++ "\n advice: " ++ (show segAdv) 
   where publ = compUnit2Output segs comp
         traceOut trace = outputTrace (numRegs $ params publ) trace 
   
