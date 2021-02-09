@@ -189,38 +189,43 @@ testTrace =
   fakeState 7 :
   fakeState 8 : []
 
+pcConstraint n = [PcConst n]
 segment0 =
   Segment
   [ Iand () () (Reg ()), 
     Isub () () (Reg ()), 
     Ijmp (Reg ()) ]
-    0
+    (pcConstraint 0)
     3
     []
+    False
     False
 segment1 =
   Segment
   [Icjmp () (Const 0)]
-  3
+  (pcConstraint 3)
   1
   []
+  False 
   False
 segment2 =
   Segment
   [Iadd () () (Const 0),
     Isub () () (Const 0), 
     Ijmp (Const 3)]
-  4
+  (pcConstraint 4)
   3
   []
+  False
   False
 segment3 =
   Segment
   [Iand () () (Reg ()),
     Isub () () (Const 0)]
-  7
+  (pcConstraint 7)
   2
   []
+  False
   False
 
 testSegments' :: [Segment () MWord]

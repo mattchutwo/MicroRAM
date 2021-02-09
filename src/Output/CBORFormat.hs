@@ -54,13 +54,14 @@ import Output.Output
 -- * Full Output
 
 encodeOutput :: Serialise reg => Output reg -> Encoding
-encodeOutput (SecretOutput prog segs params initM trc) =
+encodeOutput (SecretOutput prog segs params initM trc adv) =
   map2CBOR $ 
   [ ("program", encode prog)
   , ("segments", encode segs)
   , ("params", encode params)
   , ("init_mem", encode initM)
   , ("trace", encode trc)
+  , ("advice", encode adv)
   ]
 encodeOutput (PublicOutput prog segs params initM ) =
   map2CBOR $ 
@@ -74,7 +75,7 @@ decodeOutput :: Serialise reg => Decoder s (Output reg)
 decodeOutput = do
   len <- decodeMapLen
   case len of
-    5 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode
+    6 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode
     4 -> PublicOutput <$> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode
     n -> fail $ "Only lengths for output are 3 and 5 (Public and Secret). Insted found: " ++ show n 
     
@@ -350,20 +351,18 @@ instance Serialise InitMemSegment where
 -- *** State Out 
 
 encodeStateOut :: StateOut -> Encoding
-encodeStateOut (StateOut flag pc regs advice) =
+encodeStateOut (StateOut flag pc regs) =
   map2CBOR $
   [ ("flag", encodeBool flag) 
   , ("pc", encode pc)
   , ("regs", encode regs)
-  , ("advice", encode advice)
   ]
 
 decodeStateOut :: Decoder s StateOut
 decodeStateOut = do
     len <- decodeMapLen
     case len of
-      4 -> StateOut <$ decodeString <*> decodeBool
-                    <* decodeString <*> decode
+      3 -> StateOut <$ decodeString <*> decodeBool
                     <* decodeString <*> decode
                     <* decodeString <*> decode
       _ -> fail $ "invalid state encoding. Length should be 3 but found " ++ show len
@@ -437,25 +436,44 @@ instance Serialise Advice where
   decode = decodeAdvice
   encode = encodeAdvice
 
-encodeSegment :: Serialise reg => (Segment reg MWord) -> Encoding
-encodeSegment (Segment segIntrs init_pc segLen segSuc fromNet) =
+encodeConstraints :: Constraints -> Encoding
+encodeConstraints (PcConst pc) =
+  encodeListLen 2 <>
+  encodeString "pc" <>
+  encode pc
+
+decodeConstraints :: Decoder s Constraints
+decodeConstraints = do
+  ln <- decodeListLen
+  name <- decodeString
+  case (ln, name) of
+    (2, "pc") -> PcConst <$> decode
+    (ln, name) -> fail $ "Invalid constraint encoding. Found length " ++ (show ln) ++ " and name: " ++ show name  
+
+
+instance Serialise Constraints where
+  decode = decodeConstraints
+  encode = encodeConstraints
+
+encodeSegmentOut :: SegmentOut -> Encoding
+encodeSegmentOut (SegmentOut constr segLen segSuc fromNet toNet) =
   encodeListLen 5 <>
-  encode segIntrs <>
-  encode init_pc <>
+  encode constr <>
   encode segLen <>
   encode segSuc <>
-  encode fromNet
+  encode fromNet <>
+  encode toNet
 
-decodeSegment :: Serialise reg => Decoder s (Segment reg MWord)
-decodeSegment = do
+decodeSegmentOut :: Decoder s SegmentOut
+decodeSegmentOut = do
   ln <- decodeListLen
   case ln of
-    5 -> Segment <$> decode <*> decode <*> decode <*> decode <*> decode
+    5 -> SegmentOut <$> decode <*> decode <*> decode <*> decode  <*> decode
     ln -> fail $ "Invalid segment encoding. Expected length is 5 but found" ++ show ln 
 
-instance (Serialise reg) => Serialise (Segment reg MWord) where
-  decode = decodeSegment
-  encode = encodeSegment
+instance Serialise SegmentOut where
+  decode = decodeSegmentOut
+  encode = encodeSegmentOut
 
 encodeTraceChunkOut :: Serialise reg => (TraceChunkOut reg) -> Encoding
 encodeTraceChunkOut (TraceChunkOut location states) =

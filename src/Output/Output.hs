@@ -78,13 +78,14 @@ data Output reg  =
   } deriving (Eq, Show, Generic)
 
 data SegmentOut
-  = SegmentOut {initPcOut :: MWord,
+  = SegmentOut {constraintsOut :: [Constraints],
                 segLenOut :: Int,
                 segSucOut :: [Int],
-                fromNetworkOut :: Bool}
+                fromNetworkOut :: Bool,
+                toNetworkOut :: Bool}
   deriving (Eq, Show, Generic)
 mkSegmentOut :: Segment reg MWord -> SegmentOut
-mkSegmentOut (Segment _ pc len suc fromNet) = SegmentOut pc len suc fromNet
+mkSegmentOut (Segment _ constr len suc fromNet toNet) = SegmentOut constr len suc fromNet toNet
 
 -- | Convert between the two outputs
 mkOutputPublic :: Output reg -> Output reg

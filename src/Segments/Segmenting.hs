@@ -9,7 +9,7 @@ Stability   : experimental
 
 -}
 
-module Segments.Segmenting (segmentProgram, Segment(..)) where
+module Segments.Segmenting (segmentProgram, Segment(..), Constraints(..)) where
 
 import Compiler.Errors
 import qualified Data.Map as Map 
@@ -22,13 +22,17 @@ import GHC.Generics
 -- The map relates the beggining of each segment, in the original program, with the segment in the cut program
 data Segment reg wrd = Segment
   { segIntrs :: [Instruction reg wrd]
-    , init_pc :: MWord
+    , constraints :: [Constraints]
     , segLen :: Int
     , segSuc :: [Int]
     , fromNetwork :: Bool
     , toNetwork :: Bool }
                      deriving (Eq, Show, Generic)
-    
+-- | Constraints for the segment
+data Constraints =
+  PcConst MWord -- | Pc constraints indicate a public segment.
+  deriving (Eq, Show, Generic)
+  
 --segmenting :: Program reg wrd -> [Segment reg wrd]
 --segmenting prog = 
 
@@ -108,8 +112,8 @@ instrSuccessor blockMap pc instr =
 -- | Cut to segment
 cut2segment :: Map.Map MWord [Int] -> Cut reg MWord -> Hopefully $ Segment reg MWord 
 cut2segment blockMap (Cut instrs pc len) = do
-  succ <- cutSuccessors blockMap (Cut instrs pc len)
-  return $ Segment instrs pc len succ True True -- We are hardcoing everithing comes and goes to network, for now
+  succe <- cutSuccessors blockMap (Cut instrs pc len)
+  return $ Segment instrs [PcConst pc] len succe True True -- We are hardcoing everithing comes and goes to network, for now
 
 
 
