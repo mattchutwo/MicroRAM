@@ -44,7 +44,7 @@ postProcess_v verb chunkSize private =
 getTrace :: Regs reg => Bool -> Int -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
 getTrace verb chunkSize segProg = do
   flatTrace <- return $ run_v verb $ compiled segProg
-  return $ chooseSegment' chunkSize flatTrace segProg
+  chooseSegment' chunkSize flatTrace segProg
 
 recoverAdvice :: SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
 recoverAdvice segProg = do
@@ -55,7 +55,10 @@ recoverAdvice segProg = do
     
   where gatherAdvice :: AdviceState -> ExecutionState reg -> AdviceState
         gatherAdvice (AdviceState adv cyc) exSt =
-          AdviceState (Map.insert cyc (advice exSt) adv) (cyc + 1) 
+          if null (advice exSt) then
+            (AdviceState adv cyc)
+          else
+            AdviceState (Map.insert cyc (advice exSt) adv) (cyc + 1) 
 
         foldOverChunks :: st -> [TraceChunk reg] -> (st -> ExecutionState reg -> st) -> st
         foldOverChunks st trace f = foldl (foldOverChunkInside f) st trace  
@@ -67,11 +70,11 @@ emptyAdvice :: AdviceState
 emptyAdvice = AdviceState Map.empty 0
   
 segProg2Output :: Regs reg => SegmentedProgram reg -> Hopefully (Output reg)
-segProg2Output (SegmentedProgram comp segs _segMap segTra segAdv) =
+segProg2Output (SegmentedProgram comp pubSegs privSegs _segMap segTra segAdv) =
   case (segTra, segAdv) of
     (Nothing, Nothing) -> return publ
     (Just trace, Just adv)  -> return $ mkOutputPrivate (traceOut trace) adv publ
     _ -> assumptError $ "Trace and advice BOTH needed to create private output. Found \n Trace: " ++ (show segTra) ++ "\n advice: " ++ (show segAdv) 
-  where publ = compUnit2Output segs comp
+  where publ = compUnit2Output (pubSegs ++ privSegs) comp
         traceOut trace = outputTrace (numRegs $ params publ) trace 
   
