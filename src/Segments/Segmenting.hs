@@ -81,12 +81,15 @@ cutProg prog =
         isJump (Ijmp _) = True
         isJump (Icjmp _ _) = True
         isJump (Icnjmp _ _) = True
+        -- `answer` halts execution by jumping to itself in an infinite loop.
+        isJump (Ianswer _) = True
         isJump _ = False
 
 
 cutSuccessors :: Map.Map MWord [Int] -> Cut reg MWord -> Hopefully $ [Int]
-cutSuccessors map (Cut instrs pc len) =
-  instrSuccessor map (pc + toEnum len - 1)  (last instrs) 
+cutSuccessors map (Cut instrs pc len)
+  | null instrs = return []
+  | otherwise = instrSuccessor map (pc + toEnum len - 1)  (last instrs)
   
 instrSuccessor :: Map.Map MWord [Int] -> MWord -> Instruction reg MWord -> Hopefully $ [Int]
 instrSuccessor blockMap pc instr =
