@@ -26,6 +26,7 @@ type Statefully a = StateT Word Hopefully a
 lowerExtInstr :: Text -> Maybe VReg -> [MAOperand VReg MWord] ->
   Statefully [RTLInstr () MWord]
 lowerExtInstr "trace" _ _ = return []
+lowerExtInstr "tracestr" _ _ = return []
 lowerExtInstr name _ _ | "trace_" `Text.isPrefixOf` name = return []
 lowerExtInstr "malloc" (Just dest) ops =
   return [MRI (Iextadvise "malloc" dest ops) ()]

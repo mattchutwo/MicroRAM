@@ -6,6 +6,11 @@ script_dir="$(dirname "$0")"
 # Directory containing the `libfromager` library files
 lib_dir=$script_dir
 
+CFLAGS="$CFLAGS -I$lib_dir"
+if [[ -n "$FROMAGER_DEBUG" ]]; then
+    CFLAGS="$CFLAGS -DFROMAGER_DEBUG"
+fi
+
 # $secret_c contains the path of the secret input file if it exists.
 # Otherwise, it's empty, so `[ -n "$secret_c" ]` can be used to check if a
 # secret file should be used.
@@ -14,8 +19,8 @@ if ! [ -f "$secret_c" ]; then
     secret_c=
 fi
 
-CC="clang${LLVM_SUFFIX} -flto -O1 -mprefer-vector-width=1"
-CXX="clang++${LLVM_SUFFIX} -flto -O1 -mprefer-vector-width=1 -fno-rtti"
+CC="clang${LLVM_SUFFIX} -flto -O1 -mprefer-vector-width=1 $CFLAGS"
+CXX="clang++${LLVM_SUFFIX} -flto -O1 -mprefer-vector-width=1 -fno-rtti $CFLAGS"
 
 $CC -O3 -c "$lib_dir/libfromager.c" -o "$lib_dir/libfromager.c.o" -fno-builtin
 $CXX -O3 -c "$lib_dir/libfromager++.cpp" -o "$lib_dir/libfromager++.cpp.o"
