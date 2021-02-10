@@ -52,6 +52,7 @@ import Compiler.Sparsity
 import Compiler.Analysis
 import Compiler.Errors
 import Compiler.Registers
+import Compiler.Tainted
 import Compiler.CompilationUnit
 import MicroRAM
 import Util.Util
@@ -59,19 +60,21 @@ import Util.Util
 import Debug.Trace
 
 type Poison = Set MWord
-data Mem = Mem MWord (Map MWord MWord)
+data Mem = Mem MWord (Map MWord MWord) (Map MWord Label)
+
 
 data MachineState r = MachineState
   { _mCycle :: MWord
   , _mPc :: MWord
   , _mRegs :: RegBank r MWord
+  , _mRegLabels :: RegBank r Label -- TODO: Type level stuff to enable tainted things.
   , _mFlag :: Bool
   , _mProg :: Seq (Instruction r MWord)
   , _mMem :: Mem
   , _mPsn :: Poison
   , _mBug :: Bool
   , _mAnswer :: Maybe MWord
-  }  
+  }
 makeLenses ''MachineState
 
 data SparsityState = SparsityState
@@ -100,16 +103,30 @@ type InstrHandler r s = Instruction r MWord -> InterpM r s Hopefully ()
 mReg :: (Functor f, Regs r) => r -> (MWord -> f MWord) -> (MachineState r -> f (MachineState r))
 mReg r = mRegs . lens (maybe 0 id . lookupReg r) (flip $ updateBank r)
 
+mRegLabel :: (Functor f, Regs r) => r -> (Label -> f Label) -> (MachineState r -> f (MachineState r))
+mRegLabel r = mRegLabels . lens (maybe untainted id . lookupReg r) (flip $ updateBank r)
+
 -- | Lens for accessing a particular word of memory.  Produces the `Mem`'s
 -- default value when reading an uninitialized location.
 memWord :: Functor f => MWord -> (MWord -> f MWord) -> (Mem -> f Mem)
 memWord addr = lens (get addr) (set addr)
   where
-    get addr (Mem d m) = maybe d id $ Map.lookup addr m
-    set addr (Mem d m) val = Mem d $ Map.insert addr val m
+    get addr (Mem d m l) = maybe d id $ Map.lookup addr m
+    set addr (Mem d m l) val = Mem d (Map.insert addr val m) l
 
 mMemWord :: Functor f => MWord -> (MWord -> f MWord) -> (MachineState r -> f (MachineState r))
 mMemWord addr = mMem . memWord addr
+
+-- | Lens for accessing a particular label of memory.  Produces the 
+-- untainted when reading an uninitialized location.
+memLabel :: Functor f => MWord -> (Label -> f Label) -> (Mem -> f Mem)
+memLabel addr = lens (get addr) (set addr)
+  where
+    get addr (Mem d m l) = maybe untainted id $ Map.lookup addr l
+    set addr (Mem d m l) val = Mem d m (Map.insert addr val l)
+
+mMemLabel :: Functor f => MWord -> (Label -> f Label) -> (MachineState r -> f (MachineState r))
+mMemLabel addr = mMem . memLabel addr
 
 
 -- | Fetch the instruction at `addr`.  Typically, `addr` will be the current
@@ -160,6 +177,9 @@ stepInstr i = do
     Iread rd op2 -> stepRead rd op2
     Ianswer op2  -> stepAnswer op2
     Ipoison op2 r1 -> stepStore op2 r1 >> poison op2
+
+    Isink rj op2 -> return ()
+    Itaint rj op2 -> return ()
     
     Iadvise _ -> assumptError $ "unhandled advice request"
     
@@ -167,8 +187,78 @@ stepInstr i = do
     Iextval name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
     Iextadvise name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
 
+  stepInstrTainted i
+
   sMach . mCycle %= (+ 1)
-  
+
+-- TODO: Move to Compiler.Tainted?
+stepInstrTainted :: Regs r => Instruction r MWord -> InterpM r s Hopefully ()
+stepInstrTainted (Imov rd op2) = do
+  l <- opLabel op2
+  sMach . mRegLabel rd .= l
+stepInstrTainted (Icmov rd op2) = do
+  f <- use (sMach . mFlag)
+  when f $ do
+    l <- opLabel op2
+    sMach . mRegLabel rd .= l
+
+stepInstrTainted (Isink rj op2) = do
+  return () -- No-op. Bug here if label of rj /= op2.
+stepInstrTainted (Itaint rj op2) = do
+  l <- toLabel <$> opVal op2 -- Taint register rj with label value op2.
+  sMach . mRegLabel rj .= l
+
+stepInstrTainted (Iload rd op2) = do
+  addr <- opVal op2
+  l <- use $ sMach . mMemLabel addr
+  sMach . mRegLabel rd .= l
+stepInstrTainted (Istore op2 r1) = do
+  addr <- opVal op2
+  l <- regLabel r1
+  sMach . mMemLabel addr .= l
+stepInstrTainted (Ipoison op2 r1) = do
+  addr <- opVal op2
+  l <- regLabel r1
+  sMach . mMemLabel addr .= l
+
+-- Currently, we untaint the written to register for the following instructions.
+stepInstrTainted (Iand rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Ior rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Ixor rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Inot rd op2) = stepUntaintReg rd
+
+stepInstrTainted (Iadd rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Isub rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Imull rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Iumulh rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Ismulh rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Iudiv rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Iumod rd r1 op2) = stepUntaintReg rd
+
+stepInstrTainted (Ishl rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Ishr rd r1 op2) = stepUntaintReg rd
+
+stepInstrTainted (Icmpe r1 op2) = return ()
+stepInstrTainted (Icmpa r1 op2) = return ()
+stepInstrTainted (Icmpae r1 op2) = return ()
+stepInstrTainted (Icmpg r1 op2) = return ()
+stepInstrTainted (Icmpge r1 op2) = return ()
+
+stepInstrTainted (Ijmp op2) = return ()
+stepInstrTainted (Icjmp op2) = return ()
+stepInstrTainted (Icnjmp op2) = return ()
+
+stepInstrTainted (Iread rd op2) = stepUntaintReg rd
+stepInstrTainted (Ianswer op2) = return ()
+
+stepInstrTainted (Iadvise _) = assumptError $ "unhandled advice request"
+
+stepInstrTainted (Iext name _) = assumptError $ "unhandled extension instruction " ++ show name
+stepInstrTainted (Iextval name _ _) = assumptError $ "unhandled extension instruction " ++ show name
+stepInstrTainted (Iextadvise name _ _) = assumptError $ "unhandled extension instruction " ++ show name
+
+stepUntaintReg :: Regs r => r -> InterpM r s Hopefully ()
+stepUntaintReg rd = sMach . mRegLabel rd .= untainted
 
 -- ## Sparsity
 
@@ -332,9 +422,16 @@ signedGe x y = toSignedInteger x >= toSignedInteger y
 regVal :: Regs r => r -> InterpM r s Hopefully MWord
 regVal r = use $ sMach . mReg r
 
+regLabel :: Regs r => r -> InterpM r s Hopefully Label
+regLabel r = use $ sMach . mRegLabel r
+
 opVal ::  Regs r => Operand r MWord -> InterpM r s Hopefully MWord
 opVal (Reg r) = regVal r
 opVal (Const w) = return w
+
+opLabel ::  Regs r => Operand r MWord -> InterpM r s Hopefully Label
+opLabel (Reg r) = regLabel r
+opLabel (Const w) = return $ toLabel w
 
 
 -- Advice-generating extension
@@ -348,9 +445,10 @@ data MemOpType = MOStore | MOLoad | MOPoison
 -- advice. Currently we only advice about memory operations and steps that stutter.
 data Advice =
     MemOp
-    MWord      -- ^ address
-    MWord      -- ^ value
-    MemOpType  -- ^ read or write
+      MWord      -- ^ address
+      MWord      -- ^ value
+      MemOpType  -- ^ read or write
+      Label      -- TODO: Type level stuff to enable tainted things.
   | Advise MWord
   | Stutter
   deriving (Eq, Read, Show, Generic)
@@ -360,9 +458,9 @@ data Advice =
 renderAdvc :: [Advice] -> String
 renderAdvc advs = concat $ map renderAdvc' advs
   where renderAdvc' :: Advice -> String
-        renderAdvc' (MemOp addr v MOStore) = "Store: " ++ show addr ++ "->" ++ show v
-        renderAdvc' (MemOp  addr v MOLoad) = "Load: " ++ show addr ++ "->" ++ show v
-        renderAdvc' (MemOp addr v MOPoison) = "Poison: " ++ show addr ++ "->" ++ show v
+        renderAdvc' (MemOp addr v MOStore l) = "Store: " ++ show addr ++ "->" ++ show v ++ " (" ++ show l ++ ")"
+        renderAdvc' (MemOp  addr v MOLoad l) = "Load: " ++ show addr ++ "->" ++ show v ++ " (" ++ show l ++ ")"
+        renderAdvc' (MemOp addr v MOPoison l) = "Poison: " ++ show addr ++ "->" ++ show v ++ " (" ++ show l ++ ")"
         renderAdvc' (Advise v) = "Advise: " ++ show v
         renderAdvc' (Stutter) = "...Stutter..."
 
@@ -379,15 +477,18 @@ adviceHandler :: Regs r => Lens' s AdviceMap -> InstrHandler r s
 adviceHandler advice (Istore op2 r1) = do
   addr <- opVal op2
   val <- regVal r1
-  recordAdvice advice (MemOp addr val MOStore)
+  taint <- regLabel r1
+  recordAdvice advice (MemOp addr val MOStore taint)
 adviceHandler advice (Iload _rd op2) = do
   addr <- opVal op2
   val <- use $ sMach . mMemWord addr
-  recordAdvice advice (MemOp addr val MOLoad)
+  taint <- use $ sMach . mMemLabel addr
+  recordAdvice advice (MemOp addr val MOLoad taint)
 adviceHandler advice (Ipoison op2 r1) = do
   addr <- opVal op2
   val <- regVal r1
-  recordAdvice advice (MemOp addr val MOPoison)
+  taint <- regLabel r1
+  recordAdvice advice (MemOp addr val MOPoison taint)
 adviceHandler _ _ = return ()
 
 
@@ -648,7 +749,7 @@ runPass2 steps spars initMach' memInfo = do
 
 -- Old public definitions
 
-type Mem' = (MWord, Map MWord MWord)
+type Mem' = (MWord, Map MWord MWord, Map MWord Label) -- TODO: Type level stuff to enable tainted things.
 
 -- | The program state 
 data ExecutionState mreg = ExecutionState {
@@ -656,6 +757,8 @@ data ExecutionState mreg = ExecutionState {
   pc :: MWord
   -- | Register bank
   , regs :: RegBank mreg MWord
+  -- | Register label bank
+  , regLabels :: RegBank mreg Label -- TODO: Type level stuff to enable tainted things.
   -- | Memory state
   , mem :: Mem'
   -- | Locations that have been poisoned
@@ -669,15 +772,16 @@ data ExecutionState mreg = ExecutionState {
   -- | Return value.
   , answer :: MWord }
 
-deriving instance (Read (RegBank mreg MWord)) => Read (ExecutionState mreg)
-deriving instance (Show (RegBank mreg MWord)) => Show (ExecutionState mreg)
+deriving instance (Read (RegBank mreg MWord), Read (RegBank mreg Label)) => Read (ExecutionState mreg)
+deriving instance (Show (RegBank mreg MWord), Show (RegBank mreg Label)) => Show (ExecutionState mreg)
 
 getStateWithAdvice :: Monad m => Lens' s AdviceMap -> InterpM r s m (ExecutionState r)
 getStateWithAdvice advice = do
   pc <- use $ sMach . mPc
   regs <- use $ sMach . mRegs
-  Mem d m <- use $ sMach . mMem
-  let mem = (d, m)
+  regLabels <- use $ sMach . mRegLabels
+  Mem d m l <- use $ sMach . mMem
+  let mem = (d, m, l)
   cycle <- use $ sMach . mCycle
   -- Retrieve advice for the cycle that just finished executing.
   adv <- use $ sExt . advice . ix (cycle - 1)
@@ -686,7 +790,7 @@ getStateWithAdvice advice = do
   psn <- use $ sMach . mPsn
   let inv = False
   answer <- use $ sMach . mAnswer
-  return $ ExecutionState pc regs mem psn adv flag bug inv (maybe 0 id answer)
+  return $ ExecutionState pc regs regLabels mem psn adv flag bug inv (maybe 0 id answer)
 
 type Prog mreg = Program mreg MWord
 type Trace mreg = [ExecutionState mreg]
@@ -696,9 +800,10 @@ initMach prog imem = MachineState
   { _mCycle = 0
   , _mPc = 0
   , _mRegs = initBank (lengthInitMem imem)
+  , _mRegLabels = initBank untainted
   , _mFlag = False
   , _mProg = Seq.fromList prog
-  , _mMem = Mem 0 $ flatInitMem imem
+  , _mMem = Mem 0 (flatInitMem imem) $ flatInitTaintedMem imem
   , _mPsn = Set.empty
   , _mBug = False
   , _mAnswer = Nothing
@@ -730,7 +835,7 @@ execBug verb compUnit = bug_flag $ last $ run_v verb compUnit
 
 -- | Read from a location in memory
 load ::  MWord -> Mem' -> MWord
-load x (d,m)=  case Map.lookup x m of
+load x (d,m,l)=  case Map.lookup x m of
                  Just y -> y
                  Nothing -> d
 

@@ -22,6 +22,7 @@ import GHC.Generics
 import Compiler.Sparsity
 import Compiler.CompilationUnit
 import Compiler.Registers
+import Compiler.Tainted
 import Compiler.Analysis
 
 import MicroRAM.MRAMInterpreter
@@ -99,6 +100,7 @@ data StateOut = StateOut
   { flagOut :: Bool
   , pcOut   :: MWord
   , regsOut :: [MWord]
+  , regLabelsOut :: [Label] -- TODO: Type level stuff to enable tainted things.
   } deriving (Eq, Show, Generic)
 
 -- | Compiler is allowed to concretise.
@@ -109,8 +111,8 @@ concretize (Just w) = w
 concretize Nothing = 0
 
 state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
-state2out bound (ExecutionState pc regs _ _ _ flag _ _ _) =
-  StateOut flag pc (map concretize $ regToList bound regs)
+state2out bound (ExecutionState pc regs regLabels _ _ _ flag _ _ _) =
+  StateOut flag pc (map concretize $ regToList bound regs) (map concretizeLabel $ regToList bound regLabels)
 
 
 

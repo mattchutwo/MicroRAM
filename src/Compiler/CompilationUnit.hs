@@ -24,6 +24,7 @@ import Compiler.Analysis
 --import Compiler.Common
 import Compiler.LazyConstants
 import Compiler.Registers
+import Compiler.Tainted
 
 
 -- | The Compilation Unit
@@ -91,6 +92,7 @@ data InitMemSegment = InitMemSegment
   , location :: MWord
   , segmentLen :: MWord
   , content :: Maybe [MWord]
+  , labels :: Maybe [Label] -- TODO: Type level stuff to enable tainted things.
   } deriving (Eq, Ord, Read, Show)
 
 type InitialMem = [InitMemSegment]
@@ -103,12 +105,21 @@ type LazyInitialMem = [LazyInitSegment]
 flatInitMem :: InitialMem -> Map.Map MWord MWord
 flatInitMem = foldr initSegment Map.empty
   where initSegment :: InitMemSegment -> Map.Map MWord MWord -> Map.Map MWord MWord
-        initSegment (InitMemSegment _ _ _ _ Nothing) = id
-        initSegment (InitMemSegment _ _ loc _ (Just content)) =
+        initSegment (InitMemSegment _ _ _ _ Nothing _) = id
+        initSegment (InitMemSegment _ _ loc _ (Just content) _) =
           Map.union $ Map.fromList $
           -- Map with the new content
           zip [loc..] content
 
+flatInitTaintedMem :: InitialMem -> Map.Map MWord Label
+flatInitTaintedMem = foldr initSegment Map.empty
+  where initSegment :: InitMemSegment -> Map.Map MWord Label -> Map.Map MWord Label
+        initSegment (InitMemSegment _ _ _ _ _ Nothing) = id
+        initSegment (InitMemSegment _ _ loc _ _ (Just labels)) =
+          Map.union $ Map.fromList $
+          -- Map with the new content
+          zip [loc..] labels
+
 lengthInitMem :: InitialMem -> MWord
 lengthInitMem = foldl (\tip seg -> max tip (segTip seg)) 0
-  where segTip (InitMemSegment _ _ loc len _) = loc + len
+  where segTip (InitMemSegment _ _ loc len _ _) = loc + len

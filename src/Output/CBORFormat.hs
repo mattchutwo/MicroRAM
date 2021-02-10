@@ -34,6 +34,7 @@ import qualified Data.ByteString.Lazy                  as L
 import Compiler.Sparsity
 import Compiler.CompilationUnit
 import Compiler.Registers
+import Compiler.Tainted
 import Compiler.IRs
 
 import MicroRAM.MRAMInterpreter
@@ -296,26 +297,27 @@ instance Serialise CircuitParameters where
 
 
 encodeInitMemSegment :: InitMemSegment -> Encoding
-encodeInitMemSegment (InitMemSegment secret read start len datas) =
+encodeInitMemSegment (InitMemSegment secret read start len datas labels) =
   map2CBOR $
   [ ("secret", encodeBool secret) 
   , ("read_only", encodeBool read)
   , ("start", encode start)
   , ("len", encode len)
-  ] ++  encodeMaybeContent datas
+  ] ++  encodeMaybeContent "data" datas
+    ++  encodeMaybeContent "labels" labels
 
-encodeMaybeContent :: Maybe [MWord] -> [(TXT.Text,Encoding)]
-encodeMaybeContent Nothing = []
-encodeMaybeContent (Just content) = return $ ("data",encode content)
+encodeMaybeContent :: Serialise a => TXT.Text -> Maybe a -> [(TXT.Text,Encoding)]
+encodeMaybeContent _ Nothing = []
+encodeMaybeContent s (Just content) = return $ (s,encode content)
 
 
 decodeInitMemSegment :: Decoder s InitMemSegment
 decodeInitMemSegment = do
     len <- decodeMapLen
     case len of
-      4 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> (return Nothing)
-      5 -> InitMemSegment <$> tagDecode <*> tagDecode <*>
-           tagDecode <*> tagDecode <*> do { content <- tagDecode; return $ Just content} 
+      4 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> pure Nothing <*> pure Nothing
+      6 -> InitMemSegment <$> tagDecode <*> tagDecode <*>
+           tagDecode <*> tagDecode <*> fmap Just tagDecode <*> fmap Just tagDecode
       _ -> fail $ "invalid state encoding. Length should be 4 or 5 but found " ++ show len
 
 instance Serialise InitMemSegment where
@@ -336,18 +338,20 @@ instance Serialise InitMemSegment where
 -- *** State Out 
 
 encodeStateOut :: StateOut -> Encoding
-encodeStateOut (StateOut flag pc regs) =
+encodeStateOut (StateOut flag pc regs regLabels) =
   map2CBOR $
   [ ("flag", encodeBool flag) 
   , ("pc", encode pc)
   , ("regs", encode regs)
+  , ("regLabels", encode regLabels)
   ]
 
 decodeStateOut :: Decoder s StateOut
 decodeStateOut = do
     len <- decodeMapLen
     case len of
-      3 -> StateOut <$ decodeString <*> decodeBool
+      4 -> StateOut <$ decodeString <*> decodeBool
+                    <* decodeString <*> decode
                     <* decodeString <*> decode
                     <* decodeString <*> decode
       _ -> fail $ "invalid state encoding. Length should be 3 but found " ++ show len
@@ -379,12 +383,13 @@ instance Serialise MemOpType where
 
 
 encodeAdvice :: Advice -> Encoding 
-encodeAdvice  (MemOp addr val opTyp) =
-  encodeListLen 4
+encodeAdvice  (MemOp addr val opTyp label) =
+  encodeListLen 5
   <> encodeString "MemOp"
   <> encode addr
   <> encode val
   <> encode opTyp
+  <> encode label
 
 encodeAdvice (Advise w) =
   encodeListLen 2
@@ -400,7 +405,7 @@ decodeAdvice = do
   ln <- decodeListLen
   name <- decodeString
   case (ln,name) of
-    (4, "MemOp") -> MemOp <$> decode <*> decode <*> decode
+    (5, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode
     (1, "Stutter") -> return Stutter
     (ln,name) -> fail $ "Found bad advice of length " ++ show ln ++ " and name: " ++ show name 
 
@@ -462,10 +467,10 @@ printOutputWithFormat Flat out _ = show . flatOutput $ out
 
 c :: Output Word
 c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
-                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}]}
+                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1], labels = Just [untainted]}]}
 
 d :: Output Word
 d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
-                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}],
+                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1], labels = Just [untainted]}],
                    trace = [], adviceOut = Map.empty}
  

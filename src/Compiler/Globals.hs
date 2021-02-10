@@ -74,9 +74,9 @@ memoryFromGlobals ggg  =
         resolveGlobalsMem globMap lInitMem = 
           map (resolveGlobalsSegment globMap) lInitMem
         resolveGlobalsSegment :: Map.Map String MWord -> LazyInitSegment -> LazyInitSegment
-        resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly loc len _) =
+        resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly loc len _ _) =
           let concreteInit = map (applyPartialMap g) <$> lazyConst in
-          (concreteInit, InitMemSegment secr rOnly loc len Nothing)
+          (concreteInit, InitMemSegment secr rOnly loc len Nothing Nothing)
         
 lazyMemoryFromGlobals :: GEnv MWord -> (LazyInitialMem, Map.Map String MWord)
 lazyMemoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg  
@@ -87,12 +87,12 @@ lazyMemoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg
         memoryFromGlobal (GlobalVariable name isConst _gTy init size secret) (initMem, gMap) =
           let newLoc = newLocation initMem in
           let newLazySegment =
-                (init, InitMemSegment secret isConst newLoc (fromIntegral $ size) Nothing) in -- __FIXME__
+                (init, InitMemSegment secret isConst newLoc (fromIntegral $ size) Nothing Nothing) in -- __FIXME__
           (newLazySegment:initMem, Map.insert (show name) newLoc gMap)
           
         newLocation :: LazyInitialMem -> MWord
         newLocation [] = 1 -- 0 is reserved
-        newLocation ((_,InitMemSegment _ _ loc len _):_) = loc + len
+        newLocation ((_,InitMemSegment _ _ loc len _ _):_) = loc + len
           
 
 -- * Replace global variables with pointers to the initial memeory
