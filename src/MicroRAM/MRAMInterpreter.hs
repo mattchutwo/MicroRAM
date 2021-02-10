@@ -178,8 +178,8 @@ stepInstr i = do
     Ianswer op2  -> stepAnswer op2
     Ipoison op2 r1 -> stepStore op2 r1 >> poison op2
 
-    Isink rj op2 -> return ()
-    Itaint rj op2 -> return ()
+    Isink rj op2 -> nextPc
+    Itaint rj op2 -> nextPc
     
     Iadvise _ -> assumptError $ "unhandled advice request"
     
@@ -429,9 +429,10 @@ opVal ::  Regs r => Operand r MWord -> InterpM r s Hopefully MWord
 opVal (Reg r) = regVal r
 opVal (Const w) = return w
 
+-- Returns the label of an operand.
 opLabel ::  Regs r => Operand r MWord -> InterpM r s Hopefully Label
 opLabel (Reg r) = regLabel r
-opLabel (Const w) = return $ toLabel w
+opLabel (Const _w) = return untainted
 
 
 -- Advice-generating extension
