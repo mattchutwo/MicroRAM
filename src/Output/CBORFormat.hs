@@ -343,7 +343,7 @@ encodeStateOut (StateOut flag pc regs regLabels) =
   [ ("flag", encodeBool flag) 
   , ("pc", encode pc)
   , ("regs", encode regs)
-  , ("regLabels", encode regLabels)
+  , ("tainted_regs", encode regLabels)
   ]
 
 decodeStateOut :: Decoder s StateOut
