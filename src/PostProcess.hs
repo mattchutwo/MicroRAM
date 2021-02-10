@@ -56,7 +56,7 @@ recoverAdvice segProg = do
   where gatherAdvice :: AdviceState -> ExecutionState reg -> AdviceState
         gatherAdvice (AdviceState adv cyc) exSt =
           if null (advice exSt) then
-            (AdviceState adv cyc)
+            (AdviceState adv (cyc + 1))
           else
             AdviceState (Map.insert cyc (advice exSt) adv) (cyc + 1) 
 
