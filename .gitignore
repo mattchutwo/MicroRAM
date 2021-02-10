@@ -20,3 +20,5 @@ temp/*
 *.c.opt.bc
 test/programs/**/*.c.bc
 **/*.micro
+*.py
+*.cbor
