@@ -241,13 +241,13 @@ predicate2instructuion inst r op1 op2 =
 -- Unsigned                                        r
   IntPred.UGT -> [MRAM.Icmpa  r op1 op2] 
   IntPred.UGE -> [MRAM.Icmpae r op1 op2] 
-  IntPred.ULT -> [MRAM.Icmpae r op2 op1] --FLIPED 
-  IntPred.ULE -> [MRAM.Icmpa  r op2 op1] --FLIPED 
+  IntPred.ULT -> [MRAM.Icmpa  r op2 op1] --FLIPED
+  IntPred.ULE -> [MRAM.Icmpae r op2 op1] --FLIPED
 -- Signed
   IntPred.SGT -> [MRAM.Icmpg  r op1 op2] 
   IntPred.SGE -> [MRAM.Icmpge r op1 op2] 
-  IntPred.SLT -> [MRAM.Icmpge r op2 op1]  --FLIPED
-  IntPred.SLE -> [MRAM.Icmpg  r op2 op1]  --FLIPED
+  IntPred.SLT -> [MRAM.Icmpg  r op2 op1]  --FLIPED
+  IntPred.SLE -> [MRAM.Icmpge r op2 op1]  --FLIPED
 
 
 floatError :: MonadError CmplError m => m a
