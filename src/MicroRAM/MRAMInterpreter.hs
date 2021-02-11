@@ -140,6 +140,8 @@ fetchInstr addr = do
 
 stepInstr :: Regs r => Instruction r MWord -> InterpM r s Hopefully ()
 stepInstr i = do
+  stepInstrTainted i
+
   case i of
     Iand rd r1 op2 -> stepBinary (.&.) rd r1 op2
     Ior rd r1 op2 -> stepBinary (.|.) rd r1 op2
@@ -186,8 +188,6 @@ stepInstr i = do
     Iext name _ -> assumptError $ "unhandled extension instruction " ++ show name
     Iextval name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
     Iextadvise name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
-
-  stepInstrTainted i
 
   sMach . mCycle %= (+ 1)
 
