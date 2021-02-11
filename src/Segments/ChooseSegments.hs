@@ -145,7 +145,7 @@ splitPrivBlocks size privLoc' privTrace =
       let lastSt = last ls
           stutterSt = lastSt {advice = [Stutter] }
           pad = replicate (size' - length ls) stutterSt  in
-        (init ls) ++ pad ++ [lastSt]
+        (init ls) ++ lastSt : pad
     modifyLast :: (a -> a) -> [a] -> [a]
     modifyLast _ [] = []
     modifyLast f [a] = [f a]
