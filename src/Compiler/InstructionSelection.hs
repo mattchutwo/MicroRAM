@@ -225,52 +225,28 @@ isBinop env ret op1 op2 bopisBinop = lift $ toRTL <$> isBinop' env ret op1 op2 b
           return $ [bop ret a b]
   
 -- ** Comparisons
-{- Unfortunately MRAM always puts a comparisons in the "flag"
-   So if we want the value we need to do 2 operations to get the value.
-   In the future, we can reserve one "register" to work as the flag, then a smart -}
-
--- There are two ways to move the result from the flag.
--- The straight worfward cmptTail_pos and the negated one cmptTail_neg
-
-cmptTail_pos, cmptTail_neg
-  :: (Monad m, Num wrdT) =>
-     regT1
-     -> m [MRAM.Instruction' regT1 operand1 (MAOperand regT2 wrdT)]
-cmptTail_pos ret = return [MRAM.Imov ret (LImm 0), MRAM.Icmov ret (LImm 1)] -- moving the flag to the register... super wasteful! write a better register allocater
-cmptTail_neg ret = return [MRAM.Imov ret (LImm 1), MRAM.Icmov ret (LImm 0)] -- Neg. the result && mov the flag to the register... wasteful! 
-
--- | cmptTail:
--- Describe if the comparison is computed directly or it's negation 
-cmptTail :: IntPred.IntegerPredicate -> VReg -> Hopefully [MA2Instruction VReg MWord]
-cmptTail IntPred.EQ = cmptTail_pos -- This values allow to flip the result
-cmptTail IntPred.NE = cmptTail_neg 
-cmptTail IntPred.UGT = cmptTail_pos
-cmptTail IntPred.UGE = cmptTail_pos
-cmptTail IntPred.ULT = cmptTail_neg
-cmptTail IntPred.ULE = cmptTail_neg
-cmptTail IntPred.SGT = cmptTail_pos
-cmptTail IntPred.SGE = cmptTail_pos
-cmptTail IntPred.SLT = cmptTail_neg
-cmptTail IntPred.SLE = cmptTail_neg
 
 -- | Instruction selection for comparisons
 predicate2instructuion
   :: IntPred.IntegerPredicate
-     -> operand1
-     -> operand2
-     -> MRAM.Instruction' regT operand1 operand2
-predicate2instructuion IntPred.EQ  = MRAM.Icmpe 
-predicate2instructuion IntPred.NE  = MRAM.Icmpe 
--- Unsigned           
-predicate2instructuion IntPred.UGT = MRAM.Icmpa 
-predicate2instructuion IntPred.UGE = MRAM.Icmpae
-predicate2instructuion IntPred.ULT = MRAM.Icmpae
-predicate2instructuion IntPred.ULE = MRAM.Icmpa 
--- Signed             
-predicate2instructuion IntPred.SGT = MRAM.Icmpg 
-predicate2instructuion IntPred.SGE = MRAM.Icmpge
-predicate2instructuion IntPred.SLT = MRAM.Icmpge
-predicate2instructuion IntPred.SLE = MRAM.Icmpg 
+     -> regT
+     -> MAOperand regT wrdT
+     -> MAOperand regT wrdT
+     -> [MA2Instruction regT wrdT]
+predicate2instructuion inst r op1 op2 =
+  case inst of
+  IntPred.EQ  -> [MRAM.Icmpe r op1 op2]
+  IntPred.NE  -> [MRAM.Icmpe r op1 op2, MRAM.Inot r (AReg r)]
+-- Unsigned                                        r
+  IntPred.UGT -> [MRAM.Icmpa  r op1 op2] 
+  IntPred.UGE -> [MRAM.Icmpae r op1 op2] 
+  IntPred.ULT -> [MRAM.Icmpae r op2 op1] --FLIPED 
+  IntPred.ULE -> [MRAM.Icmpa  r op2 op1] --FLIPED 
+-- Signed
+  IntPred.SGT -> [MRAM.Icmpg  r op1 op2] 
+  IntPred.SGE -> [MRAM.Icmpge r op1 op2] 
+  IntPred.SLT -> [MRAM.Icmpge r op2 op1]  --FLIPED
+  IntPred.SLE -> [MRAM.Icmpg  r op2 op1]  --FLIPED
 
 
 floatError :: MonadError CmplError m => m a
@@ -464,11 +440,7 @@ isStore env adr cont = do
 
 
 -- *** Compare
-{- Unfortunately MRAM always puts a comparisons in the "flag"
-   So if we want the value we need to do 2 operations to get the value.
-   In the future, we can reserve one "register" to work as the flag, then a smart
-   register allocator can actually use the flag as it was intended...
--}
+
 isCompare
   :: Env
      -> IntPred.IntegerPredicate
@@ -479,10 +451,8 @@ isCompare
 isCompare env pred op1 op2 ret = do
   (lhs, lhsPre) <- operand2operandTrunc env op1
   (rhs, rhsPre) <- operand2operandTrunc env op2
-  comp' <- lift $ return $ predicate2instructuion pred lhs rhs -- Do the comparison
-  compTail <- lift $ cmptTail pred ret -- Put the comparison in the ret register
-  returnRTL $ lhsPre ++ rhsPre ++ [comp'] ++ compTail
-
+  comp' <- lift $ return $ predicate2instructuion pred ret lhs rhs -- Do the comparison
+  returnRTL $ lhsPre ++ rhsPre ++ comp'
                         
 -- *** Function Call 
 isCall
@@ -520,7 +490,7 @@ isSelect env cond op1 op2 ret = lift $ toRTL <$> do
    cond' <- operand2operand env cond
    op1' <- operand2operand env op1 
    op2' <- operand2operand env op2 
-   return [MRAM.Icmpe cond' (LImm 1), MRAM.Imov ret op2', MRAM.Icmov ret op1']
+   return [MRAM.Imov ret op2', MRAM.Icmov ret cond' op1']
 
 -- *** GetElementPtr 
 isGEP
@@ -693,7 +663,7 @@ isInstrs env instrs = do
 -- We ignore the name of terminators
 isTerminator :: Env
              -> LLVM.Named LLVM.Terminator
-             -> Hopefully $ [MIRInstr () MWord]
+             -> Statefully $ [MIRInstr () MWord]
 isTerminator env (name LLVM.:= term) = do
   ret <- return $ name2name name
   termInstr <- isTerminator' env (Just ret) term
@@ -707,17 +677,17 @@ isTerminator env (LLVM.Do term) = do
 isTerminator' :: Env
               -> Maybe VReg
               -> LLVM.Terminator
-              -> Hopefully $ [MIRInstr () MWord]
+              -> Statefully $ [MIRInstr () MWord]
 isTerminator' env ret term =
   case term of 
-    (LLVM.Br name _) -> isBr name
-    (LLVM.CondBr cond name1 name2 _) -> isCondBr env cond name1 name2 
+    (LLVM.Br name _) -> lift $ isBr name
+    (LLVM.CondBr cond name1 name2 _) -> lift $ isCondBr env cond name1 name2 
     (LLVM.Switch cond deflt dests _ ) -> isSwitch env cond deflt dests
-    (LLVM.Ret ret _md) -> isRet env ret 
+    (LLVM.Ret ret _md) -> lift $ isRet env ret 
     (LLVM.Invoke _ _ f args _ retDest _exceptionDest _ ) -> -- treats this as a call + a jump 
-      do call <- isCall env ret f args
-         destJmp <- isBr retDest
-         return $ call ++  destJmp
+      lift $ do call <- isCall env ret f args
+                destJmp <- isBr retDest
+                return $ call ++  destJmp
     -- `Resume` and `Unreachable` still need to terminate the block after
     -- flagging the error, so we add an `answer` instruction, which is defined
     -- to stall or halt execution.
@@ -750,8 +720,7 @@ isCondBr env cond name1 name2 = do
   cond' <- operand2operand env cond
   loc1 <- name2nameM name1
   loc2 <- name2nameM name2 
-  returnRTL $ [MRAM.Icmpe cond' (LImm 1),
-                MRAM.Icjmp $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
+  returnRTL $ [MRAM.Icjmp cond' $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
                 MRAM.Ijmp $ Label (show loc2)]
 
 isSwitch
@@ -760,16 +729,17 @@ isSwitch
      -> LLVM.Operand
      -> LLVM.Name
      -> t (LLVM.Constant.Constant, LLVM.Name)
-     -> Hopefully  [MIRInstr () MWord]
+     -> Statefully [MIRInstr () MWord]
 isSwitch env cond deflt dests = do
-      cond' <- operand2operand env cond
-      deflt' <- name2nameM deflt
-      switchInstrs <- mapM (isDest cond') dests
-      returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Label $ show deflt')]
-        where isDest cond' (switch,dest) = do
-                switch' <- getConstant env switch
-                dest' <- name2nameM dest
-                return [MRAM.Icmpe cond' switch', MRAM.Icjmp (Label $ show dest')]
+  cond' <- lift $ operand2operand env cond
+  deflt' <- lift $ name2nameM deflt
+  switchInstrs <- mapM (isDest cond') dests
+  returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Label $ show deflt')]
+    where isDest cond' (switch,dest) = do
+            switch' <- lift $ getConstant env switch
+            isEq <- freshName
+            dest' <- lift $ name2nameM dest
+            return [MRAM.Icmpe isEq cond' switch', MRAM.Icjmp (AReg isEq) (Label $ show dest')]
 
 -- Possible optimisation:
 -- Add just one return block, and have all others jump there.    
@@ -827,7 +797,7 @@ isBlock:: Env -> LLVM.BasicBlock -> Statefully (BB Name $ MIRInstr () MWord)
 isBlock  env (LLVM.BasicBlock name instrs term) = do
   body <- isInstrs env instrs
   let body' = maybeTraceIR ("enter " ++ show name) [] ++ body
-  end <- lift $ isTerminator env term
+  end <- isTerminator env term
   jumpsTo <- lift $ blockJumpsTo term
   name' <- lift $ name2nameM name
   return $ BB name' body' end jumpsTo

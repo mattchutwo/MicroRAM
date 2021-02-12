@@ -8,21 +8,21 @@ module Output.OutputSpec where
 
 
 import Test.Tasty
-import Test.Tasty.Options
---import Test.Tasty.HUnit
+-- import Test.Tasty.Options
+-- import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
---import Test.SmallCheck.Series
+-- import Test.SmallCheck.Series
 
 import qualified Data.Map as Map
 
-import Compiler.Registers
+-- import Compiler.Registers
 import Compiler.Sparsity
 import Compiler.CompilationUnit
-import Output.CBORFormat
+import Output.CBORFormat()
 import Output.Output
 
 import Codec.Serialise
-import Codec.CBOR
+-- import Codec.CBOR
 import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm)
 
 import MicroRAM
@@ -32,6 +32,7 @@ import MicroRAM.MRAMInterpreter
 main :: IO ()
 main = defaultMain tests
 
+tests :: TestTree
 tests = testGroup "Testing serialising and deserialising roundtrip"
         [testProgs, testParams, testTrace, testAdvice, testOutput]
 
@@ -55,16 +56,16 @@ instance (Arbitrary a, Arbitrary b) => Arbitrary (Instruction a b) where
     , Iumod   <$> arbitrary <*> arbitrary <*> arbitrary
     , Ishl    <$> arbitrary <*> arbitrary <*> arbitrary
     , Ishr    <$> arbitrary <*> arbitrary <*> arbitrary
-    , Icmpe   <$>               arbitrary <*> arbitrary
-    , Icmpa   <$>               arbitrary <*> arbitrary
-    , Icmpae  <$>               arbitrary <*> arbitrary
-    , Icmpg   <$>               arbitrary <*> arbitrary
-    , Icmpge  <$>               arbitrary <*> arbitrary
+    , Icmpe   <$> arbitrary <*> arbitrary <*> arbitrary
+    , Icmpa   <$> arbitrary <*> arbitrary <*> arbitrary
+    , Icmpae  <$> arbitrary <*> arbitrary <*> arbitrary
+    , Icmpg   <$> arbitrary <*> arbitrary <*> arbitrary
+    , Icmpge  <$> arbitrary <*> arbitrary <*> arbitrary
     , Imov    <$> arbitrary <*>               arbitrary
-    , Icmov   <$> arbitrary <*>               arbitrary
+    , Icmov   <$> arbitrary <*> arbitrary <*> arbitrary
     , Ijmp    <$>                             arbitrary
-    , Icjmp   <$>                             arbitrary
-    , Icnjmp  <$>                             arbitrary
+    , Icjmp   <$>               arbitrary <*> arbitrary
+    , Icnjmp  <$>               arbitrary <*> arbitrary
     , Istore  <$>               arbitrary <*> arbitrary
     , Iload   <$>               arbitrary <*> arbitrary
     , Iread   <$>               arbitrary <*> arbitrary
@@ -72,6 +73,7 @@ instance (Arbitrary a, Arbitrary b) => Arbitrary (Instruction a b) where
     ]
     
 
+testProgs :: TestTree
 testProgs =
   testProperty "Serialising programs" $
         \p -> (fromFlatTerm decode $ toFlatTerm $ encode p) == Right (p::Instruction Word (Operand Word Word))
@@ -116,6 +118,7 @@ instance Arbitrary InstrKind where
 instance Arbitrary CircuitParameters where
   arbitrary = CircuitParameters <$> arbitrary <*> arbitrary <*> arbitrary
 
+testParams :: TestTree
 testParams = testProperty "Serialising Parameters" $
         \p -> (fromFlatTerm decode $ toFlatTerm $ encode p) == Right (p:: CircuitParameters)
 
@@ -124,6 +127,7 @@ testParams = testProperty "Serialising Parameters" $
 instance Arbitrary (StateOut) where
   arbitrary = StateOut <$> arbitrary <*> arbitrary <*> arbitrary
 
+testTrace :: TestTree
 testTrace = testProperty "Serialising traces" $
         \p -> (fromFlatTerm decode $ toFlatTerm $ encode p) == Right (p:: [StateOut])
 
@@ -139,6 +143,7 @@ instance Arbitrary Advice where
     , return Stutter 
     ]
 
+testAdvice :: TestTree
 testAdvice = testProperty "Serialising advice" $
         \p -> (fromFlatTerm decode $ toFlatTerm $ encode p) == Right (p:: Map.Map Word Advice)
         
@@ -155,5 +160,6 @@ instance Arbitrary reg => Arbitrary (Output reg) where
     , PublicOutput  <$> arbitrary <*> arbitrary <*> arbitrary
     ]
 
+testOutput :: TestTree
 testOutput = testProperty "Serialising full outputs" $
         \p -> (fromFlatTerm decode $ toFlatTerm $ encode p) == Right (p:: Output Word)

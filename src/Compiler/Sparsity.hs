@@ -166,16 +166,16 @@ instrType inst =
     Iumod _ _ _   -> [Kumod  , Kalu]
     Ishl _ _ _    -> [Kshl   , Kalu]
     Ishr _ _ _    -> [Kshr   , Kalu]
-    Icmpe _ _     -> [Kcmpe  , Kalu]     
-    Icmpa _ _     -> [Kcmpa  , Kalu]     
-    Icmpae _ _    -> [Kcmpae , Kalu]     
-    Icmpg _ _     -> [Kcmpg  , Kalu]     
-    Icmpge _ _    -> [Kcmpge , Kalu]     
+    Icmpe _ _ _     -> [Kcmpe  , Kalu]     
+    Icmpa _ _ _     -> [Kcmpa  , Kalu]     
+    Icmpae _ _ _    -> [Kcmpae , Kalu]     
+    Icmpg _ _ _     -> [Kcmpg  , Kalu]     
+    Icmpge _ _ _    -> [Kcmpge , Kalu]     
     Imov _ _      -> [Kmov   , Kalu]     
-    Icmov _ _     -> [Kcmov  , Kalu]     
+    Icmov _ _ _     -> [Kcmov  , Kalu]     
     Ijmp _        -> [Kjmp  , Kjumps]          
-    Icjmp _       -> [Kcjmp , Kjumps]          
-    Icnjmp _      -> [Kcnjmp, Kjumps]          
+    Icjmp _ _       -> [Kcjmp , Kjumps]          
+    Icnjmp _ _      -> [Kcnjmp, Kjumps]          
     Istore _ _    -> [Kstore , KmemOp]     
     Iload _ _     -> [Kload  , KmemOp]     
     Iread _ _     -> [Kread  ]     
@@ -229,8 +229,8 @@ sparsInstr ::
   -> Sparsity'
 -- For jumps, we don't know where we are going, so we must add the "edge effect"
 sparsInstr spars (location, Ijmp _) = sparsJump location spars
-sparsInstr spars (location, Icjmp _) = sparsJump location spars
-sparsInstr spars (location, Icnjmp _) = sparsJump location spars
+sparsInstr spars (location, Icjmp _ _) = sparsJump location spars
+sparsInstr spars (location, Icnjmp _ _) = sparsJump location spars
 sparsInstr spars (location, instr) =
   foldr (updateKindSparc location) spars $ instrType instr
   where updateKindSparc :: Int -> InstrKind -> Sparsity' -> Sparsity'
