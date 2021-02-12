@@ -193,7 +193,7 @@ data Instruction' regT operand1 operand2 =
   | Ipoison operand2 operand1
   -- Dynamic taint tracking operations
   | Isink operand1 operand2
-  | Itaint operand1 operand2
+  | Itaint regT operand2
   -- Extensions
   | Iext Text [operand2]      -- ^ Custom instruction with no return value
   | Iextval Text regT [operand2] -- ^ Custom instruction, returning a value
@@ -376,6 +376,8 @@ aggregateOps instr =
     Iload r1 op2           -> r1        <> op2
     Iread r1 op2           -> r1        <> op2
     Ianswer op2            ->              op2
+    Isink r2 l             -> r2 <> l
+    Itaint r2 l            -> r2 <> l
     Iadvise r1             -> r1
     Ipoison op2 op1        ->       op1 <> op2
     Iext _txt ops2          -> mconcat ops2

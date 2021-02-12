@@ -115,7 +115,7 @@ noniSetLabel [ptr, label] Nothing = do
   r <- freshReg
   return $ map (\i -> MirM i ()) [
       Iload r ptr
-    , Itaint (AReg r) label
+    , Itaint r label
     , Istore ptr (AReg r)
     ]
 noniSetLabel _ _ = progError "bad arguments"

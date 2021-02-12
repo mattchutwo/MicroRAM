@@ -196,9 +196,9 @@ stepInstrTainted :: Regs r => Instruction r MWord -> InterpM r s Hopefully ()
 stepInstrTainted (Imov rd op2) = do
   l <- opLabel op2
   sMach . mRegLabel rd .= l
-stepInstrTainted (Icmov rd op2) = do
-  f <- use (sMach . mFlag)
-  when f $ do
+stepInstrTainted (Icmov rd cond op2) = do
+  ok <- (/= 0) <$> (regVal cond)
+  when ok $ do
     l <- opLabel op2
     sMach . mRegLabel rd .= l
 
@@ -238,15 +238,15 @@ stepInstrTainted (Iumod rd r1 op2) = stepUntaintReg rd
 stepInstrTainted (Ishl rd r1 op2) = stepUntaintReg rd
 stepInstrTainted (Ishr rd r1 op2) = stepUntaintReg rd
 
-stepInstrTainted (Icmpe r1 op2) = return ()
-stepInstrTainted (Icmpa r1 op2) = return ()
-stepInstrTainted (Icmpae r1 op2) = return ()
-stepInstrTainted (Icmpg r1 op2) = return ()
-stepInstrTainted (Icmpge r1 op2) = return ()
+stepInstrTainted (Icmpe r1 op1 op2) = return ()
+stepInstrTainted (Icmpa r1 op1 op2) = return ()
+stepInstrTainted (Icmpae r1 op1 op2) = return ()
+stepInstrTainted (Icmpg r1 op1 op2) = return ()
+stepInstrTainted (Icmpge r1 op1 op2) = return ()
 
 stepInstrTainted (Ijmp op2) = return ()
-stepInstrTainted (Icjmp op2) = return ()
-stepInstrTainted (Icnjmp op2) = return ()
+stepInstrTainted (Icjmp op1 op2) = return ()
+stepInstrTainted (Icnjmp op1 op2) = return ()
 
 stepInstrTainted (Iread rd op2) = stepUntaintReg rd
 stepInstrTainted (Ianswer op2) = return ()
