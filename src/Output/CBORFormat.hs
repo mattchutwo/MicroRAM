@@ -304,11 +304,11 @@ encodeInitMemSegment (InitMemSegment secret read start len datas labels) =
   , ("start", encode start)
   , ("len", encode len)
   ] ++  encodeMaybeContent "data" datas
-    ++  encodeMaybeContent "labels" labels
+    ++  encodeMaybeContent "tainted" labels
 
 encodeMaybeContent :: Serialise a => TXT.Text -> Maybe a -> [(TXT.Text,Encoding)]
 encodeMaybeContent _ Nothing = []
-encodeMaybeContent s (Just content) = return $ (s,encode content)
+encodeMaybeContent s (Just content) = return (s,encode content)
 
 
 decodeInitMemSegment :: Decoder s InitMemSegment

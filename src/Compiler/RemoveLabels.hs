@@ -46,6 +46,7 @@ import Util.Util
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.LazyConstants
+import Compiler.Tainted
 
 -- * Assembler
 
@@ -152,7 +153,8 @@ removeLabelsInitMem lmap lInitMem =
     mapM (removeLabelsSegment fullMap) lInitMem
   where removeLabelsSegment :: (String -> Wrd) -> LazyInitSegment -> Hopefully $ InitMemSegment
         removeLabelsSegment labelMap (lMem, initSegment) =
-          return $ initSegment {content =  removeLabelInitialValues labelMap lMem}
+          let vals = removeLabelInitialValues labelMap lMem in
+          return $ initSegment {content = vals, labels = fmap (const $ replicate (fromIntegral $ segmentLen initSegment) untainted) vals}
         removeLabelInitialValues :: (String -> Wrd) -> Maybe [LazyConst String Wrd] -> Maybe [Wrd]
         removeLabelInitialValues labelMap lMem =  map (makeConcreteConst labelMap) <$> lMem
 addDefault :: LabelMap -> String -> Wrd
@@ -167,7 +169,7 @@ addDefault labelMap name =
 removeLabels :: (CompilationUnit LazyInitialMem $ MAProgram regT Wrd)
              -> Hopefully $ CompilationUnit () (Program regT Wrd)
 removeLabels compUnit = do
-  lMap <- return $ createMap $ programCU compUnit
+  let lMap = createMap $ programCU compUnit
   prog' <- replaceLabels lMap $ flatten $ programCU compUnit
   initMem <- removeLabelsInitMem lMap $ intermediateInfo compUnit
   return $ compUnit {programCU = prog' , initM = initMem, intermediateInfo = ()}
