@@ -49,6 +49,10 @@ describeError (CompilerAssumption msg) = "compiler assumption violated: " ++ msg
 describeError (ProgError msg) = "invalid program: " ++ msg
 describeError (OtherError msg) = msg
 
+instance Show CmplError where
+  show = describeError
+
+
 -- | Monad for passing custom compiler errors. 
 type Hopefully = Either CmplError
 

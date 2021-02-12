@@ -127,8 +127,8 @@ import Compiler.BlockCleanup
 import MicroRAM (MWord)
 import qualified MicroRAM as MRAM  (Program) 
 
-(<.>) :: Monad m => (b -> c) -> (a -> b) -> a -> m c
-f <.> g = \x -> return $ f $ g x 
+--(<.>) :: Monad m => (b -> c) -> (a -> b) -> a -> m c
+--f <.> g = return . f . g 
 
 compile1
   :: Word
@@ -152,7 +152,7 @@ compile2 spars prog = return prog
   >>= (tagPass "Calling Convention" $ justCompile callingConvention)
   >>= (tagPass "Remove Globals" $ replaceGlobals)
   >>= (tagPass "Stacking" $ justCompile stacking)
-  >>= (tagPass "Computing Sparsity" $ justAnalyse (SparsityData <.> (forceSparsity spars))) 
+  >>= (tagPass "Computing Sparsity" $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
   >>= (tagPass "Block cleanup" $ blockCleanup)
   >>= (tagPass "Removing labels" $ removeLabels)
 

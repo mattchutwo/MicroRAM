@@ -19,7 +19,7 @@ Format for compiler units
 
 module Output.CBORFormat where
 import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm, FlatTerm)
-import qualified Data.Map as Map
+--import qualified Data.Map as Map
 import GHC.Generics
 
 import Codec.Serialise
@@ -39,6 +39,8 @@ import Compiler.IRs
 import MicroRAM.MRAMInterpreter
 import MicroRAM
 
+import Segments.Segmenting
+
 -- Get version number
 import Paths_MicroRAM (version)
 import Data.Version (Version(..))
@@ -52,17 +54,19 @@ import Output.Output
 -- * Full Output
 
 encodeOutput :: Serialise reg => Output reg -> Encoding
-encodeOutput (SecretOutput prog params initM trc adv) =
+encodeOutput (SecretOutput prog segs params initM trc adv) =
   map2CBOR $ 
   [ ("program", encode prog)
+  , ("segments", encode segs)
   , ("params", encode params)
   , ("init_mem", encode initM)
   , ("trace", encode trc)
   , ("advice", encode adv)
   ]
-encodeOutput (PublicOutput prog params initM) =
+encodeOutput (PublicOutput prog segs params initM ) =
   map2CBOR $ 
   [ ("program", encode prog)
+  , ("segments", encode segs)
   , ("params", encode params)
   , ("init_mem", encode initM)
   ]
@@ -71,8 +75,8 @@ decodeOutput :: Serialise reg => Decoder s (Output reg)
 decodeOutput = do
   len <- decodeMapLen
   case len of
-    5 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode
-    3 -> PublicOutput <$> tagDecode <*> tagDecode  <*> tagDecode
+    6 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode
+    4 -> PublicOutput <$> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode
     n -> fail $ "Only lengths for output are 3 and 5 (Public and Secret). Insted found: " ++ show n 
     
 instance Serialise reg => Serialise (Output reg) where 
@@ -432,8 +436,65 @@ instance Serialise Advice where
   decode = decodeAdvice
   encode = encodeAdvice
 
+encodeConstraints :: Constraints -> Encoding
+encodeConstraints (PcConst pc) =
+  encodeListLen 2 <>
+  encodeString "pc" <>
+  encode pc
+
+decodeConstraints :: Decoder s Constraints
+decodeConstraints = do
+  ln <- decodeListLen
+  name <- decodeString
+  case (ln, name) of
+    (2, "pc") -> PcConst <$> decode
+    (ln, name) -> fail $ "Invalid constraint encoding. Found length " ++ (show ln) ++ " and name: " ++ show name  
 
 
+instance Serialise Constraints where
+  decode = decodeConstraints
+  encode = encodeConstraints
+
+encodeSegmentOut :: SegmentOut -> Encoding
+encodeSegmentOut (SegmentOut constr segLen segSuc fromNet toNet) =
+  encodeListLen 5 <>
+  encode constr <>
+  encode segLen <>
+  encode segSuc <>
+  encode fromNet <>
+  encode toNet
+
+decodeSegmentOut :: Decoder s SegmentOut
+decodeSegmentOut = do
+  ln <- decodeListLen
+  case ln of
+    5 -> SegmentOut <$> decode <*> decode <*> decode <*> decode  <*> decode
+    ln -> fail $ "Invalid segment encoding. Expected length is 5 but found" ++ show ln 
+
+instance Serialise SegmentOut where
+  decode = decodeSegmentOut
+  encode = encodeSegmentOut
+
+encodeTraceChunkOut :: Serialise reg => (TraceChunkOut reg) -> Encoding
+encodeTraceChunkOut (TraceChunkOut location states) =
+  encodeListLen 2 <>
+  encode location <>
+  encode states
+
+
+decodeTraceChunkOut :: Serialise reg => Decoder s (TraceChunkOut reg)
+decodeTraceChunkOut = do
+  ln <- decodeListLen
+  case ln of
+    2 -> TraceChunkOut <$> decode <*> decode
+    ln -> fail $ "Invalid TraceChunkOut encoding. Expected length is 2 but found" ++ show ln 
+
+
+instance (Serialise reg) => Serialise (TraceChunkOut reg) where
+  decode = decodeTraceChunkOut
+  encode = encodeTraceChunkOut
+
+  
 -- ** Initial memory
 
 -- Serialise is derived from lists and Words.
@@ -484,12 +545,12 @@ printOutputWithFormat PHex out _ = ppHexOutput out
 printOutputWithFormat Flat out _ = show . flatOutput $ out
 
 
-c :: Output Word
-c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
-                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}]}
+-- c :: Output Word
+-- c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
+--                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}]}
 
-d :: Output Word
-d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
-                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}],
-                   trace = [], adviceOut = Map.empty}
+-- d :: Output Word
+-- d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
+--                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}],
+--                    trace = [], adviceOut = Map.empty}
  

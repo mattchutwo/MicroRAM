@@ -28,6 +28,7 @@ import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm)
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
+import Segments.Segmenting
 
 main :: IO ()
 main = defaultMain tests
@@ -130,7 +131,7 @@ instance Arbitrary (StateOut) where
 
 testTrace :: TestTree
 testTrace = testProperty "Serialising traces" $
-        \p -> (fromFlatTerm decode $ toFlatTerm $ encode p) == Right (p:: [StateOut])
+        \p -> (fromFlatTerm decode $ toFlatTerm $ encode p) == Right (p:: [TraceChunkOut Int])
 
 
 
@@ -153,12 +154,23 @@ testAdvice = testProperty "Serialising advice" $
 instance Arbitrary InitMemSegment where
   arbitrary = InitMemSegment  <$> arbitrary <*> arbitrary <*>
               arbitrary <*> arbitrary <*> arbitrary
-    
+
+instance Arbitrary reg => Arbitrary (Segment reg MWord) where
+  arbitrary = Segment  <$> arbitrary <*> arbitrary <*> arbitrary  <*> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary SegmentOut where
+  arbitrary = SegmentOut <$> arbitrary <*> arbitrary  <*> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary reg => Arbitrary (TraceChunkOut reg) where
+  arbitrary = TraceChunkOut  <$> arbitrary <*> arbitrary
+
+instance Arbitrary Constraints where
+  arbitrary = PcConst <$> arbitrary
 
 instance Arbitrary reg => Arbitrary (Output reg) where
   arbitrary = oneof
-    [ SecretOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    , PublicOutput  <$> arbitrary <*> arbitrary <*> arbitrary
+    [ SecretOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    , PublicOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
     ]
 
 testOutput :: TestTree

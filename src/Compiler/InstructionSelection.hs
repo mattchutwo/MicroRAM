@@ -1168,7 +1168,7 @@ instance Num TypedLazyConst where
   negate = typedLazyUop negate
   abs = typedLazyUop abs
   signum = typedLazyUop signum
-  fromInteger n = error "fromInteger not supported for TypedLazyConst"
+  fromInteger _n = error "fromInteger not supported for TypedLazyConst"
 
 instance Eq TypedLazyConst where
   _ == _ = error "(==) not supported for TypedLazyConst"
@@ -1180,7 +1180,9 @@ instance Bits TypedLazyConst where
   complement = typedLazyUop complement
   shift x b = typedLazyUop (\x -> shift x b) x
   rotate x b = typedLazyUop (\x -> rotate x b) x
-  bitSize _ = bitSize (zeroBits :: MWord)
+  bitSize _ = case bitSizeMaybe (zeroBits :: MWord) of
+                Just x -> x
+                Nothing -> 0
   bitSizeMaybe _ = bitSizeMaybe (zeroBits :: MWord)
   isSigned _ = isSigned (zeroBits :: MWord)
   testBit _ _ = error "testBit not supported for TypedLazyConst"
