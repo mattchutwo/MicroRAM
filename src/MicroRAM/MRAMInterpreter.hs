@@ -21,6 +21,8 @@ module MicroRAM.MRAMInterpreter
   ( -- * Execute a program
     Executor,
     run, run_v, execAnswer, execBug,
+    -- For post processing check (e.g. segment checking)
+    runWith, initMach, InstrHandler, runPassGeneric, InterpState, sMach, sExt, mCycle,
     -- * Trace
     ExecutionState(..),
     Trace, 
@@ -678,6 +680,26 @@ runPass2 steps spars initMach' memInfo = do
       traceHandler False $
       stepInstr
 
+-- | Used for checking final traces after post porocessing
+runPassGeneric :: Regs r => Lens' s (Seq (ExecutionState r)) -> Lens' s (AdviceMap) -> (InstrHandler r s -> InstrHandler r s)
+                -> s -> Word -> MachineState r -> Hopefully (Trace r)
+runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
+  -- The first entry of the trace is always the initial state.  Then `steps`
+  -- entries follow after it.k
+  initExecState <- evalStateT (getStateWithAdvice eAdvice) initState
+  final <- runWith handler steps initState
+  return $ initExecState : toList (final ^. sExt . eTrace)
+  where
+    initState = InterpState initS initMach' (initSparsSt Map.empty)
+    handler =
+      execTraceHandler eTrace eAdvice $
+      postHandler $
+      stepInstr
+    -- eTrace :: Lens' (a, b) a
+    -- eTrace = _1
+    -- eAdvice :: Lens' (a, b) b
+    -- eAdvice = _2
+
 
 
 -- Old public definitions
@@ -740,7 +762,7 @@ initMach prog imem = MachineState
 
 type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
-run_v :: Regs mreg => Bool -> Executor mreg (Trace mreg)
+run_v :: Regs mreg => Bool ->  Executor mreg (Trace mreg)
 run_v verbose (CompUnit progs trLen _ analysis initMem _) = case go of
   Left e -> error $ describeError e
   Right x -> x
