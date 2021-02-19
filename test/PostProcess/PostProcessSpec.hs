@@ -47,7 +47,7 @@ justOne = testGroup " Trivial programs" $
     []
 
 -- # Test correctness of the compiler
-testCorrectness = testGroup "Compiler correctness tests" $
+testCorrectness = testGroup "Programs without bugs" $
                   [testTrivial, testLoops, testGEP, testDatastruct]
 
 -- Trivial test, just to see the basics are working
@@ -148,7 +148,7 @@ testDatastruct = testGroup "Test data structures" $
   []
 
 -- ## Now we test buggy programs to see if we can catch the bug
-testBugs = testGroup "Compiler bug tests" $
+testBugs = testGroup "Programs with bugs: " $
   processTest
   "Use after free Bug"
   "test/programs/UseAfterFree/useAfterFree.c.ll"
