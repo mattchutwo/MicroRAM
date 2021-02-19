@@ -97,6 +97,10 @@ cc_flag_bug [] Nothing =
   where zero = LImm $ SConst 0
 cc_flag_bug _ _ = progError "bad arguments"
 
+cc_trace :: IntrinsicImpl () w
+cc_trace [msg] Nothing = return [MirM (Iext "tracestr" [msg]) ()]
+cc_trace _ _ = progError "bad arguments"
+
 
 intrinsics :: Map String (IntrinsicImpl () MWord)
 intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
@@ -108,6 +112,8 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("__cc_free", cc_free)
   , ("__cc_advise_poison", cc_advise_poison)
   , ("__cc_write_and_poison", cc_write_and_poison)
+
+  , ("__cc_trace", cc_trace)
 
   , ("llvm.lifetime.start.p0i8", cc_noop)
   , ("llvm.lifetime.end.p0i8", cc_noop)

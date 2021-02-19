@@ -122,6 +122,7 @@ import Compiler.Sparsity
 import Compiler.RemoveLabels
 import Compiler.Analysis
 import Compiler.LocalizeLabels
+import Compiler.BlockCleanup
 
 import MicroRAM (MWord)
 import qualified MicroRAM as MRAM  (Program) 
@@ -152,6 +153,7 @@ compile2 spars prog = return prog
   >>= (tagPass "Remove Globals" $ replaceGlobals)
   >>= (tagPass "Stacking" $ justCompile stacking)
   >>= (tagPass "Computing Sparsity" $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
+  >>= (tagPass "Block cleanup" $ blockCleanup)
   >>= (tagPass "Removing labels" $ removeLabels)
 
 compile :: Word -> LLVM.Module -> Maybe Int -> Hopefully $ CompilationResult (MRAM.Program AReg MWord)
