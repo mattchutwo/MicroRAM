@@ -12,6 +12,7 @@ Stability   : experimental
 module Segments.SegInterpreter (doCheck, checkOutput, Result(..),compilerErrorResolve) where 
 
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Compiler.Errors 
 --import Compiler.Registers
 import Compiler.CompilationUnit
@@ -64,7 +65,9 @@ data CheckSt = CheckSt {
   _indxSt :: Int
   , _pcSt :: MWord -- Last pc of the last chunk, i.e. current pc.
   , _succSt :: [Int]
-  , _toNetSt :: Bool}
+  , _toNetSt :: Bool
+  , _usedSegsSt :: Set.Set Int -- tracks used segments to avoid using one twice.
+  }
 makeLenses ''CheckSt
   
   
@@ -75,10 +78,12 @@ checkOutput (PublicOutput _ _ _ _) = Nope "Found Public Output with no trace to 
 checkOutput (SecretOutput prog segs params initMem tr _adv) = do
   let traceA = concat $ map chunkStatesOut tr
   let len = length traceA
+  -- Produce a new trace
   traceB <- compilerErrorResolve $ runPassCheck (toEnum len) (initMach prog initMem)
-  _ <- -- trace ("Trace A: " ++ show traceA ++ "\n Trace B :" ++ show (length traceB)) $
-    zipMapM_ checkStEq traceA (tail $ outputStates len regNum traceB) -- drop first state.
-  let initCheck = CheckSt 0 0 [0] False
+  -- Check states give are equal to those produced
+  _ <-zipMapM_ checkStEq traceA (tail $ outputStates len regNum traceB) -- drop first state.
+  let initCheck = CheckSt {_indxSt = 0, _pcSt= 0, _succSt = [0], _toNetSt = False, _usedSegsSt = Set.empty}
+  -- Check each chunk separatedly.
   _ <- evalStateT (mapM_ (checkChunk (Seq.fromList segs)) tr) initCheck 
   return ()
 
@@ -93,7 +98,12 @@ checkChunk segs chunk@(TraceChunkOut indx sts) = do
   mapM_ checkConstraint constrs
   checkLength len segment
   checkSucc indx fromNet
-  put $ CheckSt indx (pcOut $ last sts) succ toNet
+  checkSegmentUnused indx
+  modify $ \st -> st {_indxSt = indx,
+                       _pcSt= pcOut $ last sts,
+                       _succSt = succ,
+                       _toNetSt = toNet}
+--    CheckSt indx (pcOut $ last sts) succ toNet
   return ()
   where checkLength len segment = check (len == length sts) $
           "Chunk length and segment length don't match. \n Segment: " ++ show segment ++ "\n Chunk: " ++ show chunk
@@ -106,7 +116,13 @@ checkChunk segs chunk@(TraceChunkOut indx sts) = do
           succ' <- use succSt
           toNet' <- use toNetSt
           indx' <- use indxSt
-          check (indx `elem` succ' || (toNet' && fromNet)) $ "Segment "  ++ show indx ++ "can't be reached from previous segment " ++ show indx' 
+          check (indx `elem` succ' || (toNet' && fromNet)) $ "Segment "  ++ show indx ++ "can't be reached from previous segment " ++ show indx'
+        -- Ensures segments are used at most once
+        checkSegmentUnused ::  Int -> StateT CheckSt Result ()
+        checkSegmentUnused indx = do
+          usedSegs <- use usedSegsSt
+          check (not $ indx `elem` usedSegs) $ "Segment "++ show indx ++"  is used twice."
+          usedSegsSt %= Set.insert indx  
           
 type ExSt = (Seq.Seq (ExecutionState Int), Map.Map MWord [Advice])
 
