@@ -30,11 +30,11 @@ import Segments.Segmenting
 type Result = Either String
 
 data CheckSt = CheckSt {
-  _indxSt :: Int               -- | Index of segment used in last visited chunk
-  , _pcSt :: MWord             -- | Last pc of the last chunk, i.e. current pc.
-  , _succSt :: [Int]           -- | Successort list of last segment visited
-  , _toNetSt :: Bool           -- | toNet flag of last segment visited
-  , _usedSegsSt :: Set.Set Int -- | Tracks used segments to avoid using one twice.
+  _indxSt :: Int               -- ^ Index of segment used in last visited chunk
+  , _pcSt :: MWord             -- ^ Last pc of the last chunk, i.e. current pc.
+  , _succSt :: [Int]           -- ^ Successort list of last segment visited
+  , _toNetSt :: Bool           -- ^ toNet flag of last segment visited
+  , _usedSegsSt :: Set.Set Int -- ^ Tracks used segments to avoid using one twice.
   }
 makeLenses ''CheckSt
   
