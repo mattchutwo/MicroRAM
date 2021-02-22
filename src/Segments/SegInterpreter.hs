@@ -9,86 +9,51 @@ Stability   : experimental
 
 -}
 
-module Segments.SegInterpreter (doCheck, checkOutput, Result(..),compilerErrorResolve) where 
+module Segments.SegInterpreter (doCheck, checkOutput, Result, compilerErrorResolve) where 
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Compiler.Errors 
---import Compiler.Registers
 import Compiler.CompilationUnit
 
---import Data.Foldable 
---import MicroRAM
 import MicroRAM.MRAMInterpreter
 import MicroRAM
 import Output.Output
---import Util.Util
--- import Debug.Trace
--- import Control.Monad
+import Control.Monad.Except
 import Control.Monad.State
 import Control.Lens (makeLenses, Lens', (%=), _1, _2, use)
 
---import qualified Data.Set as Set
 import qualified Data.Sequence as Seq
 
 import Segments.Segmenting
 
-data Result x = Nope String | Ok x
-  deriving (Functor, Show)
-
-instance MonadFail Result where
-  fail = Nope
-
-instance Applicative Result where
-  pure = Ok
-  (<*>) (Ok f) (Ok x) = Ok (f x)
-  (<*>) (Nope x) _ = Nope x
-  (<*>) _ (Nope x) = Nope x
-
-instance Monad Result where
-  (>>=) (Nope msg) _ = Nope msg
-  (>>=) (Ok x) f = f x
-
--- data EvalState mreg = EvalState {
---   machSt :: MachineState MWord
---   , execSt :: ExecutionState MWord
---   , segsSt :: Map.Map Int SegmentOut
---   , previousSucc :: [Int] }
--- type Evaluation x = StateT (EvalState r) Result x
--- data Extension = Extension { _segsSt :: [SegmentOut]
---                  , _previousSucc :: [Int]
---                  -- , _advSt :: AdviceMap
---                  }
--- makeLenses ''Extension
+type Result = Either String
 
 data CheckSt = CheckSt {
-  _indxSt :: Int
-  , _pcSt :: MWord -- Last pc of the last chunk, i.e. current pc.
-  , _succSt :: [Int]
-  , _toNetSt :: Bool
-  , _usedSegsSt :: Set.Set Int -- tracks used segments to avoid using one twice.
+  _indxSt :: Int               -- | Index of segment used in last visited chunk
+  , _pcSt :: MWord             -- | Last pc of the last chunk, i.e. current pc.
+  , _succSt :: [Int]           -- | Successort list of last segment visited
+  , _toNetSt :: Bool           -- | toNet flag of last segment visited
+  , _usedSegsSt :: Set.Set Int -- | Tracks used segments to avoid using one twice.
   }
 makeLenses ''CheckSt
   
-  
---type Evaluation x = InterpM  MWord (Extension) Result x
 
 checkOutput :: Output Int -> Result ()
-checkOutput (PublicOutput _ _ _ _) = Nope "Found Public Output with no trace to check."
+checkOutput (PublicOutput _ _ _ _) = Left "Found Public Output with no trace to check."
 checkOutput (SecretOutput prog segs params initMem tr _adv) = do
   let traceA = concat $ map chunkStatesOut tr
   let len = length traceA
   -- Produce a new trace
   traceB <- compilerErrorResolve $ runPassCheck (toEnum len) (initMach prog initMem)
   -- Check states give are equal to those produced
-  _ <-zipMapM_ checkStEq traceA (tail $ outputStates len regNum traceB) -- drop first state.
+  _ <- zipWithM_ checkStEq traceA (tail $ outputStates len regNum traceB) -- drop first state.
   let initCheck = CheckSt {_indxSt = 0, _pcSt= 0, _succSt = [0], _toNetSt = False, _usedSegsSt = Set.empty}
   -- Check each chunk separatedly.
   _ <- evalStateT (mapM_ (checkChunk (Seq.fromList segs)) tr) initCheck 
   return ()
 
   where checkStEq s1 s2 = check (s1 == s2) $ "States don't match: " ++ show s1 ++ " <> " ++ show s2
-        zipMapM_ f ls1 ls2 = mapM_ (\(a,b) -> f a b) $ zip ls1 ls2 
         runPassCheck = runPassGeneric eTrace eAdvice postHandler (Seq.empty, Map.empty)
         regNum = numRegs params
 
@@ -121,20 +86,10 @@ checkChunk segs chunk@(TraceChunkOut indx sts) = do
         checkSegmentUnused ::  Int -> StateT CheckSt Result ()
         checkSegmentUnused indx = do
           usedSegs <- use usedSegsSt
-          check (not $ indx `elem` usedSegs) $ "Segment "++ show indx ++"  is used twice."
+          check (not $ indx `Set.member` usedSegs) $ "Segment "++ show indx ++"  is used twice."
           usedSegsSt %= Set.insert indx  
           
 type ExSt = (Seq.Seq (ExecutionState Int), Map.Map MWord [Advice])
-
--- runPassCheck :: Word -> MachineState MWord -> Hopefully (Trace MWord)
--- runPassCheck steps initMach' = do
---   -- The first entry of the trace is always the initial state.  Then `steps`
---   -- entries follow after it.
---   initExecState <- evalStateT (getStateWithAdvice eAdvice) initState
---   final <- runWith postHandler steps initState
---   return $ initExecState : toList (final ^. sExt . eTrace)
---   where
---     initState = InterpState (Seq.empty, Map.empty) initMach' (initSparsSt Map.empty)
 
 eTrace :: Lens' (a, b) a
 eTrace = _1
@@ -158,23 +113,23 @@ checkSparsity nextIH instr = do
 checkMemAdvice :: InstrHandler r ExSt -> InstrHandler r ExSt
 checkMemAdvice = id 
       
-check :: MonadFail m => Bool -> String -> m ()
-check test msg = if test then return () else fail msg 
+check :: MonadError e m => Bool -> e -> m ()
+check test msg = if test then return () else throwError msg 
     
 maybe2error :: Maybe x -> String -> Result x 
-maybe2error Nothing msg = Nope msg
-maybe2error (Just x) _ = Ok x
+maybe2error Nothing msg = Left msg
+maybe2error (Just x) _ = Right x
 
 compilerErrorResolve :: Hopefully x -> Result x 
-compilerErrorResolve (Left msg) = Nope $ show msg
-compilerErrorResolve (Right x) = Ok x
+compilerErrorResolve (Left msg) = Left $ show msg
+compilerErrorResolve (Right x) = Right x
 
 
 --- Testing:
 doCheck :: IO ()
 doCheck = case checkOutput testOutput of
-            Ok _ -> putStrLn "Ok."
-            Nope msg -> putStrLn msg
+            Right _ -> putStrLn "Ok."
+            Left msg -> putStrLn msg
 -- checkOutput :: Output Int -> Result ()
 testOutput :: Output Int
 testOutput = SecretOutput prog segs parms mem tr adv

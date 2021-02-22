@@ -67,16 +67,6 @@ instance Regs Int where
   fromWord = fromIntegral . toInteger
   toWord = fromIntegral
 
-instance Regs Word64 where
-  sp = 0
-  bp = 1
-  ax = 2
-  -- argc = 3
-  -- argv = 4
-  fromWord = toEnum . fromEnum
-  toWord = toEnum . fromEnum
-
-
 -- | Machine registers based on X86
 
 data MReg =
