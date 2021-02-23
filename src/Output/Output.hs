@@ -67,7 +67,7 @@ data Output reg  =
   , segmentsOut :: [SegmentOut]
   , params :: CircuitParameters
   , initMem :: InitialMem
-  , trace :: [TraceChunkOut reg]
+  , traceOut :: [TraceChunkOut reg]
   , adviceOut :: Map.Map MWord [Advice]
   }
   | PublicOutput

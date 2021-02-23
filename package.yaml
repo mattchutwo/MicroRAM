@@ -87,8 +87,8 @@ executables:
 
 tests:
   compiler:
-    main:                CompilerSpec.hs
-    source-dirs:         test/Compiler
+    main:                Compiler/CompilerSpec.hs
+    source-dirs:         test
     ghc-options:         
     - -threaded
     - -rtsopts
@@ -107,6 +107,19 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     - -main-is MicroRAM.InterpreterSpec
+    dependencies:
+    - MicroRAM
+    - tasty
+    - tasty-hunit
+    - tasty-smallcheck
+  post-process:
+    main:                PostProcess/PostProcessSpec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -main-is PostProcess.PostProcessSpec
     dependencies:
     - MicroRAM
     - tasty
