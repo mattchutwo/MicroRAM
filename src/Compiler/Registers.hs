@@ -22,7 +22,7 @@ module Compiler.Registers
     ) where
 
 import qualified Data.Map as Map
-import Data.Word
+-- import Data.Word
 
 -- | Class about data structers that can be registers.
 class Ord a => Regs a where

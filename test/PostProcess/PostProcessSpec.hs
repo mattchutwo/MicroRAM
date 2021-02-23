@@ -3,8 +3,8 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 module PostProcess.PostProcessSpec where
 
-import MicroRAM.MRAMInterpreter
-import MicroRAM (MWord)
+--import MicroRAM.MRAMInterpreter
+--import MicroRAM (MWord)
 
 -- Compiler imports
 import Compiler
@@ -15,7 +15,7 @@ import Test.Tasty
 
 import qualified Test.QuickCheck.Monadic as QCM
 import Test.Tasty.QuickCheck
-import Test.QuickCheck.Property as P
+--import Test.QuickCheck.Property as P
 
 import Segments.SegInterpreter
 import PostProcess
@@ -37,7 +37,7 @@ mkPostTests tg = case tg of
   ManyTests nm ts -> testGroup nm $ mkPostTests <$> ts 
 
 mkPostTest :: TestProgram -> TestTree
-mkPostTest (TestProgram name file len res hasBug) = processTest  name file len
+mkPostTest (TestProgram name file len _res _hasBug) = processTest  name file len
 
 processTest :: TestName -> FilePath -> Word -> TestTree
 processTest name file len =
