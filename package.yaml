@@ -87,8 +87,8 @@ executables:
 
 tests:
   compiler:
-    main:                CompilerSpec.hs
-    source-dirs:         test/Compiler
+    main:                Compiler/CompilerSpec.hs
+    source-dirs:         test
     ghc-options:         
     - -threaded
     - -rtsopts
@@ -113,8 +113,8 @@ tests:
     - tasty-hunit
     - tasty-smallcheck
   post-process:
-    main:                PostProcessSpec.hs
-    source-dirs:         test/PostProcess
+    main:                PostProcess/PostProcessSpec.hs
+    source-dirs:         test
     ghc-options:
     - -threaded
     - -rtsopts
