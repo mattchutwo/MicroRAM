@@ -9,6 +9,7 @@ import Util.Util
 
 import MicroRAM
 import Compiler
+import Control.Monad(when)
 import Compiler.CompilationUnit
 import Compiler.Errors
 import LLVMutil.LLVMIO
@@ -30,47 +31,80 @@ main :: IO ()
 main = do
   (options, file, len) <- getArgs >>= parseArgs
   fr <- parseOptions file len options
-  ifio (beginning fr <= end fr) $ do
+  when (beginning fr <= end fr) $ do
     putStrLn "Nothing to do here. Beginning comes later than end. Did you use -from-mram and -just-llvm? "
     exitSuccess
   -- --------------
   -- Run Frontend
   -- --------------
-  ifio (beginning fr == CLang) $ do
-    -- Clang will error out if the output path is in a nonexistent directory.
-    createDirectoryIfMissing True $ takeDirectory $ llvmFile fr
-    output <- callClang (fr2ClangArgs fr)
-    giveInfo fr output
-  ifio (end fr >= LLVMLang) $ exitWith ExitSuccess
+  when (beginning fr == CLang) $ frontend fr -- writes the resutl to llvmFile
+  when (end fr >= LLVMLang) $ exitWith ExitSuccess
   -- --------------
   -- Run Backend
   -- --------------
   microProg <-  if (beginning fr >= LLVMLang) then -- Compile or read from file
-                  do giveInfo fr "Running the compiler backend..."
-                     callBackend fr
-                else
-                  do flatprog <- readFile $ fileIn fr
-                     return $ read flatprog
-  -- Maybe save the MicroRAM file
-  case mramFile fr of 
-    Just mramFileOut -> do
-      giveInfo fr $ "Write MicroRAM program to file : " ++ mramFileOut
-      writeFile mramFileOut $ show microProg
-    Nothing -> return ()
-  -- Maybe end here and output public output as CBOR
-  postProcessed <- handleErrors $ postProcess_v (verbose fr) chunkSize (end fr == FullOutput) microProg
-  output fr postProcessed
+                  callBackend fr
+                else read <$> readFile (fileIn fr)
+  saveMramProgram fr microProg
+  -- --------------
+  -- POST PROCESS
+  -- --------------
+  postProcessed <- postProcess fr microProg
+  outputTheResult fr postProcessed
   exitWith ExitSuccess
   
-  where output :: FlagRecord -> Output AReg -> IO ()
-        output fr out = case fileOut fr of
-                           Just file -> L.writeFile file $ serialOutput out [] -- Replace list with features
-                           Nothing   -> putStrLn $ printOutputWithFormat (outFormat fr) out [] -- Replace list with features
-        -- if verbose
-        giveInfo fr str = ifio (verbose fr) $ putStrLn $ str
+  where -- FRONTEND
+        frontend :: FlagRecord -> IO ()
+        frontend fr = do
+          -- Clang will error out if the output path is in a nonexistent directory.
+          createDirectoryIfMissing True $ takeDirectory $ llvmFile fr
+          output <- callClang (fr2ClangArgs fr)
+          giveInfo fr output
 
+        -- Backend
+        callBackend :: FlagRecord -> IO $ CompilationResult (Program AReg MWord)
+        callBackend fr = do
+          giveInfo fr "Running the compiler backend..."
+            -- Retrieve program from file
+          llvmModule <- llvmParse $ llvmFile fr
+            -- Then compile
+          case trLen fr of
+            Nothing -> do
+              putStrLn $ "Found no trace, can't compile."
+              exitWith ExitSuccess
+            Just trLength -> do
+              compiledProg <- handleErrorWith (compile trLength llvmModule $ spars fr)
+              return compiledProg
+
+        saveMramProgram :: Show a => FlagRecord -> a -> IO ()
+        saveMramProgram fr microProg =
+          case mramFile fr of 
+            Just mramFileOut -> do
+              giveInfo fr $ "Write MicroRAM program to file : " ++ mramFileOut
+              writeFile mramFileOut $ show microProg
+            Nothing -> return ()
+
+
+        -- POST PROCESS
+        postProcess :: FlagRecord
+                    -> CompilationResult (Program Int MWord)
+                    -> IO (Output Int)
+        postProcess fr mramProg = handleErrors $ postProcess_v (verbose fr) chunkSize (end fr == FullOutput) mramProg
+        outputTheResult :: FlagRecord -> Output AReg -> IO ()
+        outputTheResult fr out =
+          case fileOut fr of
+            Just file -> L.writeFile file $ serialOutput out [] -- Replace list with features
+            Nothing   -> putStrLn $ printOutputWithFormat (outFormat fr) out [] -- Replace list with features  
         chunkSize = 10
 
+        
+
+
+
+
+-- if verbose
+giveInfo :: FlagRecord -> String -> IO ()
+giveInfo fr str = when (verbose fr) $ putStrLn $ str
 
         
 handleErrors :: Hopefully x -> IO x
@@ -80,19 +114,7 @@ handleErrors hx = case hx of
   Right x -> return x
 
  
-      
-callBackend :: FlagRecord -> IO $ CompilationResult (Program AReg MWord)
-callBackend fr = do  
-  -- Retrieve program from file
-  llvmModule <- llvmParse $ llvmFile fr
-  -- Then compile
-  case trLen fr of
-    Nothing -> do
-      putStrLn $ "Found no trace, can't compile."
-      exitWith ExitSuccess
-    Just trLength -> do
-      compiledProg <- handleErrorWith (compile trLength llvmModule $ spars fr)
-      return compiledProg
+     
 
 data Flag
  = -- General flags
@@ -149,50 +171,47 @@ fr2ClangArgs fr = ClangArgs (fileIn fr) (Just $ llvmFile fr) (optim fr) (verbose
 defaultFlags :: String -> Maybe Word -> FlagRecord
 defaultFlags name len =
   FlagRecord
-    False
-    name
-    CLang
-    --
-    0
-    --
-    len 
-    "temp/temp.ll" -- Default we use to temporarily store compilation FIXME!
-    Nothing
-    (Just 1)       -- Sparsity
-    --
-    Nothing
-    FullOutput
-    --
-    False
-    StdHex
-
+  { verbose   = False  
+  , fileIn    = name
+  , beginning = CLang
+  -- Compiler frontend
+  , optim     = 0
+  -- Compiler backend
+  , trLen     = len
+  , llvmFile  = "temp/temp.ll"
+  , mramFile  = Nothing
+  , spars     = Just 1
+  -- Interpreter
+  , fileOut   = Nothing
+  , end       = FullOutput
+  --
+  , doubleCheck = False
+  , outFormat = StdHex
+  }
+  
 parseFlag :: Flag -> FlagRecord -> FlagRecord
-parseFlag (Verbose) fr = fr {verbose = True}
--- Front end flags
-parseFlag (Optimisation n) fr = fr {optim = n}
--- Back end flags 
-parseFlag (LLVMout (Just llvmOut)) fr = fr {llvmFile = llvmOut}
-parseFlag (LLVMout Nothing) fr = fr {llvmFile = replaceExtension (fileIn fr) ".ll"}
+parseFlag flag fr =
+  case flag of
+    Verbose ->                 fr {verbose = True}
+    -- Front end flags
+    Optimisation n ->          fr {optim = n}
+    -- Back end flags 
+    LLVMout (Just llvmOut) ->  fr {llvmFile = llvmOut}
+    LLVMout Nothing ->         fr {llvmFile = replaceExtension (fileIn fr) ".ll"}
+    FromLLVM ->                fr {beginning = LLVMLang, llvmFile = fileIn fr} -- In this case we are reading the fileIn
+    JustLLVM ->                fr {end = max LLVMLang $ end fr}
+    JustMRAM ->                fr {end = max MRAMLang $ end fr}
+    MemSparsity s ->           fr {spars = Just s}
+    -- Interpreter flags
+    FromMRAM ->                fr {beginning = MRAMLang} -- In this case we are reading the fileIn
+    MRAMout (Just outFile) ->  fr {mramFile = Just outFile}
+    MRAMout Nothing ->         fr {mramFile = Just $ replaceExtension (fileIn fr) ".micro"}
+    Output outFile ->          fr {fileOut = Just outFile}
+    DoubleCheck ->             fr {doubleCheck = True}
 
-parseFlag (FromLLVM) fr = fr {beginning = LLVMLang, llvmFile = fileIn fr} -- In this case we are reading the fileIn
-parseFlag (JustLLVM) fr = fr {end = max LLVMLang $ end fr}
-
-parseFlag (JustMRAM) fr = fr {end = max MRAMLang $ end fr}
-parseFlag (MemSparsity s) fr = fr {spars = Just s}
-
--- Interpreter flags
-parseFlag (FromMRAM) fr = fr {beginning = MRAMLang} -- In this case we are reading the fileIn
-parseFlag (MRAMout (Just outFile)) fr = fr {mramFile = Just outFile}
-parseFlag (MRAMout Nothing) fr = fr {mramFile = Just $ replaceExtension (fileIn fr) ".micro"}
-
-parseFlag (Output outFile) fr = fr {fileOut = Just outFile}
-
-parseFlag (DoubleCheck) fr = fr {doubleCheck = True}
-
-parseFlag FlatFormat fr = fr {outFormat = max Flat $ outFormat fr}
-parseFlag PrettyHex fr = fr {outFormat = max PHex $ outFormat fr}
-
-parseFlag _ fr = fr
+    FlatFormat ->              fr {outFormat = max Flat $ outFormat fr}
+    PrettyHex ->               fr {outFormat = max PHex $ outFormat fr}
+    _ ->                       fr
 
 parseOptions :: String -> Maybe Word -> [Flag] -> IO FlagRecord
 parseOptions filein len flags = do
@@ -225,7 +244,7 @@ parseArgs argv =
   case getOpt Permute options argv of
         (opts,fs:maybeLength,[]) -> do
           -- there can only be one file
-          ifio (Help `elem` opts) $ do
+          when (Help `elem` opts) $ do
             hPutStrLn stderr (usageInfo header options)
             exitWith ExitSuccess
           myLength <- getLength maybeLength
@@ -242,5 +261,3 @@ parseArgs argv =
                 hPutStrLn stderr ("The only arguments should be a file name and a trace length. \n" ++
                                   "Arguments provided beyond file name: " ++ show args ++ "\n" ++ usageInfo header options) 
                 exitWith (ExitFailure 1)
-ifio :: Bool -> IO () -> IO ()
-ifio cond thing = if cond then thing else return ()

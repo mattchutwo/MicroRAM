@@ -519,17 +519,20 @@ instance Serialise Name where
 
 -- * Serialisations and other pretty printing formats
 
+versionedOutput :: Output reg -> [String] -> ([Int], [String], Output reg)
+versionedOutput out features = (versionBranch version, features, out)
+
 serialOutput :: Serialise reg => Output reg -> [String] -> L.ByteString
-serialOutput out features = toLazyByteString $ (encode $ (versionBranch version, features, out))
+serialOutput out features = toLazyByteString $ (encode $ versionedOutput out features)
 
 serialInput :: Serialise reg => L.ByteString -> Either DeserialiseFailure (L.ByteString, Output reg)
 serialInput string = deserialiseFromBytes (decodeOutput) string 
 
-ppHexOutput :: Serialise reg => Output reg -> String
-ppHexOutput out = prettyHexEnc $ encode out
+ppHexOutput :: Serialise reg => Output reg -> [String] -> String
+ppHexOutput out features = prettyHexEnc $ encode $ versionedOutput out features
 
-flatOutput :: Serialise reg => Output reg -> FlatTerm
-flatOutput out = toFlatTerm $ encode out
+flatOutput :: Serialise reg => Output reg  -> [String] -> FlatTerm
+flatOutput out features = toFlatTerm $ encode $ versionedOutput out features
 
 data OutFormat =
     StdHex
@@ -541,8 +544,8 @@ data OutFormat =
 -- NOTE: ONLY StdHEX records version number. The others are for debugging only
 printOutputWithFormat :: Serialise reg => OutFormat -> Output reg -> [String] -> String
 printOutputWithFormat StdHex out features = show $ (serialOutput out features) 
-printOutputWithFormat PHex out _ = ppHexOutput out
-printOutputWithFormat Flat out _ = show . flatOutput $ out
+printOutputWithFormat PHex out features = ppHexOutput out features
+printOutputWithFormat Flat out  features = show $ flatOutput out features
 
 
 -- c :: Output Word
