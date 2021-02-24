@@ -10,6 +10,9 @@ define i32 @add21(i32) #0 {
   %4 = add nsw i32 %3, 21
   ret i32 %4
 }
+
+declare i32 @add22(i32) #0
+
 ; Function Attrs: noinline nounwind optnone ssp uwtable
 define i32 @main() #0 {
   %1 = alloca i32, align 4
@@ -18,7 +21,7 @@ define i32 @main() #0 {
   store i32 0, i32* %1, align 4
   store i32 21, i32* %2, align 4
   %4 = load i32, i32* %2, align 4
-  %5 = call i32 @add21(i32 %4)
+  %5 = call i32 @add22(i32 4) #0
   store i32 %5, i32* %3, align 4
   %6 = load i32, i32* %3, align 4
   ret i32 %6

@@ -21,7 +21,7 @@ main = defaultMain testsWithOptions
 
 -- We can't generate inputs right now, so set test number to 1
 testsWithOptions :: TestTree
-testsWithOptions = localOption (QuickCheckTests 1) justOne -- tests
+testsWithOptions = localOption (QuickCheckTests 1) tests
 
 
 {-tests' = testGroup "Compiler tests" $

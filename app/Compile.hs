@@ -103,8 +103,9 @@ callBackend fr = do
       putStrLn $ "Found no trace, can't compile."
       exitWith ExitSuccess
     Just trLength -> do
-      compiledProg <- handleErrorWith (compile trLength llvmModule $ spars fr)
+      compiledProg <- handleErrorWith (compile undefinedFunctions trLength llvmModule $ spars fr)
       return compiledProg
+  where undefinedFunctions = allowUndefFun fr
 
 data Flag
  = -- General flags
@@ -119,6 +120,7 @@ data Flag
    | JustMRAM
    | MRAMout (Maybe String)
    | MemSparsity Int
+   | AllowUndefFun
    -- Interpreter flags
    | FromMRAM
    | Output String
@@ -147,6 +149,7 @@ data FlagRecord = FlagRecord
   , llvmFile :: String -- Defaults to a temporary one if not wanted.
   , mramFile :: Maybe String
   , spars :: Maybe Int
+  , allowUndefFun:: Bool 
   -- Interpreter
   , fileOut :: Maybe String
   , end :: Stages
@@ -171,6 +174,7 @@ defaultFlags name len =
     "temp/temp.ll" -- Default we use to temporarily store compilation FIXME!
     Nothing
     (Just 1)       -- Sparsity
+    False
     --
     Nothing
     FullOutput
@@ -191,6 +195,9 @@ parseFlag (JustLLVM) fr = fr {end = max LLVMLang $ end fr}
 
 parseFlag (JustMRAM) fr = fr {end = max MRAMLang $ end fr}
 parseFlag (MemSparsity s) fr = fr {spars = Just s}
+
+parseFlag AllowUndefFun fr = fr {allowUndefFun = True}
+
 
 -- Interpreter flags
 parseFlag (FromMRAM) fr = fr {beginning = MRAMLang} -- In this case we are reading the fileIn
@@ -228,6 +235,7 @@ options =
   , Option []    ["flat-hex"]    (NoArg FlatFormat)               "Output in flat CBOR format. Won't work if writting to file. "
   , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
   , Option ['s'] ["sparsity"]    (ReqArg (\s -> MemSparsity $ read s) "MEM SARSITY")               "check the result"
+  , Option []    ["allow-undef"] (NoArg AllowUndefFun)          "Allow declared functions with no body."
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)
