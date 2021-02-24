@@ -14,22 +14,11 @@ module Compiler.UndefinedFunctions
     ( catchUndefinedFunctions,
     ) where
 
-
--- import Control.Monad
--- import qualified Data.ByteString.Short as Short
--- import qualified Data.ByteString.UTF8 as BSU
--- import qualified Data.Map as Map
--- import Data.Map (Map)
--- import qualified Data.Set as Set
--- import qualified Data.Text as Text
-
 import Compiler.Errors (Hopefully, assumptError)
 import Compiler.IRs
--- import Compiler.LazyConstants
 
 import Control.Monad (when)
 
--- import MicroRAM
 import Util.Util
 
 
