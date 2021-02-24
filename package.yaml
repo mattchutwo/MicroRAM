@@ -73,16 +73,6 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - MicroRAM
-  run:
-    main:                Run.hs
-    source-dirs:         app
-    ghc-options:
-    - -main-is Run
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - MicroRAM
 
 
 tests:
