@@ -49,7 +49,7 @@ callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:bloc
     LFunction fname mdata typ typs stackSize' blocks''
     
   where
-    calleeRestore stkSize registers = zipWith (\pos, reg -> Lgetstack Local pos ty reg) [stkSize..] registers
+    calleeRestore stkSize registers = zipWith (\pos reg -> Lgetstack Local pos ty reg) [stkSize..] registers
 
     calleeSave stackSize registers (BB n insts insts' dag) = 
       let saveInsts = map (\(pos, reg) -> 

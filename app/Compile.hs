@@ -62,17 +62,6 @@ main = do
   output fr postProcessed
   exitWith ExitSuccess
   
-  -- ifio (end fr >= MRAMLang) $ do
-  --   giveInfo fr $ "Output public info."
-  --   output fr $ compUnit2Output microProg -- return public output 
-  --   exitWith ExitSuccess -- Verifier mod ends here
-  -- -- --------------
-  -- -- Interpreter
-  -- -- --------------
-  -- secretOut <- return $ fullOutput_v (verbose fr) microProg
-  -- output fr $ secretOut
-  -- ifio (doubleCheck fr) $ print "Nothing to check"
-  
   where output :: FlagRecord -> Output AReg -> IO ()
         output fr out = case fileOut fr of
                            Just file -> L.writeFile file $ serialOutput out [] -- Replace list with features
