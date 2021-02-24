@@ -72,23 +72,22 @@ memoryFromGlobals ggg  =
   let (lazyInitMem, globs) = lazyMemoryFromGlobals ggg in
     (resolveGlobalsMem globs lazyInitMem, globs)
   where resolveGlobalsMem :: Map.Map String MWord -> LazyInitialMem -> LazyInitialMem
-        resolveGlobalsMem globMap lInitMem = 
-          map (resolveGlobalsSegment globMap) lInitMem
+        resolveGlobalsMem globMap = map (resolveGlobalsSegment globMap)
         resolveGlobalsSegment :: Map.Map String MWord -> LazyInitSegment -> LazyInitSegment
         resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly loc len _) =
           let concreteInit = map (applyPartialMap g) <$> lazyConst in
           (concreteInit, InitMemSegment secr rOnly loc len Nothing)
         
 lazyMemoryFromGlobals :: GEnv MWord -> (LazyInitialMem, Map.Map String MWord)
-lazyMemoryFromGlobals ggg  = foldr memoryFromGlobal ([],Map.empty) ggg  
+lazyMemoryFromGlobals  = foldr memoryFromGlobal ([],Map.empty)  
   where memoryFromGlobal ::
           GlobalVariable MWord
           -> (LazyInitialMem, Map.Map String MWord)
           -> (LazyInitialMem, Map.Map String MWord)
-        memoryFromGlobal (GlobalVariable name isConst _gTy init size align secret) (initMem, gMap) =
+        memoryFromGlobal (GlobalVariable name isConst _gTy initzr size align secret) (initMem, gMap) =
           let newLoc = alignTo align $ newLocation initMem in
           let newLazySegment =
-                (init, InitMemSegment secret isConst newLoc (fromIntegral $ size) Nothing) in -- __FIXME__
+                (initzr, InitMemSegment secret isConst newLoc (fromIntegral size) Nothing) in -- __FIXME__
           -- The addresses assigned to global variable symbols must be given in
           -- bytes, unlike all other global / init-mem related measurements,
           -- which are in words.
@@ -114,10 +113,10 @@ raplaceGlobals gmap = mapM $ traverseOpLFun $ raplaceGlobalsOperands gmap
           Map.Map String MWord
           -> MAOperand mreg MWord
           -> Hopefully $ MAOperand mreg MWord
-        raplaceGlobalsOperands gmap (Glob name) =  -- FIXME : SC I think we can remove Glob as it is covered by lazy constants 
-          case Map.lookup (show name) gmap of
+        raplaceGlobalsOperands gmap' (Glob name) =  -- FIXME : SC I think we can remove Glob as it is covered by lazy constants 
+          case Map.lookup (show name) gmap' of
             Just gptr -> return $ LImm $ SConst gptr
             _ -> assumptError $ "Global not found in the environment: " ++ show name
-        raplaceGlobalsOperands gmap (LImm lc) =
-          return $ LImm $ applyPartialMap gmap lc
+        raplaceGlobalsOperands gmap' (LImm lc) =
+          return $ LImm $ applyPartialMap gmap' lc
         raplaceGlobalsOperands _ op = return op
