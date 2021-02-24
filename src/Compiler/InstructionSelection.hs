@@ -14,9 +14,6 @@ Instruction selection translates LLVM to MicroIR. It's a linear pass that transl
 LLVM instruction to 0 or MicroIR instructinos. For now, it does not combine
 instructinos.
 
-* __TODO__: Refactor instruction selection to work over the CFG to
-            optimize instructions.
-
 As we do the instructino selections WE KEEP THE DAG INFORMATION by
 annotating each block with all the blocks it can jump to. This could
 be reversed (annotate blocks by those blocks that jump to it) in
@@ -55,27 +52,15 @@ import Util.Util
 import MicroRAM (MWord, MemWidth(..), pattern WWord, widthInt, wordBytes)
 import qualified MicroRAM as MRAM
 
-
-{-
-import qualified Control.Exception as Exc
-import System.IO.Unsafe
-import qualified LLVM.AST.AddrSpace as LLVM.AST.AddrSpace
-
-{-# NOINLINE unsafeCleanup #-}
-unsafeCleanup :: a -> Maybe a
-unsafeCleanup x = unsafePerformIO $ Exc.catch (x `seq` return (Just x)) handler
-    where
-    handler exc = return Nothing  `const`  (exc :: Exc.ErrorCall)
--}
-
-{-| Notes on this instruction generation :
+{- Notes on this instruction generation :
 
    TO DOs:
    1. Check exception handeling, I'm  not sure I'm translating that correctly.
       Particulary, do we include exeption jumpin in DAGS? Right now we don't
-   
+   2. 
 
 -}
+
 -- | Environment to keep track of global and type definitions
 data Env = Env {tenv :: LLVMTypeEnv, globs :: Set.Set LLVM.Name}
 
@@ -93,37 +78,12 @@ name2nameM nm = return $ name2name nm
 name2label :: Monad m => LLVM.Name -> m $ MAOperand VReg MWord
 name2label nm = return $ Label $ show $ name2name nm
 
-
-_wrd2integer:: MWord -> Integer
-_wrd2integer x = fromIntegral x
-
-_integer2wrd:: Integer -> Hopefully $ MWord
-_integer2wrd x
-  | x >= (_wrd2integer minBound) && x <= (_wrd2integer maxBound) = return $ fromInteger x
-  | otherwise = otherError $ "Literal out of bounds: " ++ (show x) ++ ". Bounds " ++ (show (_wrd2integer minBound, _wrd2integer maxBound)) 
-  
 getConstant :: Env -> LLVM.Constant.Constant -> Hopefully $ MAOperand VReg MWord
-getConstant env c = do
-  c' <- constant2OnelazyConst env c
-  return $ LImm $ c'
-  
-  
-{-
-getConstant (LLVM.Constant.Int _ val) = LImm <$> SConst <$> integer2wrd val
-getConstant (LLVM.Constant.Undef _typ) = return $ LImm 0 -- Concretising values is allways allowed TODO: Why are there undefined values, can't we remove this?
-getConstant (LLVM.Constant.GlobalReference _typ name) = return $ Glob $ name2name name
-getConstant (LLVM.Constant.GetElementPtr _ _ _) = assumptError $
-  "Constant structs are not supported yet. This should go away with -O1. If you are seeing this message and used at least -O1 please report."
-getConstant (LLVM.Constant.Null _typ) = return $ LImm 0 -- Ignores type/size
-getConstant consT = otherError $
-  "Illegal constant. Maybe you used an unsuported type (e.g. float) or you forgot to run constant propagation (i.e. constant expresions in instructions): \n \t" ++ (show consT) ++ "\n"
--}
+getConstant env c = LImm <$> constant2OnelazyConst env c
 
 operand2operand :: Env -> LLVM.Operand -> Hopefully $ MAOperand VReg MWord
 operand2operand env (LLVM.ConstantOperand c) = getConstant env c
-operand2operand _env (LLVM.LocalReference _ name) = do
-  name' <- (name2nameM name)
-  return $ AReg name'
+operand2operand _env (LLVM.LocalReference _ name') = AReg <$> name2nameM name'
 operand2operand _ _= implError "operand, probably metadata"
 
 -- | Get the value of `op`, masking off high bits if necessary to emulate
@@ -151,27 +111,24 @@ operand2operandTrunc env op = do
 type2type :: LLVMTypeEnv -> LLVM.Type -> Hopefully Ty
 type2type _ LLVM.VoidType = return TVoid -- FIXME check size!
 type2type _ (LLVM.IntegerType _n) = return Tint -- FIXME check size! 
-type2type _tenv (LLVM.PointerType _t _) = do
-  --pointee <- type2type tenv t
-  return $ Tptr 
-type2type _ (LLVM.FunctionType _ _ _) = return Tint -- FIXME enrich typed!
-type2type tenv (LLVM.ArrayType size elemT) = do
-  elemT' <- type2type tenv elemT
+type2type _tenv (LLVM.PointerType _t _) = return Tptr 
+type2type _ (LLVM.FunctionType {}) = return Tint -- FIXME enrich typed!
+type2type tenv' (LLVM.ArrayType size elemT) = do
+  elemT' <- type2type tenv' elemT
   size' <- return $ size -- wrdFromwrd64 
   return $ Tarray size' elemT'
 --type2type _ (LLVM.StructureType True _) = assumptError "Can't pack structs yet."
-type2type tenv (LLVM.StructureType _ tys) = Tstruct <$> mapM (type2type tenv) tys
-type2type tenv (LLVM.NamedTypeReference name) = do
-  ty <- typeDef tenv name
-  type2type tenv ty
+type2type tenv' (LLVM.StructureType _ tys) = Tstruct <$> mapM (type2type tenv') tys
+type2type tenv' (LLVM.NamedTypeReference name) = do
+  ty <- typeDef tenv' name
+  type2type tenv' ty
 type2type _ t = implError $ "Type conversion of the following llvm type: \n \t " ++ (show t)
 
 typeDef :: LLVMTypeEnv -> LLVM.Name -> Hopefully LLVM.Type  
-typeDef tenv name =
-  case Map.lookup name tenv of
+typeDef tenv' name =
+  case Map.lookup name tenv' of
     Just ty -> return $ ty
     Nothing -> assumptError $ "Type not defined: \n \t" ++ show name ++ ".\n" 
-
 
 -- | toRTL lifts simple MicroRAM instruction into RTL.
 toRTL :: [MA2Instruction VReg MWord] -> [MIRInstr () MWord]
@@ -199,9 +156,7 @@ freshName = do
 -- We mostly generate MA2Instructions and then lift them to RTL. The only exception is
 -- function call
 
---isInstrs = undefined
 
--- |I
 type BinopInstruction = VReg -> MAOperand VReg MWord -> MAOperand VReg MWord ->
   MA2Instruction VReg MWord
 isBinop
@@ -211,19 +166,18 @@ isBinop
      -> LLVM.Operand
      -> BinopInstruction
      -> Statefully [MIRInstr () MWord]
-isBinop env ret op1 op2 bopisBinop = lift $ toRTL <$> isBinop' env ret op1 op2 bopisBinop
+isBinop env ret op1 op2 bopisBinop = lift $ toRTL <$> isBinop' ret op1 op2 bopisBinop
   where isBinop' ::
-          Env
-          -> Maybe VReg
+          Maybe VReg
           -> LLVM.Operand
           -> LLVM.Operand
           -> BinopInstruction
           -> Hopefully $ [MA2Instruction VReg MWord]
-        isBinop' _ Nothing _ _ _ = Right $ [] --  without return is a noop
-        isBinop' env (Just ret) op1 op2 bop = do
-          a <- operand2operand env op1
-          b <- operand2operand env op2
-          return $ [bop ret a b]
+        isBinop' Nothing _ _ _ = Right [] --  without return is a noop
+        isBinop' (Just ret') op1' op2' bop = do
+          a <- operand2operand env op1'
+          b <- operand2operand env op2'
+          return [bop ret' a b]
   
 -- ** Comparisons
 
@@ -279,12 +233,12 @@ function2function _ (Right op) =
   implError $ "Calling a function with unsuported operand. You called: \n \t" ++ show op
 
 functionTypes :: LLVMTypeEnv ->  LLVM.Type -> Hopefully (Ty, [Ty])
-functionTypes tenv (LLVM.FunctionType retTy argTys False) = do
-  retT' <- type2type  tenv retTy
-  paramT' <- mapM (type2type tenv) argTys
+functionTypes tenv' (LLVM.FunctionType retTy argTys False) = do
+  retT' <- type2type  tenv' retTy
+  paramT' <- mapM (type2type tenv') argTys
   return (retT',paramT')
 functionTypes _tenv (LLVM.FunctionType  _ _ True) =
-  implError $ "Variable parameters (isVarArg in function call)."
+  implError "Variable parameters (isVarArg in function call)."
 functionTypes _ ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
 
 -- | Process parameters into RTL format
@@ -416,10 +370,6 @@ isArithShr env (Just ret) o1 o2 = do
    we only look at the numElements.
    In fact (currently) we dont check  stack overflow or any similar safety check
    Also the current granularity of our memory is per word so ptr arithmetic and alignment are trivial. -}
-{-isInstruction env ret (LLVM.Alloca a Nothing b c) =
-  isInstruction env ret (LLVM.Alloca a (Just constOne) b c) --NumElements is defaulted to be one. 
-isInstruction env ret (LLVM.Alloca ty (Just size) _ _) =
--}
 isAlloca
   :: Env
      -> Maybe VReg
@@ -430,8 +380,6 @@ isAlloca env ret ty count = lift $ do
   let tySize = sizeOf (tenv env) ty
   count' <- operand2operand env count
   return [MirI (RAlloc ret tySize count') ()]
-
-
 
 pointerOperandWidth :: Env -> LLVM.Operand -> Hopefully MRAM.MemWidth
 pointerOperandWidth env op = case resolve (tenv env) $ typeOf (tenv env) op of
@@ -601,10 +549,10 @@ isCompare
      -> LLVM.Operand
      -> VReg
      -> Statefully $ [MIRInstr () MWord]
-isCompare env pred op1 op2 ret = do
+isCompare env pred' op1 op2 ret = do
   (lhs, lhsPre) <- operand2operandTrunc env op1
   (rhs, rhsPre) <- operand2operandTrunc env op2
-  comp' <- lift $ return $ predicate2instructuion pred ret lhs rhs -- Do the comparison
+  comp' <- lift $ return $ predicate2instructuion pred' ret lhs rhs -- Do the comparison
   returnRTL $ lhsPre ++ rhsPre ++ comp'
                         
 -- *** Function Call 
@@ -630,7 +578,7 @@ isPhi
   -> Statefully $ [MIRInstruction () VReg MWord]
 isPhi env ins ret = lift $ do
   ins' <- mapM (convertPhiInput env) ins
-  return $ [MirI (RPhi ret ins') ()]
+  return [MirI (RPhi ret ins') ()]
 
 isSelect
   :: Env
@@ -683,7 +631,7 @@ isGEPaggregate
   -> LLVM.Type
   -> [MAOperand VReg MWord]
   -> Statefully $ [MA2Instruction VReg MWord]
-isGEPaggregate _ _ _ [] = return $ []
+isGEPaggregate _ _ _ [] = return []
 isGEPaggregate env ret (LLVM.ArrayType _ elemsT) (inx:inxs) = do
   (rm, multiplication) <- constantMultiplication (sizeOf (tenv env) elemsT) inx
   continuation <- isGEPaggregate env ret elemsT inxs

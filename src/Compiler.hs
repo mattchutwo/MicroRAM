@@ -136,7 +136,7 @@ between functions.
 
 -}
 module Compiler
-    ( compile --compileStraight
+    ( compile
     , module Export
     ) where
 
