@@ -12,7 +12,6 @@ import Compiler
 import Compiler.CompilationUnit
 import Compiler.Errors
 import LLVMutil.LLVMIO
--- import Compiler.IRs
 
 import Output.Output
 import Output.CBORFormat

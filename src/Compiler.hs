@@ -178,13 +178,13 @@ compile1 len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Lower Intrinsics"                      $ justCompile lowerIntrinsics)
   >>= (tagPass "Legalize Instructions"                 $ justCompile legalize)
   >>= (tagPass "Localize Labels"                       $ justCompile localizeLabels)
-  >>= (tagPass "Edge split"                            $ justCompile edgeSplit)
 
 compile2
   :: Maybe Int
   -> CompilationUnit () (Rprog () MWord) ->
   Hopefully (CompilationUnit () (MRAM.Program AReg MWord))
 compile2 spars prog = return prog
+  >>= (tagPass "Edge split"          $ justCompile edgeSplit)
   >>= (tagPass "Remove Phi Nodes"    $ justCompile removePhi)
   >>= (tagPass "Register Allocation" $ registerAlloc def)
   >>= (tagPass "Calling Convention"  $ justCompile callingConvention)
