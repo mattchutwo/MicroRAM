@@ -669,8 +669,8 @@ isTruncate :: Env
 isTruncate env op ty ret = do
   op' <- operand2operand env op
   case ty of
-    LLVM.IntegerType w | w < 64 -> do
-      return $ [MRAM.Iand ret op' (LImm $ SConst $ (1 `shiftL` fromIntegral w) - 1)]
+    LLVM.IntegerType w | w < 64 ->
+      return [MRAM.Iand ret op' (LImm $ SConst $ (1 `shiftL` fromIntegral w) - 1)]
     _ -> assumptError $ "Can't truncate non integer type " ++ show ty 
   
 
@@ -688,8 +688,8 @@ smartMove
   => regT
   -> MAOperand regT wrdT
   -> [MRAM.Instruction' regT operand1 (MAOperand regT wrdT)]
-smartMove ret op =
-  if (checkEq op ret) then [] else [MRAM.Imov ret op]
+smartMove ret op = [MRAM.Imov ret op | not (checkEq op ret)]
+  --  if (checkEq op ret) then [] else [MRAM.Imov ret op]
   where checkEq op r = case op of
                          AReg r0 -> r0 == r  
                          _ -> False   
