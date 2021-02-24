@@ -21,7 +21,7 @@ main = defaultMain testsWithOptions
 
 -- We can't generate inputs right now, so set test number to 1
 testsWithOptions :: TestTree
-testsWithOptions = localOption (QuickCheckTests 1) tests
+testsWithOptions = localOption (QuickCheckTests 1) justOne -- tests
 
 
 {-tests' = testGroup "Compiler tests" $
@@ -35,11 +35,11 @@ tests = testGroup "Compiler tests" $
         [testCorrectness, testBugs]
 
 
-justOne = testGroup " Trivial programs" $
-    compileCorrectTest
-    "Trivial struct"
-    "test/programs/easyStruct.ll"
-    50 3 :
+justOne = testGroup " Just one test" $
+  compileCorrectTest
+  "Linked list generic"
+  "test/programs/LinkedList/linkedList.c.ll"
+  1500 42 :
     []
 
 -- # Test correctness of the compiler
@@ -191,7 +191,7 @@ compileTest executionFunction tester name file len =
           -> IO MWord -- TestTree-}
         compileTest' file len _verb = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile len llvmProg Nothing 
+          mramProg <- handleErrorWith $ compile False len llvmProg Nothing 
           return $ executionFunction mramProg
   
 
