@@ -18,23 +18,23 @@ Format for compiler units
 -}
 
 module Output.CBORFormat where
-import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm, FlatTerm)
---import qualified Data.Map as Map
+
 import GHC.Generics
 
-import Codec.Serialise
-
+import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm, FlatTerm)
 import Codec.CBOR.Decoding
 import Codec.CBOR.Encoding
 import Codec.CBOR.Write
 import Codec.CBOR.Read
 import Codec.CBOR.Pretty
+import Codec.Serialise
+
 import qualified Data.ByteString.Lazy                  as L
 
-import Compiler.Sparsity
 import Compiler.CompilationUnit
+import Compiler.Common (Name)
 import Compiler.Registers
-import Compiler.IRs
+import Compiler.Sparsity
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM

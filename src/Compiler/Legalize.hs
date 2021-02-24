@@ -20,6 +20,7 @@ import Control.Monad.State
 
 
 import Compiler.Errors
+import Compiler.Common(Name(..))
 import Compiler.IRs
 
 import MicroRAM (mapInstrM, Instruction'(..), pattern WWord)

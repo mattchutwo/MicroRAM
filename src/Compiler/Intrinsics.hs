@@ -28,6 +28,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 
+import Compiler.Common (Name(Name))
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.LazyConstants

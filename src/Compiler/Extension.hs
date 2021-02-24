@@ -16,6 +16,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 
 import Compiler.Errors
+import Compiler.Common (Name)
 import Compiler.IRs
 
 import MicroRAM (Instruction'(..))

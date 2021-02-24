@@ -21,8 +21,9 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.String (fromString)
 
-import Compiler.IRs
+import Compiler.Common (Name(..))
 import Compiler.Errors
+import Compiler.IRs
 
 localizeLabels :: Rprog mdata wrdT -> Hopefully (Rprog mdata wrdT)
 localizeLabels (IRprog te ge funcs) = return $ IRprog te ge (map (localizeFunc funcNames) funcs)

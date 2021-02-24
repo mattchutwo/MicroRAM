@@ -6,7 +6,7 @@ import System.Environment
 
 import Util.Util
 
-import Compiler.IRs (Name)
+import Compiler.Common (Name)
 import MicroRAM
 import Compiler.CompilationUnit (CompilationResult, CompilationUnit(..))
 import MicroRAM.MRAMInterpreter (execAnswer)
