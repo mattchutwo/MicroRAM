@@ -138,9 +138,16 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   ]
 
 lowerIntrinsics :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
-lowerIntrinsics prog = expandInstrs (expandIntrinsicCall intrinsics) prog
+lowerIntrinsics = expandInstrs (expandIntrinsicCall intrinsics)
+                  >=> removeIntrinsics
 
-
+-- | removes the intrinsics declarations which have been inlined and are not needed anymore.
+-- This overlaps with dead code elimination (a bit), but enables checking for undefined functions
+removeIntrinsics :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
+removeIntrinsics prog = 
+  return $ prog {code = filter (not . isIntrinsic) $ code prog}
+  where isIntrinsic f = show (funcName f) `Map.member` intrinsics
+  
 -- | Rename C/LLVM implementations of LLVM intrinsics to line up with their
 -- intrinsic name.
 --

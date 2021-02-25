@@ -17,6 +17,7 @@ define i32 @main() #0 {
   store i32 0, i32* %3, align 4
   store i32 1, i32* %4, align 4
   %7 = load i32, i32* @SECRET_NUMBER, align 4
+  %6 = call i8* @malloc(i64 20)
   store i32 %7, i32* %2, align 4
   store i32 0, i32* %6, align 4
   br label %8
@@ -24,7 +25,7 @@ define i32 @main() #0 {
 8:                                                ; preds = %24, %0
   %9 = load i32, i32* %6, align 4
   %10 = load i32, i32* %2, align 4
-  %11 = icmp slt i32 %9, %10
+  %11 = icmp sle i32 %9, %10
   br i1 %11, label %12, label %27
 
 12:                                               ; preds = %8
@@ -61,6 +62,9 @@ define i32 @main() #0 {
   %28 = load i32, i32* %5, align 4
   ret i32 %28
 }
+
+; Function Attrs: allocsize(0)
+declare i8* @malloc(i64) #0
 
 attributes #0 = { noinline nounwind optnone ssp uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "darwin-stkchk-strong-link" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "probe-stack"="___chkstk_darwin" "stack-protector-buffer-size"="8" "target-cpu"="penryn" "target-features"="+cx16,+cx8,+fxsr,+mmx,+sahf,+sse,+sse2,+sse3,+sse4.1,+ssse3,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
 

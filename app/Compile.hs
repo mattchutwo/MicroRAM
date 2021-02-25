@@ -63,18 +63,19 @@ main = do
 
         -- Backend
         callBackend :: FlagRecord -> IO $ CompilationResult (Program AReg MWord)
-        callBackend fr = do
+        callBackend fr = do  
           giveInfo fr "Running the compiler backend..."
-            -- Retrieve program from file
+          -- Retrieve program from file
           llvmModule <- llvmParse $ llvmFile fr
-            -- Then compile
+          -- Then compile
           case trLen fr of
             Nothing -> do
               putStrLn $ "Found no trace, can't compile."
               exitWith ExitSuccess
             Just trLength -> do
-              compiledProg <- handleErrorWith (compile trLength llvmModule $ spars fr)
-              return compiledProg
+              handleErrorWith (compile undefinedFunctions trLength llvmModule $ spars fr)
+            where undefinedFunctions = allowUndefFun fr
+
 
         saveMramProgram :: Show a => FlagRecord -> a -> IO ()
         saveMramProgram fr microProg =
@@ -113,8 +114,7 @@ handleErrors hx = case hx of
                    exitWith ExitSuccess -- FAIL
   Right x -> return x
 
- 
-     
+       
 
 data Flag
  = -- General flags
@@ -129,6 +129,7 @@ data Flag
    | JustMRAM
    | MRAMout (Maybe String)
    | MemSparsity Int
+   | AllowUndefFun
    -- Interpreter flags
    | FromMRAM
    | Output String
@@ -157,6 +158,7 @@ data FlagRecord = FlagRecord
   , llvmFile :: String -- Defaults to a temporary one if not wanted.
   , mramFile :: Maybe String
   , spars :: Maybe Int
+  , allowUndefFun:: Bool 
   -- Interpreter
   , fileOut :: Maybe String
   , end :: Stages
@@ -181,6 +183,7 @@ defaultFlags name len =
   , llvmFile  = "temp/temp.ll"
   , mramFile  = Nothing
   , spars     = Just 1
+  , allowUndefFun = False
   -- Interpreter
   , fileOut   = Nothing
   , end       = FullOutput
@@ -202,13 +205,13 @@ parseFlag flag fr =
     JustLLVM ->                fr {end = max LLVMLang $ end fr}
     JustMRAM ->                fr {end = max MRAMLang $ end fr}
     MemSparsity s ->           fr {spars = Just s}
+    AllowUndefFun ->           fr {allowUndefFun = True}
     -- Interpreter flags
     FromMRAM ->                fr {beginning = MRAMLang} -- In this case we are reading the fileIn
     MRAMout (Just outFile) ->  fr {mramFile = Just outFile}
     MRAMout Nothing ->         fr {mramFile = Just $ replaceExtension (fileIn fr) ".micro"}
     Output outFile ->          fr {fileOut = Just outFile}
     DoubleCheck ->             fr {doubleCheck = True}
-
     FlatFormat ->              fr {outFormat = max Flat $ outFormat fr}
     PrettyHex ->               fr {outFormat = max PHex $ outFormat fr}
     _ ->                       fr
@@ -235,6 +238,7 @@ options =
   , Option []    ["flat-hex"]    (NoArg FlatFormat)               "Output in flat CBOR format. Won't work if writting to file. "
   , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
   , Option ['s'] ["sparsity"]    (ReqArg (\s -> MemSparsity $ read s) "MEM SARSITY")               "check the result"
+  , Option []    ["allow-undef"] (NoArg AllowUndefFun)          "Allow declared functions with no body."
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)

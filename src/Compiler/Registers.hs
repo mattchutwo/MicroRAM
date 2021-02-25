@@ -51,7 +51,7 @@ updateBank = Map.insert
 -- | Flattens a register bank to a list. Takes a bound
 -- in case the register type or the bank is infinite.
 regToList :: Regs mreg => Word -> RegBank mreg b -> [Maybe b]
-regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound] 
+regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound - 1]
 
 
 

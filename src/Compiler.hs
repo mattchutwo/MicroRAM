@@ -160,24 +160,27 @@ import Compiler.RemoveLabels
 import Compiler.RemovePhi
 import Compiler.Stacking
 import Compiler.Sparsity
+import Compiler.UndefinedFunctions
 
 import MicroRAM (MWord)
 import qualified MicroRAM as MRAM  (Program) 
 
 import qualified LLVM.AST as LLVM
-
 import Util.Util
 
 compile1
-  :: Word
+  :: Bool
+  -> Word
   -> LLVM.Module
   -> Hopefully (CompilationUnit () (Rprog () MWord))
-compile1 len llvmProg = (return $ prog2unit len llvmProg)
-  >>= (tagPass "Instruction Selection"                 $ justCompile instrSelect)
+compile1 allowUndefFun len llvmProg = (return $ prog2unit len llvmProg)
+  >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
-  >>= (tagPass "Lower Intrinsics"                      $ justCompile lowerIntrinsics)
-  >>= (tagPass "Legalize Instructions"                 $ justCompile legalize)
-  >>= (tagPass "Localize Labels"                       $ justCompile localizeLabels)
+  >>= (tagPass "Lower Intrinsics" $ justCompile lowerIntrinsics)
+  >>= (tagPass "Catch undefined Functions" $ justCompile (catchUndefinedFunctions allowUndefFun))
+  >>= (tagPass "Legalize Instructions" $ justCompile legalize)
+  >>= (tagPass "Localize Labels" $ justCompile localizeLabels)
+  >>= (tagPass "Edge split" $ justCompile edgeSplit)
 
 compile2
   :: Maybe Int
@@ -194,9 +197,9 @@ compile2 spars prog = return prog
   >>= (tagPass "Block cleanup"       $ blockCleanup)
   >>= (tagPass "Removing labels"     $ removeLabels)
 
-compile :: Word -> LLVM.Module -> Maybe Int -> Hopefully $ CompilationResult (MRAM.Program AReg MWord)
-compile len llvmProg spars = do
-  ir <- compile1 len llvmProg
+compile :: Bool -> Word -> LLVM.Module -> Maybe Int -> Hopefully $ CompilationResult (MRAM.Program AReg MWord)
+compile allowUndefFun len llvmProg spars = do
+  ir <- compile1 allowUndefFun len llvmProg
   high <- compile2 spars ir
   low <- return ir
     >>= (tagPass "Lower Extension Instructions" $ justCompile lowerExtensionInstrs)

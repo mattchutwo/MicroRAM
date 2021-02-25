@@ -31,13 +31,17 @@ testsWithOptions :: TestTree
 testsWithOptions = localOption (QuickCheckTests 1) postTests
   where postTests = mkPostTests allTests
 
-mkPostTests :: TestGroup -> TestTree
+mkPostTests :: TestGroupAbs -> TestTree
 mkPostTests tg = case tg of
   OneTest t -> mkPostTest t
   ManyTests nm ts -> testGroup nm $ mkPostTests <$> ts 
 
 mkPostTest :: TestProgram -> TestTree
-mkPostTest (TestProgram name file len _res _hasBug) = processTest  name file len
+mkPostTest (TestProgram name file len cmpError _res _hasBug) =
+  if cmpError then emptyTest else processTest  name file len
+
+emptyTest :: TestTree
+emptyTest = testGroup "Compiler errors not tested" [] -- This is ignored by QuickCheck
 
 processTest :: TestName -> FilePath -> Word -> TestTree
 processTest name file len =
@@ -45,7 +49,7 @@ processTest name file len =
   where output :: FilePath -> Word -> IO Property 
         output file len = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile len llvmProg Nothing
+          mramProg <- handleErrorWith $ compile False len llvmProg Nothing
           let postProcessed = compilerErrorResolve $ postProcess_v False chunkSize True mramProg
           return $ result2property $ checkOutput <$> postProcessed
         chunkSize = 10

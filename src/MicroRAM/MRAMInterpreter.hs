@@ -655,8 +655,16 @@ runWith :: Regs r => InstrHandler r s -> Word -> InterpState r s -> Hopefully (I
 runWith handler steps initState = evalStateT go initState
   where
     go = do
-      replicateM_ (fromIntegral steps) goStep
+      goSteps steps
       get
+
+    goSteps 0 = return ()
+    goSteps n = do
+      goStep
+      ans <- use $ sMach . mAnswer
+      case ans of
+        Just _ -> return ()
+        Nothing -> goSteps (n - 1)
 
     goStep = do
       pc <- use $ sMach . mPc
