@@ -6,7 +6,8 @@ module Compiler.CompilerSpec where
 import MicroRAM.MRAMInterpreter
 import MicroRAM (MWord)
 
--- Compiler imports
+import Data.Either (isLeft)
+
 import Compiler
 import Compiler.Errors
 
@@ -44,7 +45,7 @@ justOne = testGroup " Just one test" $
 
 -- # Test correctness of the compiler
 testCorrectness = testGroup "Compiler correctness tests" $
-                  [testTrivial, testLoops, testGEP, testDatastruct]
+                  [testTrivial, testErrors, testLoops, testGEP, testDatastruct]
 
 -- Trivial test, just to see the basics are working
 testTrivial = testGroup "Trivial programs" $
@@ -132,6 +133,12 @@ testGEP = testGroup "Test structs and arrays with GetElementPtr" $
     240 16 :
     []
 
+testErrors = testGroup "Test errors" $
+  compileErrorTest "Error for undefined functions"
+  "test/programs/errorUndefinedFunction.ll" 10 :
+  []
+
+
 testDatastruct = testGroup "Test data structures" $
   compileCorrectTest
   "Linked list generic"
@@ -193,8 +200,21 @@ compileTest executionFunction tester name file len =
           llvmProg <- llvmParse file
           mramProg <- handleErrorWith $ compile False len llvmProg Nothing 
           return $ executionFunction mramProg
-  
 
+compileErrorTest
+  :: TestName
+  -> FilePath
+  -> Word
+  -> TestTree
+compileErrorTest name file len = 
+  testProperty name $ 
+  QCM.monadicIO $ do
+  compResult <- QCM.run $ compileFromFile file len
+  QCM.assert $ isLeft compResult
+  where compileFromFile file len = do
+          llvmProg <- llvmParse file
+          return $ compile False len llvmProg Nothing 
+          
 -- ## Full compilation tests of correctness
 
 -- | compileCorrectTest : compile step by step llvm code from file:
