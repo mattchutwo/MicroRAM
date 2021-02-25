@@ -56,28 +56,28 @@ class Typed a where
   typeOf :: LLVMTypeEnv -> a -> Type
 
 instance Typed Operand where
-  typeOf env (LocalReference t _) = t
+  typeOf _env (LocalReference t _) = t
   typeOf env (ConstantOperand c)  = typeOf env c
-  typeOf env _                    = MetadataType
+  typeOf _env _                    = MetadataType
 
 instance Typed CallableOperand where
   typeOf env (Right op) = typeOf env op
-  typeOf env (Left _) = error "typeOf env inline assembler is not defined. (Malformed AST)"
+  typeOf _env (Left _) = error "typeOf env inline assembler is not defined. (Malformed AST)"
 
 instance Typed C.Constant where
-  typeOf env (C.Int bits _)  = IntegerType bits
+  typeOf _env (C.Int bits _)  = IntegerType bits
   typeOf env (C.Float t) = typeOf env t
-  typeOf env (C.Null t)      = t
-  typeOf env (C.AggregateZero t) = t
+  typeOf _env (C.Null t)      = t
+  typeOf _env (C.AggregateZero t) = t
   typeOf env (C.Struct {..}) = StructureType isPacked (map (typeOf env) memberValues)
-  typeOf env (C.Array {..})  = ArrayType (fromIntegral $ length memberValues) memberType
+  typeOf _env (C.Array {..})  = ArrayType (fromIntegral $ length memberValues) memberType
   typeOf env (C.Vector {..}) = VectorType (fromIntegral $ length memberValues) $
                               case memberValues of
                                   []    -> error "Vectors of size zero are not allowed. (Malformed AST)"
                                   (x:_) -> typeOf env x
-  typeOf env (C.Undef t)     = t
-  typeOf env (C.BlockAddress {..})   = ptr i8
-  typeOf env (C.GlobalReference t _) = t
+  typeOf _env (C.Undef t)     = t
+  typeOf _env (C.BlockAddress {..})   = ptr i8
+  typeOf _env (C.GlobalReference t _) = t
   typeOf env (C.Add {..})     = typeOf env operand0
   typeOf env (C.FAdd {..})    = typeOf env operand0
   typeOf env (C.FDiv {..})    = typeOf env operand0
@@ -97,18 +97,18 @@ instance Typed C.Constant where
   typeOf env (C.Or  {..})     = typeOf env operand0
   typeOf env (C.Xor {..})     = typeOf env operand0
   typeOf env (C.GetElementPtr {..}) = getElementPtrType env (typeOf env address) indices
-  typeOf env (C.Trunc {..})   = type'
-  typeOf env (C.ZExt {..})    = type'
-  typeOf env (C.SExt {..})    = type'
-  typeOf env (C.FPToUI {..})  = type'
-  typeOf env (C.FPToSI {..})  = type'
-  typeOf env (C.UIToFP {..})  = type'
-  typeOf env (C.SIToFP {..})  = type'
-  typeOf env (C.FPTrunc {..}) = type'
-  typeOf env (C.FPExt {..})   = type'
-  typeOf env (C.PtrToInt {..}) = type'
-  typeOf env (C.IntToPtr {..}) = type'
-  typeOf env (C.BitCast {..})  = type'
+  typeOf _env (C.Trunc {..})   = type'
+  typeOf _env (C.ZExt {..})    = type'
+  typeOf _env (C.SExt {..})    = type'
+  typeOf _env (C.FPToUI {..})  = type'
+  typeOf _env (C.FPToSI {..})  = type'
+  typeOf _env (C.UIToFP {..})  = type'
+  typeOf _env (C.SIToFP {..})  = type'
+  typeOf _env (C.FPTrunc {..}) = type'
+  typeOf _env (C.FPExt {..})   = type'
+  typeOf _env (C.PtrToInt {..}) = type'
+  typeOf _env (C.IntToPtr {..}) = type'
+  typeOf _env (C.BitCast {..})  = type'
   typeOf env (C.ICmp {..})    = case resolve env (typeOf env operand0) of
                               (VectorType n _) -> VectorType n i1
                               _ -> i1
@@ -125,8 +125,8 @@ instance Typed C.Constant where
                                       _ -> error "The first operand of an shufflevector instruction is a value of vector type. (Malformed AST)"
   typeOf env (C.ExtractValue {..})    = extractValueType env indices' (typeOf env aggregate)
   typeOf env (C.InsertValue {..})     = typeOf env aggregate
-  typeOf env (C.TokenNone)          = TokenType
-  typeOf env (C.AddrSpaceCast {..}) = type'
+  typeOf _env (C.TokenNone)          = TokenType
+  typeOf _env (C.AddrSpaceCast {..}) = type'
 
 getElementPtrType :: LLVMTypeEnv -> Type -> [C.Constant] -> Type
 getElementPtrType _ ty [] = ptr ty
@@ -140,7 +140,7 @@ getElementPtrType _ _ _ = error "Expecting aggregate type. (Malformed AST)"
 
 getElementType :: LLVMTypeEnv -> Type -> Type
 getElementType env ty@(NamedTypeReference _) = getElementType env (resolve env ty)
-getElementType env (PointerType t _) = t
+getElementType _env (PointerType t _) = t
 getElementType _ _ = error $ "Expecting pointer type. (Malformed AST)"
 
 extractValueType :: LLVMTypeEnv -> [Word32] -> Type -> Type
@@ -155,17 +155,17 @@ extractValueType env (i : is) (StructureType _ elTys)
 extractValueType _ _ _ = error "Expecting vector type. (Malformed AST)"
 
 instance Typed F.SomeFloat where
-  typeOf env (F.Half _)          = FloatingPointType HalfFP
-  typeOf env (F.Single _)        = FloatingPointType FloatFP
-  typeOf env (F.Double _)        = FloatingPointType DoubleFP
-  typeOf env (F.Quadruple _ _)   = FloatingPointType FP128FP
-  typeOf env (F.X86_FP80 _ _)    = FloatingPointType X86_FP80FP
-  typeOf env (F.PPC_FP128 _ _)   = FloatingPointType PPC_FP128FP
+  typeOf _env (F.Half _)          = FloatingPointType HalfFP
+  typeOf _env (F.Single _)        = FloatingPointType FloatFP
+  typeOf _env (F.Double _)        = FloatingPointType DoubleFP
+  typeOf _env (F.Quadruple _ _)   = FloatingPointType FP128FP
+  typeOf _env (F.X86_FP80 _ _)    = FloatingPointType X86_FP80FP
+  typeOf _env (F.PPC_FP128 _ _)   = FloatingPointType PPC_FP128FP
 
 instance Typed Global where
-  typeOf env (GlobalVariable {..}) = type'
-  typeOf env (GlobalAlias {..})    = type'
+  typeOf _env (GlobalVariable {..}) = type'
+  typeOf _env (GlobalAlias {..})    = type'
   typeOf env (Function {..})       = let (params, isVarArg) = parameters
                                    in FunctionType returnType (map (typeOf env) params) isVarArg
 instance Typed Parameter where
-  typeOf env (Parameter t _ _) = t
+  typeOf _env (Parameter t _ _) = t

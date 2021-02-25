@@ -22,7 +22,7 @@ module Compiler.Registers
     ) where
 
 import qualified Data.Map as Map
-
+-- import Data.Word
 
 -- | Class about data structers that can be registers.
 class Ord a => Regs a where
@@ -66,7 +66,7 @@ instance Regs Int where
   -- argv = 4
   fromWord = fromIntegral . toInteger
   toWord = fromIntegral
-  
+
 -- | Machine registers based on X86
 
 data MReg =
