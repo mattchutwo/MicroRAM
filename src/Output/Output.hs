@@ -65,26 +65,37 @@ data TraceChunkOut reg = TraceChunkOut {
 data Output reg  =
   SecretOutput
   { program :: Program reg MWord
-  , segmentsOut :: [Segment reg  MWord]
+  , segmentsOut :: [SegmentOut]
   , params :: CircuitParameters
   , initMem :: InitialMem
-  , trace :: [TraceChunkOut reg]
+  , traceOut :: [TraceChunkOut reg]
+  , adviceOut :: Map.Map MWord [Advice]
   }
   | PublicOutput
   { program :: Program reg MWord
-  , segmentsOut :: [Segment reg MWord]
+  , segmentsOut :: [SegmentOut]
   , params :: CircuitParameters
   , initMem :: InitialMem
   } deriving (Eq, Show, Generic)
 
+data SegmentOut
+  = SegmentOut {constraintsOut :: [Constraints],
+                segLenOut :: Int,
+                segSucOut :: [Int],
+                fromNetworkOut :: Bool,
+                toNetworkOut :: Bool}
+  deriving (Eq, Show, Generic)
+mkSegmentOut :: Segment reg MWord -> SegmentOut
+mkSegmentOut (Segment _ constr len suc fromNet toNet) = SegmentOut constr len suc fromNet toNet
+
 -- | Convert between the two outputs
 mkOutputPublic :: Output reg -> Output reg
-mkOutputPublic (SecretOutput a b c d _) = PublicOutput a b c d
+mkOutputPublic (SecretOutput a b c d _ _) = PublicOutput a b c d
 mkOutputPublic (PublicOutput a b c d) = PublicOutput a b c d
 
-mkOutputPrivate :: [TraceChunkOut reg] -> Output reg -> Output reg
-mkOutputPrivate trace (PublicOutput a b c d ) = SecretOutput a b c d trace
-mkOutputPrivate trace (SecretOutput a b c d _) = SecretOutput a b c d trace
+mkOutputPrivate :: [TraceChunkOut reg] -> Map.Map MWord [Advice] -> Output reg -> Output reg
+mkOutputPrivate trace adv (PublicOutput a b c d ) = SecretOutput a b c d trace adv
+mkOutputPrivate trace adv (SecretOutput a b c d _ _) = SecretOutput a b c d trace adv
 
 
 
@@ -112,7 +123,7 @@ data StateOut = StateOut
   { flagOut :: Bool
   , pcOut   :: MWord
   , regsOut :: [MWord]
-  , adviceOut :: [Advice]
+--  , adviceOut :: [Advice]
   } deriving (Eq, Show, Generic)
 
 -- | Compiler is allowed to concretise.
@@ -123,8 +134,8 @@ concretize (Just w) = w
 concretize Nothing = 0
 
 state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
-state2out bound (ExecutionState pc regs _ _ advice flag _ _ _) =
-  StateOut flag pc (map concretize $ regToList bound regs) advice
+state2out bound (ExecutionState pc regs _ _ _advice flag _ _ _) =
+  StateOut flag pc (map concretize $ regToList bound regs) -- Advice is ignored
 
 
 
@@ -152,9 +163,10 @@ buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed 
 
 compUnit2Output :: Regs reg => [Segment reg MWord] -> CompilationResult (Program reg MWord) -> Output reg
 compUnit2Output segs (CompUnit p trLen regData aData initMem _) =
-  let regNum = getRegNum regData in
-  let circParams = buildCircuitParameters trLen regData aData regNum in
-  PublicOutput (lowProg p) segs circParams initMem
+  let regNum = getRegNum regData
+      circParams = buildCircuitParameters trLen regData aData regNum
+      segsOut = map mkSegmentOut segs in
+  PublicOutput (lowProg p) segsOut circParams initMem
 
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).

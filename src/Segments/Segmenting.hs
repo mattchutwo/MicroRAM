@@ -9,7 +9,7 @@ Stability   : experimental
 
 -}
 
-module Segments.Segmenting (segmentProgram, Segment(..)) where
+module Segments.Segmenting (segmentProgram, Segment(..), Constraints(..)) where
 
 import Compiler.Errors
 import qualified Data.Map as Map 
@@ -22,12 +22,16 @@ import GHC.Generics
 -- The map relates the beggining of each segment, in the original program, with the segment in the cut program
 data Segment reg wrd = Segment
   { segIntrs :: [Instruction reg wrd]
-    , init_pc :: MWord
+    , constraints :: [Constraints]
     , segLen :: Int
     , segSuc :: [Int]
-    , fromNetwork :: Bool }
-                     deriving (Eq, Show, Generic)
-    
+    , fromNetwork :: Bool
+    , toNetwork :: Bool } deriving (Eq, Show, Generic)
+-- | Constraints for the segment
+data Constraints =
+  PcConst MWord -- | Pc constraints indicate a public segment.
+  deriving (Eq, Show, Generic)
+  
 --segmenting :: Program reg wrd -> [Segment reg wrd]
 --segmenting prog = 
 
@@ -43,9 +47,9 @@ makeCut pc instrs = Cut instrs pc (length instrs)
 
 segmentProgram :: Program reg MWord -> Hopefully $ ([Segment reg MWord], Map.Map MWord [Int])
 segmentProgram prog =
-  let (cuts, map) = cutProg prog in
-    do segs <- mapM (cut2segment map) cuts
-       return (segs, map)
+  let (cuts, cutMap) = cutProg prog in
+    do segs <- mapM (cut2segment cutMap) cuts
+       return (segs, cutMap)
 
 cutProg :: Program reg wrd -> ([Cut reg wrd], Map.Map MWord [Int])
 cutProg prog =
@@ -77,12 +81,15 @@ cutProg prog =
         isJump (Ijmp _) = True
         isJump (Icjmp _ _) = True
         isJump (Icnjmp _ _) = True
+        -- `answer` halts execution by jumping to itself in an infinite loop.
+        isJump (Ianswer _) = True
         isJump _ = False
 
 
 cutSuccessors :: Map.Map MWord [Int] -> Cut reg MWord -> Hopefully $ [Int]
-cutSuccessors map (Cut instrs pc len) =
-  instrSuccessor map (pc + toEnum len - 1)  (last instrs) 
+cutSuccessors map (Cut instrs pc len)
+  | null instrs = return []
+  | otherwise = instrSuccessor map (pc + toEnum len - 1)  (last instrs)
   
 instrSuccessor :: Map.Map MWord [Int] -> MWord -> Instruction reg MWord -> Hopefully $ [Int]
 instrSuccessor blockMap pc instr =
@@ -93,7 +100,7 @@ instrSuccessor blockMap pc instr =
     _             -> return $ []
 
   where ifConst :: Operand regT MWord -> Hopefully $ [Int]
-        ifConst (Reg   _) = return $ [-1]  -- Go to network
+        ifConst (Reg   _) = return $ []  -- By default it goes to network.
         ifConst (Const c) = do { block <- getBlock c; return block }
           
         getBlock :: MWord -> Hopefully [Int] 
@@ -107,8 +114,8 @@ instrSuccessor blockMap pc instr =
 -- | Cut to segment
 cut2segment :: Map.Map MWord [Int] -> Cut reg MWord -> Hopefully $ Segment reg MWord 
 cut2segment blockMap (Cut instrs pc len) = do
-  succ <- cutSuccessors blockMap (Cut instrs pc len)
-  return $ Segment instrs pc len succ True -- We are hardcoing everithing comes from network, for now
+  succe <- cutSuccessors blockMap (Cut instrs pc len)
+  return $ Segment instrs [PcConst pc] len succe True True -- We are hardcoing everithing comes and goes to network, for now
 
 
 

@@ -6,23 +6,17 @@ module Compiler.Layout
   alignOf,
   structPadding,
   offsetOfStructElement,
-  typeOfConstant,
 ) where
 
 import Data.Bits
 import qualified Data.Map as Map 
-import Data.Map (Map)
 
 import MicroRAM
+import Compiler.TypeOf (LLVMTypeEnv)
 
 -- Avoid importing `Name` unqualified, to minimize confusion.
 import LLVM.AST (Type(..))
 import qualified LLVM.AST as LLVM
-import qualified LLVM.AST.Constant as LLVM.Constant
-import LLVM.AST.Typed (typeOf)
-import LLVM.AST.AddrSpace
-
-type LLVMTypeEnv = Map LLVM.Name Type
 
 -- | Compute the size of an LLVM type in bytes.
 sizeOf :: LLVMTypeEnv -> Type -> MWord
@@ -90,84 +84,3 @@ typeDef :: LLVMTypeEnv -> LLVM.Name -> Type
 typeDef tenv name = case Map.lookup name tenv of
   Just x -> x
   Nothing -> error $ "unknown type " ++ show name
-
-
-
--- ** All the same, but for constants.
--- llvm-hs-pure duplicates instructions in Constants so
--- We need to duplicate all functions over constants.
--- (Note we can't call LLVM.typeOf on the constant to reuse the code above
---  because it fails on references, global or local)
-
-
-
-
--- | Compute the type of a constant __UP TO pointers__
--- We can't use the llvm-hs-pur `typeOf` because it fails on references.
--- ONLYT TO BE USED FOR SIZE CALCULATIONS!
-typeOfConstant :: LLVM.Constant.Constant -> Type
-typeOfConstant (LLVM.Constant.Int bits _)  = IntegerType bits
-typeOfConstant (LLVM.Constant.Float t) = typeOf t
-typeOfConstant (LLVM.Constant.Null t)      = t
-typeOfConstant (LLVM.Constant.AggregateZero t) = t
-typeOfConstant (LLVM.Constant.Struct {..}) =
-  StructureType isPacked (map typeOfConstant memberValues)
-typeOfConstant (LLVM.Constant.Array {..})  = ArrayType (fromIntegral $ length memberValues) memberType
-typeOfConstant (LLVM.Constant.Vector {..}) = VectorType (fromIntegral $ length memberValues) $
-                                 case memberValues of
-                                []    -> error "Vectors of size zero are not allowed. (Malformed AST)"
-                                (x:_) -> typeOfConstant x
-typeOfConstant (LLVM.Constant.Undef t)     = t
-typeOfConstant (LLVM.Constant.BlockAddress {..})   = PointerType (IntegerType 8) (AddrSpace 0)
-typeOfConstant (LLVM.Constant.GlobalReference t _) = t
-typeOfConstant (LLVM.Constant.Add {..})     = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.FAdd {..})    = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.FDiv {..})    = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.FRem {..})    = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.Sub {..})     = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.FSub {..})    = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.Mul {..})     = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.FMul {..})    = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.UDiv {..})    = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.SDiv {..})    = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.URem {..})    = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.SRem {..})    = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.Shl {..})     = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.LShr {..})    = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.AShr {..})    = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.And {..})     = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.Or  {..})     = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.Xor {..})     = typeOfConstant operand0
-typeOfConstant (LLVM.Constant.GetElementPtr {..}) = -- Here we truncate types because all pointers are size.
-  PointerType (IntegerType 64) (AddrSpace 0)
-typeOfConstant (LLVM.Constant.Trunc {..})   = type'
-typeOfConstant (LLVM.Constant.ZExt {..})    = type'
-typeOfConstant (LLVM.Constant.SExt {..})    = type'
-typeOfConstant (LLVM.Constant.FPToUI {..})  = type'
-typeOfConstant (LLVM.Constant.FPToSI {..})  = type'
-typeOfConstant (LLVM.Constant.UIToFP {..})  = type'
-typeOfConstant (LLVM.Constant.SIToFP {..})  = type'
-typeOfConstant (LLVM.Constant.FPTrunc {..}) = type'
-typeOfConstant (LLVM.Constant.FPExt {..})   = type'
-typeOfConstant (LLVM.Constant.PtrToInt {..}) = type'
-typeOfConstant (LLVM.Constant.IntToPtr {..}) = type'
-typeOfConstant (LLVM.Constant.BitCast {..})  = type'
-typeOfConstant (LLVM.Constant.ICmp {..})    = case (typeOfConstant operand0) of
-                            (VectorType n _) -> VectorType n $ IntegerType 1
-                            _ -> IntegerType 1
-typeOfConstant (LLVM.Constant.FCmp {..})    = case (typeOfConstant operand0) of
-                            (VectorType n _) -> VectorType n $ IntegerType 1
-                            _ -> IntegerType 1
-typeOfConstant (LLVM.Constant.Select {..})  = typeOfConstant trueValue
-typeOfConstant (LLVM.Constant.ExtractElement {..})  = case typeOfConstant vector of
-                                    (VectorType _ t) -> t
-                                    _ -> error "The first operand of an extractelement instruction is a value of vector type. (Malformed AST)"
-typeOfConstant (LLVM.Constant.InsertElement {..})   = typeOfConstant vector
-typeOfConstant (LLVM.Constant.ShuffleVector {..})   = case (typeOfConstant operand0, typeOfConstant mask) of
-                                    (VectorType _ t, VectorType m _) -> VectorType m t
-                                    _ -> error "The first operand of an shufflevector instruction is a value of vector type. (Malformed AST)"
-typeOfConstant (LLVM.Constant.ExtractValue {..})    =
-  error "Constant ExtractValue not supported" -- How do you load from memory in a constant?
-typeOfConstant (LLVM.Constant.InsertValue {..})     = typeOfConstant aggregate
-typeOfConstant (LLVM.Constant.TokenNone)          = TokenType
-typeOfConstant (LLVM.Constant.AddrSpaceCast {..}) = type'

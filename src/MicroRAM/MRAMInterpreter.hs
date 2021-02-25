@@ -21,6 +21,8 @@ module MicroRAM.MRAMInterpreter
   ( -- * Execute a program
     Executor,
     run, run_v, execAnswer, execBug,
+    -- For post processing check (e.g. segment checking)
+    runWith, initMach, InstrHandler, runPassGeneric, InterpState, sMach, sExt, mCycle,
     -- * Trace
     ExecutionState(..),
     Trace, 
@@ -34,8 +36,9 @@ module MicroRAM.MRAMInterpreter
 
 import Control.Monad
 import Control.Monad.State
-import Control.Lens (makeLenses, ix, at, to, lens, (^.), (.=), (%=), use, Lens', _1, _2, _3)
+import Control.Lens (makeLenses, ix, at, to, lens, (^.), (^?), (&), (.~), (.=), (%=), use, Lens', _1, _2, _3)
 import Data.Bits
+import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.List (intercalate)
 import qualified Data.Sequence as Seq
@@ -44,7 +47,10 @@ import qualified Data.Set as Set
 import Data.Set (Set, member)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
+import Data.Word
 
 import GHC.Generics (Generic)
 
@@ -362,12 +368,15 @@ recordAdvice adviceMap adv = do
 adviceHandler :: Regs r => Lens' s AdviceMap -> InstrHandler r s
 adviceHandler advice (Istore w op2 r1) = do
   addr <- opVal op2
-  val <- regVal r1
-  recordAdvice advice (MemOp addr val MOStore w)
+  (waddr, offset) <- splitAlignedAddr w addr
+  storeVal <- regVal r1
+  memVal <- use $ sMach . mMemWord waddr
+  let memVal' = memVal & subBytes w offset .~ storeVal
+  recordAdvice advice (MemOp addr memVal' MOStore w)
 adviceHandler advice (Iload w _rd op2) = do
   addr <- opVal op2
-  (waddr, offset) <- splitAlignedAddr w addr
-  val <- use $ sMach . mMemWord waddr . subBytes w offset
+  (waddr, _offset) <- splitAlignedAddr w addr
+  val <- use $ sMach . mMemWord waddr
   recordAdvice advice (MemOp addr val MOLoad w)
 adviceHandler advice (Ipoison w op2 r1) = do
   addr <- opVal op2
@@ -378,10 +387,30 @@ adviceHandler _ _ = return ()
 
 -- Trace handler (for debugging)
 
+readStr :: Monad m => MWord -> InterpM r s m Text
+readStr ptr = do
+  let (waddr, offset) = splitAddr ptr
+  Mem _ mem <- use $ sMach . mMem
+  let firstWord = maybe 0 id $ mem ^? ix waddr
+      firstBytes = drop offset $ splitWord firstWord
+      restWords = [maybe 0 id $ mem ^? ix waddr' | waddr' <- [waddr + 1 ..]]
+      bytes = takeWhile (/= 0) $ concat $ firstBytes : map splitWord restWords
+      bs = BS.pack bytes
+      t = Text.decodeUtf8With (\_ _ -> Just '?') bs
+  return t
+  where
+    splitWord :: MWord -> [Word8]
+    splitWord x = [fromIntegral $ x `shiftR` (i * 8) | i <- [0 .. wordBytes - 1]]
+
 traceHandler :: Regs r => Bool -> InstrHandler r s -> InstrHandler r s
 traceHandler active _nextH (Iext "trace" ops) = do
   vals <- mapM opVal ops
   when active $ traceM $ "TRACE " ++ intercalate ", " (map show vals)
+  nextPc
+traceHandler active _nextH (Iext "tracestr" [ptrOp]) = do
+  ptr <- opVal ptrOp
+  s <- readStr ptr
+  when active $ traceM $ "TRACESTR " ++ Text.unpack s
   nextPc
 traceHandler active _nextH (Iext name ops) | Just desc <- Text.stripPrefix "trace_" name = do
   vals <- mapM opVal ops
@@ -584,8 +613,16 @@ runWith :: Regs r => InstrHandler r s -> Word -> InterpState r s -> Hopefully (I
 runWith handler steps initState = evalStateT go initState
   where
     go = do
-      replicateM_ (fromIntegral steps) goStep
+      goSteps steps
       get
+
+    goSteps 0 = return ()
+    goSteps n = do
+      goStep
+      ans <- use $ sMach . mAnswer
+      case ans of
+        Just _ -> return ()
+        Nothing -> goSteps (n - 1)
 
     goStep = do
       pc <- use $ sMach . mPc
@@ -634,6 +671,26 @@ runPass2 steps initMach' memInfo = do
       memErrorHandler eMemInfo eAdvice $
       traceHandler False $
       stepInstr
+
+-- | Used for checking final traces after post porocessing
+runPassGeneric :: Regs r => Lens' s (Seq (ExecutionState r)) -> Lens' s (AdviceMap) -> (InstrHandler r s -> InstrHandler r s)
+                -> s -> Word -> MachineState r -> Hopefully (Trace r)
+runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
+  -- The first entry of the trace is always the initial state.  Then `steps`
+  -- entries follow after it.k
+  initExecState <- evalStateT (getStateWithAdvice eAdvice) initState
+  final <- runWith handler steps initState
+  return $ initExecState : toList (final ^. sExt . eTrace)
+  where
+    initState = InterpState initS initMach' -- Map.empty -- (initSparsSt Map.empty)
+    handler =
+      execTraceHandler eTrace eAdvice $
+      postHandler $
+      stepInstr
+    -- eTrace :: Lens' (a, b) a
+    -- eTrace = _1
+    -- eAdvice :: Lens' (a, b) b
+    -- eAdvice = _2
 
 
 
@@ -697,7 +754,7 @@ initMach prog imem = MachineState
 
 type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
-run_v :: Regs mreg => Bool -> Executor mreg (Trace mreg)
+run_v :: Regs mreg => Bool ->  Executor mreg (Trace mreg)
 run_v verbose (CompUnit progs trLen _ _analysis initMem _) = case go of
   Left e -> error $ describeError e
   Right x -> x

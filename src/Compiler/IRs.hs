@@ -34,8 +34,7 @@ module Compiler.IRs(
   IRprog(..), Function(..), IRFunction, BB(..),
   IRInstruction(..),
   
-  GlobalVariable(..), GEnv,
-  Name(..), VReg, DAGinfo,
+  VReg, DAGinfo,
   -- Utilities
   traverseOpBB, traverseOpIRInstr,  
 
@@ -67,9 +66,8 @@ import qualified MicroRAM as MRAM
 import Compiler.LazyConstants
 
 import Compiler.Errors
-import Compiler.Common
+import Compiler.Common (Name, Ty, TypeEnv, GEnv)
 import Util.Util
-
 
 -- ** Operands
 

@@ -1,5 +1,5 @@
 name:                MicroRAM
-version:             0.1.0.0
+version:             0.1.1.0
 github:              "githubuser/MicroRAM"
 license:             BSD3
 author:              "Author name here"
@@ -73,22 +73,12 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - MicroRAM
-  run:
-    main:                Run.hs
-    source-dirs:         app
-    ghc-options:
-    - -main-is Run
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - MicroRAM
 
 
 tests:
   compiler:
-    main:                CompilerSpec.hs
-    source-dirs:         test/Compiler
+    main:                Compiler/CompilerSpec.hs
+    source-dirs:         test
     ghc-options:         
     - -threaded
     - -rtsopts
@@ -107,6 +97,19 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     - -main-is MicroRAM.InterpreterSpec
+    dependencies:
+    - MicroRAM
+    - tasty
+    - tasty-hunit
+    - tasty-smallcheck
+  post-process:
+    main:                PostProcess/PostProcessSpec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -main-is PostProcess.PostProcessSpec
     dependencies:
     - MicroRAM
     - tasty

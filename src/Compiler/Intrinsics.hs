@@ -7,6 +7,11 @@ Module      : Intrinsic lowering
 Description : Converts calls to intrinsics to MicroASM instructions
 Maintainer  : santiago@galois.com
 Stability   : prototype
+
+Inlines calls to intrinsics to MicroASM instructions. Renames the
+intrinsics from using underscors ("__") to using dot (".") and removes
+the empty bodies of those functions.
+
 -}
 
 module Compiler.Intrinsics
@@ -23,6 +28,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 
+import Compiler.Common (Name(Name))
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.LazyConstants
@@ -97,6 +103,10 @@ cc_flag_bug [] Nothing =
   where zero = LImm $ SConst 0
 cc_flag_bug _ _ = progError "bad arguments"
 
+cc_trace :: IntrinsicImpl () w
+cc_trace [msg] Nothing = return [MirM (Iext "tracestr" [msg]) ()]
+cc_trace _ _ = progError "bad arguments"
+
 
 intrinsics :: Map String (IntrinsicImpl () MWord)
 intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
@@ -108,6 +118,8 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("__cc_free", cc_free)
   , ("__cc_advise_poison", cc_advise_poison)
   , ("__cc_write_and_poison", cc_write_and_poison)
+
+  , ("__cc_trace", cc_trace)
 
   , ("llvm.lifetime.start.p0i8", cc_noop)
   , ("llvm.lifetime.end.p0i8", cc_noop)
@@ -126,9 +138,16 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   ]
 
 lowerIntrinsics :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
-lowerIntrinsics prog = expandInstrs (expandIntrinsicCall intrinsics) prog
+lowerIntrinsics = expandInstrs (expandIntrinsicCall intrinsics)
+                  >=> removeIntrinsics
 
-
+-- | removes the intrinsics declarations which have been inlined and are not needed anymore.
+-- This overlaps with dead code elimination (a bit), but enables checking for undefined functions
+removeIntrinsics :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
+removeIntrinsics prog = 
+  return $ prog {code = filter (not . isIntrinsic) $ code prog}
+  where isIntrinsic f = show (funcName f) `Map.member` intrinsics
+  
 -- | Rename C/LLVM implementations of LLVM intrinsics to line up with their
 -- intrinsic name.
 --

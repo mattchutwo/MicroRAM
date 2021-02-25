@@ -56,7 +56,11 @@ module Compiler.Stacking
     ) where
 
 
-
+import Compiler.Errors
+import Compiler.Common
+import Compiler.IRs
+import Compiler.LazyConstants
+import Compiler.Registers
 
 import Data.Bits
 
@@ -64,27 +68,8 @@ import MicroRAM
 
 import Util.Util
 
-import Compiler.Errors
-import Compiler.Common
-import Compiler.IRs
-import Compiler.LazyConstants
-import Compiler.Registers
 
 type LOperand mreg =  MAOperand mreg MWord
-
-{-
--- * Reserved pointers: Stack pointer (SP) and Base Pointer (BP) are reserved for
--- managing the stack
-sp , bp :: MReg
-sp = NewName 0
-bp = NewName 1
-
-
--- * Callee saved registers:
--- we need one calee saved register to operate when calling a function
-ax  :: MReg
-ax = NewName 2
--}
 
 -- ** Usefull snipets
 -- sp points at the next free stack location
@@ -101,9 +86,6 @@ pushOperand op = Imov ax op :  push ax
 
 
 
--- TODO: Can we do this in batch? Unfortunately I dont think we can statically compute
--- sp + 1
--- TODO: include types 
 pushN :: Regs mreg => [LOperand mreg] -> [MAInstruction mreg MWord]
 pushN [] = []
 pushN (r:rs) = pushOperand r ++ pushN rs 
@@ -122,18 +104,7 @@ smartMovMaybe :: Regs mreg => Maybe mreg -> mreg -> [MAInstruction mreg MWord]
 smartMovMaybe Nothing _ = []
 smartMovMaybe (Just r) a = smartMov r a
 
--- | Premain just sets the return address before calling Main.
--- The return address just points at the end of the program where
--- the answer is returned.
-{- This is the master when merging function calls #9
-
-premain :: Regs mreg => [NamedBlock mreg MWord]
-premain =
-  [NBlock Nothing $ Imov ax (Label "_ret_") : push ax]
--}
-
--- | Premain: NOT USED ANYMORE
--- NEW: no arguments to main!
+-- | Premain: no arguments to main!
 -- This is a pseudofunction, that sets up return address for main.
 -- Stores the input in memory.
 -- Sends main to the returnBlock
@@ -159,7 +130,6 @@ returnBlock = NBlock (Just "_ret_") [Ianswer (AReg ax)]
 
 
 -- ** Function Prologues and Epilogues
-
 
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => MWord -> [MAInstruction mreg MWord]
@@ -258,9 +228,7 @@ stackLTLInstr (LAlloc reg sz n) = do
         roundUp (SConst n) = SConst $ (n + fromIntegral wordBytes - 1) .&.
           complement (fromIntegral wordBytes - 1)
         roundUp (LConst f) = LConst $ \ge -> (f ge + fromIntegral wordBytes - 1) .&.
-          complement (fromIntegral wordBytes - 1)
-  -- Compute the size of the allocated memory
-  
+          complement (fromIntegral wordBytes - 1)  
  
 -- | stack all instructions
 stackInstr ::
@@ -294,5 +262,6 @@ stacking :: Regs mreg => Lprog () mreg MWord -> Hopefully $ MAProgram mreg MWord
 stacking (IRprog _ _ functions) = do
   functions' <- mapM stackFunction functions
   return $
-    premain ++ -- No arguemnts passed!
-    (concat functions') ++ [returnBlock]
+    premain ++
+    (concat functions')
+    ++ [returnBlock]
