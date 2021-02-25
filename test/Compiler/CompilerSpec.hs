@@ -6,7 +6,8 @@ module Compiler.CompilerSpec where
 import MicroRAM.MRAMInterpreter
 import MicroRAM (MWord)
 
--- Compiler imports
+import Data.Either (isLeft)
+
 import Compiler
 import Compiler.Errors
 
@@ -26,13 +27,14 @@ testsWithOptions :: TestTree
 testsWithOptions = localOption (QuickCheckTests 1) compilerTests
   where compilerTests = mkCompilerTests allTests
 
-mkCompilerTests :: TestGroup -> TestTree
+mkCompilerTests :: TestGroupAbs -> TestTree
 mkCompilerTests tg = case tg of
   OneTest t -> mkCompilerTest t
   ManyTests nm ts -> testGroup nm $ mkCompilerTests <$> ts 
 
 mkCompilerTest :: TestProgram -> TestTree
-mkCompilerTest (TestProgram name file len res hasBug) =
+mkCompilerTest (TestProgram name file len cmpErr res hasBug) =
+  if cmpErr then compileErrorTest name file len else 
   if hasBug then compileBugTest name file len else compileCorrectTest name file len res
 
 
@@ -60,10 +62,23 @@ compileTest executionFunction tester name file len =
           -> IO MWord -- TestTree-}
         compileTest' file len _verb = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile len llvmProg Nothing 
+          mramProg <- handleErrorWith $ compile False len llvmProg Nothing 
           return $ executionFunction mramProg
-  
 
+compileErrorTest
+  :: TestName
+  -> FilePath
+  -> Word
+  -> TestTree
+compileErrorTest name file len = 
+  testProperty name $ 
+  QCM.monadicIO $ do
+  compResult <- QCM.run $ compileFromFile file len
+  QCM.assert $ isLeft compResult
+  where compileFromFile file len = do
+          llvmProg <- llvmParse file
+          return $ compile False len llvmProg Nothing 
+          
 -- ## Full compilation tests of correctness
 
 -- | compileCorrectTest : compile step by step llvm code from file:

@@ -378,7 +378,7 @@ jpProgComp :: Word -> IO (CompilationResult (Program AReg MWord))
 jpProgComp len = do
     m <- fromLLVMFile "programs/driver-link.ll"
     return $ either undefined id $
-      compile len m Nothing
+      compile False len m Nothing
 
 {- SC: Broken after resgiter allocation was moved to
    work on compilation units, not just programs.
