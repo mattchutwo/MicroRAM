@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 module PostProcess.PostProcessSpec where
+import qualified Debug.Trace as Trace(trace)
 
 --import MicroRAM.MRAMInterpreter
 --import MicroRAM (MWord)
@@ -29,7 +30,7 @@ main = defaultMain testsWithOptions
 -- We can't generate inputs right now, so set test number to 1
 testsWithOptions :: TestTree
 testsWithOptions = localOption (QuickCheckTests 1) postTests
-  where postTests = mkPostTests allTests
+  where postTests = mkPostTests oneTest -- allTests
 
 mkPostTests :: TestGroupAbs -> TestTree
 mkPostTests tg = case tg of
@@ -38,7 +39,7 @@ mkPostTests tg = case tg of
 
 mkPostTest :: TestProgram -> TestTree
 mkPostTest (TestProgram name file len cmpError _res _hasBug) =
-  if cmpError then emptyTest else processTest  name file len
+  if cmpError then emptyTest else processTest name file len
 
 emptyTest :: TestTree
 emptyTest = testGroup "Compiler errors not tested" [] -- This is ignored by QuickCheck
@@ -50,7 +51,9 @@ processTest name file len =
         output file len = do
           llvmProg <- llvmParse file
           mramProg <- handleErrorWith $ compile False len llvmProg Nothing
+          Trace.trace "Checking" $ return ()
           let postProcessed = compilerErrorResolve $ postProcess_v False chunkSize True mramProg
+          Trace.trace "Checked" $ return ()
           return $ result2property $ checkOutput <$> postProcessed
         chunkSize = 10
         result2property r = case r of

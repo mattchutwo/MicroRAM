@@ -1,5 +1,5 @@
 module Programs.Programs (
-  allTests, TestProgram(..), TestGroupAbs (..)
+  oneTest, allTests, TestProgram(..), TestGroupAbs (..)
   ) where
 
 import MicroRAM
@@ -9,6 +9,13 @@ import MicroRAM
 -- The Programs
 ------------------
 testTrivial, testLoops, testGEP, testDatastruct, testBugs, testCorrectness, allTests, testErrors :: TestGroupAbs
+
+oneTest = OneTest $ defaultTest {
+  testName = "Linked list generic"
+  ,fileName ="test/programs/LinkedList/linkedList.c.ll"
+  ,testLen = 1500
+  ,testResult = 42
+  } 
 
 allTests = ManyTests "Compiler tests"
         [testCorrectness, testErrors, testBugs]

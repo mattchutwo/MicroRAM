@@ -11,6 +11,8 @@ Stability   : experimental
 
 module Segments.SegInterpreter (doCheck, checkOutput, Result, compilerErrorResolve) where 
 
+import qualified Debug.Trace as Trace(trace)
+
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Compiler.Errors 
@@ -42,6 +44,7 @@ makeLenses ''CheckSt
 checkOutput :: Output Int -> Result ()
 checkOutput (PublicOutput _ _ _ _) = Left "Found Public Output with no trace to check."
 checkOutput (SecretOutput prog segs params initMem tr _adv) = do
+  Trace.trace "SegInterpreter" return ()
   let traceA = concat $ map chunkStatesOut tr
   let len = length traceA
   -- Produce a new trace

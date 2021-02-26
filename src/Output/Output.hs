@@ -19,6 +19,8 @@ module Output.Output where
 import qualified Data.Map as Map
 import GHC.Generics
 
+import qualified Debug.Trace as Trace(trace)
+
 import Compiler.CompilationUnit
 import Compiler.Registers
 import Compiler.Analysis
@@ -208,7 +210,9 @@ getRegNum (NumRegisters n) = toEnum n
 -- | We only look at what registers are assigned too
 
 countRegs :: Regs regT => Program regT MWord -> Word
-countRegs p = maximum $ map getRegAssign p
+countRegs p =
+  --(Trace.trace $ "lenght of list is: " ++ show (map getRegAssign p))
+  maximum $ map getRegAssign p
   where getRegAssign (Iand reg1 _reg2 _  ) =  toWord reg1  
         getRegAssign (Ior reg1 _reg2 _   ) =  toWord reg1 
         getRegAssign (Ixor reg1 _reg2 _  ) =  toWord reg1 

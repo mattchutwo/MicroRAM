@@ -34,6 +34,8 @@ module MicroRAM.MRAMInterpreter
     Prog
     ) where
 
+import qualified Debug.Trace as Trace(trace)
+
 import Control.Monad
 import Control.Monad.State
 import Control.Lens (makeLenses, ix, at, to, lens, (^.), (^?), (&), (.~), (.=), (%=), use, Lens', _1, _2, _3)
@@ -653,7 +655,9 @@ runPass2 steps initMach' memInfo = do
   -- The first entry of the trace is always the initial state.  Then `steps`
   -- entries follow after it.
   initExecState <- evalStateT (getStateWithAdvice eAdvice) initState
+  Trace.trace "Pass 2.1" $ return () 
   final <- runWith handler steps initState
+  Trace.trace "Pass 2.2" $ return () 
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
     initState = InterpState (Seq.empty, Map.empty, memInfo) initMach'
@@ -757,11 +761,14 @@ type Executor mreg r = CompilationResult (Prog mreg) -> r
 run_v :: Regs mreg => Bool ->  Executor mreg (Trace mreg)
 run_v verbose (CompUnit progs trLen _ _analysis initMem _) = case go of
   Left e -> error $ describeError e
-  Right x -> x
+  Right x -> Trace.trace ("Finish Run ") $ x
   where
     go = do
+      Trace.trace "going" $ return ()
       memInfo <- runPass1 verbose  (trLen - 1) (initMach (highProg progs) initMem)
+      Trace.trace "Past run 1" $ return ()
       tr <- runPass2 (trLen - 1) (initMach (lowProg progs) initMem) memInfo
+      Trace.trace "Past run 2" $ return ()
       return tr
       
 run :: Regs mreg => Executor mreg (Trace mreg)

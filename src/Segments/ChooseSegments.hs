@@ -9,19 +9,17 @@ Stability   : experimental
 -}
 
 module Segments.ChooseSegments where
+import qualified Debug.Trace as Trace(trace)
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
---import Util.Util
-
---import qualified Debug.Trace as Debug
 
 import qualified Data.Map as Map 
 import qualified Data.Set as Set 
--- import Compiler.Errors
 
 import Segments.Segmenting
 import Sparsity.Sparsity
+import Sparsity.Stutter
 import Control.Monad.State.Lazy
 
 data TraceChunk reg = TraceChunk {
@@ -35,17 +33,18 @@ data PartialState reg = PartialState {
   nextPc :: MWord 
   , remainingTrace :: Trace reg
   , chunksPS :: [TraceChunk reg]
-  , queueSt :: Trace reg -- Carries the unalocated states backwards. Eventually they go on private chunks.
+  , queueSt :: AnnotatedTrace reg -- ^ Carries the unalocated states backwards, Eventually they go on private chunks.  They are annotated by the current pc (stuttering needs to know current pc, states have next pc)
   , availableSegments :: Map.Map MWord [Int]
   , privLoc :: Int -- The next location of a private segment
   , sparsityPS :: Sparsity
+  , progPS :: Program reg MWord
   } deriving Show
 
 type InstrNumber = MWord 
 type PState reg x = State (PartialState reg) x 
  
-chooseSegments :: Int -> Sparsity -> Trace reg -> Map.Map MWord [Int] -> [Segment reg MWord] ->  [TraceChunk reg]
-chooseSegments privSize spar trace segmentSets segments =
+chooseSegments :: Int -> Sparsity -> Program reg MWord -> Trace reg -> Map.Map MWord [Int] -> [Segment reg MWord] ->  [TraceChunk reg]
+chooseSegments privSize spar prog trace segmentSets segments =
   -- create starting state
   let initSt = PartialState {
         nextPc = 0 
@@ -54,19 +53,15 @@ chooseSegments privSize spar trace segmentSets segments =
         , queueSt = []
         , availableSegments = segmentSets
         , privLoc = (length segments)
-        , sparsityPS = spar }   
+        , sparsityPS = spar
+        , progPS = prog }   
   -- run the choose statement
-      go = whileM_ traceNotEmpty (chooseSegment segments privSize) *> allocateQueue privSize
+      go = Trace.trace ("ChooseSEgments go") $ whileM_ traceNotEmpty (chooseSegment segments privSize) *> allocateQueue privSize
       finalSt = execState go initSt in 
   -- extract values and return
-    (reverse $ chunksPS finalSt)
+    Trace.trace ("ChooseSEgments End") $ (reverse $ chunksPS finalSt)
 
   where
-    -- whilePS :: PState reg Bool -> (PState reg b) -> PState reg ()
-    -- whilePS nextM f = do
-    --   next <- nextM
-    --   if next then f *> whileJust nextM f else return ()
-
     traceNotEmpty :: PState reg Bool
     traceNotEmpty = do
       trace' <- remainingTrace <$> get
@@ -87,19 +82,25 @@ showQueue
 showQueue q = "[" ++ (concat $ showESt <$> q) ++ "]"
    
 -- | chooses the next segment
-chooseSegment :: [Segment reg MWord] -> Int -> PState reg ()
+chooseSegment ::  [Segment reg MWord] -> Int -> PState reg ()
 chooseSegment segments privSize = do
+  Trace.trace ("Choosing One segment1") $ return ()
   currentPc <- nextPc <$> get
-  maybeSegment <- popSegmentIn currentPc
-  case maybeSegment of
-    Just segment -> do allocateQueue privSize
-                       allocateSegment segments segment
-    _ -> do execSt <- pullStates 1
-            pushQueue (head execSt) -- pop the next state and add it to the queue
-         
+  Trace.trace ("Choosing One segment2") $ return ()
+  maybeSegment <- Trace.trace ("popSegment") $ popSegmentIn currentPc
+  Trace.trace ("Choosing One segment3") $ return ()
+  Trace.trace ("Choosing One segment4") $ case Trace.trace ("Case") $ maybeSegment of
+    Just segment -> do
+      Trace.trace ("further") $ return ()
+      allocateQueue privSize
+      allocateSegment segments segment
+    _ -> do Trace.trace ("Pushqueue") $  return ()
+            execSt <- pullStates 1
+            pushQueue (head execSt, currentPc) -- pop the next state and add it to the queue
    where
      allocateSegment :: [Segment reg MWord] -> Int -> PState reg ()
      allocateSegment segments' segmentIndx =
+       Trace.trace ("allocateSegment") $
        let segment = segments' !! segmentIndx
            len = segLen segment in
          do statesTail <- pullStates len
@@ -114,7 +115,7 @@ chooseSegment segments privSize = do
        -- Update the list AND the pc of the last popped state
        modify (\st -> st {remainingTrace = drop n $ remTrace, nextPc = pc $ last states})
        return $ states
-     pushQueue :: ExecutionState reg -> PState reg () 
+     pushQueue :: (ExecutionState reg, MWord) -> PState reg () 
      pushQueue state' = do
        st <- get
        put $ st {queueSt = state' : queueSt st}
@@ -128,26 +129,14 @@ chooseSegment segments privSize = do
              _ <- put $ st {availableSegments = Map.insert instrPc others avalStates}
              return $ Just execSt'
          _ -> return Nothing
-{-
 allocateQueue :: Int -> PState reg ()
 allocateQueue size =
   do queue <- reverse . queueSt <$> get
-     modify (\st -> st {queueSt = []})
-     currentPrivSegment <- privLoc <$> get
      spar <- sparsityPS <$> get
-     --sparseQueue <- return $ stutter sp  
-     addPrivBlocks (splitPrivBlocks size currentPrivSegment $ queue)
-addPrivBlocks :: [TraceChunk reg] -> PState reg ()
-addPrivBlocks newBlocks = do
-  st <- get
-  put (st {priBlocks = priBlocks st ++ newBlocks})
-
-Keep just until we make sure the above is the right -}
-
-allocateQueue size =  -- TODO: Add sparsity.
-  do queue <- queueSt <$> get
+     prog <- progPS <$> get
+     let sparseTrace = stutter size spar prog queue
      currentPrivSegment <- privLoc <$> get
-     newChunks <- return (splitPrivBlocks size currentPrivSegment $ reverse queue)
+     newChunks <- return (splitPrivBlocks size currentPrivSegment sparseTrace)
      modify (\st -> st {queueSt = [], privLoc = currentPrivSegment + length newChunks})
      addChunks newChunks
 -- Chunks are added backwards!
@@ -191,86 +180,62 @@ testTrace :: Trace ()
 testTrace =
   fakeState 0 :
   fakeState 1 :
-  fakeState 2 :  
-  fakeState 4 :  --
-  fakeState 5 :
-  fakeState 6 :   
-  fakeState 3 :  --
-  fakeState 4 :  --
-  fakeState 5 : 
-  fakeState 6 :  
-  fakeState 3 :  -- 
-  fakeState 4 : 
-  fakeState 5 :
-  fakeState 6 :  --
-  fakeState 3 :  
-  fakeState 4 : 
-  fakeState 8 :  --
-  fakeState 5 :
-  fakeState 6 :  
-  fakeState 3 :  --
-  fakeState 7 :  --
-  fakeState 8 :  
-  fakeState 3 :  --
-  fakeState 7 :
-  fakeState 8 : [] --
+  fakeState 2 : 
+  fakeState 3 :
+  fakeState 0 :
+  fakeState 1 : 
+  fakeState 2 : 
+  fakeState 3 :
+  fakeState 0 :
+  fakeState 1 :
+  fakeState 2 : 
+  fakeState 3 :
+  fakeState 0 :
+  fakeState 1 : 
+  fakeState 2 : 
+  fakeState 3 :
+  fakeState 0 :
+  fakeState 1 : 
+  fakeState 2 : 
+  fakeState 3 : [] --
 
 pcConstraint n = [PcConst n]
 segment0 =
   Segment
-  [ Iand () () (Reg ()), 
-    Isub () () (Reg ()), 
-    Ijmp (Reg ()) ]
+  [ Istore W1 (Reg ()) (),
+    Iload W2 () (Reg ())]
     (pcConstraint 0)
-    3
+    2
     []
     False
     False
 segment1 =
   Segment
-  [Icjmp () (Const 0)]
-  (pcConstraint 3)
-  1
-  []
-  False 
-  False
-segment2 =
-  Segment
-  [Iadd () () (Const 0),
-    Isub () () (Const 0), 
-    Ijmp (Const 3)]
-  (pcConstraint 4)
-  3
-  []
-  False
-  False
-segment3 =
-  Segment
-  [Iand () () (Reg ()),
-    Isub () () (Const 0)]
-  (pcConstraint 7)
+  [ Iand () () (Reg ()), 
+    Ijmp (Reg ())]
+  (pcConstraint 2)
   2
   []
-  False
+  False 
   False
 
 testSegments' :: [Segment () MWord]
 testSegments' =
   [segment0,
-    segment1,
-    segment2,
-    segment2,
-    segment3]
+    segment1, 
+    segment1]
 
 
 testSegmentSets :: Map.Map MWord [Int]
 testSegmentSets = Map.fromList
   [(0, [0]),
-   (3, [1]),
-   (4, [2,3]),
-   (7, [4])
-  ]
+   (2, [1,2])]
+
+testProg = concat $ segIntrs <$> testSegments'
 
 _testchunks :: [TraceChunk ()]
-_testchunks = chooseSegments 3 Map.empty testTrace testSegmentSets testSegments'
+_testchunks = chooseSegments testPrivSize testSparsity testProg testTrace testSegmentSets testSegments'
+  where testSparsity = (Map.fromList [(KmemOp, 2)])
+        testPrivSize = 4
 
+test = mapM_ (putStrLn . show) _testchunks
