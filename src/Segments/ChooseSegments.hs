@@ -9,7 +9,7 @@ Stability   : experimental
 -}
 
 module Segments.ChooseSegments where
-import qualified Debug.Trace as Trace(trace)
+--import qualified Debug.Trace as Trace(trace)
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
@@ -56,10 +56,10 @@ chooseSegments privSize spar prog trace segmentSets segments =
         , sparsityPS = spar
         , progPS = prog }   
   -- run the choose statement
-      go = Trace.trace ("ChooseSEgments go") $ whileM_ traceNotEmpty (chooseSegment segments privSize) *> allocateQueue privSize
+      go = whileM_ traceNotEmpty (chooseSegment segments privSize) *> allocateQueue privSize
       finalSt = execState go initSt in 
   -- extract values and return
-    Trace.trace ("ChooseSEgments End") $ (reverse $ chunksPS finalSt)
+    (reverse $ chunksPS finalSt)
 
   where
     traceNotEmpty :: PState reg Bool
@@ -82,25 +82,19 @@ showQueue
 showQueue q = "[" ++ (concat $ showESt <$> q) ++ "]"
    
 -- | chooses the next segment
-chooseSegment ::  [Segment reg MWord] -> Int -> PState reg ()
+chooseSegment :: [Segment reg MWord] -> Int -> PState reg ()
 chooseSegment segments privSize = do
-  Trace.trace ("Choosing One segment1") $ return ()
   currentPc <- nextPc <$> get
-  Trace.trace ("Choosing One segment2") $ return ()
-  maybeSegment <- Trace.trace ("popSegment") $ popSegmentIn currentPc
-  Trace.trace ("Choosing One segment3") $ return ()
-  Trace.trace ("Choosing One segment4") $ case Trace.trace ("Case") $ maybeSegment of
+  maybeSegment <- popSegmentIn currentPc
+  case maybeSegment of
     Just segment -> do
-      Trace.trace ("further") $ return ()
       allocateQueue privSize
       allocateSegment segments segment
-    _ -> do Trace.trace ("Pushqueue") $  return ()
-            execSt <- pullStates 1
+    _ -> do execSt <- pullStates 1
             pushQueue (head execSt, currentPc) -- pop the next state and add it to the queue
    where
      allocateSegment :: [Segment reg MWord] -> Int -> PState reg ()
      allocateSegment segments' segmentIndx =
-       Trace.trace ("allocateSegment") $
        let segment = segments' !! segmentIndx
            len = segLen segment in
          do statesTail <- pullStates len

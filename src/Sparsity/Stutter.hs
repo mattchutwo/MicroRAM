@@ -5,7 +5,7 @@ import qualified Data.Map as Map
 
 import Control.Lens (makeLenses, (%=), use)
 
-import qualified Debug.Trace as Trace(trace)
+--import qualified Debug.Trace as Trace(trace)
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
@@ -60,10 +60,8 @@ addStutteringStep (st, currPc) =
 checkSparsity :: Instruction () () -> SparState Int
 checkSparsity instr = do
   kinds <- return $ instrType instr
-  --when (null kinds) $ Trace.trace ("Found null kinds: " ++ show instr) $ return ()  
   stutters <- mapM sparsity kinds
-  when (null stutters) $ Trace.trace ("Found null stutters: " ++ show instr) $ return () -- Should never trigger
-  return $ maximum stutters
+  return $ maximum (0:stutters)
   where sparsity :: InstrKind -> SparState Int
         sparsity kind = do
           cyc <- use spCycle

@@ -13,7 +13,7 @@ This module combines all the process done after compilation:
 -}
 
 module PostProcess  where
-import qualified Debug.Trace as Trace(trace)
+
 
 --import Compiler.Analysis
 import Compiler.CompilationUnit
@@ -34,9 +34,9 @@ import Segments.ChooseSegments (TraceChunk(..))
 
 postProcess_v :: Regs reg => Bool -> Int -> Bool -> CompilationResult (Program reg MWord) -> Hopefully (Output reg)
 postProcess_v verb chunkSize private =
-  (Trace.trace "segment chunkSize" $ segment chunkSize)
-  >=> (Trace.trace "buildTrace" $  doIf private (buildTrace verb chunkSize))
-  >=> (Trace.trace "Advice" $  doIf private recoverAdvice)
+  (segment chunkSize)
+  >=> (doIf private (buildTrace verb chunkSize))
+  >=> (doIf private recoverAdvice)
   >=> segProg2Output
 
 
@@ -46,9 +46,7 @@ postProcess_v verb chunkSize private =
 
 buildTrace :: Regs reg => Bool -> Int -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
 buildTrace verb chunkSize segProg = do
-  Trace.trace "Building Trace" $ return ()
   flatTrace <- return $ run_v verb $ compiled segProg
-  Trace.trace "Built Trace" $ return ()
   chooseSegment' chunkSize flatTrace segProg
 
 recoverAdvice :: SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
