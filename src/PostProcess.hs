@@ -14,8 +14,6 @@ This module combines all the process done after compilation:
 
 module PostProcess  where
 
-
---import Compiler.Analysis
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.Registers

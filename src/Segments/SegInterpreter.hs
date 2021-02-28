@@ -11,8 +11,6 @@ Stability   : experimental
 
 module Segments.SegInterpreter (doCheck, checkOutput, Result, compilerErrorResolve) where 
 
---import qualified Debug.Trace as Trace(trace)
-
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Compiler.Errors 

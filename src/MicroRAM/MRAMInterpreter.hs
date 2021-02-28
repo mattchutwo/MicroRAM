@@ -34,8 +34,6 @@ module MicroRAM.MRAMInterpreter
     Prog
     ) where
 
---import qualified Debug.Trace as Trace(trace)
-
 import Control.Monad
 import Control.Monad.State
 import Control.Lens (makeLenses, ix, at, to, lens, (^.), (^?), (&), (.~), (.=), (%=), use, Lens', _1, _2, _3)
@@ -57,7 +55,6 @@ import Data.Word
 import GHC.Generics (Generic)
 
 
---import Compiler.Analysis
 import Compiler.Errors
 import Compiler.Registers
 import Compiler.CompilationUnit

@@ -10,7 +10,6 @@ Stability   : experimental
 
 module Segments (segment, SegmentedProgram(..), chooseSegment') where
 
---simport qualified Debug.Trace as Trace(trace)
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.Registers

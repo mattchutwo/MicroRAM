@@ -2,12 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 module PostProcess.PostProcessSpec where
---import qualified Debug.Trace as Trace(trace)
 
---import MicroRAM.MRAMInterpreter
---import MicroRAM (MWord)
-
--- Compiler imports
 import Compiler
 import Compiler.Errors
 
@@ -16,7 +11,6 @@ import Test.Tasty
 
 import qualified Test.QuickCheck.Monadic as QCM
 import Test.Tasty.QuickCheck
---import Test.QuickCheck.Property as P
 
 import Segments.SegInterpreter
 import PostProcess

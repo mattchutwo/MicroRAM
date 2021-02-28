@@ -19,8 +19,6 @@ module Output.Output where
 import qualified Data.Map as Map
 import GHC.Generics
 
---import qualified Debug.Trace as Trace(trace)
-
 import Compiler.CompilationUnit
 import Compiler.Registers
 import Compiler.Analysis

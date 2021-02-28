@@ -5,13 +5,8 @@ import qualified Data.Map as Map
 
 import Control.Lens (makeLenses, (%=), use)
 
---import qualified Debug.Trace as Trace(trace)
-
 import MicroRAM
 import MicroRAM.MRAMInterpreter
-
-
---import Compiler.Errors
 
 import Control.Monad.State
 
@@ -19,8 +14,6 @@ import qualified Data.Set as Set
 
 
 import Sparsity.Sparsity
-
---import Debug.Trace
 
 data SparsityState = SparsityState
   { _spSegSize :: Int
