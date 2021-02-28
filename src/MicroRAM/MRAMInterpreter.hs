@@ -63,8 +63,6 @@ import Compiler.Registers
 import Compiler.CompilationUnit
 import MicroRAM
 
---import Sparsity.Sparsity -- TODO there should be no sparsity here. 
-
 import Util.Util
 
 import Debug.Trace
@@ -684,17 +682,11 @@ runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
-    initState = InterpState initS initMach' -- Map.empty -- (initSparsSt Map.empty)
+    initState = InterpState initS initMach'
     handler =
       execTraceHandler eTrace eAdvice $
       postHandler $
       stepInstr
-    -- eTrace :: Lens' (a, b) a
-    -- eTrace = _1
-    -- eAdvice :: Lens' (a, b) b
-    -- eAdvice = _2
-
-
 
 -- Old public definitions
 
