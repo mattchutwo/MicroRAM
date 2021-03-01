@@ -117,6 +117,12 @@ testLoops = ManyTests "Conditionals, Branching and loops" $ OneTest <$>
     ,testResult = 42
     } : -}
 --  defaultTest { "Hello world" "test/programs/hello.ll" 50 [] 0 :
+  defaultTest {
+    testName = "Memcpy"
+    ,fileName ="test/Programs/memcpy.ll"
+    ,testLen = 300
+    ,testResult = 123
+    } :
     []
 
 -- GetElementPtr
