@@ -50,9 +50,9 @@ import Util.Util
 replaceGlobals :: Regs mreg =>
         CompilationUnit () (Lprog () mreg MWord)
         -> Hopefully $ CompilationUnit LazyInitialMem (Lprog () mreg MWord)
-replaceGlobals (CompUnit prog tr regs aData _ _) = do
+replaceGlobals (CompUnit prog tr regs anData _ _) = do
   (prog', initMem) <- globals' prog
-  return $ CompUnit prog' tr regs aData [] initMem 
+  return $ CompUnit prog' tr regs anData [] initMem 
 
 globals' :: Regs mreg => Lprog () mreg MWord
          -> Hopefully $ (Lprog () mreg MWord, LazyInitialMem)
@@ -72,7 +72,7 @@ memoryFromGlobals ggg  =
   let (lazyInitMem, globs) = lazyMemoryFromGlobals ggg in
     (resolveGlobalsMem globs lazyInitMem, globs)
   where resolveGlobalsMem :: Map.Map String MWord -> LazyInitialMem -> LazyInitialMem
-        resolveGlobalsMem globMap = map (resolveGlobalsSegment globMap)
+        resolveGlobalsMem globMap lInitMem = map (resolveGlobalsSegment globMap) lInitMem
         resolveGlobalsSegment :: Map.Map String MWord -> LazyInitSegment -> LazyInitSegment
         resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly loc len _) =
           let concreteInit = map (applyPartialMap g) <$> lazyConst in
@@ -84,10 +84,10 @@ lazyMemoryFromGlobals  = foldr memoryFromGlobal ([],Map.empty)
           GlobalVariable MWord
           -> (LazyInitialMem, Map.Map String MWord)
           -> (LazyInitialMem, Map.Map String MWord)
-        memoryFromGlobal (GlobalVariable name isConst _gTy initzr size align secret) (initMem, gMap) =
+        memoryFromGlobal (GlobalVariable name isConst _gTy initzr size align secr) (initMem, gMap) =
           let newLoc = alignTo align $ newLocation initMem in
           let newLazySegment =
-                (initzr, InitMemSegment secret isConst newLoc (fromIntegral size) Nothing) in -- __FIXME__
+                (initzr, InitMemSegment secr isConst newLoc (fromIntegral size) Nothing) in -- __FIXME__
           -- The addresses assigned to global variable symbols must be given in
           -- bytes, unlike all other global / init-mem related measurements,
           -- which are in words.

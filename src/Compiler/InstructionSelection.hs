@@ -62,7 +62,7 @@ import qualified MicroRAM as MRAM
 -}
 
 -- | Environment to keep track of global and type definitions
-data Env = Env {tenv :: LLVMTypeEnv, globs :: Set.Set LLVM.Name}
+data Env = Env {llvmtTypeEnv :: LLVMTypeEnv, globs :: Set.Set LLVM.Name}
 
 -- ** Translation between LLVM and RTL "things"
 any2short :: Show a => a -> Short.ShortByteString
@@ -94,7 +94,7 @@ operand2operandTrunc :: Env
                      -> Statefully (MAOperand VReg MWord, [MA2Instruction VReg MWord])
 operand2operandTrunc env op = do
   op' <- lift $ operand2operand env op
-  case typeOf (tenv env) op of
+  case typeOf (llvmtTypeEnv env) op of
     LLVM.IntegerType w | w < 64 -> do
       tmpReg <- freshName
       let extra = MRAM.Iand tmpReg op' (LImm $ SConst $ (1 `shiftL` fromIntegral w) - 1)
@@ -289,11 +289,11 @@ isInstruction env ret instr =
     -- TODO: check alignment - MicroRAM memory ops are always aligned, so
     -- unaligned LLVM loads/stores need special handling
     (LLVM.Load _ n _ align _)
-      | fromIntegral align >= alignOf (tenv env) (pointee (typeOf (tenv env) n)) ->
+      | fromIntegral align >= alignOf (llvmtTypeEnv env) (pointee (typeOf (llvmtTypeEnv env) n)) ->
         withReturn ret $ isLoad env n
       | otherwise -> withReturn ret $ isLoadUnaligned env n
     (LLVM.Store _ adr cont _ align _)
-      | fromIntegral align >= alignOf (tenv env) (pointee (typeOf (tenv env) adr)) ->
+      | fromIntegral align >= alignOf (llvmtTypeEnv env) (pointee (typeOf (llvmtTypeEnv env) adr)) ->
         isStore env adr cont
       | otherwise -> isStoreUnaligned env adr cont
     -- Other
@@ -318,7 +318,7 @@ isInstruction env ret instr =
   where withReturn Nothing _ = return $ []
         withReturn (Just ret) f = f ret
 
-        pointee (LLVM.NamedTypeReference name) = case Map.lookup name (tenv env) of
+        pointee (LLVM.NamedTypeReference name) = case Map.lookup name (llvmtTypeEnv env) of
           Just x -> pointee x
           Nothing -> error $ "failed to resolve named type " ++ show name
         pointee (LLVM.PointerType ty _) = ty
@@ -359,7 +359,7 @@ isArithShr env (Just ret) o1 o2 = do
       MRAM.Ishr  ret'  (AReg ret'') o2',
       MRAM.Ixor  ret (AReg ret') (AReg sign)]
   where
-    width = case typeOf (tenv env) o1 of
+    width = case typeOf (llvmtTypeEnv env) o1 of
       LLVM.IntegerType bits -> bits
       ty -> error $ "don't know how to do ashr on non-integer type " ++ show ty
 
@@ -377,13 +377,13 @@ isAlloca
      -> LLVM.Operand
      -> Statefully $ [MIRInstruction () VReg MWord]
 isAlloca env ret ty count = lift $ do
-  let tySize = sizeOf (tenv env) ty
+  let tySize = sizeOf (llvmtTypeEnv env) ty
   count' <- operand2operand env count
   return [MirI (RAlloc ret tySize count') ()]
 
 pointerOperandWidth :: Env -> LLVM.Operand -> Hopefully MRAM.MemWidth
-pointerOperandWidth env op = case resolve (tenv env) $ typeOf (tenv env) op of
-  LLVM.PointerType ty _ -> case resolve (tenv env) ty of
+pointerOperandWidth env op = case resolve (llvmtTypeEnv env) $ typeOf (llvmtTypeEnv env) op of
+  LLVM.PointerType ty _ -> case resolve (llvmtTypeEnv env) ty of
     LLVM.IntegerType bits -> case bits of
         8 -> return MRAM.W1
         16 -> return MRAM.W2
@@ -563,7 +563,7 @@ isCall
      -> [(LLVM.Operand, b)]
      -> Hopefully $ [MIRInstruction () VReg MWord]
 isCall env ret f args = do
-  (f',retT,paramT) <- function2function (tenv env) f
+  (f',retT,paramT) <- function2function (llvmtTypeEnv env) f
   args' <- params2params env args
   return $
     maybeTraceIR ("call " ++ show f') ([optRegName ret, f'] ++ args') ++
@@ -615,12 +615,12 @@ isGEP  env addr inxs ret = do
           -> Statefully $ [MA2Instruction VReg MWord]
         isGEPptr _ _ _ _ [] = assumptError "Getelementptr called with no indices"
         isGEPptr env ret (LLVM.PointerType refT _x) base (inx:inxs) = do
-          _typ' <-  lift $ type2type (tenv env) refT
+          _typ' <-  lift $ type2type (llvmtTypeEnv env) refT
           inxOp <- lift $ operand2operand env inx
           inxs' <- lift $ mapM (operand2operand env) inxs
           continuation <- isGEPaggregate env ret refT inxs'
           rtemp <- freshName
-          return $ [MRAM.Imull rtemp inxOp (LImm $ SConst $ sizeOf (tenv env) refT),
+          return $ [MRAM.Imull rtemp inxOp (LImm $ SConst $ sizeOf (llvmtTypeEnv env) refT),
                   MRAM.Iadd ret (AReg rtemp) base] ++
             continuation
         isGEPptr _ _ llvmTy _ _ =
@@ -633,7 +633,7 @@ isGEPaggregate
   -> Statefully $ [MA2Instruction VReg MWord]
 isGEPaggregate _ _ _ [] = return []
 isGEPaggregate env ret (LLVM.ArrayType _ elemsT) (inx:inxs) = do
-  (rm, multiplication) <- constantMultiplication (sizeOf (tenv env) elemsT) inx
+  (rm, multiplication) <- constantMultiplication (sizeOf (llvmtTypeEnv env) elemsT) inx
   continuation <- isGEPaggregate env ret elemsT inxs
   return $ multiplication ++
   -- offset = indes * size type 
@@ -644,9 +644,9 @@ isGEPaggregate env ret (LLVM.StructureType packed types) (inx:inxs) =
     (LImm (SConst i)) -> do
       new_type <- return $ types !! (fromEnum i)
       offset <- if packed then
-                  return $ sum $ map (sizeOf $ tenv env) $ takeEnum i $ types
+                  return $ sum $ map (sizeOf $ llvmtTypeEnv env) $ takeEnum i $ types
                 else
-                  return $ offsetOfStructElement (tenv env) new_type $ (takeEnum i) $ types
+                  return $ offsetOfStructElement (llvmtTypeEnv env) new_type $ (takeEnum i) $ types
       continuation <- isGEPaggregate env ret (new_type) inxs -- FIXME add checks for struct bounds
       return $ MRAM.Iadd ret (AReg ret) (LImm $ SConst offset) : continuation
     (LImm lc) -> assumptError $ unexpectedLazyIndexMSG ++ show lc 
@@ -654,7 +654,7 @@ isGEPaggregate env ret (LLVM.StructureType packed types) (inx:inxs) =
   where unexpectedLazyIndexMSG = "GetElementPtr error. Indices into structs must be constatnts that do not depend on global references. we can probably fix this, but did not expect tit to show up, please report. /n /t Index to gep was: \n \t"
         unexpectedNotConstantIndexMSG = "GetElementPtr error. Indices into structs must be constatnts, instead found: "
 isGEPaggregate env ret (LLVM.NamedTypeReference name) inx = do
-  typ <- lift $ typeDef (tenv env) name
+  typ <- lift $ typeDef (llvmtTypeEnv env) name
   isGEPaggregate env ret typ inx
 isGEPaggregate _ _ t _ = assumptError $ "getelemptr for non aggregate type: \n" ++ show t ++ "\n"
 
@@ -711,7 +711,7 @@ convertPhiInput env (op, name) = do
   return (op', name')
 
 typeFromOperand :: Env -> LLVM.Operand -> Hopefully $ LLVM.Type
-typeFromOperand env op = return $ typeOf (tenv env) op 
+typeFromOperand env op = return $ typeOf (llvmtTypeEnv env) op 
 
 --  | Optimized multiplication by a constant
 -- If the operand is a constant, statically computes the multiplication
@@ -916,7 +916,7 @@ isFunction env (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params 
     (body, nextReg) <- runStateT (isBlocks env code) initState
     params' <- return $ processParams params
     name' <- name2nameM name
-    retT' <- type2type  (tenv env) retT
+    retT' <- type2type  (llvmtTypeEnv env) retT
     return $ Function name' retT' params' body nextReg
 isFunction _tenv other = unreachableError $ show other -- Shoudl be filtered out 
   
@@ -1011,8 +1011,8 @@ nameOfGlobals defs = Set.fromList $ concat $ map nameOfGlobal defs
           
 isGlobVar :: Env -> LLVM.Global -> Hopefully $ GlobalVariable MWord
 isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align _) = do
-  typ' <- type2type (tenv env) typ
-  byteSize <- return $ sizeOf (tenv env) typ
+  typ' <- type2type (llvmtTypeEnv env) typ
+  byteSize <- return $ sizeOf (llvmtTypeEnv env) typ
   init' <- flatInit env init
   case init' of
     Just initWords ->
@@ -1157,11 +1157,11 @@ constant2typedLazyConst env c =
       return [mkTypedLazyConst (fromInteger 0) WWord]
     (LLVM.Constant.AggregateZero ty                 ) ->
       -- Compute the width, then emit a list of that many bytes.
-      return $ replicate (fromIntegral $ sizeOf (tenv env) ty) zeroByte
+      return $ replicate (fromIntegral $ sizeOf (llvmtTypeEnv env) ty) zeroByte
     (LLVM.Constant.Struct _name True vals           ) ->
       concat <$> mapM (constant2typedLazyConst env) vals
     (LLVM.Constant.Struct _name False vals          ) -> do
-      let pads = structPadding (tenv env) $ map (typeOf (tenv env)) vals
+      let pads = structPadding (llvmtTypeEnv env) $ map (typeOf (llvmtTypeEnv env)) vals
       let f :: LLVM.Constant.Constant -> MWord -> Hopefully [TypedLazyConst]
           f val pad = do
             val' <- constant2typedLazyConst env val
@@ -1170,7 +1170,7 @@ constant2typedLazyConst env c =
     (LLVM.Constant.Array _ty vals                   ) ->
       concat <$> mapM (constant2typedLazyConst env) vals
     (LLVM.Constant.Undef ty                         ) ->
-      return $ replicate (fromIntegral $ sizeOf (tenv env) ty) zeroByte
+      return $ replicate (fromIntegral $ sizeOf (llvmtTypeEnv env) ty) zeroByte
     (LLVM.Constant.GlobalReference _ty name         ) -> do
       _ <- checkName (globs env) name
       name' <- return $ show $ name2name name
@@ -1191,9 +1191,9 @@ constant2typedLazyConst env c =
     (LLVM.Constant.Xor op1 op2                      ) -> bop2typedLazyConst env xor op1 op2
     (LLVM.Constant.GetElementPtr _bounds addr inxs  ) -> do
       addr' <- constant2OnelazyConst env addr
-      ty' <- return $ typeOf (tenv env) addr
+      ty' <- return $ typeOf (llvmtTypeEnv env) addr
       inxs' <- mapM (constant2OnelazyConst env) inxs
-      gepResult <- constGEP (tenv env) ty' addr' inxs'
+      gepResult <- constGEP (llvmtTypeEnv env) ty' addr' inxs'
       -- GEP returns a pointer, which is always one word in size
       return [mkTypedLazyConst gepResult WWord]
     (LLVM.Constant.PtrToInt op1 _typ                ) -> constant2typedLazyConst env op1
