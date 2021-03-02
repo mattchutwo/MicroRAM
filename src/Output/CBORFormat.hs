@@ -18,23 +18,23 @@ Format for compiler units
 -}
 
 module Output.CBORFormat where
-import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm, FlatTerm)
---import qualified Data.Map as Map
+
 import GHC.Generics
 
-import Codec.Serialise
-
+import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm, FlatTerm)
 import Codec.CBOR.Decoding
 import Codec.CBOR.Encoding
 import Codec.CBOR.Write
 import Codec.CBOR.Read
 import Codec.CBOR.Pretty
+import Codec.Serialise
+
 import qualified Data.ByteString.Lazy                  as L
 
-import Compiler.Sparsity
 import Compiler.CompilationUnit
+import Compiler.Common (Name)
 import Compiler.Registers
-import Compiler.IRs
+import Compiler.Sparsity
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
@@ -519,17 +519,20 @@ instance Serialise Name where
 
 -- * Serialisations and other pretty printing formats
 
+versionedOutput :: Output reg -> [String] -> ([Int], [String], Output reg)
+versionedOutput out features = (versionBranch version, features, out)
+
 serialOutput :: Serialise reg => Output reg -> [String] -> L.ByteString
-serialOutput out features = toLazyByteString $ (encode $ (versionBranch version, features, out))
+serialOutput out features = toLazyByteString $ (encode $ versionedOutput out features)
 
 serialInput :: Serialise reg => L.ByteString -> Either DeserialiseFailure (L.ByteString, Output reg)
 serialInput string = deserialiseFromBytes (decodeOutput) string 
 
-ppHexOutput :: Serialise reg => Output reg -> String
-ppHexOutput out = prettyHexEnc $ encode out
+ppHexOutput :: Serialise reg => Output reg -> [String] -> String
+ppHexOutput out features = prettyHexEnc $ encode $ versionedOutput out features
 
-flatOutput :: Serialise reg => Output reg -> FlatTerm
-flatOutput out = toFlatTerm $ encode out
+flatOutput :: Serialise reg => Output reg  -> [String] -> FlatTerm
+flatOutput out features = toFlatTerm $ encode $ versionedOutput out features
 
 data OutFormat =
     StdHex
@@ -538,19 +541,8 @@ data OutFormat =
   deriving (Eq, Ord, Show)
 
 
--- NOTE: ONLY StdHEX records version number. The others are for debugging only
 printOutputWithFormat :: Serialise reg => OutFormat -> Output reg -> [String] -> String
 printOutputWithFormat StdHex out features = show $ (serialOutput out features) 
-printOutputWithFormat PHex out _ = ppHexOutput out
-printOutputWithFormat Flat out _ = show . flatOutput $ out
+printOutputWithFormat PHex out features = ppHexOutput out features
+printOutputWithFormat Flat out  features = show $ flatOutput out features
 
-
--- c :: Output Word
--- c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
---                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}]}
-
--- d :: Output Word
--- d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
---                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1]}],
---                    trace = [], adviceOut = Map.empty}
- 

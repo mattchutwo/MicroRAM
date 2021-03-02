@@ -7,6 +7,11 @@ Module      : Intrinsic lowering
 Description : Converts calls to intrinsics to MicroASM instructions
 Maintainer  : santiago@galois.com
 Stability   : prototype
+
+Inlines calls to intrinsics to MicroASM instructions. Renames the
+intrinsics from using underscors ("__") to using dot (".") and removes
+the empty bodies of those functions.
+
 -}
 
 module Compiler.Intrinsics
@@ -23,6 +28,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 
+import Compiler.Common (Name(Name))
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.LazyConstants

@@ -5,8 +5,8 @@ module Compiler.CallingConvention where
 
 import qualified Data.Set as Set
 
-import           Compiler.Errors
 import           Compiler.Common
+import           Compiler.Errors
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.Registers
@@ -49,7 +49,7 @@ callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:bloc
     LFunction fname mdata typ typs stackSize' blocks''
     
   where
-    calleeRestore stackSize registers = map (\(pos, reg) -> Lgetstack Local pos ty reg) $ zip [stackSize..] registers
+    calleeRestore stkSize registers = zipWith (\pos reg -> Lgetstack Local pos ty reg) [stkSize..] registers
 
     calleeSave stackSize registers (BB n insts insts' dag) = 
       let saveInsts = map (\(pos, reg) -> 
@@ -60,7 +60,7 @@ callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:bloc
 
     ty = Tint -- TODO: How do we get the ty?
 
-    restoreBlocks restoreInsts blocks = map (restoreBlock restoreInsts) blocks
+    restoreBlocks restoreInsts = map (restoreBlock restoreInsts)
 
     restoreBlock restoreInsts (BB name insts insts' dag) = 
       BB name (concatMap (restoreInst restoreInsts) insts) (concatMap (restoreInst restoreInsts) insts') dag

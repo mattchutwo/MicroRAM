@@ -8,38 +8,63 @@ Maintainer  : santiago@galois.com
 Stability   : prototype
 
 The cheesecloth compiler translates LLVM modules to MicroRAM as diagramed below:
+  @
+   +---------+
+   |  LLVM   |
+   +----+----+
+        | Instruction selection
+   +----v----+
+   |         +---+
+c  |         |   | Rename Intrinsics / Lower intrinsics
+o  |         <---+
+m  | MicroIR |
+p  |         +---+
+i  |         |   | Check for Undefined Functions
+l  |         <---+
+e  |         |
+1  +----+----+
+        | Legalize
+   +----v----+
+   |         +---+
+   |         |   | Localize labels
+   |         <---+
+   |         |
+   |         +---+
+   |         |   | Edge Split
+   |         <---+
+   |         |
+   |   RTL   +---+                 
+   |         |   | Lower Extension Instrs (depends on run: hi/low)
+   |         <---+
+   |         |
+   |         +---+
+   |         |   | Remove Phi
+   |         <---+
+   |         |
+   +----+----+
+        | Register allocation
+   +----v----+
+   |         +---+
+   |         |   | Calling conventions
+   |         <---+
+   |   LTL   |
+   |         +---+
+   |         |   | Globals
+   |         <---+
+   +----+----+
+        | Stacking
+   +----v----+     Sparsity
+   |MicroASM +------------->
+   |         +---+
+   |         |   | Block Cleanup
+   |         <---+
+   +----+----+
+        | Label removal
+   +----v----+
+   |MicroRAM |
+   +---------+
+   @
 
-  @
-  +---------+
-  |  LLVM   |
-  +----+----+
-       | Instruction selection
-  +----v----+
-  | MicroIR |
-  +----+----+
-       | Legalize
-  +----v----+
-  |   RTL   |
-  +----+----+
-       | Register allocation
-  +----v----+
-  |         +---+
-  |         |   | Calling conventions
-  |         <---+
-  |   LTL   |
-  |         +---+
-  |         |   | Globals
-  |         <---+
-  +----+----+
-       | Stacking
-  +----v----+     Sparsity
-  |MicroASM +------------->
-  +----+----+
-       | Label removal
-  +----v----+
-  |MicroRAM |
-  +---------+
-  @
 
 = Source, intermediate and target languages: syntax and semantics
 
@@ -69,10 +94,25 @@ execution of programs.
   MicroIR. It's a linear pass that translates each LLVM instruction to 0 or MicroIR
   instructinos. For now, it does not combine instructinos.
 
+* __Intrinsics__ (`renameLLVMIntrinsicImpls`, lowerIntrinsics): Inlines calls to
+  intrinsics to MicroASM instructions. Renames the intrinsics from using underscors ("__") to
+  using dot (".") and removes the empty bodies of those functions.
+
+* _Check undefined functions_ (`checkUndefinedFuncs`): Produces an error if, at this point,
+  any function has an empty body.
+
 * __Legalize__ (`legalize`): This module compiles MicroIR to RTL.  It looks for
   instruction formats that aren't legal in RTL/MicroRAM, such as addition of two
   constants, and replaces them with legal sequences.  Usually this means adding an
   `Imov` to put one operand into a register, but for some instructions we can do better.
+
+* __Localize labels__ (`localizeLabels`): Rename blocks local to a function to avoid conflicts
+between functions.
+
+* __Edge Split__ (`edgeSplit`) :  Split edges between blocks to ensure the unique
+  successor or predecessor property.
+
+* __Remove Phi__ (`removePhi`) : Removes phi functions inherited from the SSA form.
 
 * __Register Allocation__ (`registerAlloc`): Register allocation
 
@@ -91,42 +131,42 @@ execution of programs.
   estimate the distance between memory operations. This pass is pureley analitical
   and does not modify the program. 
 
-* __Remove Labels__ (`removeLabels`): Compiles Translates MicroASM to MicroRAM by
+* __Remove Labels__ (`removeLabels`): Translates MicroASM to MicroRAM by
   removing code labels and replacing them with constant code pointers.
 
 -}
 module Compiler
-    ( compile --compileStraight
+    ( compile
     , module Export
     ) where
 
-import qualified LLVM.AST as LLVM
 import           Data.Default
 
-import Util.Util
-
+import Compiler.Analysis
+import Compiler.BlockCleanup
+import Compiler.CallingConvention
 import Compiler.CompilationUnit
+import Compiler.Globals
 import Compiler.Errors
-import Compiler.IRs
+import Compiler.Extension
 import Compiler.InstructionSelection
 import Compiler.Intrinsics
+import Compiler.IRs
+import Compiler.LocalizeLabels
 import Compiler.Legalize
-import Compiler.Extension
-import Compiler.RemovePhi
 import Compiler.RegisterAlloc
 import Compiler.RegisterAlloc as Export (AReg)
-import Compiler.CallingConvention
-import Compiler.Globals
+import Compiler.RemoveLabels
+import Compiler.RemovePhi
 import Compiler.Stacking
 import Compiler.Sparsity
-import Compiler.RemoveLabels
-import Compiler.Analysis
-import Compiler.LocalizeLabels
-import Compiler.BlockCleanup
 import Compiler.UndefinedFunctions
 
 import MicroRAM (MWord)
 import qualified MicroRAM as MRAM  (Program) 
+
+import qualified LLVM.AST as LLVM
+import Util.Util
 
 compile1
   :: Bool
@@ -147,14 +187,15 @@ compile2
   -> CompilationUnit () (Rprog () MWord) ->
   Hopefully (CompilationUnit () (MRAM.Program AReg MWord))
 compile2 spars prog = return prog
-  >>= (tagPass "Remove Phi Nodes" $ justCompile removePhi)
+  >>= (tagPass "Edge split"          $ justCompile edgeSplit)
+  >>= (tagPass "Remove Phi Nodes"    $ justCompile removePhi)
   >>= (tagPass "Register Allocation" $ registerAlloc def)
-  >>= (tagPass "Calling Convention" $ justCompile callingConvention)
-  >>= (tagPass "Remove Globals" $ replaceGlobals)
-  >>= (tagPass "Stacking" $ justCompile stacking)
-  >>= (tagPass "Computing Sparsity" $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
-  >>= (tagPass "Block cleanup" $ blockCleanup)
-  >>= (tagPass "Removing labels" $ removeLabels)
+  >>= (tagPass "Calling Convention"  $ justCompile callingConvention)
+  >>= (tagPass "Remove Globals"      $ replaceGlobals)
+  >>= (tagPass "Stacking"            $ justCompile stacking)
+  >>= (tagPass "Computing Sparsity"  $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
+  >>= (tagPass "Block cleanup"       $ blockCleanup)
+  >>= (tagPass "Removing labels"     $ removeLabels)
 
 compile :: Bool -> Word -> LLVM.Module -> Maybe Int -> Hopefully $ CompilationResult (MRAM.Program AReg MWord)
 compile allowUndefFun len llvmProg spars = do

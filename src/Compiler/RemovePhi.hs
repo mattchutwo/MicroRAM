@@ -27,6 +27,7 @@ import qualified Data.Set as Set
 import Data.String (fromString)
 
 import Compiler.IRs
+import Compiler.Common (Name(..))
 import Compiler.Errors
 import Compiler.RegisterAlloc.Liveness
 import MicroRAM
