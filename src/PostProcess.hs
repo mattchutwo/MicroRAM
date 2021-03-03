@@ -14,6 +14,7 @@ This module combines all the process done after compilation:
 
 module PostProcess  where
 
+import Compiler.Analysis (getSparsity)
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.Registers
@@ -30,22 +31,26 @@ import Output.Output
 import Segments
 import Segments.ChooseSegments (TraceChunk(..))
 
+import Sparsity.Sparsity (Sparsity)
+
 postProcess_v :: Regs reg => Bool -> Int -> Bool -> CompilationResult (Program reg MWord) -> Hopefully (Output reg)
-postProcess_v verb chunkSize private =
+postProcess_v verb chunkSize private comp =
   (segment chunkSize)
-  >=> (doIf private (buildTrace verb chunkSize))
+  >=> (doIf private (buildTrace verb chunkSize spar))
   >=> (doIf private recoverAdvice)
-  >=> segProg2Output
+  >=> segProg2Output $
+  comp
+  
+  where spar = getSparsity . aData $ comp
 
-
-  where doIf :: Monad m => Bool -> (a -> m a) -> a -> m a
+        doIf :: Monad m => Bool -> (a -> m a) -> a -> m a
         doIf cond f = if cond then f else return
 
 
-buildTrace :: Regs reg => Bool -> Int -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
-buildTrace verb chunkSize segProg = do
+buildTrace :: Regs reg => Bool -> Int -> Sparsity -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
+buildTrace verb chunkSize spar segProg = do
   flatTrace <- return $ run_v verb $ compiled segProg
-  chooseSegment' chunkSize flatTrace segProg
+  chooseSegment' chunkSize spar flatTrace segProg
 
 recoverAdvice :: SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
 recoverAdvice segProg = do

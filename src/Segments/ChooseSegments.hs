@@ -10,6 +10,7 @@ Stability   : experimental
 
 module Segments.ChooseSegments where
 
+--import qualified Debug.Trace as Trace (trace)
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
