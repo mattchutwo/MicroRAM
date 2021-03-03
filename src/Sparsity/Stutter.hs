@@ -45,9 +45,9 @@ addStutteringStep (st, currPc) =
      instr <- return $ prog !! (fromEnum $ currPc)
      stutter <- checkSparsity instr -- How long I should stutter
      spCycle %= (+ (stutter + 1))
-     return $ st : (replicate stutter (addStutter st))
+     return $ (replicate stutter (addStutter st)) ++ [st] -- stutters until it can perform the desird action.
   where addStutter :: ExecutionState mreg -> ExecutionState mreg
-        addStutter st = st {advice = Stutter : (advice st)}
+        addStutter st = st {advice = [Stutter]} -- Steps that stutter only stutter (i.e. remove all other advice)
  
     
 checkSparsity :: Instruction () () -> SparState Int
