@@ -71,7 +71,6 @@ data MachineState r = MachineState
   { _mCycle :: MWord
   , _mPc :: MWord
   , _mRegs :: RegBank r MWord
-  , _mFlag :: Bool
   , _mProg :: Seq (Instruction r MWord)
   , _mMem :: Mem
   , _mPsn :: Poison
@@ -312,7 +311,6 @@ stepRead :: Regs r => r -> Operand r MWord -> InterpM r s Hopefully ()
 stepRead rd _op2 = do
   -- All tapes are empty.
   sMach . mReg rd .= 0
-  sMach . mFlag .= True
   nextPc
 
 stepAnswer :: Regs r => Operand r MWord -> InterpM r s Hopefully ()
@@ -753,8 +751,6 @@ data ExecutionState mreg = ExecutionState {
   , psn :: Poison
   -- | Nondeterministic advice for the last step
   , advice :: [Advice]
-  -- | The flag (a boolean register)
-  , flag :: Bool
   -- | Marks for bugs and invalid traces
   , bug_flag, inv_flag :: Bool
   -- | Return value.
@@ -772,12 +768,11 @@ getStateWithAdvice advice = do
   cycle <- use $ sMach . mCycle
   -- Retrieve advice for the cycle that just finished executing.
   adv <- use $ sExt . advice . ix (cycle - 1)
-  flag <- use $ sMach . mFlag
   bug <- use $ sMach . mBug
   psn <- use $ sMach . mPsn
   let inv = False
   answer <- use $ sMach . mAnswer
-  return $ ExecutionState pc regs mem psn adv flag bug inv (maybe 0 id answer)
+  return $ ExecutionState pc regs mem psn adv bug inv (maybe 0 id answer)
 
 type Prog mreg = Program mreg MWord
 type Trace mreg = [ExecutionState mreg]
@@ -787,7 +782,6 @@ initMach prog imem = MachineState
   { _mCycle = 0
   , _mPc = 0
   , _mRegs = initBank (lengthInitMem imem)
-  , _mFlag = False
   , _mProg = Seq.fromList prog
   , _mMem = Mem 0 $ flatInitMem imem
   , _mPsn = Set.empty
