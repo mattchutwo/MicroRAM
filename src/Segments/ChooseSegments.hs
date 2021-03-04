@@ -33,7 +33,7 @@ data PartialState reg = PartialState {
   nextPc :: MWord 
   , remainingTrace :: Trace reg
   , chunksPS :: [TraceChunk reg]
-  , queueSt :: AnnotatedTrace reg -- ^ Carries the unalocated states backwards, Eventually they go on private chunks.  They are annotated by the current pc (stuttering needs to know current pc, states have next pc)
+  , queueSt :: AnnotatedTrace reg -- ^ Carries the unalocated states backwards, Eventually they go on private chunks.
   , availableSegments :: Map.Map MWord [Int]
   , privLoc :: Int -- The next location of a private segment
   , sparsityPS :: Sparsity
@@ -130,7 +130,7 @@ allocateQueue size =
      prog <- progPS <$> get
      let sparseTrace = stutter size spar prog queue
      currentPrivSegment <- privLoc <$> get
-     newChunks <- return (splitPrivBlocks size currentPrivSegment sparseTrace)
+     let newChunks =  (splitPrivBlocks size currentPrivSegment sparseTrace)
      modify (\st -> st {queueSt = [], privLoc = currentPrivSegment + length newChunks})
      addChunks newChunks
 -- Chunks are added backwards!
