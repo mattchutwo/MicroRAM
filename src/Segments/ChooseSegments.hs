@@ -33,7 +33,7 @@ data PartialState reg = PartialState {
   nextPc :: MWord 
   , remainingTrace :: Trace reg
   , chunksPS :: [TraceChunk reg]
-  , queueSt :: AnnotatedTrace reg -- ^ Carries the unalocated states backwards, Eventually they go on private chunks.
+  , queueSt :: Trace reg -- ^ Carries a list of visited but unalocated states (backwards)
   , availableSegments :: Map.Map MWord [Int]
   , privLoc :: Int -- The next location of a private segment
   , sparsityPS :: Sparsity
@@ -88,18 +88,23 @@ chooseSegment segments privSize = do
   maybeSegment <- popSegmentIn currentPc
   case maybeSegment of
     Just segment -> do
-      allocateQueue privSize
-      allocateSegment segments segment
-    _ -> do execSt <- pullStates 1
-            pushQueue (head execSt, currentPc) -- pop the next state and add it to the queue
+      allocateQueue privSize -- allocates the current queue in private pc segments. 
+      queueInitSt <- allocateSegment segments segment -- allocates states to use the public pc segment. Returns the last state
+      pushQueue queueInitSt -- push the initial state of the private queue. Tthis state is already in the trace (previous step) and won't be added again.
+    _ -> do execSt <- pullStates 1  -- returns singleton list
+            pushQueue (head execSt) -- take the element from the list and it to the queue
    where
-     allocateSegment :: [Segment reg MWord] -> Int -> PState reg ()
+     -- | Given a segment indicated by the index,
+     -- pull enough states to fill the segment and
+     -- return the last state
+     allocateSegment :: [Segment reg MWord] -> Int -> PState reg (ExecutionState reg)
      allocateSegment segments' segmentIndx =
        let segment = segments' !! segmentIndx
            len = segLen segment in
-         do statesTail <- pullStates len
-            newChunk <- return $ TraceChunk segmentIndx (statesTail)
-            addChunks [newChunk] 
+         do nextStates <- pullStates len
+            let newChunk = TraceChunk segmentIndx nextStates
+            addChunks [newChunk]
+            return $ last nextStates
      
      -- Gets the next n states, update pc to match the last popped state
      pullStates :: Int -> PState reg [ExecutionState reg]
@@ -109,10 +114,11 @@ chooseSegment segments privSize = do
        -- Update the list AND the pc of the last popped state
        modify (\st -> st {remainingTrace = drop n $ remTrace, nextPc = pc $ last states})
        return $ states
-     pushQueue :: (ExecutionState reg, MWord) -> PState reg () 
+     pushQueue :: ExecutionState reg -> PState reg () 
      pushQueue state' = do
        st <- get
        put $ st {queueSt = state' : queueSt st}
+     -- | If there is an unused segment starting at pc, it returns one of such segment.  
      popSegmentIn :: MWord -> PState reg (Maybe Int) 
      popSegmentIn instrPc = do
        st <- get
@@ -125,15 +131,17 @@ chooseSegment segments privSize = do
          _ -> return Nothing
 allocateQueue :: Int -> PState reg ()
 allocateQueue size =
-  do queue <- reverse . queueSt <$> get
+  do queue <- reverse . queueSt <$> get -- FIFO
      spar <- sparsityPS <$> get
      prog <- progPS <$> get
      let sparseTrace = stutter size spar prog queue
      currentPrivSegment <- privLoc <$> get
-     let newChunks =  (splitPrivBlocks size currentPrivSegment sparseTrace)
+     let tailTrace = tail sparseTrace -- drop the initial state which is already in the trace (in the previous segment)
+     let newChunks =  splitPrivBlocks size currentPrivSegment tailTrace
      modify (\st -> st {queueSt = [], privLoc = currentPrivSegment + length newChunks})
      addChunks newChunks
--- Chunks are added backwards!
+
+-- | Chunks are added backwards!
 addChunks :: [TraceChunk reg] -> PState reg ()
 addChunks newBlocks = modify (\st -> st {chunksPS = (reverse newBlocks) ++ chunksPS st})
 
