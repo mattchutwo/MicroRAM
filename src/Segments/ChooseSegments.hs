@@ -22,6 +22,7 @@ import Sparsity.Sparsity
 import Sparsity.Stutter
 import Control.Monad.State.Lazy
 
+
 data TraceChunk reg = TraceChunk {
   chunkSeg :: Int
   , chunkStates :: Trace reg }
@@ -48,11 +49,11 @@ chooseSegments privSize spar prog trace segmentSets segments =
   -- create starting state
   let initSt = PartialState {
         nextPc = 0 
-        , remainingTrace = (tail trace) -- Drop the first state, which is known.
+        , remainingTrace = tail trace -- Drop the initial state
         , chunksPS = []
-        , queueSt = []
+        , queueSt = [head trace] -- initial state.
         , availableSegments = segmentSets
-        , privLoc = (length segments)
+        , privLoc = length segments
         , sparsityPS = spar
         , progPS = prog }   
   -- run the choose statement
@@ -132,14 +133,16 @@ chooseSegment segments privSize = do
 allocateQueue :: Int -> PState reg ()
 allocateQueue size =
   do queue <- reverse . queueSt <$> get -- FIFO
-     spar <- sparsityPS <$> get
-     prog <- progPS <$> get
-     let sparseTrace = stutter size spar prog queue
-     currentPrivSegment <- privLoc <$> get
-     let tailTrace = tail sparseTrace -- drop the initial state which is already in the trace (in the previous segment)
-     let newChunks =  splitPrivBlocks size currentPrivSegment tailTrace
-     modify (\st -> st {queueSt = [], privLoc = currentPrivSegment + length newChunks})
-     addChunks newChunks
+     unless (null queue) $ do -- If empty queue, nothing to allocate (can happen at the end of the process)
+       spar <- sparsityPS <$> get
+       prog <- progPS <$> get
+       -- Note: We realy on the fact that the first state never stutters. That state will be dropped.
+       let sparseTrace = stutter size spar prog queue 
+       currentPrivSegment <- privLoc <$> get
+       let tailTrace = tail sparseTrace -- drop the initial state which is already in the trace (in the previous segment)
+       let newChunks =  splitPrivBlocks size currentPrivSegment tailTrace
+       modify (\st -> st {queueSt = [], privLoc = currentPrivSegment + length newChunks})
+       addChunks newChunks
 
 -- | Chunks are added backwards!
 addChunks :: [TraceChunk reg] -> PState reg ()

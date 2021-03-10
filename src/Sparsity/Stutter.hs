@@ -12,7 +12,7 @@ import Control.Monad.State
 
 import qualified Data.Set as Set
 
-import qualified Debug.Trace as Trace (trace)
+--import qualified Debug.Trace as Trace (trace)
 
 import Sparsity.Sparsity
 
@@ -31,7 +31,7 @@ stutter _ _ _ [] = []
 stutter segSize spar prog t =
   evalState (addStuttering t) initState
   where initState = SparsityState segSize spar Map.empty 0 (mapProg (const ()) (const ()) prog)
-        
+  
 -- | Given a chunk of trace add the stuttering steps to fit the sparsity.
 -- Note: We realy on the fact that the first state never stutters. That state will be dropped.
 addStuttering :: Trace mreg -> SparState (Trace mreg)
@@ -58,7 +58,7 @@ checkSparsity instr = do
   return $ maximum (0:stutters)
   where doSparsity :: InstrKind -> SparState Int
         doSparsity kind = do
-          nextCyc <- (+ 1) <$> use spCycle -- We check the viability of the NEXT step
+          cyc <- use spCycle -- We check the viability of the NEXT step
           lastMap <- use spLastSeen
           segSize <- use spSegSize
           let lastSeen = Map.findWithDefault (-1) kind lastMap
@@ -67,11 +67,11 @@ checkSparsity instr = do
           let stutterAmount = case targetSpars of
                               Nothing  -> 0
                               Just spc ->
-                                if sameFunctionalUnit segSize spc lastSeen (fromEnum nextCyc) then
-                                  stutterLength segSize spc nextCyc
+                                if sameFunctionalUnit segSize spc lastSeen (fromEnum cyc) then
+                                  stutterLength segSize spc cyc
                                 else
                                   0
-          spLastSeen %= Map.insert kind (fromEnum nextCyc + stutterAmount) -- Notice we are storing the next instruction, assuming it will come right after.
+          spLastSeen %= Map.insert kind (fromEnum cyc + stutterAmount) -- Notice we are storing the next instruction, assuming it will come right after.
           return stutterAmount
           
         -- | Checks if the current cycle shares a functional unit with the last seen use of that function.

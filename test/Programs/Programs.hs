@@ -17,7 +17,7 @@ oneTest = OneTest $ defaultTest {
   ,testResult = 42
   } 
 
-allTests = ManyTests "Compiler tests"
+allTests = ManyTests "Program tests"
         [testCorrectness, testErrors, testBugs]
 testCorrectness = ManyTests "Compiler correctness tests"
                   [testTrivial, testLoops, testGEP, testDatastruct]
