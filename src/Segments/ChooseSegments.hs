@@ -34,7 +34,7 @@ data PartialState reg = PartialState {
   nextPc :: MWord 
   , remainingTrace :: Trace reg
   , chunksPS :: [TraceChunk reg]
-  , queueSt :: Trace reg -- ^ Carries a list of visited but unalocated states (backwards)
+  , queueSt :: Trace reg -- ^ Carries a list of visited but unalocated states (backwards) including the inital state.
   , availableSegments :: Map.Map MWord [Int]
   , privLoc :: Int -- The next location of a private segment
   , sparsityPS :: Sparsity
@@ -130,6 +130,9 @@ chooseSegment segments privSize = do
              _ <- put $ st {availableSegments = Map.insert instrPc others avalStates}
              return $ Just execSt'
          _ -> return Nothing
+-- | Finds private segments to put the states in the queue.
+-- It first adds the appropriate stuttering for sparsity and to pad
+-- the last segment to have the right ammount of states.
 allocateQueue :: Int -> PState reg ()
 allocateQueue size =
   do queue <- reverse . queueSt <$> get -- FIFO
@@ -144,9 +147,9 @@ allocateQueue size =
        modify (\st -> st {queueSt = [], privLoc = currentPrivSegment + length newChunks})
        addChunks newChunks
 
--- | Chunks are added backwards!
+-- | Chunks are added backwards
 addChunks :: [TraceChunk reg] -> PState reg ()
-addChunks newBlocks = modify (\st -> st {chunksPS = (reverse newBlocks) ++ chunksPS st})
+addChunks newBlocks = modify (\st -> st {chunksPS = reverse newBlocks ++ chunksPS st})
 
 
 splitPrivBlocks :: Int -> Int -> Trace reg -> [TraceChunk reg]
