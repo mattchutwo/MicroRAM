@@ -16,7 +16,6 @@ import Test.Tasty.QuickCheck
 import qualified Data.Map as Map
 
 -- import Compiler.Registers
-import Compiler.Sparsity
 import Compiler.CompilationUnit
 import Output.CBORFormat()
 import Output.Output
@@ -29,6 +28,7 @@ import MicroRAM
 import MicroRAM.MRAMInterpreter
 
 import Segments.Segmenting
+import Sparsity.Sparsity
 
 main :: IO ()
 main = defaultMain tests

@@ -159,11 +159,12 @@ import Compiler.RegisterAlloc as Export (AReg)
 import Compiler.RemoveLabels
 import Compiler.RemovePhi
 import Compiler.Stacking
-import Compiler.Sparsity
 import Compiler.UndefinedFunctions
 
 import MicroRAM (MWord)
 import qualified MicroRAM as MRAM  (Program) 
+
+import Sparsity.Sparsity
 
 import qualified LLVM.AST as LLVM
 import Util.Util

@@ -1,5 +1,5 @@
 module Programs.Programs (
-  allTests, TestProgram(..), TestGroupAbs (..)
+  oneTest, allTests, TestProgram(..), TestGroupAbs (..)
   ) where
 
 import MicroRAM
@@ -10,7 +10,14 @@ import MicroRAM
 ------------------
 testTrivial, testLoops, testGEP, testDatastruct, testBugs, testCorrectness, allTests, testErrors :: TestGroupAbs
 
-allTests = ManyTests "Compiler tests"
+oneTest = OneTest $ defaultTest {
+  testName = "Linked list generic"
+  ,fileName ="test/programs/LinkedList/linkedList.c.ll"
+  ,testLen = 1500
+  ,testResult = 42
+  } 
+
+allTests = ManyTests "Program tests"
         [testCorrectness, testErrors, testBugs]
 testCorrectness = ManyTests "Compiler correctness tests"
                   [testTrivial, testLoops, testGEP, testDatastruct]
@@ -110,6 +117,12 @@ testLoops = ManyTests "Conditionals, Branching and loops" $ OneTest <$>
     ,testResult = 42
     } : -}
 --  defaultTest { "Hello world" "test/programs/hello.ll" 50 [] 0 :
+  defaultTest {
+    testName = "Memcpy"
+    ,fileName ="test/Programs/memcpy.ll"
+    ,testLen = 300
+    ,testResult = 123
+    } :
     []
 
 -- GetElementPtr

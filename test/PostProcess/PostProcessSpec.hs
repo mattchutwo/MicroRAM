@@ -3,10 +3,6 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 module PostProcess.PostProcessSpec where
 
---import MicroRAM.MRAMInterpreter
---import MicroRAM (MWord)
-
--- Compiler imports
 import Compiler
 import Compiler.Errors
 
@@ -15,7 +11,6 @@ import Test.Tasty
 
 import qualified Test.QuickCheck.Monadic as QCM
 import Test.Tasty.QuickCheck
---import Test.QuickCheck.Property as P
 
 import Segments.SegInterpreter
 import PostProcess
@@ -38,7 +33,7 @@ mkPostTests tg = case tg of
 
 mkPostTest :: TestProgram -> TestTree
 mkPostTest (TestProgram name file len cmpError _res _hasBug) =
-  if cmpError then emptyTest else processTest  name file len
+  if cmpError then emptyTest else processTest name file len
 
 emptyTest :: TestTree
 emptyTest = testGroup "Compiler errors not tested" [] -- This is ignored by QuickCheck

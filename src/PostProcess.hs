@@ -14,6 +14,7 @@ This module combines all the process done after compilation:
 
 module PostProcess  where
 
+import Compiler.Analysis (getSparsity)
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.Registers
@@ -30,21 +31,26 @@ import Output.Output
 import Segments
 import Segments.ChooseSegments (TraceChunk(..))
 
-postProcess_v :: Regs reg => Bool -> Int -> Bool -> CompilationResult (Program reg MWord) -> Hopefully (Output reg)
-postProcess_v verb chunkSize private =
-  (segment chunkSize)
-  >=> (doIf private (getTrace verb chunkSize))
-  >=> (doIf private recoverAdvice)
-  >=> segProg2Output
+import Sparsity.Sparsity (Sparsity)
 
-  where doIf :: Monad m => Bool -> (a -> m a) -> a -> m a
+postProcess_v :: Regs reg => Bool -> Int -> Bool -> CompilationResult (Program reg MWord) -> Hopefully (Output reg)
+postProcess_v verb chunkSize private comp =
+  (segment chunkSize)
+  >=> (doIf private (buildTrace verb chunkSize spar))
+  >=> (doIf private recoverAdvice)
+  >=> segProg2Output $
+  comp
+  
+  where spar = getSparsity . aData $ comp
+
+        doIf :: Monad m => Bool -> (a -> m a) -> a -> m a
         doIf cond f = if cond then f else return
 
 
-getTrace :: Regs reg => Bool -> Int -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
-getTrace verb chunkSize segProg = do
+buildTrace :: Regs reg => Bool -> Int -> Sparsity -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
+buildTrace verb chunkSize spar segProg = do
   flatTrace <- return $ run_v verb $ compiled segProg
-  chooseSegment' chunkSize flatTrace segProg
+  chooseSegment' chunkSize spar flatTrace segProg
 
 recoverAdvice :: SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
 recoverAdvice segProg = do

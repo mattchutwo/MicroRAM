@@ -182,7 +182,7 @@ defaultFlags name len =
   , trLen     = len
   , llvmFile  = "temp/temp.ll"
   , mramFile  = Nothing
-  , spars     = Just 1
+  , spars     = Just 2
   , allowUndefFun = False
   -- Interpreter
   , fileOut   = Nothing

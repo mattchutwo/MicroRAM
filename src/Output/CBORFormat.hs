@@ -34,12 +34,14 @@ import qualified Data.ByteString.Lazy                  as L
 import Compiler.CompilationUnit
 import Compiler.Common (Name)
 import Compiler.Registers
-import Compiler.Sparsity
+--import Compiler.Sparsity
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
 
 import Segments.Segmenting
+
+import Sparsity.Sparsity
 
 -- Get version number
 import Paths_MicroRAM (version)

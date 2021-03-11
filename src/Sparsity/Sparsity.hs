@@ -38,7 +38,7 @@ But supporting separate compilation is easy:
 -}
 
 
-module Compiler.Sparsity (
+module Sparsity.Sparsity (
   sparsity, forceSparsity,
   Sparsity,
   InstrKind(..),
@@ -266,7 +266,7 @@ sparsBlock (NBlock _ instrs) =
 -- | Compute sparsity of a full program
 sparsity :: MAProgram r w -> Sparsity
 sparsity blocks =
-  -- read the follwoing backwards
+  -- read the follwoing comments backwards
   Map.mapMaybe inf2maybe $       -- remove infinite sparsity (the ones that never appear)
   Map.map addEdgeEffect $     -- return $ min spars (endSpars + begSpars)
   foldr (Map.unionWith mergeSpars) Map.empty -- get the minimum sparsity values for each instruction

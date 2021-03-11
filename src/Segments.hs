@@ -22,6 +22,8 @@ import MicroRAM.MRAMInterpreter
 import Segments.Segmenting
 import Segments.ChooseSegments
 
+import Sparsity.Sparsity (Sparsity)
+
 
  
 data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (Program reg MWord)
@@ -37,16 +39,17 @@ segment privSize compRes = do
   privateSegments <- return $ mkPrivateSegments (traceLen compRes) privSize -- Should we substract the public segments?  
   return $ SegmentedProgram compRes segs privateSegments segMap' Nothing Nothing
 
-chooseSegment' :: Regs reg => Int -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 
-chooseSegment' privSize trace segProg =
+chooseSegment' :: Regs reg => Int -> Sparsity -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 
+chooseSegment' privSize spar trace segProg =
   -- Check if there are enough segments:
   if (numSegments) >= segmentsTrace then 
     return $ segProg {segTrace = Just chunks}
   else
     assumptError $ "Trace is not long enough. Execution uses: " ++ (show segmentsTrace) ++ " segments, but only " ++ show numSegments ++ " where generated."
     
-  where chunks = chooseSegments privSize trace (segMap segProg) (pubSegments segProg)
+  where chunks = chooseSegments privSize spar (lowProg . programCU . compiled $ segProg) trace (segMap segProg) (pubSegments segProg)
         segmentsTrace = maximum (map chunkSeg chunks)
         numSegments = length (pubSegments segProg) + length (privSegments segProg) 
 mkPrivateSegments :: Word -> Int -> [Segment reg MWord]
 mkPrivateSegments len size = replicate (fromEnum len `div` size) (Segment [] [] size [] True True) 
+

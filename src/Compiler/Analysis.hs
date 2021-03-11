@@ -14,7 +14,7 @@ Metadata is produced by the compiler and passed down to the witness generator.
 module Compiler.Analysis where
 
 import qualified Data.Map as Map
-import Compiler.Sparsity
+import Sparsity.Sparsity
 
 data AnalysisPiece =
   SparsityData Sparsity
