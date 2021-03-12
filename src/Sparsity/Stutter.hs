@@ -97,7 +97,7 @@ checkSparsity instr = do
 -- TESTING
 
 fakeState :: MWord -> ExecutionState ()
-fakeState n = ExecutionState n Map.empty (0, Map.empty) Set.empty [] False False False 0
+fakeState n = ExecutionState n Map.empty (0, Map.empty) Set.empty [] False False 0
 
 testTrace :: Trace ()
 testTrace =
