@@ -141,11 +141,11 @@ testOutput = SecretOutput prog segs parms mem tr adv
         segs :: [SegmentOut]
         segs = [SegmentOut [] 2 [] True True, SegmentOut [PcConst 2] 2 [] True True] 
         parms :: CircuitParameters
-        parms  = CircuitParameters 3 2 Map.empty
+        parms  = CircuitParameters 2 Map.empty
         mem :: Compiler.CompilationUnit.InitialMem
         mem  = []
         tr :: [TraceChunkOut Int]
-        tr  = TraceChunkOut 0 [StateOut False 1 [42,0,0,0], StateOut False 2 [84,0,0,0]] :
-          TraceChunkOut 1 [StateOut False 3 [42,0,0,0], StateOut False 4 [0,0,0,0]] : []
+        tr  = TraceChunkOut 0 [StateOut 1 [42,0,0,0], StateOut 2 [84,0,0,0]] :
+          TraceChunkOut 1 [StateOut 3 [42,0,0,0], StateOut 4 [0,0,0,0]] : []
         adv :: Map.Map MWord [Advice]
         adv  = Map.empty

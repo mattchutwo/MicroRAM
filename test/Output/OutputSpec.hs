@@ -118,7 +118,7 @@ instance Arbitrary InstrKind where
     ]
   
 instance Arbitrary CircuitParameters where
-  arbitrary = CircuitParameters <$> arbitrary <*> arbitrary <*> arbitrary
+  arbitrary = CircuitParameters <$> arbitrary <*> arbitrary
 
 testParams :: TestTree
 testParams = testProperty "Serialising Parameters" $
@@ -127,7 +127,7 @@ testParams = testProperty "Serialising Parameters" $
 
 -- * Testing Traces
 instance Arbitrary (StateOut) where
-  arbitrary = StateOut <$> arbitrary <*> arbitrary <*> arbitrary
+  arbitrary = StateOut <$> arbitrary <*> arbitrary
 
 testTrace :: TestTree
 testTrace = testProperty "Serialising traces" $

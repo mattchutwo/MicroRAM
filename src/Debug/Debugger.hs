@@ -122,7 +122,6 @@ instance CellValueFormatter ResRegs
 
 data SummaryState = SState {
   pc_ :: MWord
-  , flag_ :: MWord
   , bug_ :: MWord
   , answer_ :: MWord
   , regs_ :: ResRegs
@@ -164,7 +163,6 @@ toSummary theseRegs theseMems st  =
   , registers_ = toSummaryRegsCustom (regs st) theseRegs
   , mem_ = map PW $ toSummaryMem theseMems (mem st) 
   , psn_ = map PW $ Set.toList (psn st) 
-  , flag_ = bool2word $ flag st
   , bug_ = bool2word $ bug_flag st
   , answer_ = answer st
   , advc_ = renderAdvc $ advice st
@@ -177,14 +175,13 @@ summary theseRegs theseMems t =  map customSummary t
 
 renderSummary
   :: Regs mreg => CustomSummary mreg -> Trace mreg -> Int -> Box
-renderSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer sBug sPoison sAdvice) t n =
+renderSummary (CS sPC sRegs custRegs sMem theseMem _sFlag sAnswer sBug sPoison sAdvice) t n =
   renderTableWithFlds flds $ take n $ summary custRegs theseMem t
   -- fldDepends checks the customSummary record, and returns the fields that should be shown
   where flds = fldDepends sPC pc_ ++
                (fldDepends (sRegs && sCustRegs) registers_) ++
                (fldDepends (sRegs && not sCustRegs) regs_) ++  -- Shows default regs or custom ones. if sCustRegs then registers_ else regs_)
                (fldDepends sMem mem_) ++ 
-               (fldDepends sFlag flag_)  ++ 
                (fldDepends sAnswer answer_) ++
                (fldDepends sBug bug_) ++ 
                (fldDepends sPoison psn_) ++ 
@@ -202,8 +199,7 @@ printSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer sBug sPoison sAd
   printTableWithFlds flds $ take n $ theSummary
   where theSummary = summary custRegs theseMem t
   -- fldDepends checks the customSummary record, and returns the fields that should be shown
-        flds = fldDepends sPC [DFld pc_]
-               ++ (fldDepends sFlag [DFld flag_]) 
+        flds = fldDepends sPC [DFld pc_] 
                ++ (fldDepends sBug [DFld bug_]) 
                ++ (fldDepends sAnswer [DFld answer_])
                ++ (fldDepends sPoison [DFld psn_])

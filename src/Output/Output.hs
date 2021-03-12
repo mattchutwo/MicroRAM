@@ -46,7 +46,6 @@ import Util.Util
 -- 1. Program
 -- 2. Parameters
 --    * Number of registers
---    * Trace length
 --    * Sparcity
 --
 -- Secret Output
@@ -108,7 +107,6 @@ type SparcityInfo = Word
 
 data CircuitParameters = CircuitParameters
   { numRegs :: Word
-  , traceLength :: Word
   , sparcity :: Map.Map InstrKind SparcityInfo
   } deriving (Eq, Show, Generic)
   
@@ -120,8 +118,7 @@ data CircuitParameters = CircuitParameters
 -- | State with only the parts passed to the output.
 
 data StateOut = StateOut
-  { flagOut :: Bool
-  , pcOut   :: MWord
+  { pcOut   :: MWord
   , regsOut :: [MWord]
 --  , adviceOut :: [Advice]
   } deriving (Eq, Show, Generic)
@@ -134,8 +131,8 @@ concretize (Just w) = w
 concretize Nothing = 0
 
 state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
-state2out bound (ExecutionState pc regs _ _ _advice flag _ _ _) =
-  StateOut flag pc (map concretize $ regToList bound regs) -- Advice is ignored
+state2out bound (ExecutionState pc regs _ _ _advice _ _ _) =
+  StateOut pc (map concretize $ regToList bound regs) -- Advice is ignored
 
 
 
@@ -146,13 +143,12 @@ state2out bound (ExecutionState pc regs _ _ _advice flag _ _ _) =
 -- | Convert the output of the compiler (Compilation Unit) into Output
 buildCircuitParameters
   :: Foldable t =>
-     Word
-  -> RegisterData
+     RegisterData
   -> t AnalysisPiece
   -> Word
   -> CircuitParameters
-buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed if InfinityRegs doesn't show up here. 
-  CircuitParameters (regData2output regData) trLen (analyData2sparc aData)
+buildCircuitParameters regData aData regNum = -- Ok regNum can be removed if InfinityRegs doesn't show up here. 
+  CircuitParameters (regData2output regData) (analyData2sparc aData)
   where regData2output (NumRegisters n) = fromIntegral n
         regData2output InfinityRegs = regNum -- FIX ME: Throw exception?
 
@@ -162,9 +158,9 @@ buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed 
             Map.unionWith min sparc2' spar1
 
 compUnit2Output :: Regs reg => [Segment reg MWord] -> CompilationResult (Program reg MWord) -> Output reg
-compUnit2Output segs (CompUnit p trLen regData aData initMem _) =
+compUnit2Output segs (CompUnit p _trLen regData aData initMem _) =
   let regNum = getRegNum regData
-      circParams = buildCircuitParameters trLen regData aData regNum
+      circParams = buildCircuitParameters regData aData regNum
       segsOut = map mkSegmentOut segs in
   PublicOutput (lowProg p) segsOut circParams initMem
 
@@ -172,23 +168,6 @@ compUnit2Output segs (CompUnit p trLen regData aData initMem _) =
 -- (Trace, Advice) into Output (a Private one).
 -- The input Trace should be an infinite stream which we truncate by the given length.
 
--- secretOutput :: Regs reg => Trace reg -> CompilationResult (Program reg MWord) -> Output reg
--- secretOutput tr (CompUnit p trLen regData aData initM _) =
---   let regNum = getRegNum regData in
---   let circParams = buildCircuitParameters trLen regData aData regNum in
---     SecretOutput (lowProg p) circParams
---     -- initMem
---     initM
---     -- Trace (trace should be trimmed already)
---     (outputTrace trLen tr (numRegs circParams))
---     -- Advice
---     (outputAdvice trLen tr)
-
---   where outputAdvice len tr = foldr joinAdvice Map.empty (takeEnum len $ zip [0..] tr)
---         joinAdvice (i,state) adviceMap = case advice state of
---                                        [] -> adviceMap
---                                        ls -> Map.insert i ls adviceMap
- 
 outputStates
   :: (Enum a1, Regs mreg) => a1 -> Word -> [ExecutionState mreg] -> [StateOut]
 outputStates len regBound tr = takeEnum len $ map (state2out regBound) tr

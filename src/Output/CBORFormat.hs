@@ -286,10 +286,9 @@ instance Serialise InstrKind where
   decode = decodeInstrKind
 
 encodeParams :: CircuitParameters -> Encoding 
-encodeParams (CircuitParameters numRegs len sparc ) = 
+encodeParams (CircuitParameters numRegs sparc ) = 
   map2CBOR $
   [ ("num_regs", encodeWord numRegs)
-  , ("trace_len", encodeWord len)
   , ("sparcity", encode sparc)
   ]
 
@@ -297,8 +296,7 @@ decodeParams :: Decoder s CircuitParameters
 decodeParams = do
   len <- decodeMapLen
   case len of
-    3 -> CircuitParameters <$ decodeString <*> decodeWord
-         <* decodeString <*> decodeWord
+    2 -> CircuitParameters <$ decodeString <*> decodeWord
          <* decodeString <*> decode
     _ -> fail $ "invalid parameters encoding. Length should be 3 but found " ++ show len
 
@@ -353,10 +351,9 @@ instance Serialise InitMemSegment where
 -- *** State Out 
 
 encodeStateOut :: StateOut -> Encoding
-encodeStateOut (StateOut flag pc regs) =
+encodeStateOut (StateOut pc regs) =
   map2CBOR $
-  [ ("flag", encodeBool flag) 
-  , ("pc", encode pc)
+  [ ("pc", encode pc)
   , ("regs", encode regs)
   ]
 
@@ -364,8 +361,7 @@ decodeStateOut :: Decoder s StateOut
 decodeStateOut = do
     len <- decodeMapLen
     case len of
-      3 -> StateOut <$ decodeString <*> decodeBool
-                    <* decodeString <*> decode
+      2 -> StateOut <$ decodeString <*> decode
                     <* decodeString <*> decode
       _ -> fail $ "invalid state encoding. Length should be 3 but found " ++ show len
 
