@@ -48,14 +48,14 @@ import Util.Util
 
 -}
 replaceGlobals :: Regs mreg =>
-        CompilationUnit () (Lprog () mreg MWord)
-        -> Hopefully $ CompilationUnit LazyInitialMem (Lprog () mreg MWord)
+        CompilationUnit () (Lprog m mreg MWord)
+        -> Hopefully $ CompilationUnit LazyInitialMem (Lprog m mreg MWord)
 replaceGlobals (CompUnit prog tr regs anData _ _) = do
   (prog', initMem) <- globals' prog
   return $ CompUnit prog' tr regs anData [] initMem 
 
-globals' :: Regs mreg => Lprog () mreg MWord
-         -> Hopefully $ (Lprog () mreg MWord, LazyInitialMem)
+globals' :: Regs mreg => Lprog m mreg MWord
+         -> Hopefully $ (Lprog m mreg MWord, LazyInitialMem)
 globals' (IRprog tenv genv prog) = do
   (initMem, globalMap) <- return $ memoryFromGlobals genv
   prog' <- raplaceGlobals globalMap prog

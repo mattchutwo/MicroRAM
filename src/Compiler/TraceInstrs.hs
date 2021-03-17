@@ -23,8 +23,8 @@ maybeTrace :: String -> [op] -> [MRAM.Instruction' a b op]
 maybeTrace _ _ | not enableTrace = []
 maybeTrace name ops = [MRAM.Iext (Text.pack $ "trace_" ++ name) ops]
 
-maybeTraceIR :: String -> [MAOperand VReg w] -> [MIRInstr () w]
-maybeTraceIR name ops = map (\i -> MirM i ()) $ maybeTrace name ops
+maybeTraceIR :: md -> String -> [MAOperand VReg w] -> [MIRInstr md w]
+maybeTraceIR md name ops = map (\i -> MirM i md) $ maybeTrace name ops
 
 regName :: VReg -> MAOperand VReg MWord
 regName (Name n) = LImm $ SConst $ read $ BSU.toString $ Short.fromShort n

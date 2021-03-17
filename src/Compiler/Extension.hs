@@ -24,39 +24,39 @@ import           MicroRAM (MWord)
 
 type Statefully a = StateT Word Hopefully a
 
-lowerExtInstr :: Text -> Maybe VReg -> [MAOperand VReg MWord] ->
-  Statefully [RTLInstr () MWord]
-lowerExtInstr "trace" _ _ = return []
-lowerExtInstr "tracestr" _ _ = return []
-lowerExtInstr name _ _ | "trace_" `Text.isPrefixOf` name = return []
-lowerExtInstr "malloc" (Just dest) ops =
-  return [MRI (Iextadvise "malloc" dest ops) ()]
-lowerExtInstr "free" _ _ = return []
-lowerExtInstr "advise_poison" (Just dest) ops =
-  return [MRI (Iextadvise "advise_poison" dest ops) ()]
-lowerExtInstr name optDest ops = assumptError $
+lowerExtInstr :: Text -> Maybe VReg -> md -> [MAOperand VReg MWord] ->
+  Statefully [RTLInstr md MWord]
+lowerExtInstr "trace" _ _ _ = return []
+lowerExtInstr "tracestr" _ _ _ = return []
+lowerExtInstr name _ _ _ | "trace_" `Text.isPrefixOf` name = return []
+lowerExtInstr "malloc" (Just dest) md ops =
+  return [MRI (Iextadvise "malloc" dest ops) md]
+lowerExtInstr "free" _ _ _ = return []
+lowerExtInstr "advise_poison" (Just dest) md ops =
+  return [MRI (Iextadvise "advise_poison" dest ops) md]
+lowerExtInstr name optDest _md ops = assumptError $
   "unsupported extension instruction: " ++ show name ++ " " ++
     intercalate ", " (maybe [] (\x -> [show x]) optDest ++ map show ops)
 
-lowerInstr :: RTLInstr () MWord -> Statefully [RTLInstr () MWord]
-lowerInstr (MRI (Iext name ops) ()) = lowerExtInstr name Nothing ops
-lowerInstr (MRI (Iextval name dest ops) ()) = lowerExtInstr name (Just dest) ops
+lowerInstr :: RTLInstr md MWord -> Statefully [RTLInstr md MWord]
+lowerInstr (MRI (Iext name ops) md) = lowerExtInstr name Nothing md ops
+lowerInstr (MRI (Iextval name dest ops) md) = lowerExtInstr name (Just dest) md ops
 lowerInstr i = return [i]
 
 -- TODO: share this basic rewriting infrastructure between here and Legalize
-lowerInstrs :: [RTLInstr () MWord] -> Statefully [RTLInstr () MWord]
+lowerInstrs :: [RTLInstr md MWord] -> Statefully [RTLInstr md MWord]
 lowerInstrs instrs = concat <$> mapM lowerInstr instrs
 
-lowerBlock :: BB Name (RTLInstr () MWord) -> Statefully (BB Name (RTLInstr () MWord))
+lowerBlock :: BB Name (RTLInstr md MWord) -> Statefully (BB Name (RTLInstr md MWord))
 lowerBlock (BB name body term dag) =
   BB name <$> lowerInstrs body <*> lowerInstrs term <*> pure dag
 
-lowerFunc :: RFunction () MWord -> Hopefully (RFunction () MWord)
+lowerFunc :: RFunction md MWord -> Hopefully (RFunction md MWord)
 lowerFunc f = do
   (blocks', nextReg') <- runStateT (mapM lowerBlock $ funcBlocks f) (funcNextReg f)
   return $ f { funcBlocks = blocks', funcNextReg = nextReg' }
 
-lowerExtensionInstrs :: Rprog () MWord -> Hopefully (Rprog () MWord)
+lowerExtensionInstrs :: Rprog md MWord -> Hopefully (Rprog md MWord)
 lowerExtensionInstrs p = do
   code' <- mapM lowerFunc $ code p
   return $ p { code = code' }

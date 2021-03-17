@@ -154,6 +154,7 @@ import Compiler.Intrinsics
 import Compiler.IRs
 import Compiler.LocalizeLabels
 import Compiler.Legalize
+import Compiler.Metadata
 import Compiler.RegisterAlloc
 import Compiler.RegisterAlloc as Export (AReg)
 import Compiler.RemoveLabels
@@ -173,7 +174,7 @@ compile1
   :: Bool
   -> Word
   -> LLVM.Module
-  -> Hopefully (CompilationUnit () (Rprog () MWord))
+  -> Hopefully (CompilationUnit () (Rprog Metadata MWord))
 compile1 allowUndefFun len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
@@ -185,7 +186,7 @@ compile1 allowUndefFun len llvmProg = (return $ prog2unit len llvmProg)
 
 compile2
   :: Maybe Int
-  -> CompilationUnit () (Rprog () MWord) ->
+  -> CompilationUnit () (Rprog Metadata MWord) ->
   Hopefully (CompilationUnit () (MRAM.Program AReg MWord))
 compile2 spars prog = return prog
   >>= (tagPass "Edge split"          $ justCompile edgeSplit)

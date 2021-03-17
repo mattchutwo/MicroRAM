@@ -233,15 +233,15 @@ stackLTLInstr (LAlloc reg sz n) = do
 -- | stack all instructions
 stackInstr ::
   Regs mreg => 
-  LTLInstr () mreg MWord
+  LTLInstr md mreg MWord
   -> Hopefully [MAInstruction mreg MWord]
-stackInstr (MRI instr ()) =  return [instr]
-stackInstr (IRI instr _) = stackLTLInstr instr 
+stackInstr (MRI instr _md) =  return [instr]
+stackInstr (IRI instr _md) = stackLTLInstr instr 
 
 
 stackBlock
   :: Regs mreg
-  => (BB Name $ LTLInstr () mreg MWord)
+  => (BB Name $ LTLInstr md mreg MWord)
   -> Hopefully (NamedBlock mreg MWord)
 stackBlock (BB name body term _ ) = do
   body' <- mapM stackInstr (body++term)
@@ -250,15 +250,15 @@ stackBlock (BB name body term _ ) = do
 -- | Translating funcitons
 stackFunction
   :: Regs mreg =>
-  LFunction () mreg MWord
+  LFunction m mreg MWord
   -> Hopefully $ [NamedBlock mreg MWord]
-stackFunction (LFunction name _mdata _retT _argT size code) = do
+stackFunction (LFunction name _retT _argT size code) = do
   prologueBlock <- return $ NBlock (Just $ name) $ prologue size
   codeBlocks <- mapM stackBlock code
   return $ prologueBlock : codeBlocks
   
   
-stacking :: Regs mreg => Lprog () mreg MWord -> Hopefully $ MAProgram mreg MWord
+stacking :: Regs mreg => Lprog m mreg MWord -> Hopefully $ MAProgram mreg MWord
 stacking (IRprog _ _ functions) = do
   functions' <- mapM stackFunction functions
   return $
