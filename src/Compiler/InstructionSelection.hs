@@ -441,6 +441,7 @@ pointerOperandWidth :: Env -> LLVM.Operand -> Hopefully MRAM.MemWidth
 pointerOperandWidth env op = case resolve (llvmtTypeEnv env) $ typeOf (llvmtTypeEnv env) op of
   LLVM.PointerType ty _ -> case resolve (llvmtTypeEnv env) ty of
     LLVM.IntegerType bits -> case bits of
+        1 -> return MRAM.W1
         8 -> return MRAM.W1
         16 -> return MRAM.W2
         32 -> return MRAM.W4
