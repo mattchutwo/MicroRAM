@@ -268,11 +268,14 @@ function2function tenv (Right (LLVM.LocalReference ty nm)) = do
   return (AReg nm',retT',paramT')
 function2function tenv (Right (LLVM.ConstantOperand (LLVM.Constant.GlobalReference ty nm))) = do
   lbl <- name2label nm
-  (retT', paramT') <- functionPtrTypes ty
+  (retT', paramT') <- functionPtrTypes tenv ty
   return (lbl,retT',paramT')
-  where functionPtrTypes :: LLVM.Type -> Hopefully (Ty, [Ty])
-        functionPtrTypes (LLVM.PointerType funTy _) = functionTypes tenv funTy
-        functionPtrTypes ty = implError $ "Function pointer type expected found "  ++ show ty ++ " instead." 
+function2function tenv (Right (LLVM.ConstantOperand (LLVM.Constant.BitCast op ty))) = do
+  -- Use the `lbl` from evaluating `op`, but get the param/return types from
+  -- the new type `ty`.
+  (lbl, _retT, _paramT) <- function2function tenv (Right (LLVM.ConstantOperand op))
+  (retT', paramT') <- functionPtrTypes tenv ty
+  return (lbl, retT', paramT')
 function2function _tenv (Right (LLVM.ConstantOperand c)) =
   implError $ "Calling a function with a constant. You called: \n \t" ++ show c
 function2function _ (Right op) = 
@@ -287,6 +290,10 @@ functionTypes tenv' (LLVM.FunctionType retTy argTys False) = do
 functionTypes _tenv (LLVM.FunctionType  _ _ True) =
   implError "Variable parameters (isVarArg in function call)."
 functionTypes _ ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
+
+functionPtrTypes :: LLVMTypeEnv -> LLVM.Type -> Hopefully (Ty, [Ty])
+functionPtrTypes tenv (LLVM.PointerType funTy _) = functionTypes tenv funTy
+functionPtrTypes _tenv ty = implError $ "Function pointer type expected found "  ++ show ty ++ " instead."
 
 -- | Process parameters into RTL format
 -- WE dump the attributes
