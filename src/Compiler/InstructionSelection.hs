@@ -58,6 +58,8 @@ import Util.Util
 import MicroRAM (MWord, MemWidth(..), pattern WWord, widthInt, wordBytes)
 import qualified MicroRAM as MRAM
 
+import Debug.Trace
+
 {- Notes on this instruction generation :
 
    TO DOs:
@@ -250,9 +252,6 @@ predicate2instructuion inst r op1 op2 =
   IntPred.SLE -> [MRAM.Icmpge r op2 op1]  --FLIPED
 
 
-floatError :: MonadError CmplError m => m a
-floatError = implError "Floating point arithmetic"
-
 _constzero,constOne :: LLVM.Operand
 _constzero = LLVM.ConstantOperand (LLVM.Constant.Int (toEnum 0) 0)
 constOne = LLVM.ConstantOperand (LLVM.Constant.Int (toEnum 1) 1)
@@ -322,13 +321,13 @@ isInstruction env ret instr =
     (LLVM.Add _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Iadd
     (LLVM.Sub _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Isub
     (LLVM.Mul _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Imull
-    (LLVM.SDiv _ _ _o1 _o2 ) -> implError "Signed division is hard! SDiv"
-    (LLVM.SRem _o1 _o2 _)    -> implError "Signed division is hard! SRem"
-    (LLVM.FAdd _ _o1 _o2 _)  -> floatError
-    (LLVM.FSub _ _o1 _o2 _)  -> floatError
-    (LLVM.FMul _ _o1 _o2 _)  -> floatError
-    (LLVM.FDiv _ _o1 _o2 _)  -> floatError
-    (LLVM.FRem _ _o1 _o2 _)  -> floatError
+    (LLVM.SDiv _ _ _o1 _o2 ) -> unsupported "SDiv"
+    (LLVM.SRem _o1 _o2 _)    -> unsupported "SRem"
+    (LLVM.FAdd _ _o1 _o2 _)  -> unsupported "FAdd"
+    (LLVM.FSub _ _o1 _o2 _)  -> unsupported "FSub"
+    (LLVM.FMul _ _o1 _o2 _)  -> unsupported "FMul"
+    (LLVM.FDiv _ _o1 _o2 _)  -> unsupported "FDiv"
+    (LLVM.FRem _ _o1 _o2 _)  -> unsupported "FRem"
     (LLVM.UDiv _ o1 o2 _)    -> isBinop env ret o1 o2 MRAM.Iudiv -- this is easy
     (LLVM.URem o1 o2 _)      -> isBinop env ret o1 o2 MRAM.Iumod -- this is eay
     -- Binary
@@ -378,6 +377,13 @@ isInstruction env ret instr =
           Nothing -> error $ "failed to resolve named type " ++ show name
         pointee (LLVM.PointerType ty _) = ty
         pointee ty = error $ "isInstruction: expected pointer, but got " ++ show ty
+
+        rejectUnsupported = False
+        unsupported desc
+          | rejectUnsupported = implError $ "unsupported instruction: " ++ desc
+          | otherwise = do
+            traceM $ "unsupported instruction: " ++ desc
+            return makeTraceInvalid
 
 {- | Implements arithmetic shift right in terms of other binary operations like so:
 @
