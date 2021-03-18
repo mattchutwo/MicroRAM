@@ -4,6 +4,7 @@ module Compiler.Layout
   LLVMTypeEnv,
   sizeOf,
   alignOf,
+  alignTo,
   structPadding,
   offsetOfStructElement,
 ) where

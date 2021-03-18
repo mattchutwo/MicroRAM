@@ -1076,8 +1076,8 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
   case init' of
     Just initWords ->
       when (byteSize > fromIntegral (length initWords * wordBytes)) $ assumptError $
-        "impossible: global size is " ++ show byteSize ++ " but evaluation produced only " ++
-          show (length initWords) ++ " words of initializer"
+        "impossible: global size for " ++ show name ++ " is " ++ show byteSize ++
+          " but evaluation produced only " ++ show (length initWords) ++ " words of initializer"
     Nothing -> return ()
   -- GlobalVariable size and align are given in words, not bytes.
   let size' = (byteSize + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
@@ -1107,9 +1107,15 @@ flattenConstant :: Env
                 -> Hopefully [LazyConst String MWord]
 flattenConstant env c = do
     chunks <- constant2typedLazyConst env c
-    return $ go (SConst 0) 0 $ map unpack chunks
+    return $ go (SConst 0) 0 $ addPadding 0 $ map unpack chunks
   where
-    unpack (TypedLazyConst lc w) = (lc, widthInt w)
+    unpack (TypedLazyConst lc w align) = (lc, widthInt w, align)
+
+    addPadding _pos [] = []
+    addPadding pos ((lc, w, a) : cs)
+      | pos' == pos = (lc, w) : addPadding (pos' + w) cs
+      | otherwise = (SConst 0, pos' - pos) : (lc, w) : addPadding (pos' + w) cs
+      where pos' = alignTo a pos
 
     go ::
       LazyConst String MWord -> Int -> [(LazyConst String MWord, Int)] ->
@@ -1140,7 +1146,7 @@ constant2OnelazyConst ::
 constant2OnelazyConst env c = do
   cs' <- constant2typedLazyConst env c
   case cs' of
-    [TypedLazyConst lc _w] -> return lc
+    [TypedLazyConst lc _w _a] -> return lc
     _ -> error $ "expected a single lazy constant, but got " ++ show (length cs') ++
       " (on " ++ show c ++ ")"
 
@@ -1149,22 +1155,24 @@ constant2OnelazyConst env c = do
 -- | A `LazyConst` whose value is guaranteed to fit within `width` bytes.  Do
 -- not construct directly; use `mkTypedLazyConst` instead (which enforces the
 -- invariant).
-data TypedLazyConst = TypedLazyConst (LazyConst String MWord) MemWidth
+data TypedLazyConst = TypedLazyConst (LazyConst String MWord) MemWidth Int
 
 mkTypedLazyConst :: LazyConst String MWord -> MemWidth -> TypedLazyConst
-mkTypedLazyConst lc w = TypedLazyConst (lc .&. SConst mask) w
-  where mask = (1 `shiftL` (8 * MRAM.widthInt w)) - 1
+mkTypedLazyConst lc w = TypedLazyConst (lc .&. SConst mask) w align
+  where
+    mask = (1 `shiftL` (8 * MRAM.widthInt w)) - 1
+    align = widthInt w
 
 typedLazyUop ::
   (LazyConst String MWord -> LazyConst String MWord) ->
   TypedLazyConst -> TypedLazyConst
-typedLazyUop op (TypedLazyConst lc1 w1) =
+typedLazyUop op (TypedLazyConst lc1 w1 _) =
   mkTypedLazyConst (op lc1) w1
 
 typedLazyBop ::
   (LazyConst String MWord -> LazyConst String MWord -> LazyConst String MWord) ->
   TypedLazyConst -> TypedLazyConst -> TypedLazyConst
-typedLazyBop op (TypedLazyConst lc1 w1) (TypedLazyConst lc2 w2) =
+typedLazyBop op (TypedLazyConst lc1 w1 _) (TypedLazyConst lc2 w2 _) =
   mkTypedLazyConst (op lc1 lc2) (max w1 w2)
 
 instance Num TypedLazyConst where
