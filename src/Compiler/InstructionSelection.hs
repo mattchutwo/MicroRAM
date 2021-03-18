@@ -368,6 +368,8 @@ isInstruction env ret instr =
     (LLVM.LandingPad _ _ _ _ ) -> makeTraceInvalid <$> getMetadata
     (LLVM.CatchPad _ _ _)      -> makeTraceInvalid <$> getMetadata
     (LLVM.CleanupPad _ _ _ )   -> makeTraceInvalid <$> getMetadata
+    -- Floating point
+    (LLVM.SIToFP _ _ _)      -> unsupported "SIToFP"
     instr ->  implError $ "Instruction: " ++ (show instr)
   where withReturn Nothing _ = return $ []
         withReturn (Just ret) f = f ret
@@ -383,7 +385,7 @@ isInstruction env ret instr =
           | rejectUnsupported = implError $ "unsupported instruction: " ++ desc
           | otherwise = do
             traceM $ "unsupported instruction: " ++ desc
-            return makeTraceInvalid
+            makeTraceInvalid <$> getMetadata
 
 {- | Implements arithmetic shift right in terms of other binary operations like so:
 @
