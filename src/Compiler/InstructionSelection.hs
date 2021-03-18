@@ -27,6 +27,7 @@ module Compiler.InstructionSelection
     ) where
 
 import Data.Bits
+import Data.Binary.IEEE754 (floatToWord, doubleToWord)
 import qualified Data.ByteString.Short as Short
 
 import qualified Data.ByteString.UTF8 as BSU
@@ -41,6 +42,7 @@ import qualified Data.Set as Set
 
 import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
+import qualified LLVM.AST.Float as LLVM
 import qualified LLVM.AST.IntegerPredicate as IntPred
 
 import Compiler.Errors
@@ -161,6 +163,7 @@ operand2operandTrunc env op = do
 type2type :: LLVMTypeEnv -> LLVM.Type -> Hopefully Ty
 type2type _ LLVM.VoidType = return TVoid -- FIXME check size!
 type2type _ (LLVM.IntegerType _n) = return Tint -- FIXME check size! 
+type2type _ (LLVM.FloatingPointType _n) = return Tint -- FIXME check size!
 type2type _tenv (LLVM.PointerType _t _) = return Tptr 
 type2type _ (LLVM.FunctionType {}) = return Tint -- FIXME enrich typed!
 type2type tenv' (LLVM.ArrayType size elemT) = do
@@ -1205,6 +1208,10 @@ constant2typedLazyConst env c =
       32 -> return [mkTypedLazyConst (fromInteger val) W4]
       64 -> return [mkTypedLazyConst (fromInteger val) W8]
       _ -> implError $ "Constant.Int with width " ++ show bits ++ " is not supported"
+    (LLVM.Constant.Float someFloat) -> case someFloat of
+      LLVM.Single f -> return [mkTypedLazyConst (fromIntegral $ floatToWord f) W4]
+      LLVM.Double f -> return [mkTypedLazyConst (fromIntegral $ doubleToWord f) W8]
+      _ -> implError $ "Constant.Float of unsupported width: " ++ show someFloat
     (LLVM.Constant.Null _ty                         ) ->
       return [mkTypedLazyConst (fromInteger 0) WWord]
     (LLVM.Constant.AggregateZero ty                 ) ->

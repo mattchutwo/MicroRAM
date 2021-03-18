@@ -24,6 +24,8 @@ sizeOf tenv ty = case ty of
   VoidType -> 0
   IntegerType 1 -> 1
   IntegerType bits | bits `mod` 8 == 0 -> fromIntegral bits `div` 8
+  FloatingPointType LLVM.FloatFP -> 4
+  FloatingPointType LLVM.DoubleFP -> 8
   PointerType _ _ -> 8
   VectorType len ty -> fromIntegral len * sizeOf tenv ty
   StructureType True tys -> sum (map (sizeOf tenv) tys)
@@ -37,6 +39,8 @@ alignOf tenv ty = case ty of
   VoidType -> 1
   IntegerType 1 -> 1
   IntegerType bits | bits `elem` [8, 16, 32, 64] -> fromIntegral bits `div` 8
+  FloatingPointType LLVM.FloatFP -> 4
+  FloatingPointType LLVM.DoubleFP -> 8
   PointerType _ _ -> 8
   VectorType _ ty -> alignOf tenv ty
   StructureType True _ -> 1
