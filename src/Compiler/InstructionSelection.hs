@@ -1044,10 +1044,7 @@ isTypeDefs defs = do
   return map1
   where def2pair :: LLVM.Definition -> Hopefully $ (LLVM.Name, LLVM.Type)
         def2pair (LLVM.TypeDefinition  name (Just ty)) = return (name, ty)
-        def2pair (LLVM.TypeDefinition  name Nothing) =
-          assumptError $ "Received an empty type definition for " ++
-          show name ++
-          " what am I supposed to do with this?"
+        def2pair (LLVM.TypeDefinition  name Nothing) = return (name, LLVM.VoidType)
         def2pair other = unreachableError $ show other
         
 -- | Turns a Global variable into its descriptor.
