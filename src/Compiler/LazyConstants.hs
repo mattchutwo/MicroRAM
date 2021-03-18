@@ -92,6 +92,34 @@ lcQuot = lazyBop quot
 lcRem :: Integral wrdT => LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
 lcRem = lazyBop rem
 
+lcCompare ::
+  Num wrdT =>
+  (Integer -> Integer -> Bool) ->
+  (wrdT -> Integer) ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT
+lcCompare cmp convert lc1 lc2 = lazyBop go lc1 lc2
+  where go x y = if cmp (convert x) (convert y) then 1 else 0
+
+lcCompareUnsigned ::
+  Integral wrdT =>
+  (Integer -> Integer -> Bool) ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT
+lcCompareUnsigned cmp lc1 lc2 = lcCompare cmp toInteger lc1 lc2
+
+lcCompareSigned ::
+  (Integral wrdT, Bits wrdT) =>
+  (Integer -> Integer -> Bool) ->
+  Int ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT
+lcCompareSigned cmp bits lc1 lc2 = lcCompare cmp convert lc1 lc2
+  where convert x = toInteger x - 2 * toInteger (x .&. (1 `shiftL` bits - 1))
+
 
 -- | Quick shorthand to return lists of one element
 returnL :: Monad m => a -> m [a]

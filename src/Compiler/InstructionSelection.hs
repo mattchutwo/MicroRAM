@@ -240,7 +240,7 @@ predicate2instructuion inst r op1 op2 =
   case inst of
   IntPred.EQ  -> [MRAM.Icmpe r op1 op2]
   IntPred.NE  -> [MRAM.Icmpe r op1 op2, MRAM.Inot r (AReg r)]
--- Unsigned                                        r
+-- Unsigned
   IntPred.UGT -> [MRAM.Icmpa  r op1 op2] 
   IntPred.UGE -> [MRAM.Icmpae r op1 op2] 
   IntPred.ULT -> [MRAM.Icmpa  r op2 op1] --FLIPED
@@ -1278,6 +1278,7 @@ constant2typedLazyConst env c =
     (LLVM.Constant.And op1 op2                      ) -> bop2typedLazyConst env (.&.) op1 op2
     (LLVM.Constant.Or op1 op2                       ) -> bop2typedLazyConst env (.|.) op1 op2
     (LLVM.Constant.Xor op1 op2                      ) -> bop2typedLazyConst env xor op1 op2
+    (LLVM.Constant.ICmp pred op1 op2                ) -> icmpTypedLazyConst env pred op1 op2
     (LLVM.Constant.GetElementPtr _bounds addr inxs  ) -> do
       addr' <- constant2OnelazyConst env addr
       ty' <- return $ typeOf (llvmtTypeEnv env) addr
@@ -1372,15 +1373,44 @@ bop2typedLazyConst env bop op1 op2 = do
   op2s <- constant2typedLazyConst env op2
   op2' <- getUniqueWord op2s
   return [bop op1' op2']
-  where getUniqueWord :: [TypedLazyConst] -> Hopefully TypedLazyConst
-        getUniqueWord [op1'] = return op1' 
-        getUniqueWord _ = assumptError "Tryed to compute a binary operation with an aggregate value." 
 
+icmpTypedLazyConst ::
+  Env ->
+  IntPred.IntegerPredicate ->
+  LLVM.Constant.Constant ->
+  LLVM.Constant.Constant ->
+  Hopefully [TypedLazyConst]
+icmpTypedLazyConst env pred op1 op2 = do
+  op1s <- constant2typedLazyConst env op1
+  op1' <- getUniqueWord op1s
+  op2s <- constant2typedLazyConst env op2
+  op2' <- getUniqueWord op2s
+  width <- intTypeWidth $ typeOf (llvmtTypeEnv env) op1
+  return [typedLazyBop (go width) op1' op2']
+  where
+    go width = case pred of
+      IntPred.EQ  -> lcCompareUnsigned (==)
+      IntPred.NE  -> lcCompareUnsigned (/=)
+      -- Unsigned
+      IntPred.UGT -> lcCompareUnsigned (>)
+      IntPred.UGE -> lcCompareUnsigned (>=)
+      IntPred.ULT -> lcCompareUnsigned (<)
+      IntPred.ULE -> lcCompareUnsigned (<=)
+      -- Signed
+      IntPred.SGT -> lcCompareSigned (>) width
+      IntPred.SGE -> lcCompareSigned (>=) width
+      IntPred.SLT -> lcCompareSigned (<) width
+      IntPred.SLE -> lcCompareSigned (<=) width
 
+intTypeWidth :: LLVM.Type -> Hopefully Int
+intTypeWidth ty = case ty of
+    LLVM.IntegerType w | w <= 64 -> return $ fromIntegral w
+    LLVM.PointerType _ _ -> return $ MRAM.wordBits
+    _ -> implError $ "Constant.ICmp on unsupported type " ++ show ty
 
-
-
-
+getUniqueWord :: [TypedLazyConst] -> Hopefully TypedLazyConst
+getUniqueWord [op1'] = return op1'
+getUniqueWord _ = assumptError "Tryed to compute a binary operation with an aggregate value."
 
 
 
