@@ -287,6 +287,7 @@ functionTypes tenv' (LLVM.FunctionType retTy argTys _) = do
   retT' <- type2type  tenv' retTy
   paramT' <- mapM (type2type tenv') argTys
   return (retT',paramT')
+functionTypes tenv' (LLVM.PointerType t _) = functionTypes tenv' t
 --functionTypes _tenv (LLVM.FunctionType  _ _ True) =
 --  implError "Variable parameters (isVarArg in function call)."
 functionTypes _ ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
