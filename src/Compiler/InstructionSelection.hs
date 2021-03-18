@@ -456,6 +456,8 @@ pointerOperandWidth env op = case resolve (llvmtTypeEnv env) $ typeOf (llvmtType
         64 -> return MRAM.W8
         _ -> progError $ "bad memory access width: " ++ show bits ++ " bits"
     LLVM.PointerType _ _ -> return MRAM.WWord
+    LLVM.FloatingPointType LLVM.FloatFP -> return MRAM.W4
+    LLVM.FloatingPointType LLVM.DoubleFP -> return MRAM.W8
     ty -> progError $ "bad pointee type in memory op: " ++ show ty
   ty -> progError $ "bad pointer type in memory op: " ++ show ty
 
