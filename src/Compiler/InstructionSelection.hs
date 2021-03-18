@@ -369,7 +369,13 @@ isInstruction env ret instr =
     (LLVM.CatchPad _ _ _)      -> makeTraceInvalid <$> getMetadata
     (LLVM.CleanupPad _ _ _ )   -> makeTraceInvalid <$> getMetadata
     -- Floating point
-    (LLVM.SIToFP _ _ _)      -> unsupported "SIToFP"
+    (LLVM.SIToFP _ _ _)     -> unsupported "SIToFP"
+    (LLVM.UIToFP _ _ _)     -> unsupported "UIToFP"
+    (LLVM.FPToSI _ _ _)     -> unsupported "FPToSI"
+    (LLVM.FPToUI _ _ _)     -> unsupported "FPToUI"
+    (LLVM.FCmp _ _ _ _)     -> unsupported "FCmp"
+    (LLVM.FPExt _ _ _)      -> unsupported "FPExt"
+    (LLVM.FPTrunc _ _ _)    -> unsupported "FPTrunc"
     instr ->  implError $ "Instruction: " ++ (show instr)
   where withReturn Nothing _ = return $ []
         withReturn (Just ret) f = f ret
