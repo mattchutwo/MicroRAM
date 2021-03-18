@@ -1259,7 +1259,7 @@ constant2typedLazyConst env c =
     (LLVM.Constant.Array _ty vals                   ) ->
       concat <$> mapM (constant2typedLazyConst env) vals
     (LLVM.Constant.Undef ty                         ) ->
-      return $ replicate (fromIntegral $ sizeOf (llvmtTypeEnv env) ty) zeroByte
+      constant2typedLazyConst env =<< defineUndefConst (llvmtTypeEnv env) ty
     (LLVM.Constant.GlobalReference _ty name         ) -> do
       _ <- checkName (globs env) name
       name' <- return $ show $ name2name name
@@ -1301,6 +1301,25 @@ constant2typedLazyConst env c =
     c -> implError $ "Constant not supported yet for global initializers: " ++ show c
   where
     zeroByte = mkTypedLazyConst 0 W1
+
+-- | Generate an arbitrary non-`Undef` constant of the given type, to use as a
+-- replacement for `LLVM.Constant.Undef t`.
+defineUndefConst :: LLVMTypeEnv -> LLVM.Type -> Hopefully LLVM.Constant.Constant
+defineUndefConst _ (LLVM.IntegerType bits) = return $ LLVM.Constant.Int bits 0
+defineUndefConst _ (LLVM.FloatingPointType LLVM.FloatFP) =
+  return $ LLVM.Constant.Float $ LLVM.Single 0
+defineUndefConst _ (LLVM.FloatingPointType LLVM.DoubleFP) =
+  return $ LLVM.Constant.Float $ LLVM.Double 0
+defineUndefConst _ t@(LLVM.PointerType _ _) = return $ LLVM.Constant.Null t
+defineUndefConst _ (LLVM.VectorType len ty) =
+  return $ LLVM.Constant.Vector (replicate (fromIntegral len) $ LLVM.Constant.Undef ty)
+defineUndefConst _ (LLVM.StructureType packed tys) =
+  return $ LLVM.Constant.Struct Nothing packed (map LLVM.Constant.Undef tys)
+defineUndefConst _ (LLVM.ArrayType len ty) =
+  return $ LLVM.Constant.Array ty (replicate (fromIntegral len) $ LLVM.Constant.Undef ty)
+defineUndefConst tenv (LLVM.NamedTypeReference name) =
+  defineUndefConst tenv =<< typeDef tenv name
+defineUndefConst _ t = implError $ "Constant type not yet supported: " ++ show t
 
 constGEP :: LLVMTypeEnv
          -> LLVM.Type
