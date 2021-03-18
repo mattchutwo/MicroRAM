@@ -1269,12 +1269,14 @@ constant2typedLazyConst env c =
     (LLVM.Constant.Mul  _ _ op1 op2                 ) -> bop2typedLazyConst env (*) op1 op2
     (LLVM.Constant.UDiv  _ op1 op2                  ) ->
       bop2typedLazyConst env (typedLazyBop lcQuot) op1 op2
-    (LLVM.Constant.SDiv _ _op1 _op2                 ) ->
-      implError $ "Signed division is not implemented."
+    (LLVM.Constant.SDiv _ op1 op2                   ) -> do
+      bits <- intTypeWidth $ typeOf (llvmtTypeEnv env) op1
+      bop2typedLazyConst env (typedLazyBop $ lcSDiv bits) op1 op2
     (LLVM.Constant.URem op1 op2                     ) ->
       bop2typedLazyConst env (typedLazyBop lcRem) op1 op2
-    (LLVM.Constant.SRem _op1 _op2                   ) -> 
-      implError $ "Signed reminder is not implemented."
+    (LLVM.Constant.SRem op1 op2                     ) -> do
+      bits <- intTypeWidth $ typeOf (llvmtTypeEnv env) op1
+      bop2typedLazyConst env (typedLazyBop $ lcSDiv bits) op1 op2
     (LLVM.Constant.And op1 op2                      ) -> bop2typedLazyConst env (.&.) op1 op2
     (LLVM.Constant.Or op1 op2                       ) -> bop2typedLazyConst env (.|.) op1 op2
     (LLVM.Constant.Xor op1 op2                      ) -> bop2typedLazyConst env xor op1 op2

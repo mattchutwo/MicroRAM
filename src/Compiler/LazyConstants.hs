@@ -120,6 +120,29 @@ lcCompareSigned ::
 lcCompareSigned cmp bits lc1 lc2 = lcCompare cmp convert lc1 lc2
   where convert x = toInteger x - 2 * toInteger (x .&. (1 `shiftL` bits - 1))
 
+lazySignedBop ::
+  (Integral wrdT, Bits wrdT) =>
+  (Integer -> Integer -> Integer) ->
+  Int ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT
+lazySignedBop bop bits lc1 lc2 =
+    lazyBop (\x y -> unconvert $ bop (convert x) (convert y)) lc1 lc2
+  where
+    convert x = toInteger x - 2 * toInteger (x .&. (1 `shiftL` bits - 1))
+    unconvert x = fromInteger x
+
+lcSDiv ::
+  (Integral wrdT, Bits wrdT) =>
+  Int -> LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+lcSDiv = lazySignedBop quot
+
+lcSRem ::
+  (Integral wrdT, Bits wrdT) =>
+  Int -> LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+lcSRem = lazySignedBop rem
+
 
 -- | Quick shorthand to return lists of one element
 returnL :: Monad m => a -> m [a]
