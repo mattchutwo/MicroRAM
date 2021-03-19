@@ -50,6 +50,7 @@ import qualified Data.Set as Set
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
+import MicroRAM.PrettyPrint
 import LLVMutil.LLVMIO
 
 
@@ -278,52 +279,7 @@ pprint compUnit =
   let prog = lowProg $ programCU compUnit in
     concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ pprintInst inst ++ "\n") $ enumerate prog
 
-pprintInst :: Instruction' AReg AReg (Operand AReg MWord) -> String
-pprintInst (Iand r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" && "<> (pprintOp op)
-pprintInst (Ior r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" || "<> (pprintOp op)
-pprintInst (Ixor r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" ^ "<> (pprintOp op)
-pprintInst (Inot r1 op) = (pprintReg r1) <>" = ! "<> (pprintOp op)
-pprintInst (Iadd r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" + "<> (pprintOp op)
-pprintInst (Isub r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" - "<> (pprintOp op)
-pprintInst (Imull r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" * "<> (pprintOp op)
-pprintInst (Iumulh r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" * "<> (pprintOp op)
-pprintInst (Ismulh r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" * "<> (pprintOp op)
-pprintInst (Iudiv r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" / "<> (pprintOp op)
-pprintInst (Iumod r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" % "<> (pprintOp op)
--- pprintInst (Ishl r1 r2 op) = (pprintReg r1) (pprintReg r2) (pprintOp op)
--- pprintInst (Ishr r1 r2 op) = (pprintReg r1) (pprintReg r2) (pprintOp op)
--- pprintInst (Icmpe r1 op) = (pprintReg r1) (pprintOp op)
--- pprintInst (Icmpa r1 op) = (pprintReg r1) (pprintOp op)
--- pprintInst (Icmpae r1 op) = (pprintReg r1) (pprintOp op)
--- pprintInst (Icmpg r1 op) = (pprintReg r1) (pprintOp op)
--- pprintInst (Icmpge r1 op) = (pprintReg r1) (pprintOp op)
-pprintInst (Imov r1 op) = (pprintReg r1) <>" = "<> (pprintOp op)
-pprintInst (Icmov r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <> "  ? "<> (pprintOp op) <>" : "<> (pprintReg r1) 
-pprintInst (Ijmp op) = "jmp "<> (pprintOp op)
-pprintInst (Icjmp r2 op) = "if " <> (pprintReg r2) <> "jmp "<> (pprintOp op)
-pprintInst (Icnjmp r2 op) = "if not" <> (pprintReg r2) <> "jmp "<> (pprintOp op)
-pprintInst (Istore _ op r1) = "*("<> (pprintOp op) <>") = "<> (pprintReg r1)
-pprintInst (Iload _ r1 op) = (pprintReg r1) <>" = *("<> (pprintOp op) <> ")"
--- pprintInst (Iread r1 op) = (pprintReg r1) (pprintOp op)
-pprintInst (Ianswer op) = "ans "<> (pprintOp op)
-pprintInst i = show i -- TODO
-
-pprintReg :: AReg -> String
-pprintReg r | r == ax = "%ax"
-pprintReg r | r == bp = "%bp"
-pprintReg r | r == sp = "%sp"
-pprintReg r = "%" <> show r
---pprintReg r = show r
-
-pprintOp  :: (Bounded a, Show a, Integral a) => Operand AReg a -> String
-pprintOp (Reg r) = pprintReg r
-pprintOp (Const c) = pprintConst c
-
 -- | Large numbers are shown in hex 
-pprintConst :: (Bounded a, Show a, Integral a) => a -> String
-pprintConst c | c > (maxBound - 100) = "-" ++ show (maxBound - c +1)
-pprintConst c | c < 100 = show c
-pprintConst c = showHex c
 
 pprintFromFile :: FilePath -> IO ()
 pprintFromFile file = do

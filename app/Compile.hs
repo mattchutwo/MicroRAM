@@ -8,6 +8,7 @@ import Frontend.ClangCaller
 import Util.Util
 
 import MicroRAM
+import MicroRAM.PrettyPrint
 import Compiler
 import Control.Monad(when)
 import Compiler.CompilationUnit
@@ -47,6 +48,7 @@ main = do
   microProg <-  if (beginning fr >= LLVMLang) then -- Compile or read from file
                   callBackend fr
                 else read <$> readFile (fileIn fr)
+  when (ppMRAM fr) $ putStr $ microPrint (lowProg $ programCU microProg)
   saveMramProgram fr microProg
   -- --------------
   -- POST PROCESS
@@ -132,6 +134,7 @@ data Flag
    | MRAMout (Maybe String)
    | MemSparsity Int
    | AllowUndefFun
+   | PrettyPrint
    -- Interpreter flags
    | FromMRAM
    | Output String
@@ -160,7 +163,8 @@ data FlagRecord = FlagRecord
   , llvmFile :: String -- Defaults to a temporary one if not wanted.
   , mramFile :: Maybe String
   , spars :: Maybe Int
-  , allowUndefFun:: Bool 
+  , allowUndefFun:: Bool
+  , ppMRAM :: Bool
   -- Interpreter
   , fileOut :: Maybe String
   , end :: Stages
@@ -186,6 +190,7 @@ defaultFlags name len =
   , mramFile  = Nothing
   , spars     = Just 2
   , allowUndefFun = False
+  , ppMRAM = False
   -- Interpreter
   , fileOut   = Nothing
   , end       = FullOutput
@@ -208,6 +213,7 @@ parseFlag flag fr =
     JustMRAM ->                fr {end = max MRAMLang $ end fr}
     MemSparsity s ->           fr {spars = Just s}
     AllowUndefFun ->           fr {allowUndefFun = True}
+    PrettyPrint ->             fr {ppMRAM = True}
     -- Interpreter flags
     FromMRAM ->                fr {beginning = MRAMLang} -- In this case we are reading the fileIn
     MRAMout (Just outFile) ->  fr {mramFile = Just outFile}
@@ -241,6 +247,7 @@ options =
   , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
   , Option ['s'] ["sparsity"]    (ReqArg (\s -> MemSparsity $ read s) "MEM SARSITY")               "check the result"
   , Option []    ["allow-undef"] (NoArg AllowUndefFun)          "Allow declared functions with no body."
+  , Option []    ["pretty-print"] (NoArg PrettyPrint)          "Pretty print the MicroRAM program with metadata."
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)
