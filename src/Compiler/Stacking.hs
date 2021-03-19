@@ -60,6 +60,7 @@ import Compiler.Errors
 import Compiler.Common
 import Compiler.IRs
 import Compiler.LazyConstants
+import Compiler.Metadata
 import Compiler.Registers
 
 import Data.Bits
@@ -108,10 +109,11 @@ smartMovMaybe (Just r) a = smartMov r a
 -- This is a pseudofunction, that sets up return address for main.
 -- Stores the input in memory.
 -- Sends main to the returnBlock
-premain :: Regs mreg => [NamedBlock mreg MWord]
+premain :: Regs mreg => [NamedBlock Metadata mreg MWord]
 premain = return $
   NBlock Nothing $
   -- poison address 0
+  map (\x -> (x,md)) $
   [ IpoisonW (LImm 0) sp
   , Iadd sp sp (LImm 1)
   , Imull sp sp (LImm $ fromIntegral wordBytes)] ++
@@ -122,11 +124,13 @@ premain = return $
   Imov bp (AReg sp) :    -- set base pointer to the stack pointer
   callMain              -- jump to main
   where callMain = return $ Ijmp $ Label $ show $ Name "main"
+        md = trivialMetadata "Premain" ""
 
 -- | returnBlock: return lets the program output an answer (when main returns)
-returnBlock :: Regs mreg => NamedBlock mreg MWord
-returnBlock = NBlock (Just "_ret_") [Ianswer (AReg ax)]
-
+returnBlock :: Regs mreg => NamedBlock Metadata mreg MWord
+returnBlock = NBlock retName [(Ianswer (AReg ax),md)]
+  where md = trivialMetadata "_ret_" (show retName) 
+        retName = (Just "_ret_") 
 
 
 -- ** Function Prologues and Epilogues
@@ -234,31 +238,35 @@ stackLTLInstr (LAlloc reg sz n) = do
 stackInstr ::
   Regs mreg => 
   LTLInstr md mreg MWord
-  -> Hopefully [MAInstruction mreg MWord]
-stackInstr (MRI instr _md) =  return [instr]
-stackInstr (IRI instr _md) = stackLTLInstr instr 
+  -> Hopefully [(MAInstruction mreg MWord, md)]
+stackInstr (MRI instr md) =  return [(instr,md)]
+stackInstr (IRI instr md) = addMD md <$> stackLTLInstr instr 
 
+-- | Add metadata to a list of instructions (or anything)
+addMD :: b -> [a] -> [(a, b)]
+addMD md ls = map (\x -> (x,md)) ls
 
 stackBlock
   :: Regs mreg
   => (BB Name $ LTLInstr md mreg MWord)
-  -> Hopefully (NamedBlock mreg MWord)
-stackBlock (BB name body term _ ) = do
+  -> Hopefully (NamedBlock md mreg MWord)
+stackBlock (BB name body term _) = do
   body' <- mapM stackInstr (body++term)
   return $ NBlock (Just $ show name) $ concat body'
 
 -- | Translating funcitons
 stackFunction
   :: Regs mreg =>
-  LFunction m mreg MWord
-  -> Hopefully $ [NamedBlock mreg MWord]
+  LFunction Metadata mreg MWord
+  -> Hopefully $ [NamedBlock Metadata mreg MWord]
 stackFunction (LFunction name _retT _argT size code) = do
-  prologueBlock <- return $ NBlock (Just $ name) $ prologue size
+  prologueBlock <- return $ NBlock (Just name) $ addMD prolMD (prologue size)
   codeBlocks <- mapM stackBlock code
   return $ prologueBlock : codeBlocks
+  where prolMD = trivialMetadata name (show $ Just name)
   
   
-stacking :: Regs mreg => Lprog m mreg MWord -> Hopefully $ MAProgram mreg MWord
+stacking :: Regs mreg => Lprog Metadata mreg MWord -> Hopefully $ MAProgram Metadata mreg MWord
 stacking (IRprog _ _ functions) = do
   functions' <- mapM stackFunction functions
   return $

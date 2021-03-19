@@ -39,3 +39,14 @@ takeEnum w = take (fromEnum w)
 infixr 9 <.>
 (<.>) :: Functor f => (a -> b) -> (c -> f a) -> c -> f b
 f1 <.> f2 = fmap f1 . f2
+
+mapFst :: (a -> b) -> (a, c) -> (b, c)
+mapFst f (a,c) = (f a, c)
+mapSnd :: (b -> c) -> (a, b) -> (a, c)
+mapSnd f (a,b) = (a, f b)
+
+mapFstM :: Monad m => (a -> m b) -> (a, c) -> m (b, c)
+mapFstM f (a, c) = do {b <- f a; return (b, c)}
+
+mapSndM :: Monad m => (b -> m c) -> (a, b) -> m (a, c)
+mapSndM f (a,b) = do {c <- f b ; return (a, c)}

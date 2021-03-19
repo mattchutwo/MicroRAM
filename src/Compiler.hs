@@ -163,7 +163,6 @@ import Compiler.Stacking
 import Compiler.UndefinedFunctions
 
 import MicroRAM (MWord)
-import qualified MicroRAM as MRAM  (Program) 
 
 import Sparsity.Sparsity
 
@@ -187,7 +186,7 @@ compile1 allowUndefFun len llvmProg = (return $ prog2unit len llvmProg)
 compile2
   :: Maybe Int
   -> CompilationUnit () (Rprog Metadata MWord) ->
-  Hopefully (CompilationUnit () (MRAM.Program AReg MWord))
+  Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
 compile2 spars prog = return prog
   >>= (tagPass "Edge split"          $ justCompile edgeSplit)
   >>= (tagPass "Remove Phi Nodes"    $ justCompile removePhi)
@@ -199,7 +198,7 @@ compile2 spars prog = return prog
   >>= (tagPass "Block cleanup"       $ blockCleanup)
   >>= (tagPass "Removing labels"     $ removeLabels)
 
-compile :: Bool -> Word -> LLVM.Module -> Maybe Int -> Hopefully $ CompilationResult (MRAM.Program AReg MWord)
+compile :: Bool -> Word -> LLVM.Module -> Maybe Int -> Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
 compile allowUndefFun len llvmProg spars = do
   ir <- compile1 allowUndefFun len llvmProg
   high <- compile2 spars ir

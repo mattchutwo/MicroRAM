@@ -25,6 +25,7 @@ module Compiler.IRs(
   -- $MA
   MAOperand(..),
   MAProgram,
+  AnnotatedProgram,
   MA2Instruction,
   MAInstruction,
   NamedBlock(..),
@@ -98,10 +99,10 @@ type MA2Instruction regT wrdT = MRAM.Instruction' regT (MAOperand regT wrdT) (MA
 -- | One oprand MicroAssembly
 type MAInstruction regT wrdT = MRAM.Instruction' regT regT (MAOperand regT wrdT)
 
-data NamedBlock r w = NBlock (Maybe String) [MAInstruction r w]
+data NamedBlock md r w = NBlock (Maybe String) [(MAInstruction r w, md)]
   deriving (Show)
-type MAProgram r w = [NamedBlock r w] -- These are MicroASM programs
-
+type MAProgram md r w = [NamedBlock md r w] -- These are MicroASM programs
+type AnnotatedProgram md r w = [(MRAM.Instruction r w, md)]
 
 
 -- ** Generic low-level IR (Transfer languages)

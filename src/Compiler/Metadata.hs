@@ -10,6 +10,7 @@ Stability   : prototype
 
 module Compiler.Metadata
     ( Metadata(..),
+      defaultMetadata,
       trivialMetadata,
     ) where
 
@@ -20,7 +21,7 @@ data Metadata = Metadata {
   , mdBlock          :: String   -- Name of the Block containing instruction
   , mdLine           :: Int      -- Line of source instruction
   , mdReturnCall :: Bool         -- If instruction happens right after a function call jump
-  }
+  } deriving (Show, Read)
   
 defaultMetadata :: Metadata
 defaultMetadata =

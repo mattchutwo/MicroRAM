@@ -18,6 +18,8 @@ import Compiler.Analysis (getSparsity)
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.Registers
+import Compiler.IRs
+import Compiler.Metadata
 
 import Control.Monad
 
@@ -33,7 +35,7 @@ import Segments.ChooseSegments (TraceChunk(..))
 
 import Sparsity.Sparsity (Sparsity)
 
-postProcess_v :: Regs reg => Bool -> Int -> Bool -> CompilationResult (Program reg MWord) -> Hopefully (Output reg)
+postProcess_v :: Regs reg => Bool -> Int -> Bool -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (Output reg)
 postProcess_v verb chunkSize private comp =
   (segment chunkSize)
   >=> (doIf private (buildTrace verb chunkSize spar))

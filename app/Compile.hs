@@ -12,6 +12,8 @@ import Compiler
 import Control.Monad(when)
 import Compiler.CompilationUnit
 import Compiler.Errors
+import Compiler.IRs
+import Compiler.Metadata
 import LLVMutil.LLVMIO
 
 import Output.Output
@@ -62,7 +64,7 @@ main = do
           giveInfo fr output
 
         -- Backend
-        callBackend :: FlagRecord -> IO $ CompilationResult (Program AReg MWord)
+        callBackend :: FlagRecord -> IO $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
         callBackend fr = do  
           giveInfo fr "Running the compiler backend..."
           -- Retrieve program from file
@@ -88,7 +90,7 @@ main = do
 
         -- POST PROCESS
         postProcess :: FlagRecord
-                    -> CompilationResult (Program Int MWord)
+                    -> CompilationResult (AnnotatedProgram Metadata Int MWord)
                     -> IO (Output Int)
         postProcess fr mramProg = handleErrors $ postProcess_v (verbose fr) chunkSize (end fr == FullOutput) mramProg
         outputTheResult :: FlagRecord -> Output AReg -> IO ()

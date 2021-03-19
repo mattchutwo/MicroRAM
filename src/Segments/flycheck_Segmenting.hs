@@ -37,12 +37,12 @@ data Constraints =
 
 -- | Cutting just splits a program after each jump instruction
 --   and creates a map relating instructions and cuts starting there.
-data Cut md reg wrd = Cut
-  { cutIntrs :: AnnotatedProgram md reg wrd
+data Cut reg wrd = Cut
+  { cutIntrs :: [Instruction reg wrd]
     , cutPc :: MWord
     , cutLen :: Int }
   deriving Show
-makeCut :: MWord -> AnnotatedProgram md reg wrd -> Cut md reg wrd
+makeCut :: MWord -> [Instruction reg wrd] -> Cut reg wrd
 makeCut pc instrs = Cut instrs pc (length instrs) 
 
 segmentProgram :: AnnotatedProgram Metadata reg MWord -> Hopefully $ ([Segment reg MWord], Map.Map MWord [Int])
@@ -51,7 +51,7 @@ segmentProgram prog =
     do segs <- mapM (cut2segment cutMap) cuts
        return (segs, cutMap)
 
-cutProg :: AnnotatedProgram Metadata reg wrd -> ([Cut Metadata reg wrd], Map.Map MWord [Int])
+cutProg :: AnnotatedProgram Metadata reg wrd -> ([Cut reg wrd], Map.Map MWord [Int])
 cutProg prog =
   let (cuts, lastCut, map) = foldr step init $ zip prog [1..]
       cuts' = (makeCut 0 lastCut): cuts
@@ -60,17 +60,17 @@ cutProg prog =
       map'' = Map.insert 0 [0] map' in
     (cuts', map'')
     
-  where init:: ([Cut md reg wrd], AnnotatedProgram Metadata reg wrd, Map.Map MWord [Int])
+  where init:: ([Cut reg wrd], AnnotatedProgram Metadata reg wrd, Map.Map MWord [Int])
         init = ([], [], Map.empty)
 
 
         -- | The accumulator carries the cuts so far, the map so far and
         --   the current cut that hasn't finished.
-        step :: ((Instruction reg wrd,md), MWord)
-                -> ([Cut md reg wrd],AnnotatedProgram md reg wrd, Map.Map MWord [Int])
-                -> ([Cut md reg wrd],AnnotatedProgram md reg wrd, Map.Map MWord [Int])
+        step :: (Instruction reg wrd, MWord)
+                -> ([Cut reg wrd],[Instruction reg wrd], Map.Map MWord [Int])
+                -> ([Cut reg wrd],[Instruction reg wrd], Map.Map MWord [Int])
         step (instr, count) (cuts, currentCut, map) =
-          if isJump $ fst instr
+          if isJump instr
           then
             let map' = Map.insert count [(length cuts)] map in 
               ((makeCut count currentCut):cuts, [instr], map')
@@ -86,10 +86,10 @@ cutProg prog =
         isJump _ = False
 
 
-cutSuccessors :: Map.Map MWord [Int] -> Cut md reg MWord -> Hopefully $ [Int]
+cutSuccessors :: Map.Map MWord [Int] -> Cut reg MWord -> Hopefully $ [Int]
 cutSuccessors map (Cut instrs pc len)
   | null instrs = return []
-  | otherwise = instrSuccessor map (pc + toEnum len - 1)  (fst $ last instrs)
+  | otherwise = instrSuccessor map (pc + toEnum len - 1)  (last instrs)
   
 instrSuccessor :: Map.Map MWord [Int] -> MWord -> Instruction reg MWord -> Hopefully $ [Int]
 instrSuccessor blockMap pc instr =
@@ -112,17 +112,16 @@ instrSuccessor blockMap pc instr =
   
 
 -- | Cut to segment
-cut2segment :: Map.Map MWord [Int] -> Cut md reg MWord -> Hopefully $ Segment reg MWord 
+cut2segment :: Map.Map MWord [Int] -> Cut reg MWord -> Hopefully $ Segment reg MWord 
 cut2segment blockMap (Cut instrs pc len) = do
   succe <- cutSuccessors blockMap (Cut instrs pc len)
-  return $ Segment (map fst instrs) [PcConst pc] len succe True True -- We are hardcoing everithing comes and goes to network, for now
+  return $ Segment instrs [PcConst pc] len succe True True -- We are hardcoing everithing comes and goes to network, for now
 
 
 
 -- TESTING
-_testProg :: AnnotatedProgram Metadata  () MWord
-_testProg = map (\x -> (x, defaultMetadata))
-  [Iand () () (Reg ()),    --0
+_testProg :: Program  () MWord
+_testProg = [Iand () () (Reg ()),    --0
             Isub () () (Reg ()),    --1
             Ijmp (Reg ()),          --2
                                     --

@@ -121,12 +121,12 @@ chooseSegment segments privSize = do
        put $ st {queueSt = state' : queueSt st}
      -- | If there is an unused segment starting at pc, it returns one of such segment.  
      popSegmentIn :: [Segment reg MWord] ->MWord -> PState reg (Maybe Int) 
-     popSegmentIn segments instrPc = do
+     popSegmentIn allSegments instrPc = do
        st <- get
        avalStates <- return $ availableSegments st
        case Map.lookup instrPc avalStates of
          Just (execSt' : others) -> do
-           segOk <- check (segments !! execSt')
+           segOk <- check (allSegments !! execSt')
            if segOk then  
              do put $ st {availableSegments = Map.insert instrPc others avalStates}
                 return $ Just execSt'

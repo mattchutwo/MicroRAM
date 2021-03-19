@@ -39,7 +39,8 @@ import Compiler
 import Compiler.CompilationUnit
 --import Compiler.InstructionSelection
 --import Compiler.IRs
---import Compiler.Legalize
+import Compiler.Metadata
+import Compiler.IRs
 --import Compiler.RegisterAlloc
 import Compiler.Registers
 --import Compiler.RemoveLabels
@@ -370,7 +371,7 @@ summaryFromFile myfile myCS 300
 -}
 
 -- jpProgComp :: Word -> IO (Program VReg MWord)
-jpProgComp :: Word -> IO (CompilationResult (Program AReg MWord))
+jpProgComp :: Word -> IO (CompilationResult (AnnotatedProgram Metadata AReg MWord))
 jpProgComp len = do
     m <- fromLLVMFile "programs/driver-link.ll"
     return $ either undefined id $
