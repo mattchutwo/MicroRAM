@@ -88,7 +88,7 @@ showQueue q = "[" ++ (concat $ showESt <$> q) ++ "]"
 chooseSegment :: Vector (Segment reg MWord) -> Int -> PState reg ()
 chooseSegment segments privSize = do
   currentPc <- nextPc <$> get
-  maybeSegment <- popSegmentIn segments currentPc
+  maybeSegment <- popSegmentIn currentPc
   case maybeSegment of
     Just segment -> do
       allocateQueue privSize -- allocates the current queue in private pc segments. 
@@ -122,26 +122,16 @@ chooseSegment segments privSize = do
        st <- get
        put $ st {queueSt = state' : queueSt st}
      -- | If there is an unused segment starting at pc, it returns one of such segment.  
-     popSegmentIn :: Vector (Segment reg MWord) ->MWord -> PState reg (Maybe Int) 
-     popSegmentIn allSegments instrPc = do
+     popSegmentIn :: MWord -> PState reg (Maybe Int) 
+     popSegmentIn instrPc = do
        st <- get
        avalStates <- return $ availableSegments st
        case Map.lookup instrPc avalStates of
-         Just (execSt' : others) -> do
-           segOk <- check (allSegments ! execSt')
-           if segOk then  
-             do put $ st {availableSegments = Map.insert instrPc others avalStates}
-                return $ Just execSt'
-           else return Nothing
+         Just (execSt' : others) ->
+           do
+             _ <- put $ st {availableSegments = Map.insert instrPc others avalStates}
+             return $ Just execSt'
          _ -> return Nothing
-         where
-           -- | This check should make sure the segment we found satisfies the constraints
-           --  of the Remaining trace. For now the only check is:
-           --  1. Check if there is enough states in the trace to fill the public segment.
-           check :: Segment reg MWord -> PState reg Bool
-           check seg = do
-             trace <- remainingTrace <$> get
-             return $ length trace >= segLen seg
                  
 -- | Finds private segments to put the states in the queue.
 -- It first adds the appropriate stuttering for sparsity and to pad
