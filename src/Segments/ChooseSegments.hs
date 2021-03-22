@@ -133,7 +133,9 @@ chooseSegment segments privSize = do
            else return Nothing
          _ -> return Nothing
          where
-           -- | Check if there is enough states in the trace to fill the public segment.
+           -- | This check should make sure the segment we found satisfies the constraints
+           --  of the Remaining trace. For now the only check is:
+           --  1. Check if there is enough states in the trace to fill the public segment.
            check :: Segment reg MWord -> PState reg Bool
            check seg = do
              trace <- remainingTrace <$> get
