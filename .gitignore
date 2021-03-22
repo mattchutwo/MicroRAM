@@ -23,3 +23,4 @@ test/programs/**/*.c.bc
 **/*.micro
 *.py
 *.cbor
+**/flycheck_*.hs
