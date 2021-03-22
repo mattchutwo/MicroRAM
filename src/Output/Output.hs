@@ -142,20 +142,16 @@ state2out bound (ExecutionState pc regs _ _ _advice _ _ _) =
 
 -- | Convert the output of the compiler (Compilation Unit) into Output
 buildCircuitParameters
-  :: Foldable t =>
-     RegisterData
-  -> t AnalysisPiece
+  :: RegisterData
+  -> AnalysisData
   -> Word
   -> CircuitParameters
 buildCircuitParameters regData aData regNum = -- Ok regNum can be removed if InfinityRegs doesn't show up here. 
-  CircuitParameters (regData2output regData) (analyData2sparc aData)
+  CircuitParameters (regData2output regData) (sparcInWords $ sparsityData aData)
   where regData2output (NumRegisters n) = fromIntegral n
         regData2output InfinityRegs = regNum -- FIX ME: Throw exception?
 
-        analyData2sparc = foldr joinSparcData Map.empty  
-        joinSparcData (SparsityData sparc2) spar1 =
-          let sparc2' = Map.map fromIntegral sparc2 in  -- Make into Words
-            Map.unionWith min sparc2' spar1
+        sparcInWords spar = Map.map fromIntegral spar
 
 compUnit2Output :: Regs reg => [Segment reg MWord] -> CompilationResult (Program reg MWord) -> Output reg
 compUnit2Output segs (CompUnit p _trLen regData aData initMem _) =

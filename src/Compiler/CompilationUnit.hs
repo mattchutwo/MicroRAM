@@ -15,6 +15,7 @@ compilations units.
 
 -}
 
+import Data.Default (def)
 import qualified Data.Map as Map
 
 import Util.Util
@@ -53,7 +54,7 @@ data MultiProg prog = MultiProg
 type CompilationResult prog = CompilationUnit () (MultiProg prog)
 
 prog2unit :: Word -> prog -> CompilationUnit () prog
-prog2unit len p = CompUnit p len InfinityRegs [] [] ()
+prog2unit len p = CompUnit p len InfinityRegs def [] ()
 
 -- * Lifting operators
 
@@ -80,7 +81,7 @@ justAnalyse :: Monad m  =>
   -> m $ CompilationUnit a prog
 justAnalyse analysis cUnit = do
   a' <-  analysis (programCU cUnit)
-  return $ cUnit {aData = a' : aData cUnit}
+  return $ cUnit {aData = addAnalysisPiece a' $ aData cUnit}
 
 
 -- TODO: Should we move this to a separate file (e.g. Compiler/InitMem.hs) ?
