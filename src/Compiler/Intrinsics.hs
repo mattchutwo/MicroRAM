@@ -137,6 +137,19 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("__cxa_pure_virtual", cc_trap)
   , ("llvm.trap", cc_trap)
 
+  -- Floating-point ops
+  , ("llvm.ceil.f64", cc_trap)
+  , ("llvm.copysign.f64", cc_trap)
+  , ("llvm.exp2.f64", cc_trap)
+  , ("llvm.exp.f64", cc_trap)
+  , ("llvm.fabs.f64", cc_trap)
+  , ("llvm.floor.f64", cc_trap)
+  , ("llvm.log.f64", cc_trap)
+  , ("llvm.pow.f64", cc_trap)
+  , ("llvm.sqrt.f64", cc_trap)
+  , ("llvm.trunc.f64", cc_trap)
+  , ("llvm.llrint.i64.f64", cc_trap)
+
   -- Varargs
   , ("llvm.va_start", cc_trap)
   , ("llvm.va_end", cc_trap)
