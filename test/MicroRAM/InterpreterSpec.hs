@@ -14,6 +14,7 @@ import Compiler.Registers
 import Compiler.CompilationUnit
 
 import Data.Bits
+import Data.Default
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
@@ -45,7 +46,7 @@ list2InitMem ls = map word2InitSeg $ zip [0..] ls
 
 
 trivialCU :: Prog Int -> Word -> [MWord] -> CompilationResult (Prog Int)
-trivialCU prog len input = CompUnit progs len InfinityRegs [] (list2InitMem input) ()
+trivialCU prog len input = CompUnit progs len InfinityRegs def (list2InitMem input) ()
   where progs = MultiProg prog prog
 
 runProg :: Prog Int -> Word -> [MWord] -> Trace Int

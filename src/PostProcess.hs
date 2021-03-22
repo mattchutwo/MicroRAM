@@ -14,7 +14,7 @@ This module combines all the process done after compilation:
 
 module PostProcess  where
 
-import Compiler.Analysis (getSparsity)
+import Compiler.Analysis (sparsityData)
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.Registers
@@ -43,7 +43,7 @@ postProcess_v verb chunkSize private comp =
   >=> segProg2Output $
   comp
   
-  where spar = getSparsity . aData $ comp
+  where spar = sparsityData . aData $ comp
 
         doIf :: Monad m => Bool -> (a -> m a) -> a -> m a
         doIf cond f = if cond then f else return
