@@ -46,7 +46,7 @@ data PartialState reg = PartialState {
 type InstrNumber = MWord 
 type PState reg x = State (PartialState reg) x 
  
-chooseSegments :: Int -> Sparsity -> Program reg MWord -> Trace reg -> Map.Map MWord [Int] -> [Segment reg MWord] ->  [TraceChunk reg]
+chooseSegments :: Int -> Sparsity -> Program reg MWord -> Trace reg -> Map.Map MWord [Int] -> Vector (Segment reg MWord) ->  [TraceChunk reg]
 chooseSegments privSize spar prog trace segmentSets segments =
   -- create starting state
   let initSt = PartialState {
@@ -59,7 +59,7 @@ chooseSegments privSize spar prog trace segmentSets segments =
         , sparsityPS = spar
         , progPS = prog }   
   -- run the choose statement
-      go = whileM_ traceNotEmpty (chooseSegment (fromList segments) privSize) *> allocateQueue privSize
+      go = whileM_ traceNotEmpty (chooseSegment segments privSize) *> allocateQueue privSize
       finalSt = execState go initSt in 
   -- extract values and return
     (reverse $ chunksPS finalSt)
@@ -255,7 +255,7 @@ testSegmentSets = Map.fromList
 testProg = concat $ segIntrs <$> testSegments'
 
 _testchunks :: [TraceChunk ()]
-_testchunks = chooseSegments testPrivSize testSparsity testProg testTrace testSegmentSets testSegments'
+_testchunks = chooseSegments testPrivSize testSparsity testProg testTrace testSegmentSets (fromList testSegments')
   where testSparsity = (Map.fromList [(KmemOp, 2)])
         testPrivSize = 4
 
