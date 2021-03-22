@@ -48,6 +48,7 @@ dependencies:
 - filepath
 - directory
 - lens
+- vector
 
 library:
   source-dirs: src
