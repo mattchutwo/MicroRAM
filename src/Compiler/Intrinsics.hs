@@ -136,6 +136,10 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   -- Explicit trap
   , ("__cxa_pure_virtual", cc_trap)
   , ("llvm.trap", cc_trap)
+
+  -- Varargs
+  , ("llvm.va_start", cc_trap)
+  , ("llvm.va_end", cc_trap)
   ]
 
 lowerIntrinsics :: forall m. MIRprog m MWord -> Hopefully (MIRprog m MWord)
