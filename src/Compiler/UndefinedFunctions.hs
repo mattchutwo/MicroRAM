@@ -18,16 +18,17 @@ import Compiler.Errors (Hopefully, assumptError)
 import Compiler.IRs
 
 import Control.Monad (when)
+import Data.List (sort)
 
 import Util.Util
 
 
 catchUndefinedFunctions :: Bool -> MIRprog m w -> Hopefully $ MIRprog m w
 catchUndefinedFunctions undefAllowed prog = do
-    when (not undefAllowed) $ mapM_ catchUndefinedFunction $ code prog
+    when (not undefAllowed && not (null undefNames)) $ assumptError $
+        "Undefinded function(s) found:\n" ++
+        concat (map (\x -> "\t" ++ show x ++ "\n") $ sort undefNames) ++
+        "Use --allow-undef to remove this warning."
     return prog
-  where catchUndefinedFunction :: MIRFunction m w -> Hopefully () 
-        catchUndefinedFunction f = do
-          when (null $ funcBlocks f) $ assumptError $
-            "Undefinded function found: " ++ show (funcName f) ++ ". \n \t Use --allow-undef to remove this warning."
-          return ()
+  where
+    undefNames = map funcName $ filter (\f -> null $ funcBlocks f) $ code prog
