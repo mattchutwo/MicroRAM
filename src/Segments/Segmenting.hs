@@ -45,37 +45,51 @@ data Cut md reg wrd = Cut
 makeCut :: MWord -> AnnotatedProgram md reg wrd -> Cut md reg wrd
 makeCut pc instrs = Cut instrs pc (length instrs) 
 
-segmentProgram :: AnnotatedProgram Metadata reg MWord -> Hopefully $ ([Segment reg MWord], Map.Map MWord [Int])
-segmentProgram prog =
-  let (cuts, cutMap) = cutProg prog in
+segmentProgram :: (Map.Map String Int)
+        -> AnnotatedProgram Metadata reg MWord -> Hopefully $ ([Segment reg MWord], Map.Map MWord [Int])
+segmentProgram funCount prog =
+  let (cuts, cutMap) = cutProg funCount prog in
     do segs <- mapM (cut2segment cutMap) cuts
        return (segs, cutMap)
 
-cutProg :: AnnotatedProgram Metadata reg wrd -> ([Cut Metadata reg wrd], Map.Map MWord [Int])
-cutProg prog =
-  let (cuts, lastCut, map) = foldr step init $ zip prog [1..]
+cutProg :: (Map.Map String Int )
+        -> AnnotatedProgram Metadata reg wrd -> ([Cut Metadata reg wrd], Map.Map MWord [Int])
+cutProg funCount prog =
+  let (cuts, lastCut, segMap) = foldr (step funCount) init $ zip prog [1..]
       cuts' = (makeCut 0 lastCut): cuts
       len   = length cuts'  
-      map'  = Map.map (\ns -> (\n -> len - n - 1) <$> ns) map
+      map'  = Map.map (\ns -> (\n -> len - n - 1) <$> ns) segMap
       map'' = Map.insert 0 [0] map' in
     (cuts', map'')
     
   where init:: ([Cut md reg wrd], AnnotatedProgram Metadata reg wrd, Map.Map MWord [Int])
         init = ([], [], Map.empty)
 
-
         -- | The accumulator carries the cuts so far, the map so far and
         --   the current cut that hasn't finished.
-        step :: ((Instruction reg wrd,md), MWord)
-                -> ([Cut md reg wrd],AnnotatedProgram md reg wrd, Map.Map MWord [Int])
-                -> ([Cut md reg wrd],AnnotatedProgram md reg wrd, Map.Map MWord [Int])
-        step (instr, count) (cuts, currentCut, map) =
+        step :: (Map.Map String Int)
+             -> ((Instruction reg wrd, Metadata), MWord)
+             -> ([Cut Metadata reg wrd],AnnotatedProgram Metadata reg wrd, Map.Map MWord [Int])
+             -> ([Cut Metadata reg wrd],AnnotatedProgram Metadata reg wrd, Map.Map MWord [Int])
+        step funCount (instr, count) (cuts, currentCut, map) =
           if isJump $ fst instr
           then
-            let map' = Map.insert count [(length cuts)] map in 
-              ((makeCut count currentCut):cuts, [instr], map')
+            -- TODO: this part will be raplaced so we can do successor mapping better.
+            let many = howMany funCount currentCut
+                positions = (+ length cuts) <$> [0..(many -1)] -- TODO: Each block will be connected to EVERY block that could be a successor. Can optimize
+                map' = Map.insert count positions map  
+                newCuts = replicate many (makeCut count currentCut) in 
+              (newCuts ++ cuts, [instr], map') -- Will be folded right, so everything is built in reverse.
           else
             (cuts, instr:currentCut, map)
+
+        -- Find how many times the current cut will be repeated.
+        -- Assume all the cut is in the same function
+        howMany funCount currentCut =
+          case currentCut of
+            hd : _ ->
+              Map.findWithDefault 1 (mdFunction $ snd hd) funCount
+            [] -> 0 
   
         isJump :: Instruction reg wrd -> Bool
         isJump (Ijmp _) = True
@@ -87,9 +101,9 @@ cutProg prog =
 
 
 cutSuccessors :: Map.Map MWord [Int] -> Cut md reg MWord -> Hopefully $ [Int]
-cutSuccessors map (Cut instrs pc len)
+cutSuccessors blockMap (Cut instrs pc len)
   | null instrs = return []
-  | otherwise = instrSuccessor map (pc + toEnum len - 1)  (fst $ last instrs)
+  | otherwise = instrSuccessor blockMap (pc + toEnum len - 1)  (fst $ last instrs)
   
 instrSuccessor :: Map.Map MWord [Int] -> MWord -> Instruction reg MWord -> Hopefully $ [Int]
 instrSuccessor blockMap pc instr =
@@ -123,23 +137,23 @@ cut2segment blockMap (Cut instrs pc len) = do
 _testProg :: AnnotatedProgram Metadata  () MWord
 _testProg = map (\x -> (x, defaultMetadata))
   [Iand () () (Reg ()),    --0
-            Isub () () (Reg ()),    --1
-            Ijmp (Reg ()),          --2
-                                    --
-            Icjmp () (Const 0),     --3
-                                    --
-            Iadd () () (Const 0),   --4
-            Isub () () (Const 0),   --5
-            Ijmp (Const 3),         --6
-                                    --
-            Iand () () (Reg ()),    --7
-            Isub () () (Const 0)    --8
-           ]
+    Isub () () (Reg ()),    --1
+    Ijmp (Reg ()),          --2
+    --
+    Icjmp () (Const 0),     --3
+    --
+    Iadd () () (Const 0),   --4
+    Isub () () (Const 0),   --5
+    Ijmp (Const 3),         --6
+    --
+    Iand () () (Reg ()),    --7
+    Isub () () (Const 0)    --8
+  ]
 
 
 _testSegments :: Hopefully $ [Segment () MWord]
 _testSegments = 
-  do (segs, _bMap) <- segmentProgram _testProg
+  do (segs, _bMap) <- segmentProgram (Map.fromList [("",3)]) _testProg
      return segs
 
 _printSegs :: (Hopefully [Segment () MWord]) -> IO ()

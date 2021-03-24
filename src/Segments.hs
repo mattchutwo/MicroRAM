@@ -10,6 +10,7 @@ Stability   : experimental
 
 module Segments (segment, SegmentedProgram(..), chooseSegment') where
 
+import Compiler.Analysis
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.IRs
@@ -26,8 +27,6 @@ import Segments.Segmenting
 import Segments.ChooseSegments
 
 import Sparsity.Sparsity (Sparsity)
-
-
  
 data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (Program reg MWord) -- No METADATA
                                               , pubSegments :: [Segment reg MWord]
@@ -37,8 +36,9 @@ data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (P
                                               , segAdvice :: Maybe (Map.Map MWord [Advice])}
 
 segment :: Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
-segment privSize compRes = do 
-  (segs, segMap') <- segmentProgram $ (lowProg . programCU) compRes
+segment privSize compRes = do
+  let funCount = functionUsage $ aData compRes 
+  (segs, segMap') <- segmentProgram funCount $ (lowProg . programCU) compRes
   privateSegments <- return $ mkPrivateSegments (traceLen compRes) privSize -- Should we substract the public segments?  
   return $ SegmentedProgram compResNoMD segs privateSegments segMap' Nothing Nothing
   where compResNoMD = compRes {programCU = (map fst) <$> programCU compRes}
