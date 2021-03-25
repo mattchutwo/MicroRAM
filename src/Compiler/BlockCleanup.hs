@@ -30,17 +30,18 @@ import qualified Data.Set as Set
 import Compiler.CompilationUnit
 import Compiler.Errors
 
+import Util.Util
 
 -- | Basic jump threading.  If block A contains nothing but a jump to B, then
 -- replace each reference to `Label "A"` with `Label "B"`.  This should
 -- correctly handle both direct and indirect jumps to A.
-threadJumps :: MAProgram regT wrdT -> Hopefully (MAProgram regT wrdT)
+threadJumps :: MAProgram md regT wrdT -> Hopefully (MAProgram md regT wrdT)
 threadJumps prog = return $ map updateBlock $ filter (not . isJumpSource) $ prog
   where
     -- Map from old labels to new ones.  If block A contains only a jump to B,
     -- then we record (A, B) in this map.
     jumpMap = Map.fromList $ do
-      NBlock (Just src) [Ijmp (Label dest)] <- prog
+      NBlock (Just src) [(Ijmp (Label dest), _)] <- prog
       return (src, dest)
 
     -- Like jumpMap, but we resolve chains of jumps to a single destination.
@@ -64,7 +65,7 @@ threadJumps prog = return $ map updateBlock $ filter (not . isJumpSource) $ prog
     isJumpSource (NBlock (Just name)_) = Map.member name jumpMap'
     isJumpSource _ = False
 
-    updateBlock (NBlock name instrs) = NBlock name $ map updateInstr instrs
+    updateBlock (NBlock name instrs) = NBlock name $ map (mapFst updateInstr) instrs
 
     updateInstr i = mapInstr id id updateOperand i
 
@@ -73,7 +74,7 @@ threadJumps prog = return $ map updateBlock $ filter (not . isJumpSource) $ prog
 
 -- | Eliminate any blocks that are not reachable from the first (entry point)
 -- block.
-elimDead :: (Show regT, Show wrdT) => MAProgram regT wrdT -> Hopefully (MAProgram regT wrdT)
+elimDead :: (Show regT, Show wrdT) => MAProgram md regT wrdT -> Hopefully (MAProgram md regT wrdT)
 elimDead [] = return []
 elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
   where
@@ -89,7 +90,7 @@ elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
     blockDeps i = deps <> fallthroughDep
       where
         NBlock _ instrs = progSeq `Seq.index` i
-        deps = mconcat $ map (foldInstr (const mempty) (const mempty) labelSet) instrs
+        deps = mconcat $ map ((foldInstr (const mempty) (const mempty) labelSet) . fst) instrs
 
         labelSet (Label l) = case Map.lookup l nameMap of
           Nothing -> error $ "no definition of label " ++ show l
@@ -98,7 +99,7 @@ elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
 
         fallthroughDep = case instrs of
           [] -> mempty
-          _:_ -> case last instrs of
+          _:_ -> case fst $ last instrs of
             Ijmp _ -> mempty
             _ -> Set.singleton (i + 1)
 
@@ -117,8 +118,8 @@ elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
     liveBlocks = execState (gather 0) mempty
 
 
-blockCleanup :: (Show regT, Show wrdT) => (CompilationUnit mem (MAProgram regT wrdT))
-             -> Hopefully (CompilationUnit mem (MAProgram regT wrdT))
+blockCleanup :: (Show regT, Show wrdT) => (CompilationUnit mem (MAProgram md regT wrdT))
+             -> Hopefully (CompilationUnit mem (MAProgram md regT wrdT))
 blockCleanup cu = do
   prog' <- return (programCU cu) >>=
     threadJumps >>=

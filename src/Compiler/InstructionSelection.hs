@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RankNTypes #-}
@@ -31,8 +32,10 @@ import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map 
 
+import Control.Lens (makeLenses, (.=), (%=), use)
 import Control.Monad.Except
 import Control.Monad.State.Lazy
+
 
 import qualified Data.Set as Set
 
@@ -45,6 +48,7 @@ import Compiler.Common
 import Compiler.IRs
 import Compiler.Layout
 import Compiler.LazyConstants
+import Compiler.Metadata
 import Compiler.TraceInstrs
 import Compiler.TypeOf
 import Util.Util
@@ -60,6 +64,43 @@ import qualified MicroRAM as MRAM
    2. 
 
 -}
+
+
+-- ** State
+-- We create a state to create new variables and carry metadata
+data SelectionState = SelectionState {
+  _currentFunction :: String
+  , _currentBlock  :: String
+  , _lineNumber    :: Int
+  , _nextReg       :: Word
+  }
+makeLenses ''SelectionState
+
+type Statefully = StateT SelectionState Hopefully
+
+initState :: SelectionState
+initState =
+  SelectionState {
+  _currentFunction = ""
+  , _currentBlock = ""
+  , _lineNumber = 0
+  , _nextReg = 2 -- Leave space for ESP and EBP
+  }
+
+freshName :: Statefully Name
+freshName = do
+  n <- use nextReg
+  nextReg %= (+1)
+  return $ NewName n
+
+getMetadata :: Statefully Metadata
+getMetadata = do
+  Metadata <$> use currentFunction <*> use currentBlock <*> use lineNumber <*> (return False)
+
+withMeta :: (Metadata -> x) -> Statefully x
+withMeta f = do {md <- getMetadata; return $ f md}
+
+
 
 -- | Environment to keep track of global and type definitions
 data Env = Env {llvmtTypeEnv :: LLVMTypeEnv, globs :: Set.Set LLVM.Name}
@@ -131,24 +172,17 @@ typeDef tenv' name =
     Nothing -> assumptError $ "Type not defined: \n \t" ++ show name ++ ".\n" 
 
 -- | toRTL lifts simple MicroRAM instruction into RTL.
-toRTL :: [MA2Instruction VReg MWord] -> [MIRInstr () MWord]
-toRTL = map  $ \x -> MirM x ()
+toRTL :: [MA2Instruction VReg MWord] ->  Statefully [MIRInstr Metadata MWord]
+toRTL ls = do
+  md <- getMetadata
+  return $ map  (flip MirM $ md) ls
 
-returnRTL :: Monad m => [MA2Instruction VReg MWord] -> m [MIRInstr () MWord]
-returnRTL = return . toRTL
+liftToRTL :: Hopefully [MA2Instruction VReg MWord] ->  Statefully [MIRInstr Metadata MWord]
+liftToRTL ls = toRTL =<< lift ls
 
--- ** State
--- We create a state to create new variables
-type Statefully = StateT Word Hopefully
 
-initState :: Word
-initState = 2 -- Leave space for ESP and EBP
-
-freshName :: Statefully Name
-freshName = do
-  n <- get
-  put (n + 1)
-  return $ NewName n
+--returnRTL :: Monad m => [MA2Instruction VReg MWord] -> m [MIRInstr Metadata MWord]
+--returnRTL = return . toRTL
 
 -- ** Instruction selection
 
@@ -165,8 +199,8 @@ isBinop
      -> LLVM.Operand
      -> LLVM.Operand
      -> BinopInstruction
-     -> Statefully [MIRInstr () MWord]
-isBinop env ret op1 op2 bopisBinop = lift $ toRTL <$> isBinop' ret op1 op2 bopisBinop
+     -> Statefully [MIRInstr Metadata MWord]
+isBinop env ret op1 op2 bopisBinop = toRTL =<< lift (isBinop' ret op1 op2 bopisBinop)
   where isBinop' ::
           Maybe VReg
           -> LLVM.Operand
@@ -259,7 +293,7 @@ params2params env params  = do
 -- | Instruction Selection for single LLVM instructions 
     
 
-isInstruction :: Env -> Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr () MWord]
+isInstruction :: Env -> Maybe VReg -> LLVM.Instruction -> Statefully $ [MIRInstr Metadata MWord]
 -- *** Arithmetic
 isInstruction env ret instr =
   case instr of
@@ -298,22 +332,22 @@ isInstruction env ret instr =
       | otherwise -> isStoreUnaligned env adr cont
     -- Other
     (LLVM.ICmp pred op1 op2 _) -> withReturn ret $ isCompare env pred op1 op2
-    (LLVM.Call _ _ _ f args _ _ ) -> lift $ isCall env ret f args
+    (LLVM.Call _ _ _ f args _ _ ) -> isCall env ret f args
     (LLVM.Phi _typ ins _)  ->  withReturn ret $ isPhi env ins
     (LLVM.Select cond op1 op2 _)  -> withReturn ret $ isSelect env cond op1 op2 
     (LLVM.GetElementPtr _ addr inxs _) -> withReturn ret $ isGEP env addr inxs
-    (LLVM.ExtractValue _ _ _ )   -> lift $ return $ makeTraceInvalid
+    (LLVM.ExtractValue _ _ _ )   -> makeTraceInvalid <$> getMetadata
     -- Transformers
-    (LLVM.SExt op _ _)       -> lift $ toRTL <$> withReturn ret (isMove env op) 
-    (LLVM.ZExt op _ _)       -> lift $ toRTL <$> withReturn ret (isMove env op)
-    (LLVM.PtrToInt op _ty _) -> lift $ toRTL <$> withReturn ret (isMove env op)
-    (LLVM.IntToPtr op _ty _) -> lift $ toRTL <$> withReturn ret (isMove env op)
-    (LLVM.BitCast op _typ _) -> lift $ toRTL <$> withReturn ret (isMove env op)
-    (LLVM.Trunc op ty _ )    -> lift $ toRTL <$> withReturn ret (isTruncate env op ty)
+    (LLVM.SExt op _ _)       -> liftToRTL $ withReturn ret (isMove env op) 
+    (LLVM.ZExt op _ _)       -> liftToRTL $ withReturn ret (isMove env op)
+    (LLVM.PtrToInt op _ty _) -> liftToRTL $ withReturn ret (isMove env op)
+    (LLVM.IntToPtr op _ty _) -> liftToRTL $ withReturn ret (isMove env op)
+    (LLVM.BitCast op _typ _) -> liftToRTL $ withReturn ret (isMove env op)
+    (LLVM.Trunc op ty _ )    -> liftToRTL $ withReturn ret (isTruncate env op ty)
     -- Exceptions
-    (LLVM.LandingPad _ _ _ _ ) -> lift $ return $ makeTraceInvalid
-    (LLVM.CatchPad _ _ _)      -> lift $ return $ makeTraceInvalid
-    (LLVM.CleanupPad _ _ _ )   -> lift $ return $ makeTraceInvalid
+    (LLVM.LandingPad _ _ _ _ ) -> makeTraceInvalid <$> getMetadata
+    (LLVM.CatchPad _ _ _)      -> makeTraceInvalid <$> getMetadata
+    (LLVM.CleanupPad _ _ _ )   -> makeTraceInvalid <$> getMetadata
     instr ->  implError $ "Instruction: " ++ (show instr)
   where withReturn Nothing _ = return $ []
         withReturn (Just ret) f = f ret
@@ -342,7 +376,7 @@ isArithShr :: Env
      -> Maybe VReg
      -> LLVM.Operand
      -> LLVM.Operand
-     -> Statefully [MIRInstr () MWord]
+     -> Statefully [MIRInstr Metadata MWord]
 isArithShr _ Nothing _ _ = return []
 isArithShr env (Just ret) o1 o2 = do
   o1' <- lift $ operand2operand env o1
@@ -351,7 +385,7 @@ isArithShr env (Just ret) o1 o2 = do
   sign  <- freshName
   ret'' <- freshName
   ret'  <- freshName
-  returnRTL $
+  toRTL $
     [ MRAM.Ishr nsign o1' (LImm $ SConst $ fromIntegral width - 1),
       MRAM.Imull sign (AReg nsign)
         (LImm $ SConst $ complement 0 `shiftR` (64 - fromIntegral width)),
@@ -375,11 +409,12 @@ isAlloca
      -> Maybe VReg
      -> LLVM.Type
      -> LLVM.Operand
-     -> Statefully $ [MIRInstruction () VReg MWord]
-isAlloca env ret ty count = lift $ do
+     -> Statefully $ [MIRInstruction Metadata VReg MWord]
+isAlloca env ret ty count = do
   let tySize = sizeOf (llvmtTypeEnv env) ty
-  count' <- operand2operand env count
-  return [MirI (RAlloc ret tySize count') ()]
+  count' <- lift $ operand2operand env count
+  md <- getMetadata
+  return [MirI (RAlloc ret tySize count') md]
 
 pointerOperandWidth :: Env -> LLVM.Operand -> Hopefully MRAM.MemWidth
 pointerOperandWidth env op = case resolve (llvmtTypeEnv env) $ typeOf (llvmtTypeEnv env) op of
@@ -396,14 +431,14 @@ pointerOperandWidth env op = case resolve (llvmtTypeEnv env) $ typeOf (llvmtType
 
 -- Load
 isLoad
-  :: Env -> LLVM.Operand -> VReg -> Statefully $ [MIRInstr () MWord]
-isLoad env n ret = lift $ do 
+  :: Env -> LLVM.Operand -> VReg -> Statefully $ [MIRInstr Metadata MWord]
+isLoad env n ret = liftToRTL $ do 
   a <- operand2operand env n
   w <- pointerOperandWidth env n
-  returnRTL $ (MRAM.Iload w ret a) : []
+  return $ (MRAM.Iload w ret a) : []
 
 isLoadUnaligned
-  :: Env -> LLVM.Operand -> VReg -> Statefully $ [MIRInstr () MWord]
+  :: Env -> LLVM.Operand -> VReg -> Statefully $ [MIRInstr Metadata MWord]
 isLoadUnaligned env n ret = do
   ptr <- lift $ operand2operand env n
   w <- lift $ pointerOperandWidth env n
@@ -427,7 +462,7 @@ isLoadUnaligned env n ret = do
   let valMask :: MWord
       valMask = (1 `shiftL` widthInt w) - 1
 
-  returnRTL $
+  toRTL $
     -- Compute the offset by which the access is unaligned
     [ MRAM.Iand offset ptr (LImm $ SConst lowMask)
     -- Load the two surrounding words, `val0` and `val1`
@@ -467,18 +502,18 @@ isStore
   :: Env
      -> LLVM.Operand
      -> LLVM.Operand
-     -> Statefully $ [MIRInstr () MWord]
+     -> Statefully $ [MIRInstr Metadata MWord]
 isStore env adr cont = do
   cont' <- lift $ operand2operand env cont
   adr' <- lift $ operand2operand env adr
   w <- lift $ pointerOperandWidth env adr
-  returnRTL [MRAM.Istore w adr' cont']
+  toRTL [MRAM.Istore w adr' cont']
 
 isStoreUnaligned
   :: Env
      -> LLVM.Operand
      -> LLVM.Operand
-     -> Statefully $ [MIRInstr () MWord]
+     -> Statefully $ [MIRInstr Metadata MWord]
 isStoreUnaligned env adr cont = do
   ptr <- lift $ operand2operand env adr
   val <- lift $ operand2operand env cont
@@ -503,7 +538,7 @@ isStoreUnaligned env adr cont = do
   let valMask :: MWord
       valMask = (1 `shiftL` (8 * widthInt w)) - 1
 
-  returnRTL $
+  toRTL $
     [ MRAM.Iand offset ptr (LImm $ SConst lowMask)
     -- Shift `val` and `valMask` into position.
     , MRAM.Imull shift (AReg offset) (LImm 8)
@@ -548,12 +583,12 @@ isCompare
      -> LLVM.Operand
      -> LLVM.Operand
      -> VReg
-     -> Statefully $ [MIRInstr () MWord]
+     -> Statefully $ [MIRInstr Metadata MWord]
 isCompare env pred' op1 op2 ret = do
   (lhs, lhsPre) <- operand2operandTrunc env op1
   (rhs, rhsPre) <- operand2operandTrunc env op2
   comp' <- lift $ return $ predicate2instructuion pred' ret lhs rhs -- Do the comparison
-  returnRTL $ lhsPre ++ rhsPre ++ comp'
+  toRTL $ lhsPre ++ rhsPre ++ comp'
                         
 -- *** Function Call 
 isCall
@@ -561,13 +596,14 @@ isCall
      -> Maybe VReg
      -> Either a LLVM.Operand
      -> [(LLVM.Operand, b)]
-     -> Hopefully $ [MIRInstruction () VReg MWord]
+     -> Statefully $ [MIRInstruction Metadata VReg MWord]
 isCall env ret f args = do
-  (f',retT,paramT) <- function2function (llvmtTypeEnv env) f
-  args' <- params2params env args
+  (f',retT,paramT) <- lift $ function2function (llvmtTypeEnv env) f
+  args' <- lift $ params2params env args
+  md <- getMetadata
   return $
-    maybeTraceIR ("call " ++ show f') ([optRegName ret, f'] ++ args') ++
-    [MirI (RCall retT ret f' paramT args') ()]
+    maybeTraceIR md ("call " ++ show f') ([optRegName ret, f'] ++ args') ++
+    [MirI (RCall retT ret f' paramT args') md]
 
         
 -- *** Phi
@@ -575,10 +611,11 @@ isPhi
   :: Env
   -> [(LLVM.Operand, LLVM.Name)]
   -> VReg
-  -> Statefully $ [MIRInstruction () VReg MWord]
-isPhi env ins ret = lift $ do
-  ins' <- mapM (convertPhiInput env) ins
-  return [MirI (RPhi ret ins') ()]
+  -> Statefully $ [MIRInstruction Metadata VReg MWord]
+isPhi env ins ret = do
+  ins' <- lift $ mapM (convertPhiInput env) ins
+  md <- getMetadata
+  return [MirI (RPhi ret ins') md]
 
 isSelect
   :: Env
@@ -586,8 +623,8 @@ isSelect
   -> LLVM.Operand
   -> LLVM.Operand
   -> VReg
-  -> Statefully $ [MIRInstr () MWord]
-isSelect env cond op1 op2 ret = lift $ toRTL <$> do
+  -> Statefully $ [MIRInstr Metadata MWord]
+isSelect env cond op1 op2 ret = liftToRTL $ do
    cond' <- operand2operand env cond
    op1' <- operand2operand env op1 
    op2' <- operand2operand env op2 
@@ -599,13 +636,12 @@ isGEP
   -> LLVM.Operand
   -> [LLVM.Operand]
   -> VReg
-  -> Statefully $ [MIRInstruction () VReg MWord]
+  -> Statefully $ [MIRInstruction Metadata VReg MWord]
 isGEP  env addr inxs ret = do
   addr' <- lift $ operand2operand env addr
   ty' <- lift $ typeFromOperand env addr
-  -- inxs' <- lift $ mapM operand2operand env inxs
   instructions <- isGEPptr env ret ty' addr' inxs
-  return $ map (\instr -> MirM instr ()) instructions
+  toRTL instructions
   where isGEPptr
           :: Env
           -> VReg
@@ -736,17 +772,16 @@ constantMultiplication c x = do
 
 isInstrs
   :: Env ->  [LLVM.Named LLVM.Instruction]
-     -> Statefully $ [MIRInstr () MWord]
+     -> Statefully $ [MIRInstr Metadata MWord]
 isInstrs _ [] = return []
 isInstrs env instrs = do
-  instrs' <- mapM (isNInstruction env) instrs
+  instrs' <- mapM (isInstructionStep env) instrs
   return $ concat instrs'
-  where isNInstruction :: Env -> LLVM.Named LLVM.Instruction -> Statefully $ [MIRInstr () MWord]
-        isNInstruction env (LLVM.Do instr) = isInstruction env Nothing instr
-        isNInstruction env (name LLVM.:= instr) =
-          let ret = name2nameM name in
-            (\ret -> isInstruction env (Just ret) instr) =<< ret
+  where isNameInstruction :: Env -> LLVM.Named LLVM.Instruction -> Statefully $ [MIRInstr Metadata MWord]
+        isNameInstruction env (LLVM.Do instr) = isInstruction env Nothing instr
+        isNameInstruction env (name LLVM.:= instr) = isInstruction env (Just $ name2name name) instr
 
+        isInstructionStep env instr = (isNameInstruction env instr) <* (lineNumber %= (+1)) 
 
 
 
@@ -763,7 +798,7 @@ isInstrs env instrs = do
 -- We ignore the name of terminators
 isTerminator :: Env
              -> LLVM.Named LLVM.Terminator
-             -> Statefully $ [MIRInstr () MWord]
+             -> Statefully $ [MIRInstr Metadata MWord]
 isTerminator env (name LLVM.:= term) = do
   ret <- return $ name2name name
   termInstr <- isTerminator' env (Just ret) term
@@ -777,50 +812,50 @@ isTerminator env (LLVM.Do term) = do
 isTerminator' :: Env
               -> Maybe VReg
               -> LLVM.Terminator
-              -> Statefully $ [MIRInstr () MWord]
+              -> Statefully $ [MIRInstr Metadata MWord]
 isTerminator' env ret term =
   case term of 
-    (LLVM.Br name _) -> lift $ isBr name
-    (LLVM.CondBr cond name1 name2 _) -> lift $ isCondBr env cond name1 name2 
+    (LLVM.Br name _) -> isBr name
+    (LLVM.CondBr cond name1 name2 _) -> isCondBr env cond name1 name2 
     (LLVM.Switch cond deflt dests _ ) -> isSwitch env cond deflt dests
-    (LLVM.Ret ret _md) -> lift $ isRet env ret 
+    (LLVM.Ret ret _md) -> isRet env ret 
     (LLVM.Invoke _ _ f args _ retDest _exceptionDest _ ) -> -- treats this as a call + a jump 
-      lift $ do call <- isCall env ret f args
-                destJmp <- isBr retDest
-                return $ call ++  destJmp
+      do call <- isCall env ret f args
+         destJmp <- isBr retDest
+         return $ call ++  destJmp
     -- `Resume` and `Unreachable` still need to terminate the block after
     -- flagging the error, so we add an `answer` instruction, which is defined
     -- to stall or halt execution.
-    (LLVM.Resume _ _ ) -> return $ makeTraceInvalid ++ halt
-    (LLVM.Unreachable _) -> return $ triggerBug ++ halt
+    (LLVM.Resume _ _ ) -> withMeta $ \md -> (makeTraceInvalid md ++ halt md)
+    (LLVM.Unreachable _) -> withMeta $ \md -> (triggerBug md ++ halt md)
     term ->  implError $ "Terminator not yet supported. \n \t" ++ (show term)
   where
-    halt = [MirM (MRAM.Ianswer (LImm $ SConst 0)) ()]
+    halt md = [MirM (MRAM.Ianswer (LImm $ SConst 0)) md]
 
-makeTraceInvalid :: [MIRInstruction () regT MWord]
-makeTraceInvalid = [MirI rtlCallValidIf  ()]
+makeTraceInvalid :: Metadata -> [MIRInstruction Metadata regT MWord]
+makeTraceInvalid md = [MirI rtlCallValidIf md]
   where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_invalid") [Tint] []
-triggerBug :: [MIRInstruction () regT MWord]
-triggerBug = [MirI rtlCallValidIf  ()]
+triggerBug :: Metadata -> [MIRInstruction Metadata regT MWord]
+triggerBug md = [MirI rtlCallValidIf md]
   where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_bug") [Tint] []
 
 -- | Branch terminator
-isBr :: Monad m => LLVM.Name -> m [MIRInstr () MWord]
+isBr :: LLVM.Name -> Statefully [MIRInstr Metadata MWord]
 isBr name =  do
   name' <- name2nameM name
-  returnRTL $ [MRAM.Ijmp $ Label (show name')] -- FIXME: This works but it's a hack. Think about labels as strings.
+  toRTL $ [MRAM.Ijmp $ Label (show name')] -- FIXME: This works but it's a hack. Think about labels as strings.
 
 isCondBr
   :: Env
      -> LLVM.Operand
      -> LLVM.Name
      -> LLVM.Name
-     -> Hopefully  [MIRInstr () MWord]
+     -> Statefully [MIRInstr Metadata MWord]
 isCondBr env cond name1 name2 = do
-  cond' <- operand2operand env cond
+  cond' <- lift $ operand2operand env cond
   loc1 <- name2nameM name1
   loc2 <- name2nameM name2 
-  returnRTL $ [MRAM.Icjmp cond' $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
+  toRTL $ [MRAM.Icjmp cond' $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
                 MRAM.Ijmp $ Label (show loc2)]
 
 isSwitch
@@ -829,12 +864,12 @@ isSwitch
      -> LLVM.Operand
      -> LLVM.Name
      -> t (LLVM.Constant.Constant, LLVM.Name)
-     -> Statefully [MIRInstr () MWord]
+     -> Statefully [MIRInstr Metadata MWord]
 isSwitch env cond deflt dests = do
   cond' <- lift $ operand2operand env cond
   deflt' <- lift $ name2nameM deflt
   switchInstrs <- mapM (isDest cond') dests
-  returnRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Label $ show deflt')]
+  toRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Label $ show deflt')]
     where isDest cond' (switch,dest) = do
             switch' <- lift $ getConstant env switch
             isEq <- freshName
@@ -844,12 +879,14 @@ isSwitch env cond deflt dests = do
 -- Possible optimisation:
 -- Add just one return block, and have all others jump there.    
 isRet
-  :: Env -> Maybe LLVM.Operand -> Hopefully [MIRInstruction () VReg MWord]
+  :: Env -> Maybe LLVM.Operand -> Statefully [MIRInstruction Metadata VReg MWord]
 isRet env (Just ret) = do
-  ret' <- operand2operand env ret
-  return $ maybeTraceIR "return" [ret'] ++ [MirI (RRet $ Just ret') ()]
-isRet _env Nothing =
-  return $ maybeTraceIR "return" [] ++ [MirI (RRet Nothing) ()]
+  ret' <- lift $ operand2operand env ret
+  md <- getMetadata
+  return $ maybeTraceIR md "return" [ret'] ++ [MirI (RRet $ Just ret') md]
+isRet _env Nothing = do
+  md <- getMetadata
+  return $ maybeTraceIR md "return" [] ++ [MirI (RRet Nothing) md]
 
 ------------------------------------------------------
 -- * Block calculation
@@ -893,16 +930,18 @@ blockJumpsTo term = do
 
 
 -- instruction selection for blocks
-isBlock:: Env -> LLVM.BasicBlock -> Statefully (BB Name $ MIRInstr () MWord)
+isBlock:: Env -> LLVM.BasicBlock -> Statefully (BB Name $ MIRInstr Metadata MWord)
 isBlock  env (LLVM.BasicBlock name instrs term) = do
+  let name' = name2name name
+  currentBlock .= show name'
+  md <- getMetadata
   body <- isInstrs env instrs
-  let body' = maybeTraceIR ("enter " ++ show name) [] ++ body
+  let body' = maybeTraceIR md ("enter " ++ show name) [] ++ body
   end <- isTerminator env term
   jumpsTo <- lift $ blockJumpsTo term
-  name' <- lift $ name2nameM name
   return $ BB name' body' end jumpsTo
 
-isBlocks :: Env ->  [LLVM.BasicBlock] -> Statefully [BB Name $ MIRInstr () MWord]
+isBlocks :: Env ->  [LLVM.BasicBlock] -> Statefully [BB Name $ MIRInstr Metadata MWord]
 isBlocks env = mapM (isBlock env)
 
 processParams :: ([LLVM.Parameter], Bool) -> [Ty]
@@ -910,15 +949,18 @@ processParams (params, _) = map (\_ -> Tint) params
 
 -- | Instruction generation for Functions
 
-isFunction :: Env -> LLVM.Definition -> Hopefully $ MIRFunction () MWord
+isFunction :: Env -> LLVM.Definition -> Statefully $ MIRFunction Metadata MWord
 isFunction env (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
   do
-    (body, nextReg) <- runStateT (isBlocks env code) initState
-    params' <- return $ processParams params
-    name' <- name2nameM name
-    retT' <- type2type  (llvmtTypeEnv env) retT
-    return $ Function name' retT' params' body nextReg
-isFunction _tenv other = unreachableError $ show other -- Shoudl be filtered out 
+    let name' = name2name name
+    let params' = processParams params
+    nextReg .= 2 -- Functions have separatedly numbere registers
+    currentFunction .= show name'
+    body <- isBlocks env code -- runStateT (isBlocks env code) initState
+    retT' <- lift $ type2type  (llvmtTypeEnv env) retT
+    currentNextReg <- use nextReg
+    return $ Function name' retT' params' body currentNextReg
+isFunction _tenv other = lift $ unreachableError $ show other -- Shoudl be filtered out 
   
 -- | Instruction Selection for all definitions
 -- We create filters to separate the definitions into categories.
@@ -1279,7 +1321,7 @@ bop2typedLazyConst env bop op1 op2 = do
 isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
 isFuncAttributes _ = return () 
 
-isDefs :: [LLVM.Definition] -> Hopefully $ MIRprog () MWord
+isDefs :: [LLVM.Definition] -> Hopefully $ MIRprog Metadata MWord
 isDefs defs = do
   typeDefs <- isTypeDefs $ filter itIsTypeDef defs
   setGlobNames <- return $ nameOfGlobals defs
@@ -1287,10 +1329,11 @@ isDefs defs = do
   globVars <- (isGlobVars env) $ filter itIsGlobVar defs -- filtered inside the def 
   --otherError $ "DEBUG HERE: \n" ++ show typeDefs ++ "\n" ++ show globVars ++ "\n"  
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
-  funcs <- mapM (isFunction env) $ filter itIsFunc defs
+  funcs <- evalStateT (isFunctions env) initState
   checkDiscardedDefs defs -- Make sure we dont drop something important
-  return $ IRprog Map.empty globVars funcs
+  return $ IRprog Map.empty globVars funcs 
+  where isFunctions env = mapM (isFunction env) $ filter itIsFunc defs
   
 -- | Instruction selection generates an RTL Program
-instrSelect :: LLVM.Module -> Hopefully $ MIRprog () MWord
+instrSelect :: LLVM.Module -> Hopefully $ MIRprog Metadata MWord
 instrSelect (LLVM.Module _ _ _ _ defs) = isDefs defs

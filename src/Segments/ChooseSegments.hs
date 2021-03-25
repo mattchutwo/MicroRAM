@@ -16,7 +16,7 @@ import MicroRAM.MRAMInterpreter
 
 import qualified Data.Map as Map 
 import qualified Data.Set as Set 
-import Data.Vector (Vector, (!), fromList)
+import qualified Data.Vector as V (Vector, (!), fromList)
 
 import Segments.Segmenting
 import Sparsity.Sparsity
@@ -45,7 +45,7 @@ data PartialState reg = PartialState {
 type InstrNumber = MWord 
 type PState reg x = State (PartialState reg) x 
  
-chooseSegments :: Int -> Sparsity -> Program reg MWord -> Trace reg -> Map.Map MWord [Int] -> Vector (Segment reg MWord) ->  [TraceChunk reg]
+chooseSegments :: Int -> Sparsity -> Program reg MWord -> Trace reg -> Map.Map MWord [Int] -> V.Vector (Segment reg MWord) ->  [TraceChunk reg]
 chooseSegments privSize spar prog trace segmentSets segments =
   -- create starting state
   let initSt = PartialState {
@@ -84,7 +84,7 @@ showQueue
 showQueue q = "[" ++ (concat $ showESt <$> q) ++ "]"
    
 -- | chooses the next segment
-chooseSegment :: Vector (Segment reg MWord) -> Int -> PState reg ()
+chooseSegment :: V.Vector (Segment reg MWord) -> Int -> PState reg ()
 chooseSegment segments privSize = do
   currentPc <- nextPc <$> get
   maybeSegment <- popSegmentIn segments currentPc
@@ -99,9 +99,9 @@ chooseSegment segments privSize = do
      -- | Given a segment indicated by the index,
      -- pull enough states to fill the segment and
      -- return the last state
-     allocateSegment :: Vector (Segment reg MWord) -> Int -> PState reg (ExecutionState reg)
+     allocateSegment :: V.Vector (Segment reg MWord) -> Int -> PState reg (ExecutionState reg)
      allocateSegment segments' segmentIndx =
-       let segment = segments' ! segmentIndx
+       let segment = segments' V.! segmentIndx
            len = segLen segment in
          do nextStates <- pullStates len
             let newChunk = TraceChunk segmentIndx nextStates
@@ -121,13 +121,13 @@ chooseSegment segments privSize = do
        st <- get
        put $ st {queueSt = state' : queueSt st}
      -- | If there is an unused segment starting at pc, it returns one of such segment.  
-     popSegmentIn :: Vector (Segment reg MWord) -> MWord -> PState reg (Maybe Int) 
+     popSegmentIn :: V.Vector (Segment reg MWord) -> MWord -> PState reg (Maybe Int) 
      popSegmentIn allSegments instrPc = do
        st <- get
        avalStates <- return $ availableSegments st
        case Map.lookup instrPc avalStates of
          Just (execSt' : others) -> do
-           segOk <- check (allSegments ! execSt')
+           segOk <- check (allSegments V.! execSt')
            if segOk then  
              do put $ st {availableSegments = Map.insert instrPc others avalStates}
                 return $ Just execSt'
@@ -254,7 +254,7 @@ testSegmentSets = Map.fromList
 testProg = concat $ segIntrs <$> testSegments'
 
 _testchunks :: [TraceChunk ()]
-_testchunks = chooseSegments testPrivSize testSparsity testProg testTrace testSegmentSets (fromList testSegments')
+_testchunks = chooseSegments testPrivSize testSparsity testProg testTrace testSegmentSets (V.fromList testSegments')
   where testSparsity = (Map.fromList [(KmemOp, 2)])
         testPrivSize = 4
 

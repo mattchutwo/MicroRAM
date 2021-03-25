@@ -179,12 +179,12 @@ legalizeBlock :: BB Name (MIRInstr m w) -> Statefully m w (BB Name (RTLInstr m w
 legalizeBlock (BB name body term dag) =
   BB name <$> legalizeInstrs body <*> legalizeInstrs term <*> pure dag
 
-legalizeFunc :: MIRFunction () MWord -> Hopefully (RFunction () MWord)
+legalizeFunc :: MIRFunction m MWord -> Hopefully (RFunction m MWord)
 legalizeFunc f = do
   (blocks', nextReg') <- runStatefully (mapM legalizeBlock $ funcBlocks f) (funcNextReg f)
   return $ f { funcBlocks = blocks', funcNextReg = nextReg' }
 
-legalize :: MIRprog () MWord -> Hopefully (Rprog () MWord)
+legalize :: MIRprog m MWord -> Hopefully (Rprog m MWord)
 legalize p = do
   code' <- mapM legalizeFunc $ code p
   return $ p { code = code' }

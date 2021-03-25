@@ -53,62 +53,62 @@ expandInstrs f = goProg
         goInstrs :: [MIRInstr m w] -> f [MIRInstr m w]
         goInstrs is = concat <$> traverse f is
 
-type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> Hopefully [MIRInstr m w]
+type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> m -> Hopefully [MIRInstr m w]
 
-expandIntrinsicCall :: Show w => Map String (IntrinsicImpl m w) -> MIRInstr m w -> Hopefully [MIRInstr m w]
-expandIntrinsicCall intrinMap (MirI (RCall _ dest (Label name) _ args) _meta)
+expandIntrinsicCall :: forall m w. Show w => Map String (IntrinsicImpl m w) -> MIRInstr m w -> Hopefully [MIRInstr m w]
+expandIntrinsicCall intrinMap (MirI (RCall _ dest (Label name) _ args) meta)
   | Just impl <- Map.lookup name intrinMap =
-    tag ("bad call to intrinsic " ++ name) $ impl args dest
+    tag ("bad call to intrinsic " ++ name) $ impl args dest meta
 expandIntrinsicCall _ instr = return [instr]
 
 
-cc_test_add :: IntrinsicImpl () w
-cc_test_add [x, y] (Just dest) = return [MirM (Iadd dest x y) ()]
-cc_test_add _ _ = progError "bad arguments"
+cc_test_add :: IntrinsicImpl m w
+cc_test_add [x, y] (Just dest) md = return [MirM (Iadd dest x y) md]
+cc_test_add _ _ _ = progError "bad arguments"
 
-cc_noop :: IntrinsicImpl () w
-cc_noop _ _ = return []
+cc_noop :: IntrinsicImpl m w
+cc_noop _ _ _ = return []
 
-cc_trap :: IntrinsicImpl () MWord
-cc_trap _ _ = return [
-  MirM (Iext "trace_trap" []) (),
-  MirM (Ianswer (LImm $ SConst 0)) ()] -- TODO
+cc_trap :: IntrinsicImpl m MWord
+cc_trap _ _ md = return [
+  MirM (Iext "trace_trap" []) md,
+  MirM (Ianswer (LImm $ SConst 0)) md] -- TODO
 
-cc_malloc :: IntrinsicImpl () w
-cc_malloc [size] (Just dest) = return [MirM (Iextval "malloc" dest [size]) ()]
-cc_malloc _ _ = progError "bad arguments"
+cc_malloc :: IntrinsicImpl m w
+cc_malloc [size] (Just dest) md = return [MirM (Iextval "malloc" dest [size]) md]
+cc_malloc _ _ _ = progError "bad arguments"
 
-cc_free :: IntrinsicImpl () w
-cc_free [ptr] Nothing = return [MirM (Iext "free" [ptr]) ()]
-cc_free _ _ = progError "bad arguments"
+cc_free :: IntrinsicImpl m w
+cc_free [ptr] Nothing md = return [MirM (Iext "free" [ptr]) md]
+cc_free _ _ _ = progError "bad arguments"
 
-cc_advise_poison :: IntrinsicImpl () w
-cc_advise_poison [lo, hi] (Just dest) = return [MirM (Iextval "advise_poison" dest [lo, hi]) ()]
-cc_advise_poison _ _ = progError "bad arguments"
+cc_advise_poison :: IntrinsicImpl m w
+cc_advise_poison [lo, hi] (Just dest) md = return [MirM (Iextval "advise_poison" dest [lo, hi]) md]
+cc_advise_poison _ _ _ = progError "bad arguments"
 
-cc_write_and_poison :: IntrinsicImpl () w
-cc_write_and_poison [ptr, val] Nothing =
-  return [MirM (IpoisonW ptr val) ()]
-cc_write_and_poison _ _ = progError "bad arguments"
+cc_write_and_poison :: IntrinsicImpl m w
+cc_write_and_poison [ptr, val] Nothing md =
+  return [MirM (IpoisonW ptr val) md]
+cc_write_and_poison _ _ _ = progError "bad arguments"
 
-cc_flag_invalid :: IntrinsicImpl () MWord
-cc_flag_invalid [] Nothing =
-  return [MirM (IpoisonW zero zero) ()]
+cc_flag_invalid :: IntrinsicImpl m MWord
+cc_flag_invalid [] Nothing md =
+  return [MirM (IpoisonW zero zero) md]
   where zero = LImm $ SConst 0
-cc_flag_invalid _ _ = progError "bad arguments"
+cc_flag_invalid _ _ _ = progError "bad arguments"
 
-cc_flag_bug :: IntrinsicImpl () MWord
-cc_flag_bug [] Nothing =
-  return [MirM (IstoreW zero zero) ()]
+cc_flag_bug :: IntrinsicImpl m MWord
+cc_flag_bug [] Nothing md =
+  return [MirM (IstoreW zero zero) md]
   where zero = LImm $ SConst 0
-cc_flag_bug _ _ = progError "bad arguments"
+cc_flag_bug _ _ _ = progError "bad arguments"
 
-cc_trace :: IntrinsicImpl () w
-cc_trace [msg] Nothing = return [MirM (Iext "tracestr" [msg]) ()]
-cc_trace _ _ = progError "bad arguments"
+cc_trace :: IntrinsicImpl m w
+cc_trace [msg] Nothing md = return [MirM (Iext "tracestr" [msg]) md]
+cc_trace _ _ _ = progError "bad arguments"
 
 
-intrinsics :: Map String (IntrinsicImpl () MWord)
+intrinsics :: Map String (IntrinsicImpl m MWord)
 intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   [ ("__cc_test_add", cc_test_add)
   , ("__cc_flag_invalid", cc_flag_invalid)
@@ -137,13 +137,13 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("llvm.trap", cc_trap)
   ]
 
-lowerIntrinsics :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
+lowerIntrinsics :: forall m. MIRprog m MWord -> Hopefully (MIRprog m MWord)
 lowerIntrinsics = expandInstrs (expandIntrinsicCall intrinsics)
                   >=> removeIntrinsics
 
 -- | removes the intrinsics declarations which have been inlined and are not needed anymore.
 -- This overlaps with dead code elimination (a bit), but enables checking for undefined functions
-removeIntrinsics :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
+removeIntrinsics :: MIRprog m MWord -> Hopefully (MIRprog m MWord)
 removeIntrinsics prog = 
   return $ prog {code = filter (not . isIntrinsic) $ code prog}
   where isIntrinsic f = show (funcName f) `Map.member` intrinsics
@@ -156,7 +156,7 @@ removeIntrinsics prog =
 -- `__llvm__memset__p0i8__i64`, then this pass renames it to the dotted form.
 -- (It also renames the empty definition of the dotted form to `orig.llvm.foo`,
 -- to avoid conflicts later on.)
-renameLLVMIntrinsicImpls :: MIRprog () MWord -> Hopefully (MIRprog () MWord)
+renameLLVMIntrinsicImpls :: forall m. MIRprog m MWord -> Hopefully (MIRprog m MWord)
 renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
   where
     renameList :: [(Name, Name)]
@@ -169,7 +169,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
     renameMap = Map.fromList renameList
     removeSet = Set.fromList $ map snd renameList
 
-    code' :: [MIRFunction () MWord]
+    code' :: [MIRFunction m MWord]
     code' = do
       Function nm rty atys bbs nr <- code
       guard $ not $ Set.member nm removeSet

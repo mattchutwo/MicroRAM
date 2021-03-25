@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-{-
+{-|
 Module      : Opcode Sparsity Analysis
 Description : Computes the sparsity of each opcode to aleviate the witness generation 
 Maintainer  : santiago@galois.com
@@ -245,10 +245,10 @@ sparsInstr spars (location, instr) =
 -- | Is done in two steps
 -- 1. run through the list of instrucitons updateing the sparsity info
 -- 2. Set the "End Sparsity" for all instructions in the map
-sparsBlock :: NamedBlock r w -> Sparsity'
+sparsBlock :: NamedBlock md r w -> Sparsity'
 sparsBlock (NBlock _ instrs) =
   setEndSpars (length instrs) $                 -- second step
-  foldl sparsInstr Map.empty $ enumerate instrs -- first step
+  foldl sparsInstr Map.empty $ enumerate $ fst <$> instrs -- first step
   where setEndSpars lastLoc spars = fmap (setNewEnd lastLoc) spars
 
 -- ** TODO: Functions
@@ -264,7 +264,7 @@ sparsBlock (NBlock _ instrs) =
 -- 2. Compute min (spars', endSpars' + begSpars')
 
 -- | Compute sparsity of a full program
-sparsity :: MAProgram r w -> Sparsity
+sparsity :: MAProgram md r w -> Sparsity
 sparsity blocks =
   -- read the follwoing comments backwards
   Map.mapMaybe inf2maybe $       -- remove infinite sparsity (the ones that never appear)
@@ -281,6 +281,6 @@ sparsity blocks =
 
 -- This wrapper forces a sparsity for memory operations.
 -- Value of None triggers the original sparsity approximation. 
-forceSparsity :: Maybe Int -> MAProgram r w -> Sparsity
+forceSparsity :: Maybe Int -> MAProgram md r w -> Sparsity
 forceSparsity (Just s) _ = Map.fromList [(KmemOp, s)]
 forceSparsity Nothing p = sparsity p 

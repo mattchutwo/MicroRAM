@@ -12,11 +12,12 @@ module Segments (segment, SegmentedProgram(..), chooseSegment') where
 
 import Compiler.CompilationUnit
 import Compiler.Errors
+import Compiler.IRs
+import Compiler.Metadata
 import Compiler.Registers
 
 import qualified Data.Map as Map 
-import qualified Data.Vector as V
-
+import qualified Data.Vector as V (fromList)
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
@@ -27,18 +28,19 @@ import Sparsity.Sparsity (Sparsity)
 
 
  
-data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (Program reg MWord)
+data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (Program reg MWord) -- No METADATA
                                               , pubSegments :: [Segment reg MWord]
                                               , privSegments :: [Segment reg MWord]
                                               , segMap  :: Map.Map MWord [Int]
                                               , segTrace :: Maybe [TraceChunk reg]
                                               , segAdvice :: Maybe (Map.Map MWord [Advice])}
 
-segment :: Int -> CompilationResult (Program reg MWord) -> Hopefully (SegmentedProgram reg)
+segment :: Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
 segment privSize compRes = do 
   (segs, segMap') <- segmentProgram $ (lowProg . programCU) compRes
   privateSegments <- return $ mkPrivateSegments (traceLen compRes) privSize -- Should we substract the public segments?  
-  return $ SegmentedProgram compRes segs privateSegments segMap' Nothing Nothing
+  return $ SegmentedProgram compResNoMD segs privateSegments segMap' Nothing Nothing
+  where compResNoMD = compRes {programCU = (map fst) <$> programCU compRes}
 
 chooseSegment' :: Regs reg => Int -> Sparsity -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 
 chooseSegment' privSize spar trace segProg =
