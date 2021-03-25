@@ -16,6 +16,7 @@ import MicroRAM.MRAMInterpreter
 
 import qualified Data.Map as Map 
 import qualified Data.Set as Set 
+import Data.Vector (Vector, (!), fromList)
 
 import Segments.Segmenting
 import Sparsity.Sparsity
@@ -44,7 +45,7 @@ data PartialState reg = PartialState {
 type InstrNumber = MWord 
 type PState reg x = State (PartialState reg) x 
  
-chooseSegments :: Int -> Sparsity -> Program reg MWord -> Trace reg -> Map.Map MWord [Int] -> [Segment reg MWord] ->  [TraceChunk reg]
+chooseSegments :: Int -> Sparsity -> Program reg MWord -> Trace reg -> Map.Map MWord [Int] -> Vector (Segment reg MWord) ->  [TraceChunk reg]
 chooseSegments privSize spar prog trace segmentSets segments =
   -- create starting state
   let initSt = PartialState {
@@ -83,10 +84,10 @@ showQueue
 showQueue q = "[" ++ (concat $ showESt <$> q) ++ "]"
    
 -- | chooses the next segment
-chooseSegment :: [Segment reg MWord] -> Int -> PState reg ()
+chooseSegment :: Vector (Segment reg MWord) -> Int -> PState reg ()
 chooseSegment segments privSize = do
   currentPc <- nextPc <$> get
-  maybeSegment <- popSegmentIn currentPc
+  maybeSegment <- popSegmentIn segments currentPc
   case maybeSegment of
     Just segment -> do
       allocateQueue privSize -- allocates the current queue in private pc segments. 
@@ -98,9 +99,9 @@ chooseSegment segments privSize = do
      -- | Given a segment indicated by the index,
      -- pull enough states to fill the segment and
      -- return the last state
-     allocateSegment :: [Segment reg MWord] -> Int -> PState reg (ExecutionState reg)
+     allocateSegment :: Vector (Segment reg MWord) -> Int -> PState reg (ExecutionState reg)
      allocateSegment segments' segmentIndx =
-       let segment = segments' !! segmentIndx
+       let segment = segments' ! segmentIndx
            len = segLen segment in
          do nextStates <- pullStates len
             let newChunk = TraceChunk segmentIndx nextStates
@@ -120,16 +121,27 @@ chooseSegment segments privSize = do
        st <- get
        put $ st {queueSt = state' : queueSt st}
      -- | If there is an unused segment starting at pc, it returns one of such segment.  
-     popSegmentIn :: MWord -> PState reg (Maybe Int) 
-     popSegmentIn instrPc = do
+     popSegmentIn :: Vector (Segment reg MWord) -> MWord -> PState reg (Maybe Int) 
+     popSegmentIn allSegments instrPc = do
        st <- get
        avalStates <- return $ availableSegments st
        case Map.lookup instrPc avalStates of
-         Just (execSt' : others) ->
-           do
-             _ <- put $ st {availableSegments = Map.insert instrPc others avalStates}
-             return $ Just execSt'
+         Just (execSt' : others) -> do
+           segOk <- check (allSegments ! execSt')
+           if segOk then  
+             do put $ st {availableSegments = Map.insert instrPc others avalStates}
+                return $ Just execSt'
+           else return Nothing
          _ -> return Nothing
+         where
+           -- | This check should make sure the segment we found satisfies the constraints
+           --  of the Remaining trace. For now the only check is:
+           --  1. Check if there is enough states in the trace to fill the public segment.
+           check :: Segment reg MWord -> PState reg Bool
+           check seg = do
+             trace <- remainingTrace <$> get
+             return $ length trace >= segLen seg
+
 -- | Finds private segments to put the states in the queue.
 -- It first adds the appropriate stuttering for sparsity and to pad
 -- the last segment to have the right ammount of states.
@@ -242,7 +254,7 @@ testSegmentSets = Map.fromList
 testProg = concat $ segIntrs <$> testSegments'
 
 _testchunks :: [TraceChunk ()]
-_testchunks = chooseSegments testPrivSize testSparsity testProg testTrace testSegmentSets testSegments'
+_testchunks = chooseSegments testPrivSize testSparsity testProg testTrace testSegmentSets (fromList testSegments')
   where testSparsity = (Map.fromList [(KmemOp, 2)])
         testPrivSize = 4
 
