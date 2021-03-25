@@ -17,8 +17,7 @@ import Compiler.Metadata
 import Compiler.Registers
 
 import qualified Data.Map as Map 
-
-import Data.Vector (fromList)
+import qualified Data.Vector as V (fromList)
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
@@ -51,7 +50,7 @@ chooseSegment' privSize spar trace segProg =
   else
     assumptError $ "Trace is not long enough. Execution uses: " ++ (show segmentsTrace) ++ " segments, but only " ++ show numSegments ++ " where generated."
     
-  where chunks = chooseSegments privSize spar (lowProg . programCU . compiled $ segProg) trace (segMap segProg) (fromList $ pubSegments segProg)
+  where chunks = chooseSegments privSize spar (lowProg . programCU . compiled $ segProg) trace (segMap segProg) (V.fromList $ pubSegments segProg)
         segmentsTrace = maximum (map chunkSeg chunks)
         numSegments = length (pubSegments segProg) + length (privSegments segProg) 
 mkPrivateSegments :: Word -> Int -> [Segment reg MWord]
