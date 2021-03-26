@@ -28,6 +28,7 @@ dependencies:
 - llvm-hs
 - mtl
 - bytestring
+- prettyprinter
 - smallcheck
 - tasty
 - tasty-hunit
