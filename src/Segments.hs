@@ -30,16 +30,15 @@ import Sparsity.Sparsity (Sparsity)
 data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (Program reg MWord) -- No METADATA
                                               , pubSegments :: [Segment reg MWord]
                                               , privSegments :: [Segment reg MWord]
-                                              , segMap  :: Map.Map MWord [Int]
                                               , segTrace :: Maybe [TraceChunk reg]
                                               , segAdvice :: Maybe (Map.Map MWord [Advice])}
 
 segment :: Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
 segment privSize compRes = do
   let funCount = functionUsage $ aData compRes 
-  (segs, segMap') <- segmentProgram funCount $ (lowProg . programCU) compRes
+  segs <- segmentProgram funCount $ (lowProg . programCU) compRes
   privateSegments <- return $ mkPrivateSegments (traceLen compRes) privSize -- Should we substract the public segments?  
-  return $ SegmentedProgram compResNoMD segs privateSegments segMap' Nothing Nothing
+  return $ SegmentedProgram compResNoMD segs privateSegments Nothing Nothing
   where compResNoMD = compRes {programCU = (map fst) <$> programCU compRes}
 
 chooseSegment' :: Regs reg => Int -> Sparsity -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 
@@ -50,7 +49,7 @@ chooseSegment' privSize spar trace segProg =
   else
     assumptError $ "Trace is not long enough. Execution uses: " ++ (show segmentsTrace) ++ " segments, but only " ++ show numSegments ++ " where generated."
     
-  where chunks = chooseSegments privSize spar (lowProg . programCU . compiled $ segProg) trace (segMap segProg) (V.fromList $ pubSegments segProg)
+  where chunks = chooseSegments privSize spar (lowProg . programCU . compiled $ segProg) trace (V.fromList $ pubSegments segProg)
         segmentsTrace = maximum (map chunkSeg chunks)
         numSegments = length (pubSegments segProg) + length (privSegments segProg) 
 mkPrivateSegments :: Word -> Int -> [Segment reg MWord]

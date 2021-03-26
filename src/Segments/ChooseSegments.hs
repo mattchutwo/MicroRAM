@@ -16,7 +16,7 @@ import MicroRAM.MRAMInterpreter
 
 import qualified Data.Map as Map 
 import qualified Data.Set as Set 
-import qualified Data.Vector as V (Vector, (!), fromList)
+import qualified Data.Vector as V (Vector, (!), fromList, ifoldl)
 
 import Segments.Segmenting
 import Sparsity.Sparsity
@@ -45,8 +45,8 @@ data PartialState reg = PartialState {
 type InstrNumber = MWord 
 type PState reg x = State (PartialState reg) x 
  
-chooseSegments :: Int -> Sparsity -> Program reg MWord -> Trace reg -> Map.Map MWord [Int] -> V.Vector (Segment reg MWord) ->  [TraceChunk reg]
-chooseSegments privSize spar prog trace segmentSets segments =
+chooseSegments :: Int -> Sparsity -> Program reg MWord -> Trace reg -> V.Vector (Segment reg MWord) ->  [TraceChunk reg]
+chooseSegments privSize spar prog trace segments =
   -- create starting state
   let initSt = PartialState {
         nextPc = 0 
@@ -68,6 +68,32 @@ chooseSegments privSize spar prog trace segmentSets segments =
     traceNotEmpty = do
       trace' <- remainingTrace <$> get
       return $ (not . null) trace'
+    -- | Maps pc to the index of segments that start with that pc
+    -- but only if the segment comes from network
+    segmentSets :: Map.Map MWord [Int]
+    segmentSets = V.ifoldl addSegment Map.empty segments
+    addSegment :: Map.Map MWord [Int] -> Int -> Segment reg wrd -> Map.Map MWord [Int] 
+    addSegment sets indx seg =
+      if fromNetwork seg
+      then
+        addToMap sets (segPc seg) indx
+      else
+        sets
+    addToMap :: Map.Map MWord [Int] -> MWord -> Int -> Map.Map MWord [Int] 
+    addToMap mp k a =
+      let currentValue = Map.lookup k mp in
+        flip (Map.insert k) mp $ case currentValue of
+                                    Just ls -> a:ls
+                                    Nothing -> [a]
+    segPc seg = getPcFromConstraint (constraints seg)
+    getPcFromConstraint :: [Constraints] -> MWord 
+    getPcFromConstraint constrs =
+      case constrs of
+        (PcConst pcW):_ -> pcW
+        (_): ls -> getPcFromConstraint ls
+        -- The constraints of public pc shouldn't be empty!
+                  
+                    
 whileM_ :: (Monad m) => m Bool -> m a -> m ()
 whileM_ p f = go
   where go = do
@@ -254,7 +280,7 @@ testSegmentSets = Map.fromList
 testProg = concat $ segIntrs <$> testSegments'
 
 _testchunks :: [TraceChunk ()]
-_testchunks = chooseSegments testPrivSize testSparsity testProg testTrace testSegmentSets (V.fromList testSegments')
+_testchunks = chooseSegments testPrivSize testSparsity testProg testTrace (V.fromList testSegments')
   where testSparsity = (Map.fromList [(KmemOp, 2)])
         testPrivSize = 4
 

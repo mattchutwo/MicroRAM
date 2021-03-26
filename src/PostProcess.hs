@@ -78,7 +78,7 @@ emptyAdvice :: AdviceState
 emptyAdvice = AdviceState Map.empty 0
   
 segProg2Output :: Regs reg => SegmentedProgram reg -> Hopefully (Output reg)
-segProg2Output (SegmentedProgram comp pubSegs privSegs _segMap segTra segAdv) =
+segProg2Output (SegmentedProgram comp pubSegs privSegs segTra segAdv) =
   case (segTra, segAdv) of
     (Nothing, Nothing) -> return publ
     (Just trace, Just adv)  -> return $ mkOutputPrivate (traceOut trace) adv publ
