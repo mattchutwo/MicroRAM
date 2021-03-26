@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-|
@@ -256,14 +257,20 @@ stackBlock (BB name body term _) = do
 
 -- | Translating funcitons
 stackFunction
-  :: Regs mreg =>
+  :: forall mreg.
+  Regs mreg =>
   LFunction Metadata mreg MWord
   -> Hopefully $ [NamedBlock Metadata mreg MWord]
 stackFunction (LFunction name _retT _argT size code) = do
-  prologueBlock <- return $ NBlock (Just name) $ addMD prolMD (prologue size)
+  let prologueBody = addMD prolMD (prologue size) :: Regs mreg => [(MAInstruction mreg MWord, Metadata)]
+  let prologueBlock = NBlock (Just name) $ markFunStart prologueBody 
   codeBlocks <- mapM stackBlock code
   return $ prologueBlock : codeBlocks
   where prolMD = trivialMetadata name (show $ Just name)
+        -- | Add metadata for the first instruction in a funciton
+        markFunStart :: [(MAInstruction mreg MWord, Metadata)] -> [(MAInstruction mreg MWord, Metadata)]
+        markFunStart ls = let firstInst = head ls in -- We know ls is not empyt because the prelude is not empyt.
+          (fst firstInst, (snd firstInst){mdFunctionStart = True}) : tail ls 
   
   
 stacking :: Regs mreg => Lprog Metadata mreg MWord -> Hopefully $ MAProgram Metadata mreg MWord
