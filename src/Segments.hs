@@ -33,7 +33,7 @@ data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (P
                                               , segTrace :: Maybe [TraceChunk reg]
                                               , segAdvice :: Maybe (Map.Map MWord [Advice])}
 
-segment :: Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
+segment :: (Show reg) => Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
 segment privSize compRes = do
   let funCount = functionUsage $ aData compRes 
   segs <- segmentProgram funCount $ (lowProg . programCU) compRes

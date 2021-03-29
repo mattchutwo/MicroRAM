@@ -39,6 +39,7 @@ data PartialState reg = PartialState {
   , queueSt :: Trace reg -- ^ Carries a list of visited but unalocated states (backwards) including the inital state.
   , availableSegments :: Map.Map MWord [Int]
   , successorSegs :: [Int] -- successors to the current segment
+  , stToNetwork :: Bool -- If the current segment goes to network. 
   , privLoc :: Int -- The next location of a private segment
   , sparsityPS :: Sparsity
   , progPS :: Program reg MWord
@@ -58,6 +59,7 @@ chooseSegments privSize spar prog trace segments = do
         , queueSt = [head trace] -- initial state.
         , availableSegments = segmentSets
         , successorSegs = []
+        , stToNetwork = True
         , privLoc = length segments
         , sparsityPS = spar
         , progPS = prog
@@ -76,7 +78,7 @@ chooseSegments privSize spar prog trace segments = do
     -- | Maps pc to the index of segments that start with that pc
     -- but only if the segment comes from network
     segmentSets :: Map.Map MWord [Int]
-    segmentSets = T.trace ("Map of pc -> segment: " ++ show segMap ++ ". \nFrom list of segments: " ++ show segments) segMap
+    segmentSets = segMap -- T.trace ("Map of pc -> segment: " ++ show segMap) segMap
       where segMap = V.ifoldl addSegment Map.empty segments
     addSegment :: Map.Map MWord [Int] -> Int -> Segment reg wrd -> Map.Map MWord [Int] 
     addSegment sets indx seg =
@@ -120,9 +122,11 @@ chooseSegment segments privSize = do
   currentPc <- nextPc <$> get
   avalStates <- availableSegments <$> get
   succs <- successorSegs <$> get
-  let possibleNextSegments = succs ++ (Map.findWithDefault [] currentPc avalStates) 
+  toNet <- stToNetwork <$> get
+  let networkSuccs = if toNet then Map.findWithDefault [] currentPc avalStates else []
+  let possibleNextSegments = succs ++ networkSuccs
   checkedNextSegments <- filterM (checkSegment segments) possibleNextSegments
-  case checkedNextSegments of -- T.trace ("Pc :" ++ show currentPc ++ ". Possible next: " ++ show checkedNextSegments) 
+  case checkedNextSegments of -- T.trace ("Pc :" ++ show currentPc ++ ". Possible next: " ++ show checkedNextSegments ++ "\n\tUnfiltered: " ++ show possibleNextSegments) checkedNextSegments of 
     segment:_ -> do
       allocateQueue privSize -- allocates the current queue in private pc segments. 
       queueInitSt <- allocateSegment segments segment -- allocates states to use the public pc segment. Returns the last state
@@ -130,6 +134,7 @@ chooseSegment segments privSize = do
                , usedSegments = Set.insert segment $ usedSegments st -- Mark segment as used
                , successorSegs = segSuc $ segments V.! segment }) -- Record the new successors.
     _ -> do -- If no public segment fits try private
+      when (not toNet) $ progError ("Cant find a successor. \nToNet = False. \n Filtered segments:" ++ show possibleNextSegments) -- Check to network!!!
       execSt <- pullStates 1  -- returns singleton list
       pushQueue (head execSt) -- take the element from the list and it to the queue
    where

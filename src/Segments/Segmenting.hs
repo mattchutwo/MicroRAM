@@ -11,6 +11,8 @@ Stability   : experimental
 
 module Segments.Segmenting (segmentProgram, Segment(..), Constraints(..)) where
 
+import qualified Debug.Trace as T (trace)
+
 import Compiler.Errors
 import Compiler.Metadata
 import Compiler.IRs
@@ -65,7 +67,7 @@ expandList :: [a] -> [Int] -> [a]
 expandList ls factors = concat $ map (\(x,factor) -> replicate factor x) $ zip ls factors
 
 
-segmentProgram :: (Map.Map String Int)
+segmentProgram :: Show reg => (Map.Map String Int)
         -> AnnotatedProgram Metadata reg MWord -> Hopefully $ [Segment reg MWord]
 segmentProgram funCount prog =
   let cuts = cutProg prog
@@ -120,13 +122,15 @@ cutProg prog =
 
 
 type ToNetwork = Bool
-cutSuccessors :: Map.Map MWord Int -> Cut md reg MWord -> ([Int],ToNetwork)
+cutSuccessors :: Map.Map MWord Int -> Cut Metadata reg MWord -> ([Int],ToNetwork)
 cutSuccessors cutMap (Cut _ instrs pc len)
   | null instrs = ([], False)
   | otherwise =
-    let (pcSuccs, toNet) = pcSuccessors (pc + toEnum len - 1) $ fst $ last instrs -- Should use Seq?
+    let (pcSuccs, toNet) = pcSuccessors (pc + toEnum len - 1) $ fst term -- Should use Seq?
         cutSuccs = mapMaybe (\pc -> Map.lookup pc cutMap) pcSuccs in
+      T.trace ("Function: "++ show (mdFunction $ snd term)++ "@ PC:" ++ show pc ++ "\n\tProposed: \t" ++ show pcSuccs ++ "\n\tFiltered:\t" ++ show cutSuccs)
       (cutSuccs, toNet || length cutSuccs /= length pcSuccs)
+      where term = last instrs
 
 pcSuccessors :: MWord -> Instruction reg MWord -> ([MWord], ToNetwork)
 pcSuccessors pc instr = 
@@ -174,8 +178,7 @@ cut2segment (Cut _funName instrs pc len) succs toNet =
     , toNetwork = toNet }
   where fromNet = case instrs of
                     [] -> False
-                    (i,md):_ -> mdReturnCall md || mdFunctionStart md
-        mdFunctionStart md = False -- Add to metadata
+                    (_i,md):_ -> mdReturnCall md || mdFunctionStart md
 
 
 
@@ -184,9 +187,10 @@ findAllFunctions :: AnnotatedProgram Metadata reg wrd -> [String]
 findAllFunctions prog = Set.toList (foldr addFunction Set.empty prog) -- Can we make this faster with unique? 
   where addFunction (_instr, md) accumulator = Set.insert (mdFunction md) accumulator 
 
-segmentFunction :: [Cut Metadata reg MWord] -> String -> [Segment reg MWord]
-segmentFunction cuts funName = map toSegment cuts
-  where functionCuts = filter (\cut -> cutFunction cut == funName) cuts 
+segmentFunction :: Show reg => [Cut Metadata reg MWord] -> String -> [Segment reg MWord]
+segmentFunction cuts funName = result 
+  where result = map toSegment functionCuts 
+        functionCuts = filter (\cut -> cutFunction cut == funName) cuts 
         pcToIndexMap = foldr (\(i,cut) -> Map.insert (cutPc cut) i) Map.empty (zip [0..] functionCuts)   
         toSegment :: Cut Metadata reg MWord -> Segment reg MWord
         toSegment cut = let (cutSuccs, toNet) = cutSuccessors pcToIndexMap cut in

@@ -114,23 +114,23 @@ premain :: Regs mreg => [NamedBlock Metadata mreg MWord]
 premain = return $
   NBlock Nothing $
   -- poison address 0
-  map (\x -> (x,md)) $
-  [ IpoisonW (LImm 0) sp
-  , Iadd sp sp (LImm 1)
+  (IpoisonW (LImm 0) sp, md{mdFunctionStart = True}) : -- Premain is a 'function' add function start metadata
+  (map (\x -> (x,md)) $
+  [ Iadd sp sp (LImm 1)
   , Imull sp sp (LImm $ fromIntegral wordBytes)] ++
   -- push return address for main 
   Imov ax (Label "_ret_") : (push ax) ++
   -- set stack frame
   IstoreW (AReg sp) bp :  -- Store "old" base pointer 
   Imov bp (AReg sp) :    -- set base pointer to the stack pointer
-  callMain              -- jump to main
+  callMain)              -- jump to main
   where callMain = return $ Ijmp $ Label $ show $ Name "main"
         md = trivialMetadata "Premain" ""
 
 -- | returnBlock: return lets the program output an answer (when main returns)
 returnBlock :: Regs mreg => NamedBlock Metadata mreg MWord
 returnBlock = NBlock retName [(Ianswer (AReg ax),md)]
-  where md = trivialMetadata "_ret_" (show retName) 
+  where md = (trivialMetadata "_ret_" (show retName)) {mdFunctionStart = True} 
         retName = (Just "_ret_") 
 
 
