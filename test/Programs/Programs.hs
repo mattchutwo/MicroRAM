@@ -20,7 +20,7 @@ oneTest = OneTest $ defaultTest {
 allTests = ManyTests "Program tests"
         [testCorrectness, testErrors, testBugs]
 testCorrectness = ManyTests "Compiler correctness tests"
-                  [testTrivial, testLoops, testGEP, testDatastruct]
+                  [testTrivial, testLoops, testGEP, testDatastruct, testFunctionPointer]
 
 -- Trivial test, just to see the basics are working
 testTrivial = ManyTests "Trivial programs" $ OneTest <$>
@@ -76,6 +76,15 @@ testErrors = ManyTests "Test errors" $ OneTest <$>
     , compError = True
     } :
   []
+
+testFunctionPointer = ManyTests "Test function pointers" $ OneTest <$> [
+    defaultTest {
+      testName = "call function pointer"
+    , fileName = "test/programs/funcPointer.ll"
+    , testLen = 100
+    , testResult = 5
+    }
+  ]
 
 -- Conditionals, Branching and loops
 
