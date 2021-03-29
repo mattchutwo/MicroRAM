@@ -417,6 +417,14 @@ traceHandler active _nextH (Iext "tracestr" [ptrOp]) = do
   s <- readStr ptr
   when active $ traceM $ "TRACESTR " ++ Text.unpack s
   nextPc
+traceHandler active _nextH (Iext "traceexec" (nameOp : valOps)) = do
+  namePtr <- opVal nameOp
+  name <- readStr namePtr
+  vals <- mapM opVal valOps
+  let vals' = reverse $ dropWhile (== 0) $ reverse vals
+  when active $ traceM $ "[FUNC] " ++ Text.unpack name ++
+    "(" ++ intercalate ", " (map (drop 2 . showHex) vals') ++ ")"
+  nextPc
 traceHandler active _nextH (Iext name ops) | Just desc <- Text.stripPrefix "trace_" name = do
   vals <- mapM opVal ops
   when active $ traceM $ "TRACE[" ++ Text.unpack desc ++ "] " ++ intercalate ", " (map show vals)

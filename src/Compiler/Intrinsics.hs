@@ -125,6 +125,10 @@ cc_trace :: IntrinsicImpl m w
 cc_trace [msg] Nothing md = return [MirM (Iext "tracestr" [msg]) md]
 cc_trace _ _ _ = progError "bad arguments"
 
+cc_trace_exec :: IntrinsicImpl m w
+cc_trace_exec args Nothing md = return [MirM (Iext "traceexec" args) md]
+cc_trace_exec _ _ _ = progError "bad arguments"
+
 
 intrinsics :: Map String (IntrinsicImpl m MWord)
 intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
@@ -141,6 +145,7 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("__cc_write_unchecked", cc_write_unchecked)
 
   , ("__cc_trace", cc_trace)
+  , ("__cc_trace_exec", cc_trace_exec)
 
   , ("llvm.lifetime.start.p0i8", cc_noop)
   , ("llvm.lifetime.end.p0i8", cc_noop)
