@@ -87,6 +87,16 @@ instance (Pretty (PrettyPrintWrapper op)) => Pretty (RTLInstr' op) where
   pretty (RPhi reg srcs) = pretty (PPW reg) <> " = phi(" <> concatWith (surround ",") (map (pretty . first PPW) srcs) <> ")"
   pretty (RCall _retTy regM f _argTys args) = maybe "" (\r -> pretty (PPW r) <> " = ") regM <> pretty (PPW f) <> "(" <> concatWith (surround ",") (map (pretty . PPW) args) <> ")"
 
+instance Pretty Slot where
+  pretty = viaShow
+
+instance (Pretty (PrettyPrintWrapper reg), Pretty (PrettyPrintWrapper op)) => Pretty (LTLInstr' reg wrd op) where
+  pretty (Lgetstack slot pos ty reg) = pretty (PPW reg) <> " = stack(" <> pretty pos <> "," <> pretty slot <> "," <> pretty ty <> ")"
+  pretty (Lsetstack reg slot pos ty) = "stack(" <> pretty pos <> "," <> pretty slot <> "," <> pretty ty <> ") = " <> pretty (PPW reg)
+  pretty (LCall _retTy regM f _argTys args) = maybe "" (\r -> pretty (PPW r) <> " = ") regM <> pretty (PPW f) <> "(" <> concatWith (surround ",") (map (pretty . PPW) args) <> ")"
+  pretty (LRet opM) = "ret" <> maybe "" ((" " <>) . pretty . PPW) opM
+  pretty (LAlloc opM s n) = maybe "" (\op -> pretty (PPW op) <> " = ") opM <> "alloc(" <> pretty (PPW n) <> " * " <> pretty s <> ")"
+
 instance Pretty wrd => Pretty (LazyConst l wrd) where
   pretty (SConst s) = pretty s
   pretty (LConst _) = "lazy_constant"
@@ -102,6 +112,10 @@ instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pr
   pretty (MirM i _mdata) = pretty i -- <> " // " <> pretty mdata
   pretty (MirI i _mdata) = pretty i -- <> " // " <> pretty mdata
 
+instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg), Pretty inst) => Pretty (IRInstruction mdata reg wrd inst) where
+  pretty (MRI i _mdata) = pretty i -- <> " // " <> pretty mdata
+  pretty (IRI i _mdata) = pretty i -- <> " // " <> pretty mdata
+
 instance (Pretty name, Pretty inst) => Pretty (BB name inst) where
   pretty (BB name inst inst' _cfg) = 
     vsep [ "/// Block " <> pretty name
@@ -110,9 +124,26 @@ instance (Pretty name, Pretty inst) => Pretty (BB name inst) where
          , line
          ]
 
+instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (NamedBlock meta reg wrd) where
+  pretty (NBlock nameM insts) = 
+    vsep [ "/// Block " <> maybe "" cleanName nameM
+         , vsep (map (pretty . fst) insts)
+         , line
+         ]
+
 instance (Pretty name, Pretty param, Pretty block) => Pretty (Function name param block) where
   pretty (Function name retTy argTys blocks _nextReg) =
     vsep [ "// " <> pretty name <> " :: " <> prettyArgs argTys <> " -> " <> pretty retTy
+         , vsep (map pretty blocks)
+         , line
+         ]
+    where
+      prettyArgs []     = "()"
+      prettyArgs argTys = concatWith (surround " -> ") (map pretty argTys)
+
+instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (LFunction mdata reg wrd) where
+  pretty (LFunction name retTy argTys _stackSize blocks) =
+    vsep [ "// " <> cleanName name <> " :: " <> prettyArgs argTys <> " -> " <> pretty retTy
          , vsep (map pretty blocks)
          , line
          ]
