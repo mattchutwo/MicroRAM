@@ -10,7 +10,7 @@ Stability   : experimental
 
 module Segments.ChooseSegments where
 
---import qualified Debug.Trace as Trace (trace)
+import qualified Debug.Trace as T (trace)
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
@@ -23,6 +23,7 @@ import Sparsity.Sparsity
 import Sparsity.Stutter
 import Control.Monad.State.Lazy
 
+import Compiler.Errors
 
 data TraceChunk reg = TraceChunk {
   chunkSeg :: Int
@@ -37,16 +38,18 @@ data PartialState reg = PartialState {
   , chunksPS :: [TraceChunk reg]
   , queueSt :: Trace reg -- ^ Carries a list of visited but unalocated states (backwards) including the inital state.
   , availableSegments :: Map.Map MWord [Int]
+  , successorSegs :: [Int] -- successors to the current segment
   , privLoc :: Int -- The next location of a private segment
   , sparsityPS :: Sparsity
   , progPS :: Program reg MWord
+  , usedSegments :: Set.Set Int
   } deriving Show
 
 type InstrNumber = MWord 
-type PState reg x = State (PartialState reg) x 
+type PState reg x = StateT (PartialState reg) Hopefully x 
  
-chooseSegments :: Int -> Sparsity -> Program reg MWord -> Trace reg -> V.Vector (Segment reg MWord) ->  [TraceChunk reg]
-chooseSegments privSize spar prog trace segments =
+chooseSegments :: Show reg => Int -> Sparsity -> Program reg MWord -> Trace reg -> V.Vector (Segment reg MWord) ->  Hopefully [TraceChunk reg]
+chooseSegments privSize spar prog trace segments = do
   -- create starting state
   let initSt = PartialState {
         nextPc = 0 
@@ -54,14 +57,16 @@ chooseSegments privSize spar prog trace segments =
         , chunksPS = []
         , queueSt = [head trace] -- initial state.
         , availableSegments = segmentSets
+        , successorSegs = []
         , privLoc = length segments
         , sparsityPS = spar
-        , progPS = prog }   
+        , progPS = prog
+        , usedSegments = Set.empty}   
   -- run the choose statement
-      go = whileM_ traceNotEmpty (chooseSegment segments privSize) *> allocateQueue privSize
-      finalSt = execState go initSt in 
+  let go = whileM_ traceNotEmpty (chooseSegment segments privSize) *> allocateQueue privSize
+  finalSt <- execStateT go initSt 
   -- extract values and return
-    (reverse $ chunksPS finalSt)
+  return (reverse $ chunksPS finalSt)
 
   where
     traceNotEmpty :: PState reg Bool
@@ -71,28 +76,28 @@ chooseSegments privSize spar prog trace segments =
     -- | Maps pc to the index of segments that start with that pc
     -- but only if the segment comes from network
     segmentSets :: Map.Map MWord [Int]
-    segmentSets = V.ifoldl addSegment Map.empty segments
+    segmentSets = T.trace ("Map of pc -> segment: " ++ show segMap ++ ". \nFrom list of segments: " ++ show segments) segMap
+      where segMap = V.ifoldl addSegment Map.empty segments
     addSegment :: Map.Map MWord [Int] -> Int -> Segment reg wrd -> Map.Map MWord [Int] 
     addSegment sets indx seg =
       if fromNetwork seg
-      then
-        addToMap sets (segPc seg) indx
-      else
-        sets
-    addToMap :: Map.Map MWord [Int] -> MWord -> Int -> Map.Map MWord [Int] 
-    addToMap mp k a =
-      let currentValue = Map.lookup k mp in
-        flip (Map.insert k) mp $ case currentValue of
-                                    Just ls -> a:ls
-                                    Nothing -> [a]
+      then addToMap sets (segPc seg) indx
+      else sets
+    addToMap :: Map.Map MWord [Int] -> Maybe MWord -> Int -> Map.Map MWord [Int] 
+    addToMap mp mk a =
+      case mk of
+        Nothing -> mp
+        Just k -> let currentValue = Map.lookup k mp in
+                    flip (Map.insert k) mp $ case currentValue of
+                                               Just ls -> a:ls
+                                               Nothing -> [a]
     segPc seg = getPcFromConstraint (constraints seg)
-    getPcFromConstraint :: [Constraints] -> MWord 
+    getPcFromConstraint :: [Constraints] -> Maybe MWord 
     getPcFromConstraint constrs =
       case constrs of
-        (PcConst pcW):_ -> pcW
-        (_): ls -> getPcFromConstraint ls
-        -- The constraints of public pc shouldn't be empty!
-                  
+        (PcConst pcW):_ -> Just pcW
+        --_: ls -> getPcFromConstraint ls -- ^ GCC is smart enought to notice this is redundant ADD IT if more constraints are added
+        [] -> Nothing
                     
 whileM_ :: (Monad m) => m Bool -> m a -> m ()
 whileM_ p f = go
@@ -113,14 +118,20 @@ showQueue q = "[" ++ (concat $ showESt <$> q) ++ "]"
 chooseSegment :: V.Vector (Segment reg MWord) -> Int -> PState reg ()
 chooseSegment segments privSize = do
   currentPc <- nextPc <$> get
-  maybeSegment <- popSegmentIn segments currentPc
-  case maybeSegment of
-    Just segment -> do
+  avalStates <- availableSegments <$> get
+  succs <- successorSegs <$> get
+  let possibleNextSegments = succs ++ (Map.findWithDefault [] currentPc avalStates) 
+  checkedNextSegments <- filterM (checkSegment segments) possibleNextSegments
+  case checkedNextSegments of -- T.trace ("Pc :" ++ show currentPc ++ ". Possible next: " ++ show checkedNextSegments) 
+    segment:_ -> do
       allocateQueue privSize -- allocates the current queue in private pc segments. 
       queueInitSt <- allocateSegment segments segment -- allocates states to use the public pc segment. Returns the last state
-      pushQueue queueInitSt -- push the initial state of the private queue. Tthis state is already in the trace (previous step) and won't be added again.
-    _ -> do execSt <- pullStates 1  -- returns singleton list
-            pushQueue (head execSt) -- take the element from the list and it to the queue
+      modify (\st -> st {queueSt = [queueInitSt] -- push the initial state of the private queue. Already in trace, this one gets dropped
+               , usedSegments = Set.insert segment $ usedSegments st -- Mark segment as used
+               , successorSegs = segSuc $ segments V.! segment }) -- Record the new successors.
+    _ -> do -- If no public segment fits try private
+      execSt <- pullStates 1  -- returns singleton list
+      pushQueue (head execSt) -- take the element from the list and it to the queue
    where
      -- | Given a segment indicated by the index,
      -- pull enough states to fill the segment and
@@ -133,7 +144,28 @@ chooseSegment segments privSize = do
             let newChunk = TraceChunk segmentIndx nextStates
             addChunks [newChunk]
             return $ last nextStates
-     
+
+     -- | Checks if we can use the segment next
+     checkSegment :: V.Vector (Segment reg MWord) -> Int -> PState reg Bool
+     checkSegment segs segInx = do
+       let seg = segs V.! segInx 
+       usedSegs <- usedSegments <$> get
+       let available = not $ segInx `Set.member` usedSegs
+       trace <- remainingTrace <$> get
+       let satLength = length trace >= segLen seg 
+       satCons <- satConstraints seg
+       return $ available && satLength && satCons
+
+     -- | Check if segment's constraints are satisfied.
+     satConstraints :: Segment reg MWord -> PState reg Bool
+     satConstraints seg = do
+       sat   <- mapM satConstraint $ constraints seg 
+       return $ and sat
+     satConstraint :: Constraints -> PState reg Bool
+     satConstraint (PcConst pcConst) = do
+       pcState <- nextPc <$> get
+       return $ pcState == pcConst 
+       
      -- Gets the next n states, update pc to match the last popped state
      pullStates :: Int -> PState reg [ExecutionState reg]
      pullStates n = do
@@ -279,9 +311,9 @@ testSegmentSets = Map.fromList
 
 testProg = concat $ segIntrs <$> testSegments'
 
-_testchunks :: [TraceChunk ()]
+_testchunks :: Hopefully [TraceChunk ()]
 _testchunks = chooseSegments testPrivSize testSparsity testProg testTrace (V.fromList testSegments')
   where testSparsity = (Map.fromList [(KmemOp, 2)])
         testPrivSize = 4
 
-test = mapM_ (putStrLn . show) _testchunks
+test = mapM_ (putStrLn . show) <$> _testchunks

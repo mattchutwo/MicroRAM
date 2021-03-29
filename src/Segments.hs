@@ -41,17 +41,19 @@ segment privSize compRes = do
   return $ SegmentedProgram compResNoMD segs privateSegments Nothing Nothing
   where compResNoMD = compRes {programCU = (map fst) <$> programCU compRes}
 
-chooseSegment' :: Regs reg => Int -> Sparsity -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 
-chooseSegment' privSize spar trace segProg =
+chooseSegment' :: (Show reg, Regs reg) => Int -> Sparsity -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 
+chooseSegment' privSize spar trace segProg = do
+  let prog = lowProg . programCU . compiled $ segProg
+  let segs = (V.fromList $ pubSegments segProg)
+  chunks <- chooseSegments privSize spar prog trace segs
+  let segmentsTrace = maximum (map chunkSeg chunks)
+  let numSegments = length (pubSegments segProg) + length (privSegments segProg) 
   -- Check if there are enough segments:
   if (numSegments) >= segmentsTrace then 
     return $ segProg {segTrace = Just chunks}
   else
     assumptError $ "Trace is not long enough. Execution uses: " ++ (show segmentsTrace) ++ " segments, but only " ++ show numSegments ++ " where generated."
-    
-  where chunks = chooseSegments privSize spar (lowProg . programCU . compiled $ segProg) trace (V.fromList $ pubSegments segProg)
-        segmentsTrace = maximum (map chunkSeg chunks)
-        numSegments = length (pubSegments segProg) + length (privSegments segProg) 
+     
 mkPrivateSegments :: Word -> Int -> [Segment reg MWord]
 mkPrivateSegments len size = replicate (fromEnum len `div` size) (Segment [] [] size [] True True) 
 
