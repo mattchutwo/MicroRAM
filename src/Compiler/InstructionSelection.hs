@@ -356,6 +356,7 @@ isInstruction env ret instr =
     (LLVM.Phi _typ ins _)  ->  withReturn ret $ isPhi env ins
     (LLVM.Select cond op1 op2 _)  -> withReturn ret $ isSelect env cond op1 op2 
     (LLVM.GetElementPtr _ addr inxs _) -> withReturn ret $ isGEP env addr inxs
+    (LLVM.InsertValue _ _ _ _)   -> makeTraceInvalid <$> getMetadata
     (LLVM.ExtractValue _ _ _ )   -> makeTraceInvalid <$> getMetadata
     -- Transformers
     (LLVM.SExt op _ _)       -> liftToRTL $ withReturn ret (isMove env op) 
