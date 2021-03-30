@@ -149,3 +149,6 @@ jmp %sp
 
 // Just _ret_: 
 ans %ax	 	 // Line 0
+invalid program: Cant find a successor. 
+ToNet = False. 
+ Filtered segments:[4]

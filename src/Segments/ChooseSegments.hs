@@ -130,16 +130,18 @@ chooseSegment segments privSize = do
     segment:_ -> do
       queue <- queueSt <$> get
       -- allocates the current queue in private pc segments (if there is more than just the last state).  
-      when (length queue <=1) $ allocateQueue privSize
+      when (length queue >1) $ allocateQueue privSize
       -- allocates states to use the public pc segment. Returns the last state
-      queueInitSt <- allocateSegment segments segment 
+      queueInitSt <- allocateSegment segments segment
+      let newSeg = segments V.! segment
       modify (\st -> st {queueSt = [queueInitSt] -- push the initial state of the private queue. Already in trace, this one gets dropped
                , usedSegments = Set.insert segment $ usedSegments st -- Mark segment as used
-               , successorSegs = segSuc $ segments V.! segment }) -- Record the new successors.
+               , successorSegs = segSuc $ newSeg -- Record the new successors.
+               , stToNetwork = toNetwork $ newSeg }) -- Record the new toNetwork
     _ -> do -- If no public segment fits try private
       when (not toNet) $ progError ("Cant find a successor. \nToNet = False. \n Filtered segments:" ++ show possibleNextSegments) -- Check to network!!!
       execSt <- pullStates 1  -- returns singleton list
-      pushQueue (head execSt) -- take the element from the list and it to the queue
+      pushQueue (head execSt) -- take the element in the list add it to the queue
    where
      -- | Given a segment indicated by the index,
      -- pull enough states to fill the segment and

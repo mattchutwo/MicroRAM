@@ -50,7 +50,7 @@ data Cut md reg wrd = Cut
   , cutLen :: Int }
   deriving Show
 makeCut :: MWord -> AnnotatedProgram Metadata reg wrd -> Cut Metadata reg wrd
-makeCut pc instrs = T.traceShow (funName, pc, length instrs) Cut funName instrs pc (length instrs) 
+makeCut pc instrs = Cut funName instrs pc (length instrs) 
   where funName = toHead (mdFunction . snd) "" instrs
 
 toHead :: (a -> b) -> b -> [a] -> b
