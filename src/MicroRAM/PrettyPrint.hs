@@ -40,13 +40,14 @@ microPrint :: (Pretty wrd, Bounded wrd, Integral wrd, Show wrd, Show reg, Pretty
 microPrint = show . prettyAnn
 
 prettyAnn :: forall reg wrd a . (Show reg, Show wrd, Bounded wrd, Integral wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => AnnotatedProgram Metadata reg wrd -> Doc a
-prettyAnn prog = mconcat $ evalState (mapM prettyPrintInstr prog) $ defaultMetadata{mdLine = -1} 
-  where prettyPrintInstr :: (Instruction reg wrd, Metadata) -> MetaState (Doc a)
-        prettyPrintInstr (instr, md') = do
+prettyAnn prog = mconcat $ evalState (mapM prettyPrintInstr (zip [0..] prog)) $ defaultMetadata{mdLine = -1} 
+  where prettyPrintInstr :: (Int, (Instruction reg wrd, Metadata)) -> MetaState (Doc a)
+        prettyPrintInstr (n,(instr, md')) = do
           md <- get
           let outString =
                 functionString md md'     <>
                 blockString md md'        <>
+                microLine n               <>
                 pretty instr              <>
                 lineString md md'         <>
                 "\n"
@@ -57,6 +58,7 @@ prettyAnn prog = mconcat $ evalState (mapM prettyPrintInstr prog) $ defaultMetad
           "\n\n// Define " <> (cleanName $ mdFunction md') <> ": \n"
         blockString md md'    = if (mdBlock md == mdBlock md') then "" else 
           "\n// " <> (cleanName $ mdBlock md') <> ": \n"
+        microLine n = pretty n <> ".\t"
         lineString md md' = if (mdLine md == mdLine md') then "" else 
           "\t \t // Line " <> (viaShow $ mdLine md')
 
