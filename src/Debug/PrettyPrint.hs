@@ -1,5 +1,5 @@
 {-|
-Module      : Pretty Print MicroRAM programs
+Module      : Pretty Print programs
 Description :  
 Maintainer  : santiago@galois.com
 Stability   : prototype
@@ -12,7 +12,7 @@ Stability   : prototype
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module MicroRAM.PrettyPrint (
+module Debug.PrettyPrint (
   microPrint,
   pprintInst,
   pprintReg,
