@@ -11,7 +11,7 @@ Stability   : experimental
 
 module Segments.Segmenting (segmentProgram, Segment(..), Constraints(..)) where
 
-import qualified Debug.Trace as T (trace)
+import qualified Debug.Trace as T (trace, traceShow)
 
 import Compiler.Errors
 import Compiler.Metadata
@@ -50,7 +50,7 @@ data Cut md reg wrd = Cut
   , cutLen :: Int }
   deriving Show
 makeCut :: MWord -> AnnotatedProgram Metadata reg wrd -> Cut Metadata reg wrd
-makeCut pc instrs = Cut funName instrs pc (length instrs) 
+makeCut pc instrs = T.traceShow (funName, pc, length instrs) Cut funName instrs pc (length instrs) 
   where funName = toHead (mdFunction . snd) "" instrs
 
 toHead :: (a -> b) -> b -> [a] -> b
@@ -101,8 +101,7 @@ cutProg prog =
         step (instr, count) (cuts, currentCut) =
           if isJump $ fst instr
           then ((makeCut count currentCut): cuts, [instr]) -- Will be folded right, so everything is built in reverse.
-          else
-            (cuts, instr:currentCut)
+          else (cuts, instr:currentCut )
 
         -- Find how many times the current cut will be repeated.
         -- Assume all the cut is in the same function
@@ -128,7 +127,7 @@ cutSuccessors cutMap (Cut _ instrs pc len)
   | otherwise =
     let (pcSuccs, toNet) = pcSuccessors (pc + toEnum len - 1) $ fst term -- Should use Seq?
         cutSuccs = mapMaybe (\pc -> Map.lookup pc cutMap) pcSuccs in
-      T.trace ("Function: "++ show (mdFunction $ snd term)++ "@ PC:" ++ show pc ++ "\n\tProposed: \t" ++ show pcSuccs ++ "\n\tFiltered:\t" ++ show cutSuccs)
+      --T.trace ("Function: "++ show (mdFunction $ snd term)++ "@ PC:" ++ show pc ++ "\n\tProposed: \t" ++ show pcSuccs ++ "\n\tFiltered:\t" ++ show cutSuccs)
       (cutSuccs, toNet || length cutSuccs /= length pcSuccs)
       where term = last instrs
 

@@ -10,7 +10,7 @@ Stability   : experimental
 
 module Segments.ChooseSegments where
 
-import qualified Debug.Trace as T (trace)
+import qualified Debug.Trace as T (trace, traceShow)
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
@@ -117,7 +117,7 @@ showQueue
 showQueue q = "[" ++ (concat $ showESt <$> q) ++ "]"
    
 -- | chooses the next segment
-chooseSegment :: V.Vector (Segment reg MWord) -> Int -> PState reg ()
+chooseSegment :: Show reg => V.Vector (Segment reg MWord) -> Int -> PState reg ()
 chooseSegment segments privSize = do
   currentPc <- nextPc <$> get
   avalStates <- availableSegments <$> get
@@ -128,8 +128,11 @@ chooseSegment segments privSize = do
   checkedNextSegments <- filterM (checkSegment segments) possibleNextSegments
   case checkedNextSegments of -- T.trace ("Pc :" ++ show currentPc ++ ". Possible next: " ++ show checkedNextSegments ++ "\n\tUnfiltered: " ++ show possibleNextSegments) checkedNextSegments of 
     segment:_ -> do
-      allocateQueue privSize -- allocates the current queue in private pc segments. 
-      queueInitSt <- allocateSegment segments segment -- allocates states to use the public pc segment. Returns the last state
+      queue <- queueSt <$> get
+      -- allocates the current queue in private pc segments (if there is more than just the last state).  
+      when (length queue <=1) $ allocateQueue privSize
+      -- allocates states to use the public pc segment. Returns the last state
+      queueInitSt <- allocateSegment segments segment 
       modify (\st -> st {queueSt = [queueInitSt] -- push the initial state of the private queue. Already in trace, this one gets dropped
                , usedSegments = Set.insert segment $ usedSegments st -- Mark segment as used
                , successorSegs = segSuc $ segments V.! segment }) -- Record the new successors.
@@ -208,19 +211,18 @@ chooseSegment segments privSize = do
 -- | Finds private segments to put the states in the queue.
 -- It first adds the appropriate stuttering for sparsity and to pad
 -- the last segment to have the right ammount of states.
-allocateQueue :: Int -> PState reg ()
+allocateQueue :: Show reg => Int -> PState reg ()
 allocateQueue size =
   do queue <- reverse . queueSt <$> get -- FIFO
-     unless (null queue) $ do -- If empty queue, nothing to allocate (can happen at the end of the process)
-       spar <- sparsityPS <$> get
-       prog <- progPS <$> get
-       -- Note: We realy on the fact that the first state never stutters. That state will be dropped.
-       let sparseTrace = stutter size spar prog queue 
-       currentPrivSegment <- privLoc <$> get
-       let tailTrace = tail sparseTrace -- drop the initial state which is already in the trace (in the previous segment)
-       let newChunks =  splitPrivBlocks size currentPrivSegment tailTrace
-       modify (\st -> st {queueSt = [], privLoc = currentPrivSegment + length newChunks})
-       addChunks newChunks
+     spar <- sparsityPS <$> get
+     prog <- progPS <$> get
+     -- Note: We realy on the fact that the first state never stutters. That state will be dropped.
+     let sparseTrace = stutter size spar prog queue 
+     currentPrivSegment <- privLoc <$> get
+     let tailTrace = tail sparseTrace -- drop the initial state which is already in the trace (in the previous segment)
+     let newChunks =  splitPrivBlocks size currentPrivSegment tailTrace
+     modify (\st -> st {queueSt = [], privLoc = currentPrivSegment + length newChunks})
+     addChunks newChunks
 
 -- | Chunks are added backwards
 addChunks :: [TraceChunk reg] -> PState reg ()
