@@ -8,13 +8,13 @@ import Frontend.ClangCaller
 import Util.Util
 
 import MicroRAM
-import MicroRAM.PrettyPrint
 import Compiler
 import Control.Monad(when)
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.Metadata
+import Debug.PrettyPrint
 import LLVMutil.LLVMIO
 
 import Output.Output
