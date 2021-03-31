@@ -80,7 +80,7 @@ testErrors = ManyTests "Test errors" $ OneTest <$>
 testFunctionPointer = ManyTests "Test function pointers" $ OneTest <$> [
     defaultTest {
       testName = "call function pointer"
-    , fileName = "test/programs/funcPointer.ll"
+    , fileName = "test/Programs/funcPointer.ll"
     , testLen = 100
     , testResult = 5
     }
