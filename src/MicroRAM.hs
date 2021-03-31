@@ -18,7 +18,7 @@ Stability   : experimental
 This module describe two (closely related) languages designed for zero knowledge
 execution of programs: MicroRAM and MicroASM. These languages are part of the
 cheescloth compiler.
-
+ 
 = MicroRAM
 A simple machine language designed for zero knowledge
 execution of programs. The instructions (inspired by the TinyRAM language

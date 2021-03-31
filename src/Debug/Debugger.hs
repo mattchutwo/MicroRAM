@@ -48,9 +48,9 @@ import Compiler.Registers
 
 import qualified Data.Set as Set
 
+import Debug.PrettyPrint
 import MicroRAM.MRAMInterpreter
 import MicroRAM
-import MicroRAM.PrettyPrint
 import LLVMutil.LLVMIO
 
 
