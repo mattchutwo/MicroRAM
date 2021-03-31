@@ -35,17 +35,27 @@ import qualified LLVM.AST as LLVM
 
 -- Local 
 import Compiler
---import Compiler.CallingConvention
+import Compiler.Analysis
+import Compiler.BlockCleanup
+import Compiler.CallingConvention
 import Compiler.CompilationUnit
---import Compiler.InstructionSelection
+import Compiler.Globals
+import Compiler.InstructionSelection
+import Compiler.Intrinsics
 --import Compiler.IRs
+import Compiler.Legalize
+import Compiler.LocalizeLabels
 import Compiler.Metadata
 import Compiler.IRs
---import Compiler.RegisterAlloc
+import Compiler.RegisterAlloc
 import Compiler.Registers
---import Compiler.RemoveLabels
---import Compiler.Stacking
+import Compiler.RemoveLabels
+import Compiler.RemovePhi
+import Compiler.Stacking
+import Compiler.UndefinedFunctions
+import Sparsity.Sparsity
 
+import Data.Default
 import qualified Data.Set as Set
 
 import Debug.PrettyPrint
@@ -326,12 +336,38 @@ summaryFromFile myfile myCS 300
 *******************************
 -}
 
--- jpProgComp :: Word -> IO (Program VReg MWord)
-jpProgComp :: Word -> IO (CompilationResult (AnnotatedProgram Metadata AReg MWord))
+-- jpProgComp :: Word -> IO (CompilationResult (AnnotatedProgram Metadata AReg MWord))
 jpProgComp len = do
-    m <- fromLLVMFile "programs/driver-link.ll"
-    return $ either undefined id $
-      compile False len m Nothing
+  m <- fromLLVMFile "test/programs/funcPointer.ll"
+  -- return m
+  return $ either (error . show) id $
+        (justCompile instrSelect) (prog2unit len m)
+    >>= (justCompile renameLLVMIntrinsicImpls)
+    >>= (justCompile lowerIntrinsics)
+    >>= (justCompile (catchUndefinedFunctions allowUndefFun))
+    >>= (justCompile legalize)
+    >>= (justCompile localizeLabels)
+    >>= (justCompile edgeSplit)
+
+    >>= (justCompile edgeSplit)
+    >>= (justCompile removePhi)
+    >>= (registerAlloc def)
+    >>= (justCompile callingConvention)
+    >>= (replaceGlobals)
+    >>= (justCompile stacking)
+    >>= (justAnalyse (return . SparsityData . (forceSparsity spars))) 
+    >>= (blockCleanup)
+    >>= (removeLabels)
+  where
+    allowUndefFun = False
+    spars = Nothing
+
+    -- return $ either undefined id $
+    --   compile False len m Nothing
+-- p <- jpProgComp 2000
+-- putStr $ microPrint $ lowProg $ programCU p
+--
+-- do {p <- jpProgComp 200; print $ pretty $ map fst $ programCU p}
 
 {- SC: Broken after resgiter allocation was moved to
    work on compilation units, not just programs.
