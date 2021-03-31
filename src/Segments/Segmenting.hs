@@ -17,6 +17,9 @@ import Compiler.Errors
 import Compiler.Metadata
 import Compiler.IRs
 import qualified Data.Map as Map
+import qualified Data.Graph as G (stronglyConnComp, SCC(..))
+import qualified Data.Sequence as Seq
+
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set 
 import MicroRAM
@@ -187,15 +190,50 @@ findAllFunctions prog = Set.toList (foldr addFunction Set.empty prog) -- Can we 
   where addFunction (_instr, md) accumulator = Set.insert (mdFunction md) accumulator 
 
 segmentFunction :: Show reg => [Cut Metadata reg MWord] -> String -> [Segment reg MWord]
-segmentFunction cuts funName = result 
-  where result = map toSegment functionCuts 
+segmentFunction cuts funName = functionSegs 
+  where functionSegs = map toSegment functionCuts 
         functionCuts = filter (\cut -> cutFunction cut == funName) cuts 
+
         pcToIndexMap = foldr (\(i,cut) -> Map.insert (cutPc cut) i) Map.empty (zip [0..] functionCuts)   
         toSegment :: Cut Metadata reg MWord -> Segment reg MWord
         toSegment cut = let (cutSuccs, toNet) = cutSuccessors pcToIndexMap cut in
                           cut2segment cut cutSuccs toNet
 
+-- | Loop operations
+-- We define loops as Strongly Connected Component
+ 
+-- | 1. Make the CFG with nodes (node, key, [key])
+makeCFG :: [Segment reg wrd]
+        -> [(Int,Int,[Int])]
+makeCFG segments = segment2node <$> zip segments [0..]
+  where segment2node (seg, segIndex) = (segIndex, segIndex, segSuc seg)
+    
+-- | 2. Identify SCC in the CFG
+-- We use the the library funciton: G.stronglyConnComp.
 
+-- | 3. Add `fromNetwork` to every exit from a loop.
+connectLoopExits :: Seq.Seq (Segment reg wrd) -- Segments
+                 -> [G.SCC Int]                 -- Connected components
+                 -> Seq.Seq (Segment reg wrd)
+connectLoopExits segs sccs = foldr connectComponent segs sccs
+  where connectComponent component segs =
+          case component of
+            G.AcyclicSCC _ -> segs
+            G.CyclicSCC component ->
+              let compSet = Set.fromList component in
+                foldl (connectLoop compSet) segs component 
+        connectLoop compSet segsList compSeg =
+          foldl (flip $ Seq.adjust' addfromNetwork) segsList $
+          filter (\i -> not $ i `Set.member` compSet) $ segSuc (segsList `Seq.index` compSeg)
+        addfromNetwork seg = seg{fromNetwork = True}
+-- | 4. Remove back-edges in loops and replace them with toNetwork to every back-edge in loops (to break the loop) 
+--      The goal here is to add exits to the loop.
+--      Why do we need to remove the edges? A back jump might not directly jump to a used segment, but it might make
+--      the segmentChooser stuck. There are two ways to fix them (both useful):
+--      (1) Optimize the segmentChooser so it can look ahead/backtrack if it chooses a hopeless path.
+--      (2) Add smarter exits to the loop like so:
+--          (Algorithm sketch) For each entry to the loop, do a breath first search.
+--          Whenever the search jumps to a visited segment, add to/fromNetwork in that jump.
 
 
 
