@@ -39,6 +39,7 @@ import Control.Monad.State.Lazy
 
 
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 
 import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
@@ -356,8 +357,8 @@ isInstruction env ret instr =
     (LLVM.Phi _typ ins _)  ->  withReturn ret $ isPhi env ins
     (LLVM.Select cond op1 op2 _)  -> withReturn ret $ isSelect env cond op1 op2 
     (LLVM.GetElementPtr _ addr inxs _) -> withReturn ret $ isGEP env addr inxs
-    (LLVM.InsertValue _ _ _ _)   -> makeTraceInvalid <$> getMetadata
-    (LLVM.ExtractValue _ _ _ )   -> makeTraceInvalid <$> getMetadata
+    (LLVM.InsertValue _ _ _ _)   -> makeTraceInvalid "insertvalue" <$> getMetadata
+    (LLVM.ExtractValue _ _ _ )   -> makeTraceInvalid "extractvalue" <$> getMetadata
     -- Transformers
     (LLVM.SExt op _ _)       -> liftToRTL $ withReturn ret (isMove env op) 
     (LLVM.ZExt op _ _)       -> liftToRTL $ withReturn ret (isMove env op)
@@ -366,9 +367,9 @@ isInstruction env ret instr =
     (LLVM.BitCast op _typ _) -> liftToRTL $ withReturn ret (isMove env op)
     (LLVM.Trunc op ty _ )    -> liftToRTL $ withReturn ret (isTruncate env op ty)
     -- Exceptions
-    (LLVM.LandingPad _ _ _ _ ) -> makeTraceInvalid <$> getMetadata
-    (LLVM.CatchPad _ _ _)      -> makeTraceInvalid <$> getMetadata
-    (LLVM.CleanupPad _ _ _ )   -> makeTraceInvalid <$> getMetadata
+    (LLVM.LandingPad _ _ _ _ ) -> makeTraceInvalid "landingpad" <$> getMetadata
+    (LLVM.CatchPad _ _ _)      -> makeTraceInvalid "catchpad" <$> getMetadata
+    (LLVM.CleanupPad _ _ _ )   -> makeTraceInvalid "cleanuppad" <$> getMetadata
     -- Floating point
     (LLVM.SIToFP _ _ _)     -> unsupported "SIToFP"
     (LLVM.UIToFP _ _ _)     -> unsupported "UIToFP"
@@ -392,7 +393,7 @@ isInstruction env ret instr =
           | rejectUnsupported = implError $ "unsupported instruction: " ++ desc
           | otherwise = do
             traceM $ "unsupported instruction: " ++ desc
-            makeTraceInvalid <$> getMetadata
+            makeTraceInvalid desc <$> getMetadata
 
 {- | Implements arithmetic shift right in terms of other binary operations like so:
 @
@@ -865,18 +866,20 @@ isTerminator' env ret term =
     -- `Resume` and `Unreachable` still need to terminate the block after
     -- flagging the error, so we add an `answer` instruction, which is defined
     -- to stall or halt execution.
-    (LLVM.Resume _ _ ) -> withMeta $ \md -> (makeTraceInvalid md ++ halt md)
+    (LLVM.Resume _ _ ) -> withMeta $ \md -> (makeTraceInvalid "resume" md ++ halt md)
     (LLVM.Unreachable _) -> withMeta $ \md -> (triggerBug md ++ halt md)
     term ->  implError $ "Terminator not yet supported. \n \t" ++ (show term)
   where
     halt md = [MirM (MRAM.Ianswer (LImm $ SConst 0)) md]
 
-makeTraceInvalid :: Metadata -> [MIRInstruction Metadata regT MWord]
-makeTraceInvalid md = [MirI rtlCallValidIf md]
-  where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_invalid") [Tint] []
+makeTraceInvalid :: String -> Metadata -> [MIRInstruction Metadata regT MWord]
+makeTraceInvalid desc md = [MirM traceInstr md, MirI rtlCallFlagInvalid md]
+  where
+    traceInstr = MRAM.Iext (Text.pack $ "trace_Invalid: " ++ desc) []
+    rtlCallFlagInvalid = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_invalid") [Tint] []
 triggerBug :: Metadata -> [MIRInstruction Metadata regT MWord]
-triggerBug md = [MirI rtlCallValidIf md]
-  where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_bug") [Tint] []
+triggerBug md = [MirI rtlCallFlagBug md]
+  where rtlCallFlagBug = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_bug") [Tint] []
 
 -- | Branch terminator
 isBr :: LLVM.Name -> Statefully [MIRInstr Metadata MWord]
