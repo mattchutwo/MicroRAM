@@ -139,7 +139,15 @@ chooseSegment segments privSize = do
                , successorSegs = segSuc $ newSeg -- Record the new successors.
                , stToNetwork = toNetwork $ newSeg }) -- Record the new toNetwork
     _ -> do -- If no public segment fits try private
-      when (not toNet) $ progError ("Cant find a successor. \nToNet = False. \n Filtered segments:" ++ show possibleNextSegments) -- Check to network!!!
+      when (not toNet) $ progError ("Can't find a successor. \nToNet = False. "
+                                    ++ "\n\t Filtered segments:"
+                                    ++ show possibleNextSegments
+                                    ++ "\n\t Just successors:"
+                                    ++ show succs
+                                    ++ ".\n\t PC: "
+                                    ++ show currentPc
+                                    ++ ".\n\t Network matching the pc: "
+                                    ++ show (Map.lookup currentPc avalStates)) -- Check to network!!!
       execSt <- pullStates 1  -- returns singleton list
       pushQueue (head execSt) -- take the element in the list add it to the queue
    where

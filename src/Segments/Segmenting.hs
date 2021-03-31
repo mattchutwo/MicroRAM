@@ -16,6 +16,7 @@ import qualified Debug.Trace as T (trace, traceShow)
 import Compiler.Errors
 import Compiler.Metadata
 import Compiler.IRs
+import Data.Foldable (toList)
 import qualified Data.Map as Map
 import qualified Data.Graph as G (stronglyConnComp, SCC(..))
 import qualified Data.Sequence as Seq
@@ -190,7 +191,7 @@ findAllFunctions prog = Set.toList (foldr addFunction Set.empty prog) -- Can we 
   where addFunction (_instr, md) accumulator = Set.insert (mdFunction md) accumulator 
 
 segmentFunction :: Show reg => [Cut Metadata reg MWord] -> String -> [Segment reg MWord]
-segmentFunction cuts funName = functionSegs 
+segmentFunction cuts funName = loopConnections functionSegs 
   where functionSegs = map toSegment functionCuts 
         functionCuts = filter (\cut -> cutFunction cut == funName) cuts 
 
@@ -201,7 +202,15 @@ segmentFunction cuts funName = functionSegs
 
 -- | Loop operations
 -- We define loops as Strongly Connected Component
- 
+loopConnections :: [Segment reg wrd] -> [Segment reg wrd]
+loopConnections segs =
+  let cfg = makeCFG segs
+      sccs = G.stronglyConnComp cfg in
+    toList $
+    (removeBackEdges sccs) . (connectLoopExits sccs) $
+    Seq.fromList segs   
+      
+  
 -- | 1. Make the CFG with nodes (node, key, [key])
 makeCFG :: [Segment reg wrd]
         -> [(Int,Int,[Int])]
@@ -212,20 +221,23 @@ makeCFG segments = segment2node <$> zip segments [0..]
 -- We use the the library funciton: G.stronglyConnComp.
 
 -- | 3. Add `fromNetwork` to every exit from a loop.
-connectLoopExits :: Seq.Seq (Segment reg wrd) -- Segments
-                 -> [G.SCC Int]                 -- Connected components
+connectLoopExits :: [G.SCC Int]               -- Connected components
+                 -> Seq.Seq (Segment reg wrd) -- Segments
                  -> Seq.Seq (Segment reg wrd)
-connectLoopExits segs sccs = foldr connectComponent segs sccs
-  where connectComponent component segs =
-          case component of
-            G.AcyclicSCC _ -> segs
-            G.CyclicSCC component ->
-              let compSet = Set.fromList component in
-                foldl (connectLoop compSet) segs component 
+connectLoopExits sccs segs = foldOverComponents connectComponent segs sccs
+  where connectComponent :: [Int]
+                         -> Seq.Seq (Segment reg wrd)
+                         -> Seq.Seq (Segment reg wrd)
+        connectComponent component segs =
+          let compSet = Set.fromList component in
+            foldl (connectLoop compSet) segs component 
         connectLoop compSet segsList compSeg =
-          foldl (flip $ Seq.adjust' addfromNetwork) segsList $
-          filter (\i -> not $ i `Set.member` compSet) $ segSuc (segsList `Seq.index` compSeg)
-        addfromNetwork seg = seg{fromNetwork = True}
+          let successors = segSuc (segsList `Seq.index` compSeg) in 
+            foldl (flip $ Seq.adjust' addFromNetwork) segsList $
+            filter (\i -> not $ i `Set.member` compSet) $ successors
+        addFromNetwork seg = seg{fromNetwork = True}
+
+        
 -- | 4. Remove back-edges in loops and replace them with toNetwork to every back-edge in loops (to break the loop) 
 --      The goal here is to add exits to the loop.
 --      Why do we need to remove the edges? A back jump might not directly jump to a used segment, but it might make
@@ -234,10 +246,34 @@ connectLoopExits segs sccs = foldr connectComponent segs sccs
 --      (2) Add smarter exits to the loop like so:
 --          (Algorithm sketch) For each entry to the loop, do a breath first search.
 --          Whenever the search jumps to a visited segment, add to/fromNetwork in that jump.
+removeBackEdges :: [G.SCC Int]               -- Connected components
+                -> Seq.Seq (Segment reg wrd) -- Segments
+                -> Seq.Seq (Segment reg wrd)
+removeBackEdges sccs segs = foldOverComponents go segs sccs
+  where go  :: [Int]
+            -> Seq.Seq (Segment reg wrd)
+            -> Seq.Seq (Segment reg wrd)
+        go component segs =
+          let compSet = Set.fromList component in
+            foldl (removeBackEdgesSeg compSet) segs component
+        removeBackEdgesSeg compSet segsList compSeg =
+          let successors = segSuc (segsList `Seq.index` compSeg)
+              -- Remove back edges within the loop
+              filteredSucc = filter (\idx -> not $ idx `Set.member` compSet && idx >= compSeg) $
+                successors in
+            if length successors == length filteredSucc
+            then -- nothing was filtered, do nothing 
+              segsList
+            else -- Back edges removed -> add a toNetwork 
+              Seq.adjust' (\seg -> seg{segSuc = filteredSucc, toNetwork = True}) compSeg segsList
 
-
-
-
+foldOverComponents :: Foldable t => ([Int] -> b -> b) -> b -> t (G.SCC Int) -> b
+foldOverComponents f segs sccs = foldl go segs sccs
+  where go segs comp = case comp of
+                         G.AcyclicSCC _ -> segs
+                         G.CyclicSCC component ->
+                           f component segs
+                         
 
 
 --------------------------------

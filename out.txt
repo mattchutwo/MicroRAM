@@ -4,20 +4,20 @@
 Ipoison W8 (Const 0) 0	 	 // Line 0
 %sp = %sp + 1
 %sp = %sp * 8
-%ax = 0x6a
+%ax = 0x6e
 *(%sp) = %ax
 %sp = %sp + 8
 *(%sp) = %bp
 %bp = %sp
-jmp 71
+jmp 87
 
 
-// Define my_memcpy: 
+// Define factorial: 
 
-// Just Name \my_memcpy\: 
-%sp = %sp + 48
+// Just Name \factorial\: 
+%sp = %sp + 40
 
-// Name \my_memcpy\_args: 
+// Name \factorial\_args: 
 %bp = %bp + 16
 *(%bp) = %3
 %bp = %bp - 16
@@ -27,106 +27,68 @@ jmp 71
 %bp = %bp + 32
 *(%bp) = %5
 %bp = %bp - 32
-%bp = %bp + 40
-*(%bp) = %6
-%bp = %bp - 40
-%4 = %bp - 16
-%4 = *(%4)
-%6 = %bp - 24
-%6 = *(%6)
-%5 = %bp - 32
+%5 = %bp - 16
 %5 = *(%5)
 
-// 3: 
-%3 = %5 * 1
-%3 = %3 + %6
+// 1: 
+%3 = %sp
+%sp = %sp + 8
 
-// my_memcpy_3: 
+// factorial_1: 
 %bp = %bp + 8
 *(%bp) = %3
 %bp = %bp - 8
 
-// 3: 
-%3 = %5 == 0	 	 // Line 1
-if %3jmp 53	 	 // Line 2
-jmp 65
+// 1: 
+%4 = %sp	 	 // Line 1
+%sp = %sp + 8
+*(%4) = %5	 	 // Line 2
+%3 = *(%4)	 	 // Line 3
+%5 = %3 && 0xffffffff	 	 // Line 4
+%3 = 0
+%3 = %3 && 0xffffffff
+%3 = %5 == %3
+if %3jmp 36	 	 // Line 5
+jmp 41
 
 // 6: 
-%3 = *(%6)	 	 // Line 4
-*(%5) = %3	 	 // Line 5
-%3 = *(%6)	 	 // Line 6
-*(%5) = %3	 	 // Line 7
-%3 = *(%6)	 	 // Line 8
-*(%5) = %3	 	 // Line 9
-%3 = 1	 	 // Line 10
-%3 = %3 * 1
-%6 = %3 + %6
-%3 = 1	 	 // Line 11
-%3 = %3 * 1
-%5 = %3 + %5
+%4 = 1
 
-// my_memcpy_6: 
+// factorial_6: 
 %3 = %bp + 8	 	 // Line 0
 %3 = *(%3)
 
 // 6: 
-%3 = %6 == %3	 	 // Line 12
-if %3jmp 53	 	 // Line 13
-jmp 68
+*(%3) = %4	 	 // Line 5
+jmp 74	 	 // Line 6
 
-// 15: 
-%ax = %4
-%3 = %bp + 16
+// 7: 
+%3 = *(%4)
+%5 = %3 && 0xffffffff	 	 // Line 7
+%3 = 1
+%3 = %3 && 0xffffffff
+%3 = %5 == %3
+if %3jmp 48	 	 // Line 8
+jmp 53
+
+// 10: 
+%4 = 1
+
+// factorial_10: 
+%3 = %bp + 8	 	 // Line 0
 %3 = *(%3)
-%4 = %bp + 24
-%4 = *(%4)
-%5 = %bp + 32
-%5 = *(%5)
-%6 = %bp + 40
-%6 = *(%6)
-%sp = %bp - 8
-%sp = *(%sp)
-jmp %sp
 
-// 6: 
-%5 = %4	 	 // Line 2
-%6 = %6	 	 // Line 3
+// 10: 
+*(%3) = %4	 	 // Line 8
+jmp 74	 	 // Line 9
 
-// phi1_my_memcpy_3_my_memcpy_6: 
-jmp 36	 	 // Line 0
-
-// 6: 
-%5 = %5	 	 // Line 2
-%6 = %6	 	 // Line 3
-
-// phi3_my_memcpy_6_my_memcpy_6: 
-jmp 36	 	 // Line 0
-
-
-// Define main: 
-
-// Just Name \main\: 
+// 11: 
+%5 = *(%4)
+%3 = *(%4)	 	 // Line 10
+%3 = %3 - 1	 	 // Line 11
+*(%sp) = %3	 	 // Line 12
 %sp = %sp + 8
-
-// 0: 
-%4 = %sp	 	 // Line 13
-%sp = %sp + 8
-%5 = %sp	 	 // Line 14
-%sp = %sp + 8
-%6 = %4	 	 // Line 15
-%3 = 0x7b	 	 // Line 17
-*(%4) = %3
-%4 = %5	 	 // Line 18
-%3 = 0	 	 // Line 20
-*(%5) = %3
-%ax = 8	 	 // Line 21
-*(%sp) = %ax
-%sp = %sp + 8
-*(%sp) = %6
-%sp = %sp + 8
-*(%sp) = %4
-%sp = %sp + 8
-%ax = 90
+%ax = 59
 %ax = %ax + 6
 *(%sp) = %ax
 %sp = %sp + 8
@@ -135,11 +97,61 @@ jmp 36	 	 // Line 0
 jmp 9
 %sp = %bp
 %bp = *(%sp)
-%sp = %sp - 32
+%sp = %sp - 16
 %3 = %ax
-%3 = *(%5)	 	 // Line 22
-%3 = %3 && 0xffffffff	 	 // Line 23
-%ax = %3	 	 // Line 26
+%4 = %5 * %3	 	 // Line 13
+
+// factorial_11: 
+%3 = %bp + 8	 	 // Line 0
+%3 = *(%3)
+
+// 11: 
+*(%3) = %4	 	 // Line 14
+jmp 74	 	 // Line 15
+
+// factorial_17: 
+%3 = %bp + 8	 	 // Line 0
+%3 = *(%3)
+
+// 17: 
+%3 = *(%3)	 	 // Line 15
+%ax = %3	 	 // Line 16
+%3 = %bp + 16
+%3 = *(%3)
+%4 = %bp + 24
+%4 = *(%4)
+%5 = %bp + 32
+%5 = *(%5)
+%sp = %bp - 8
+%sp = *(%sp)
+jmp %sp
+
+
+// Define main: 
+
+// Just Name \main\: 
+%sp = %sp + 8	 	 // Line 0
+
+// 0: 
+%4 = %sp	 	 // Line 16
+%sp = %sp + 8
+%3 = 0	 	 // Line 17
+*(%4) = %3
+%3 = *(8)	 	 // Line 18
+*(%sp) = %3	 	 // Line 19
+%sp = %sp + 8
+%ax = 96
+%ax = %ax + 6
+*(%sp) = %ax
+%sp = %sp + 8
+*(%sp) = %bp
+%bp = %sp
+jmp 9
+%sp = %bp
+%bp = *(%sp)
+%sp = %sp - 16
+%3 = %ax
+%ax = %3	 	 // Line 20
 %sp = %bp - 8
 %sp = *(%sp)
 jmp %sp
@@ -149,6 +161,9 @@ jmp %sp
 
 // Just _ret_: 
 ans %ax	 	 // Line 0
-invalid program: Cant find a successor. 
+invalid program: Can't find a successor. 
 ToNet = False. 
- Filtered segments:[4]
+	 Filtered segments:[8]
+	 Just successors:[8].
+	 PC: 74.
+	 Network matching the pc: Nothing
