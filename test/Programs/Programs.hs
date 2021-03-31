@@ -12,7 +12,7 @@ testTrivial, testLoops, testGEP, testDatastruct, testBugs, testCorrectness, allT
 
 oneTest = OneTest $ defaultTest {
   testName = "Linked list generic"
-  ,fileName ="test/programs/LinkedList/linkedList.c.ll"
+  ,fileName ="test/Programs/LinkedList/linkedList.c.ll"
   ,testLen = 1500
   ,testResult = 42
   } 
@@ -26,43 +26,43 @@ testCorrectness = ManyTests "Compiler correctness tests"
 testTrivial = ManyTests "Trivial programs" $ OneTest <$>
   defaultTest {
     testName = "Return 42"
-    ,fileName = "test/programs/return42.ll"
+    ,fileName = "test/Programs/return42.ll"
     ,testLen = 30
     ,testResult = 42
     } :
   defaultTest {
     testName = "21 + 21"
-    ,fileName ="test/programs/compute42.ll"
+    ,fileName ="test/Programs/compute42.ll"
     ,testLen = 70
     ,testResult = 42
     }  :
   defaultTest {
     testName = "Trivial intrinsic call"
-    ,fileName ="test/programs/intrinsicAdd.ll"
+    ,fileName ="test/Programs/intrinsicAdd.ll"
     ,testLen = 50
     ,testResult = 120
     }  :
   defaultTest {
     testName = "Function call with multiple args"
-    ,fileName ="test/programs/multiArgs.ll"
+    ,fileName ="test/Programs/multiArgs.ll"
     ,testLen = 110
     ,testResult = 123
     } :
   defaultTest {
     testName = "arithmetic shift right"
-    ,fileName ="test/programs/arithShr.ll"
+    ,fileName ="test/Programs/arithShr.ll"
     ,testLen = 600
     ,testResult = 8
     }  :
   defaultTest {
     testName = "load from global"
-    ,fileName ="test/programs/trivial_global.ll"
+    ,fileName ="test/Programs/trivial_global.ll"
     ,testLen = 50
     ,testResult =   10
     } :
   defaultTest {
     testName = "load from global array"
-    ,fileName ="test/programs/trivial_global_array.ll"
+    ,fileName ="test/Programs/trivial_global_array.ll"
     ,testLen = 50
     ,testResult =   10
     } :
@@ -72,7 +72,7 @@ testTrivial = ManyTests "Trivial programs" $ OneTest <$>
 testErrors = ManyTests "Test errors" $ OneTest <$>
   defaultTest {
     testName = "Error for undefined functions"
-    ,fileName = "test/programs/errorUndefinedFunction.ll"
+    ,fileName = "test/Programs/errorUndefinedFunction.ll"
     , compError = True
     } :
   []
@@ -82,41 +82,41 @@ testErrors = ManyTests "Test errors" $ OneTest <$>
 testLoops = ManyTests "Conditionals, Branching and loops" $ OneTest <$>
   defaultTest {
     testName = "Fibonacci loop (not optimized)"
-    ,fileName ="test/programs/fibSlow.ll"
+    ,fileName ="test/Programs/fibSlow.ll"
     ,testLen = 600
     ,testResult =   55
     } :
   defaultTest {
     testName = "Easy function call"
-    ,fileName ="test/programs/easyFunction.ll"
+    ,fileName ="test/Programs/easyFunction.ll"
     ,testLen = 70
     ,testResult =   42
     } : 
   defaultTest {
     testName = "More easy function calls"
-    ,fileName ="test/programs/callingConventions.ll"
+    ,fileName ="test/Programs/callingConventions.ll"
     ,testLen = 100
     ,testResult =   42
     } : 
   defaultTest {
     testName = "Factorial with recursive calls"
-    ,fileName ="test/programs/factRec.ll"
+    ,fileName ="test/Programs/factRec.ll"
     ,testLen = 600
     ,testResult =   120
     } :
   defaultTest {
     testName = "Or with phi"
-    ,fileName ="test/programs/or.ll"
+    ,fileName ="test/Programs/or.ll"
     ,testLen = 100
     ,testResult =   1
     } : 
   {-  defaultTest {
     testName = "Input text into numbers"
-    ,fileName = "test/programs/returnInput.ll"
+    ,fileName = "test/Programs/returnInput.ll"
     ,testLen = 80
     ,testResult = 42
     } : -}
---  defaultTest { "Hello world" "test/programs/hello.ll" 50 [] 0 :
+--  defaultTest { "Hello world" "test/Programs/hello.ll" 50 [] 0 :
     defaultTest {
     testName = "Memcpy"
     ,fileName ="test/Programs/memcpy.ll"
@@ -129,32 +129,32 @@ testLoops = ManyTests "Conditionals, Branching and loops" $ OneTest <$>
 testGEP = ManyTests "Test structs and arrays with GetElementPtr" $ OneTest <$>
   defaultTest {
     testName = "Trivial array"
-    ,fileName ="test/programs/easyArray.ll"
+    ,fileName ="test/Programs/easyArray.ll"
     ,testLen = 50
     ,testResult =   11
     } :
     defaultTest {
     testName = "Trivial struct"
-    ,fileName ="test/programs/easyStruct.ll"
+    ,fileName ="test/Programs/easyStruct.ll"
     ,testLen = 50
     ,testResult =   3
     } :
     defaultTest {
     testName = "Trivial struct Packed"
-    ,fileName ="test/programs/easyStructPack.ll"
+    ,fileName ="test/Programs/easyStructPack.ll"
     ,testLen = 200
     ,testResult =   3
     } :
 {-  WAIT FOR FUNCTIONS TO WORK.
     defaultTest {
     testName = "Simple Binary Tree"
-    ,"test/programs/easyBinaryTree.ll"
+    ,"test/Programs/easyBinaryTree.ll"
     ,testLen = 100
     ,testResult = 42
     } :  -}
     defaultTest {
     testName = "Linked list length 3"
-    ,fileName ="test/programs/easyLinkedList.ll"
+    ,fileName ="test/Programs/easyLinkedList.ll"
     ,testLen = 240
     ,testResult = 16
     } :
@@ -162,13 +162,13 @@ testGEP = ManyTests "Test structs and arrays with GetElementPtr" $ OneTest <$>
 testDatastruct = ManyTests "Test data structures" $ OneTest <$>
   defaultTest {
   testName = "Linked list generic"
-  ,fileName ="test/programs/LinkedList/linkedList.c.ll"
+  ,fileName ="test/Programs/LinkedList/linkedList.c.ll"
   ,testLen = 1500
   ,testResult = 42
   } :
   defaultTest {
   testName = "Binary search tree"
-  ,fileName ="test/programs/binaryTree/binaryTree.c.ll"
+  ,fileName ="test/Programs/binaryTree/binaryTree.c.ll"
   ,testLen = 2400
   ,testResult = 30
     } :
@@ -179,25 +179,25 @@ testDatastruct = ManyTests "Test data structures" $ OneTest <$>
 testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
   defaultTest {
   testName = "Use after free Bug"
-  ,fileName = "test/programs/UseAfterFree/useAfterFree.c.ll"
+  ,fileName = "test/Programs/UseAfterFree/useAfterFree.c.ll"
   ,testLen = 250
   ,testResult = 0
   , bug = True } :
   defaultTest {
   testName = "Invalid Free (Now a pointer given by malloc)"
-  ,fileName = "test/programs/WrongFree/wrongFree.c.ll"
+  ,fileName = "test/Programs/WrongFree/wrongFree.c.ll"
   ,testLen = 250
   ,testResult = 0
   , bug = True }  :
   defaultTest {
   testName = "Out of bounds access"
-  ,fileName = "test/programs/MallocOOB/mallocOOB.c.ll"
+  ,fileName = "test/Programs/MallocOOB/mallocOOB.c.ll"
   ,testLen = 250
   ,testResult = 0
   , bug = True }  :
   defaultTest {
   testName = "Free after free"
-  ,fileName = "test/programs/DoubleFree/DoubleFree.c.ll"
+  ,fileName = "test/Programs/DoubleFree/DoubleFree.c.ll"
   ,testLen = 250
   ,testResult = 0
   , bug = True }  :

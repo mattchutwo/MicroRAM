@@ -1,0 +1,13 @@
+image: fpco/stack-build:lts-15
+
+default:
+  tags: [docker]
+
+stages:
+  - build
+
+build-and-test:
+  stage: build
+  script:
+    - stack --no-terminal build
+    - stack --no-terminal test
