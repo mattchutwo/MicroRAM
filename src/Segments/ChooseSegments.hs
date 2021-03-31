@@ -125,7 +125,10 @@ chooseSegment segments privSize = do
   toNet <- stToNetwork <$> get
   let networkSuccs = if toNet then Map.findWithDefault [] currentPc avalStates else []
   let possibleNextSegments = succs ++ networkSuccs
-  checkedNextSegments <- filterM (checkSegment segments) possibleNextSegments
+  checkedNextSegments <- filterM (checkSegment False segments) possibleNextSegments
+  when (null checkedNextSegments) $ do
+    _ <- filterM (checkSegment True segments) possibleNextSegments
+    return ()
   case checkedNextSegments of -- T.trace ("Pc :" ++ show currentPc ++ ". Possible next: " ++ show checkedNextSegments ++ "\n\tUnfiltered: " ++ show possibleNextSegments) checkedNextSegments of 
     segment:_ -> do
       queue <- queueSt <$> get
@@ -141,6 +144,8 @@ chooseSegment segments privSize = do
     _ -> do -- If no public segment fits try private
       when (not toNet) $ progError ("Can't find a successor. \nToNet = False. "
                                     ++ "\n\t Filtered segments:"
+                                    ++ show checkedNextSegments
+                                    ++ "\n\t unfiltered segments:"
                                     ++ show possibleNextSegments
                                     ++ "\n\t Just successors:"
                                     ++ show succs
@@ -164,15 +169,18 @@ chooseSegment segments privSize = do
             return $ last nextStates
 
      -- | Checks if we can use the segment next
-     checkSegment :: V.Vector (Segment reg MWord) -> Int -> PState reg Bool
-     checkSegment segs segInx = do
-       let seg = segs V.! segInx 
+     checkSegment :: Bool -> V.Vector (Segment reg MWord) -> Int -> PState reg Bool
+     checkSegment verbose segs segInx = do
+       let seg = segs V.! segInx
        usedSegs <- usedSegments <$> get
        let available = not $ segInx `Set.member` usedSegs
        trace <- remainingTrace <$> get
        let satLength = length trace >= segLen seg 
        satCons <- satConstraints seg
+       when verbose $ T.traceShow ("Index",segInx,"Available:", available,"length:", satLength) (return ()) 
        return $ available && satLength && satCons
+
+     
 
      -- | Check if segment's constraints are satisfied.
      satConstraints :: Segment reg MWord -> PState reg Bool
