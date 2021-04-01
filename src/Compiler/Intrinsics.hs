@@ -95,7 +95,9 @@ cc_write_and_poison _ _ _ = progError "bad arguments"
 
 cc_flag_invalid :: IntrinsicImpl m MWord
 cc_flag_invalid [] Nothing md =
-  return [MirM (IpoisonW zero zero) md]
+  return [
+    MirM (Iext ("trace___cc_flag_invalid") []) md,
+    MirM (IpoisonW zero zero) md ]
   where zero = LImm $ SConst 0
 cc_flag_invalid _ _ _ = progError "bad arguments"
 
