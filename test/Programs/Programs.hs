@@ -83,6 +83,12 @@ testFunctionPointer = ManyTests "Test function pointers" $ OneTest <$> [
     , fileName = "test/Programs/funcPointer.ll"
     , testLen = 100
     , testResult = 5
+    },
+    defaultTest {
+      testName = "function pointer in static initializer"
+    , fileName = "test/Programs/funcPointerStatic.ll"
+    , testLen = 100
+    , testResult = 5
     }
   ]
 
