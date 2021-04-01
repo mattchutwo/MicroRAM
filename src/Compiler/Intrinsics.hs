@@ -26,6 +26,7 @@ import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
+import Data.Text (Text)
 import qualified Data.Text as Text
 
 import Compiler.Common (Name(Name))
@@ -70,9 +71,9 @@ cc_test_add _ _ _ = progError "bad arguments"
 cc_noop :: IntrinsicImpl m w
 cc_noop _ _ _ = return []
 
-cc_trap :: IntrinsicImpl m MWord
-cc_trap _ _ md = return [
-  MirM (Iext "trace_trap" []) md,
+cc_trap :: Text -> IntrinsicImpl m MWord
+cc_trap desc _ _ md = return [
+  MirM (Iext ("trace_Trap: " <> desc) []) md,
   MirM (Ianswer (LImm $ SConst 0)) md] -- TODO
 
 cc_malloc :: IntrinsicImpl m w
@@ -126,34 +127,37 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("llvm.lifetime.end.p0i8", cc_noop)
 
   -- Exception handling
-  , ("__gxx_personality_v0", cc_trap)
-  , ("__cxa_allocate_exception", cc_trap)
-  , ("__cxa_throw", cc_trap)
-  , ("__cxa_begin_catch", cc_trap)
-  , ("__cxa_end_catch", cc_trap)
-  , ("llvm.eh.typeid.for", cc_trap)
+  , mkTrap "__gxx_personality_v0"
+  , mkTrap "__cxa_allocate_exception"
+  , mkTrap "__cxa_throw"
+  , mkTrap "__cxa_begin_catch"
+  , mkTrap "__cxa_end_catch"
+  , mkTrap "llvm.eh.typeid.for"
 
   -- Explicit trap
-  , ("__cxa_pure_virtual", cc_trap)
-  , ("llvm.trap", cc_trap)
+  , mkTrap "__cxa_pure_virtual"
+  , mkTrap "llvm.trap"
+  , mkTrap "_ZSt9terminatev"
 
   -- Floating-point ops
-  , ("llvm.ceil.f64", cc_trap)
-  , ("llvm.copysign.f64", cc_trap)
-  , ("llvm.exp2.f64", cc_trap)
-  , ("llvm.exp.f64", cc_trap)
-  , ("llvm.fabs.f64", cc_trap)
-  , ("llvm.floor.f64", cc_trap)
-  , ("llvm.log.f64", cc_trap)
-  , ("llvm.pow.f64", cc_trap)
-  , ("llvm.sqrt.f64", cc_trap)
-  , ("llvm.trunc.f64", cc_trap)
-  , ("llvm.llrint.i64.f64", cc_trap)
+  , mkTrap "llvm.ceil.f64"
+  , mkTrap "llvm.copysign.f64"
+  , mkTrap "llvm.exp2.f64"
+  , mkTrap "llvm.exp.f64"
+  , mkTrap "llvm.fabs.f64"
+  , mkTrap "llvm.floor.f64"
+  , mkTrap "llvm.log.f64"
+  , mkTrap "llvm.pow.f64"
+  , mkTrap "llvm.sqrt.f64"
+  , mkTrap "llvm.trunc.f64"
+  , mkTrap "llvm.llrint.i64.f64"
 
   -- Varargs
-  , ("llvm.va_start", cc_trap)
-  , ("llvm.va_end", cc_trap)
+  , mkTrap "llvm.va_start"
+  , mkTrap "llvm.va_end"
   ]
+  where
+    mkTrap name = (name, cc_trap $ Text.pack name)
 
 lowerIntrinsics :: forall m. MIRprog m MWord -> Hopefully (MIRprog m MWord)
 lowerIntrinsics = expandInstrs (expandIntrinsicCall intrinsics)
