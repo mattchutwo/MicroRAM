@@ -152,7 +152,7 @@ testAdvice = testProperty "Serialising advice" $
 
 -- * Testing Output
 instance Arbitrary InitMemSegment where
-  arbitrary = InitMemSegment  <$> arbitrary <*> arbitrary <*>
+  arbitrary = InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*>
               arbitrary <*> arbitrary <*> arbitrary
 
 instance Arbitrary reg => Arbitrary (Segment reg MWord) where
