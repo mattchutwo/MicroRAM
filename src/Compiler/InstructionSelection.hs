@@ -1195,7 +1195,8 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
   -- later passes that try to align to a multiple of zero, so we adjust the
   -- alignment here to avoid the problem.
   let align' = max 1 $ (fromIntegral align + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
-  return $ GlobalVariable (name2name name) const typ' init' size' align' (sectionIsSecret sectn)
+  return $ GlobalVariable (name2name name) const typ' init' size' align'
+    (sectionIsSecret sectn) (sectionIsHeapInit sectn)
   where flatInit :: Env ->
                     Maybe LLVM.Constant.Constant ->
                     Hopefully $ Maybe [LazyConst String MWord]
@@ -1206,7 +1207,13 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
 
         sectionIsSecret (Just "__DATA,__secret") = True
         sectionIsSecret (Just ".data.secret") = True
+        sectionIsSecret (Just "__TEXT,__secret") = True
+        sectionIsSecret (Just ".rodata.secret") = True
         sectionIsSecret _ = False
+
+        sectionIsHeapInit (Just "__DATA,__heapinit") = True
+        sectionIsHeapInit (Just ".data.heapinit") = True
+        sectionIsHeapInit _ = False
 isGlobVar _ other = unreachableError $ show other
 
 -- | Evaluate an LLVM constant and flatten its value into a list of (lazy)

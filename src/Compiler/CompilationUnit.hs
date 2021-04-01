@@ -89,6 +89,7 @@ justAnalyse analysis cUnit = do
 data InitMemSegment = InitMemSegment
   { isSecret :: Bool
   , isReadOnly :: Bool
+  , isHeapInit :: Bool
   , location :: MWord
   , segmentLen :: MWord
   , content :: Maybe [MWord]
@@ -104,12 +105,14 @@ type LazyInitialMem = [LazyInitSegment]
 flatInitMem :: InitialMem -> Map.Map MWord MWord
 flatInitMem = foldr initSegment Map.empty
   where initSegment :: InitMemSegment -> Map.Map MWord MWord -> Map.Map MWord MWord
-        initSegment (InitMemSegment _ _ _ _ Nothing) = id
-        initSegment (InitMemSegment _ _ loc _ (Just content)) =
+        initSegment (InitMemSegment _ _ _ _ _ Nothing) = id
+        initSegment (InitMemSegment _ _ _ loc _ (Just content)) =
           Map.union $ Map.fromList $
           -- Map with the new content
           zip [loc..] content
 
 lengthInitMem :: InitialMem -> MWord
 lengthInitMem = foldl (\tip seg -> max tip (segTip seg)) 0
-  where segTip (InitMemSegment _ _ loc len _) = loc + len
+  where segTip (InitMemSegment _ _ heapInit loc len _)
+          | heapInit = 0
+          | otherwise = loc + len

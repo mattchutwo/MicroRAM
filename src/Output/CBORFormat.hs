@@ -311,10 +311,11 @@ instance Serialise CircuitParameters where
 
 
 encodeInitMemSegment :: InitMemSegment -> Encoding
-encodeInitMemSegment (InitMemSegment secret read start len datas) =
+encodeInitMemSegment (InitMemSegment secret read heapInit start len datas) =
   map2CBOR $
   [ ("secret", encodeBool secret) 
   , ("read_only", encodeBool read)
+  , ("heap_init", encodeBool heapInit)
   , ("start", encode start)
   , ("len", encode len)
   ] ++  encodeMaybeContent datas
@@ -328,10 +329,11 @@ decodeInitMemSegment :: Decoder s InitMemSegment
 decodeInitMemSegment = do
     len <- decodeMapLen
     case len of
-      4 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> (return Nothing)
-      5 -> InitMemSegment <$> tagDecode <*> tagDecode <*>
+      5 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
+           tagDecode <*> tagDecode <*> (return Nothing)
+      6 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
            tagDecode <*> tagDecode <*> do { content <- tagDecode; return $ Just content} 
-      _ -> fail $ "invalid state encoding. Length should be 4 or 5 but found " ++ show len
+      _ -> fail $ "invalid state encoding. Length should be 5 or 6 but found " ++ show len
 
 instance Serialise InitMemSegment where
   decode = decodeInitMemSegment

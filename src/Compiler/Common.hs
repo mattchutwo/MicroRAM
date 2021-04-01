@@ -23,7 +23,7 @@ module Compiler.Common (
   Ty(..), tySize, TypeEnv,
   -- * Global variables
   -- $globs
-  GlobalVariable(..), GEnv,
+  GlobalVariable(..), GEnv, heapInitAddress,
   -- * Identifiers
   -- $names
   Name(..),
@@ -112,8 +112,14 @@ data GlobalVariable wrdT = GlobalVariable
     -- but the programmer can explicitly set a higher alignment with the right
     -- attributes.
   , secret :: Bool
+  , gvHeapInit :: Bool
+    -- | If set, this is a heap-init global variable, which is placed at a
+    -- special address and doesn't influence the initial stack pointer.
   } deriving (Show)
 type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"
+
+heapInitAddress :: MWord
+heapInitAddress = 0x100000000   -- 2^32
 
 
 -- * Name identifiers
