@@ -116,7 +116,7 @@ testLoops = ManyTests "Conditionals, Branching and loops" $ OneTest <$>
   defaultTest {
     testName = "Fibonacci loop (not optimized)"
     ,fileName ="test/Programs/fibSlow.ll"
-    ,testLen = 600
+    ,testLen = 800
     ,testResult =   55
     } :
   defaultTest {
