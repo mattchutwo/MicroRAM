@@ -180,7 +180,7 @@ cut2segment (Cut _funName instrs pc len) succs toNet =
         , segSuc = succs
         , fromNetwork = fromNet  -- ^ From network can change later.
         , toNetwork = toNet } in
-    if fromNet then T.trace ("Segmetn to net: " <> (show $ constraints ret)) ret else ret
+    ret --if fromNet then T.trace ("Segmetn to net: " <> (show $ constraints ret)) ret else ret
   where fromNet = case instrs of
                     [] -> False
                     (_i,md):_ -> mdReturnCall md || mdFunctionStart md

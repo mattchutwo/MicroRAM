@@ -11,7 +11,7 @@ Stability   : experimental
 
 module Segments.ChooseSegments where
 
-import qualified Debug.Trace as T (trace, traceShow)
+import qualified Debug.Trace as T (trace, traceShow, traceM)
 
 import qualified Algorithm.Search as Alg (dfs)
 
@@ -158,7 +158,7 @@ findPublicPath segments usedSegs startInds initRemTrace =
                   allSuccIndx =  filter notUsed $ segSuc seg
                   pcSuccIndx  =  filter (pcIs $ pc $ last usedTrace) allSuccIndx 
                   result = map (PathSearchState trimTrace) $ pcSuccIndx in
-                T.trace ("Current:" <> show (segIndxPSS pss) <> " Succ: " <> show pcSuccIndx) result
+                result -- T.trace ("Current:" <> show (segIndxPSS pss) <> " Succ: " <> show pcSuccIndx) result
         notUsed :: Int -> Bool
         notUsed segIndx = not $ segIndx `Set.member` usedSegs
         pcIs pcTocheck segIndx = pcTocheck == getPcConstraint (constraints $ segments V.! segIndx)
@@ -176,7 +176,7 @@ chooseSegment segments privSize = do
   let possiblePath = findPublicPath segments usedSegs startInds initRemTrace
   case possiblePath of -- T.trace ("Pc :" ++ show currentPc ++ ". Possible next: " ++ show checkedNextSegments ++ "\n\tUnfiltered: " ++ show possibleNextSegments) checkedNextSegments of 
     Just path -> do
-      _ <- T.trace ("Path:" ++ show path) $ return ()
+      -- T.traceM ("Path:" ++ show path)
       -- allocates the current queue in private pc segments (if there is more than just the last state).  
       queue <- queueSt <$> get
       when (length queue >1) $ allocateQueue privSize
@@ -211,7 +211,7 @@ chooseSegment segments privSize = do
        trace <- remainingTrace <$> get
        let satLength = length trace >= segLen seg 
        satCons <- satConstraints seg
-       when verbose $ T.traceShow ("Index",segInx,"Available:", available,"length:", satLength) (return ()) 
+       --when verbose $ T.traceShow ("Index",segInx,"Available:", available,"length:", satLength) (return ()) 
        return $ available && satLength && satCons
 
      
