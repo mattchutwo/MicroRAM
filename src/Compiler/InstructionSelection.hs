@@ -29,6 +29,7 @@ module Compiler.InstructionSelection
 import Data.Bits
 import Data.Binary.IEEE754 (floatToWord, doubleToWord)
 import qualified Data.ByteString.Short as Short
+import Data.String (fromString)
 
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map 
@@ -322,8 +323,10 @@ isInstruction env ret instr =
     (LLVM.Add _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Iadd
     (LLVM.Sub _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Isub
     (LLVM.Mul _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Imull
-    (LLVM.SDiv _ _ _o1 _o2 ) -> unsupported "SDiv"
-    (LLVM.SRem _o1 _o2 _)    -> unsupported "SRem"
+    (LLVM.SDiv _ o1 o2 _)    ->
+      typedIntrinCall env "__cc_sdiv" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
+    (LLVM.SRem o1 o2 _)      ->
+      typedIntrinCall env "__cc_srem" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
     (LLVM.FAdd _ _o1 _o2 _)  -> unsupported "FAdd"
     (LLVM.FSub _ _o1 _o2 _)  -> unsupported "FSub"
     (LLVM.FMul _ _o1 _o2 _)  -> unsupported "FMul"
@@ -394,6 +397,40 @@ isInstruction env ret instr =
           | otherwise = do
             traceM $ "unsupported instruction: " ++ desc
             makeTraceInvalid desc <$> getMetadata
+
+typedIntrinCall ::
+  Env ->
+  String ->
+  Maybe VReg ->
+  LLVM.Type ->
+  [LLVM.Operand] ->
+  Statefully [MIRInstr Metadata MWord]
+typedIntrinCall env baseName dest retTy ops = intrinCall env name dest retTy ops
+  where
+    opTys = map (typeOf (llvmtTypeEnv env)) ops
+    name = concat (baseName : map (\ty -> '_' : tyName ty) opTys)
+
+    tyName ty = case ty of
+      LLVM.VoidType -> "void"
+      LLVM.IntegerType bits -> "i" ++ show bits
+      _ -> "unknown"
+
+intrinCall ::
+  Env ->
+  String ->
+  Maybe VReg ->
+  LLVM.Type ->
+  [LLVM.Operand] ->
+  Statefully [MIRInstr Metadata MWord]
+intrinCall env name dest retTy ops = do
+    retTy' <- lift $ type2type (llvmtTypeEnv env) retTy
+    opTys' <- lift $ mapM (type2type tenv) $ map (typeOf tenv) ops
+    ops' <- lift $ mapM (operand2operand env) ops
+    let instr = RCall retTy' dest (Label $ show $ Name $ fromString name) opTys' ops'
+    md <- getMetadata
+    return [MirI instr md]
+  where
+    tenv = llvmtTypeEnv env
 
 {- | Implements arithmetic shift right in terms of other binary operations like so:
 @
