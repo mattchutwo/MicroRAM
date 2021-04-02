@@ -19,6 +19,9 @@ creation and destruction on function call and return.
 
     Stack layout during function execution
 
+     Low address
+
+     ^                 ^
      |                 |
      +=================+ <- SP 
      | Local variables |
@@ -44,6 +47,7 @@ creation and destruction on function call and return.
      | Caller frame    |
      |                 |
 
+     High address
 
 NOTE: we are not setting functions in memory, so
       we do NOT SUPPORT CALLING FUNCTIONS BY POINTER.
@@ -75,8 +79,8 @@ type LOperand mreg =  MAOperand mreg MWord
 -- ** Usefull snipets
 -- sp points at the next free stack location
 push, _pop :: Regs mreg => mreg -> [MAInstruction mreg MWord]
-push r = [IstoreW (AReg sp) r,Iadd sp sp (LImm $ fromIntegral wordBytes)]
-_pop r = [Isub  sp sp (LImm $ fromIntegral wordBytes),IloadW r (AReg sp)]
+push r = [IstoreW (AReg sp) r,Isub sp sp (LImm $ fromIntegral wordBytes)]
+_pop r = [Iadd sp sp (LImm $ fromIntegral wordBytes),IloadW r (AReg sp)]
 
 -- | pushOperand sometimes we want to push a constant
 -- Notice here we use ax. This can only be done at funciton entry
@@ -94,7 +98,7 @@ pushN (r:rs) = pushOperand r ++ pushN rs
 -- PopN doesn't return, just drops the top n things in the stack
 popN :: Regs mreg => Word -> [MAInstruction mreg MWord]
 popN 0 = []
-popN n = [Isub sp sp (LImm $ fromIntegral $ wordBytes * fromIntegral n) ]
+popN n = [Iadd sp sp (LImm $ fromIntegral $ wordBytes * fromIntegral n) ]
 
 
 -- | smartMov is like Imov, but does nothing if the registers are the same
@@ -115,8 +119,8 @@ premain = return $
   -- poison address 0
   map (\x -> (x,md)) $
   [ IpoisonW (LImm 0) sp
-  , Iadd sp sp (LImm 1)
-  , Imull sp sp (LImm $ fromIntegral wordBytes)] ++
+  -- Set the top of the stack.
+  , Imov sp (LImm initAddr)] ++
   -- push return address for main 
   Imov ax (Label "_ret_") : (push ax) ++
   -- set stack frame
@@ -125,6 +129,9 @@ premain = return $
   callMain              -- jump to main
   where callMain = return $ Ijmp $ Label $ show $ Name "main"
         md = trivialMetadata "Premain" ""
+
+        -- Start stack at 2^32.
+        initAddr = 1 `shiftL` 32
 
 -- | returnBlock: return lets the program output an answer (when main returns)
 returnBlock :: Regs mreg => NamedBlock Metadata mreg MWord
@@ -138,7 +145,7 @@ returnBlock = NBlock retName [(Ianswer (AReg ax),md)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => MWord -> [MAInstruction mreg MWord]
 prologue size =
-    [Iadd sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size + 1))]
+    [Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size + 1))]
 
 
 -- | epilogue: deallocate the stack, then jump to return address
@@ -146,7 +153,7 @@ epilogue :: Regs mreg => [MAInstruction mreg MWord]
 epilogue =
   -- Sp is uselles at this point so we use to calculate return adress
   -- remember return value is passed in ax and bp is marking the old stack 
-  Isub sp bp (LImm $ fromIntegral wordBytes) :
+  Iadd sp bp (LImm $ fromIntegral wordBytes) :
   IloadW sp (AReg sp) : 
   [Ijmp (AReg sp)]
 
@@ -194,19 +201,19 @@ setResult (Just ret) = smartMov ret ax
 stackLTLInstr :: Regs mreg => LTLInstr' mreg MWord $ MAOperand mreg MWord
               -> Hopefully [MAInstruction mreg MWord]
 stackLTLInstr (Lgetstack Incoming offset _ reg) = return $
-   [ Isub reg bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
+   [ Iadd reg bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
    , IloadW reg (AReg reg)]
 stackLTLInstr (Lsetstack reg Incoming offset _) = return $
-   [ Isub bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
+   [ Iadd bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
    , IstoreW (AReg bp) reg
-   , Iadd bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))]
+   , Isub bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))]
 stackLTLInstr (Lgetstack Local offset _ reg) = return $
-   [ Iadd reg bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
+   [ Isub reg bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
    , IloadW reg (AReg reg)]  -- JP: offset+1?
 stackLTLInstr (Lsetstack reg Local offset _) = return $
-   [ Iadd bp bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
+   [ Isub bp bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
    , IstoreW (AReg bp) reg
-   , Isub bp bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))] -- JP: offset+1?
+   , Iadd bp bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))] -- JP: offset+1?
 
 stackLTLInstr (LCall typ ret f argsT args) = return $
   funCallInstructions typ ret f argsT args
@@ -223,9 +230,9 @@ stackLTLInstr (LAlloc reg sz n) = do
   where incrSP :: (Regs mreg) => MWord -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]
         incrSP sz (AReg r) = return $
           [Imull r r (LImm $ roundUp $ fromIntegral sz),
-           Iadd sp sp (AReg r)]
+           Isub sp sp (AReg r)]
         incrSP sz (LImm n) = return $
-          [Iadd sp sp (LImm $ roundUp $ n * fromIntegral sz)]
+          [Isub sp sp (LImm $ roundUp $ n * fromIntegral sz)]
         incrSP _ _ = assumptError $ "Operand not supported for allocation size. Probably a mistake in the Register allocator. \n"
 
         -- | Round a constant up to the next multiple of `wordBytes`.
