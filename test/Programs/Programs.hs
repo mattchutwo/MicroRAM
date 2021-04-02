@@ -89,6 +89,12 @@ testFunctionPointer = ManyTests "Test function pointers" $ OneTest <$> [
     , fileName = "test/Programs/funcPointerStatic.ll"
     , testLen = 100
     , testResult = 5
+    },
+    defaultTest {
+      testName = "function pointer with multiple args"
+    , fileName = "test/Programs/funcPointerArgs.ll"
+    , testLen = 100
+    , testResult = 15
     }
   ]
 
