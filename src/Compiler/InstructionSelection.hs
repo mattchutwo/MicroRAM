@@ -235,13 +235,13 @@ isBinop env ret op1 op2 bopisBinop = toRTL =<< lift (isBinop' ret op1 op2 bopisB
 predicate2instructuion
   :: IntPred.IntegerPredicate
      -> regT
-     -> MAOperand regT wrdT
-     -> MAOperand regT wrdT
-     -> [MA2Instruction regT wrdT]
+     -> MAOperand regT MWord
+     -> MAOperand regT MWord
+     -> [MA2Instruction regT MWord]
 predicate2instructuion inst r op1 op2 =
   case inst of
   IntPred.EQ  -> [MRAM.Icmpe r op1 op2]
-  IntPred.NE  -> [MRAM.Icmpe r op1 op2, MRAM.Inot r (AReg r)]
+  IntPred.NE  -> [MRAM.Icmpe r op1 op2, MRAM.Ixor r (AReg r) (LImm $ SConst 1)]
 -- Unsigned
   IntPred.UGT -> [MRAM.Icmpa  r op1 op2] 
   IntPred.UGE -> [MRAM.Icmpae r op1 op2] 
