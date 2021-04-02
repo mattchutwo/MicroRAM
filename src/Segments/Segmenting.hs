@@ -16,6 +16,8 @@ import qualified Debug.Trace as T (trace, traceShow)
 import Compiler.Errors
 import Compiler.Metadata
 import Compiler.IRs
+import Control.Monad (when)
+
 import Data.Foldable (toList)
 import qualified Data.Map as Map
 import qualified Data.Graph as G (stronglyConnComp, SCC(..))
@@ -73,21 +75,21 @@ expandList ls factors = concat $ map (\(x,factor) -> replicate factor x) $ zip l
 
 segmentProgram :: Show reg => (Map.Map String Int)
         -> AnnotatedProgram Metadata reg MWord -> Hopefully $ [Segment reg MWord]
-segmentProgram funCount prog =
+segmentProgram funCount prog = do
+  funNames <- findAllFunctions prog      -- names all all functions in the program
   let cuts = cutProg prog
-      funNames = findAllFunctions prog      -- names all all functions in the program
-      funSegments = map (segmentFunction cuts) funNames -- for each function, create the corresponding segments 
-      funCountList = map (\k -> Map.findWithDefault 1 k funCount) funNames
-      expandedFunSegments = expandList funSegments funCountList in -- repeat the segments in each function as necessary
-    return $ foldl addFunSegments [] expandedFunSegments -- Successors need to be updated accordingly.
-    where addFunSegments :: [Segment reg MWord] -> [Segment reg MWord] -> [Segment reg MWord]
-          addFunSegments accumulated funSegments =
+  let funSegments = map (segmentFunction cuts) funNames -- for each function, create the corresponding segments 
+  let funCountList = map (\k -> Map.findWithDefault 1 k funCount) funNames
+  let expandedFunSegments = expandList funSegments funCountList -- repeat the segments in each function as necessary
+  return $ foldl addFunSegments [] expandedFunSegments -- Successors need to be updated accordingly.
+  where addFunSegments :: [Segment reg MWord] -> [Segment reg MWord] -> [Segment reg MWord]
+        addFunSegments accumulated funSegments =
             let lenAcc = length accumulated in 
             accumulated ++ (shiftSegment lenAcc  <$> funSegments)
 
-          -- | Shifts the successors 
-          shiftSegment :: Int -> Segment reg MWord -> Segment reg MWord
-          shiftSegment len seg = seg {segSuc = map (+ len) $ segSuc seg}
+        -- | Shifts the successors 
+        shiftSegment :: Int -> Segment reg MWord -> Segment reg MWord
+        shiftSegment len seg = seg {segSuc = map (+ len) $ segSuc seg}
           
 cutProg :: AnnotatedProgram Metadata reg wrd -> [Cut Metadata reg wrd]
 cutProg prog =
@@ -188,9 +190,13 @@ cut2segment (Cut _funName instrs pc len) succs toNet =
 
 
 -- | Per function analysis
-findAllFunctions :: AnnotatedProgram Metadata reg wrd -> [String]
-findAllFunctions prog = Set.toList (foldr addFunction Set.empty prog) -- Can we make this faster with unique? 
-  where addFunction (_instr, md) accumulator = Set.insert (mdFunction md) accumulator 
+findAllFunctions :: AnnotatedProgram Metadata reg wrd -> Hopefully [String]
+findAllFunctions prog = do
+  when (not $ "Premain" `Set.member` funcSet) $ assumptError "Program doesn't have a Premain."  
+  let minusPM = Set.delete  "Premain" funcSet
+  return $ "Premain" : (Set.toList minusPM) 
+  where funcSet = (foldl addFunction Set.empty prog) -- Can we make this faster with unique?
+        addFunction accumulator (_instr, md) = Set.insert (mdFunction md) accumulator 
 
 segmentFunction :: Show reg => [Cut Metadata reg MWord] -> String -> [Segment reg MWord]
 segmentFunction cuts funName = loopConnections functionSegs 
