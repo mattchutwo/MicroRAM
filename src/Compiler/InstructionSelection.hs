@@ -1096,10 +1096,11 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
   byteSize <- return $ sizeOf (llvmtTypeEnv env) typ
   init' <- flatInit env init
   case init' of
-    Just initWords ->
-      when (byteSize > fromIntegral (length initWords * wordBytes)) $ assumptError $
+    Just initWords -> do
+      let wordSize = (fromIntegral byteSize + wordBytes - 1) `div` wordBytes
+      when (wordSize /= length initWords) $ assumptError $
         "impossible: global size for " ++ show name ++ " is " ++ show byteSize ++
-          " but evaluation produced only " ++ show (length initWords) ++ " words of initializer"
+          " bytes but evaluation produced " ++ show (length initWords) ++ " words of initializer"
     Nothing -> return ()
   -- GlobalVariable size and align are given in words, not bytes.
   let size' = (byteSize + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
@@ -1129,15 +1130,9 @@ flattenConstant :: Env
                 -> Hopefully [LazyConst String MWord]
 flattenConstant env c = do
     chunks <- constant2typedLazyConst env c
-    return $ go (SConst 0) 0 $ addPadding 0 $ map unpack chunks
+    return $ go (SConst 0) 0 $ map unpack chunks
   where
-    unpack (TypedLazyConst lc w align) = (lc, widthInt w, align)
-
-    addPadding _pos [] = []
-    addPadding pos ((lc, w, a) : cs)
-      | pos' == pos = (lc, w) : addPadding (pos' + w) cs
-      | otherwise = (SConst 0, pos' - pos) : (lc, w) : addPadding (pos' + w) cs
-      where pos' = alignTo a pos
+    unpack (TypedLazyConst lc w align) = (lc, widthInt w)
 
     go ::
       LazyConst String MWord -> Int -> [(LazyConst String MWord, Int)] ->

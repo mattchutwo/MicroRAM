@@ -67,7 +67,7 @@ structPadding env tys = tail $ go 0 1 tys
     go :: MWord -> MWord -> [Type] -> [MWord]
     -- Before each `ty`, pad the `pos` to `alignOf ty`.
     go pos maxAlign (ty : tys) =
-      let pad = pos `mod` alignOf env ty
+      let pad = alignTo (alignOf env ty) pos - pos
       in pad : go (pos + pad + sizeOf env ty) (max maxAlign (alignOf env ty)) tys
     -- After the last `ty`, pad the `pos` to the overall alignment of the
     -- struct, which is `maxAlign`.
