@@ -146,15 +146,24 @@ operand2operand _ _= implError "operand, probably metadata"
 -- truncation to the appropriate width (determined by the LLVM type of `op`).
 -- | Similar to isTruncate
 operand2operandTrunc :: Env
+                     -> Bool  -- ^ Signed: if set, sign-extend after truncating
                      -> LLVM.Operand
                      -> Statefully (MAOperand VReg MWord, [MA2Instruction VReg MWord])
-operand2operandTrunc env op = do
+operand2operandTrunc env signed op = do
   op' <- lift $ operand2operand env op
   case typeOf (llvmtTypeEnv env) op of
     LLVM.IntegerType w | w < 64 -> do
+      -- TODO: special case when `op` is `LImm` (const eval)
       tmpReg <- freshName
+      tmpReg2 <- freshName
       let extra = MRAM.Iand tmpReg op' (LImm $ SConst $ (1 `shiftL` fromIntegral w) - 1)
-      return (AReg tmpReg, [extra])
+      let extra2 = [
+            MRAM.Iand tmpReg2 (AReg tmpReg) (LImm $ SConst $ 1 `shiftL` (fromIntegral w - 1)),
+            MRAM.Inot tmpReg2 (AReg tmpReg2),
+            MRAM.Iadd tmpReg2 (AReg tmpReg2) (LImm $ SConst 1),
+            MRAM.Ior tmpReg (AReg tmpReg) (AReg tmpReg2)
+            ]
+      return (AReg tmpReg, [extra] ++ (if signed then extra2 else []))
     _ -> return (op', [])
 
 
@@ -252,6 +261,14 @@ predicate2instructuion inst r op1 op2 =
   IntPred.SGE -> [MRAM.Icmpge r op1 op2] 
   IntPred.SLT -> [MRAM.Icmpg  r op2 op1]  --FLIPED
   IntPred.SLE -> [MRAM.Icmpge r op2 op1]  --FLIPED
+
+predicateIsSigned :: IntPred.IntegerPredicate -> Bool
+predicateIsSigned pred = case pred of
+  IntPred.SGT -> True
+  IntPred.SGE -> True
+  IntPred.SLT -> True
+  IntPred.SLE -> True
+  _ -> False
 
 
 _constzero,constOne :: LLVM.Operand
@@ -363,7 +380,9 @@ isInstruction env ret instr =
     (LLVM.InsertValue _ _ _ _)   -> makeTraceInvalid "insertvalue" <$> getMetadata
     (LLVM.ExtractValue _ _ _ )   -> makeTraceInvalid "extractvalue" <$> getMetadata
     -- Transformers
+    -- FIXME: SExt needs to set the high bits to match the sign bit of `op`
     (LLVM.SExt op _ _)       -> liftToRTL $ withReturn ret (isMove env op) 
+    -- FIXME: ZExt needs to set the high bits to zero
     (LLVM.ZExt op _ _)       -> liftToRTL $ withReturn ret (isMove env op)
     (LLVM.PtrToInt op _ty _) -> liftToRTL $ withReturn ret (isMove env op)
     (LLVM.IntToPtr op _ty _) -> liftToRTL $ withReturn ret (isMove env op)
@@ -662,8 +681,9 @@ isCompare
      -> VReg
      -> Statefully $ [MIRInstr Metadata MWord]
 isCompare env pred' op1 op2 ret = do
-  (lhs, lhsPre) <- operand2operandTrunc env op1
-  (rhs, rhsPre) <- operand2operandTrunc env op2
+  let signed = predicateIsSigned pred'
+  (lhs, lhsPre) <- operand2operandTrunc env signed op1
+  (rhs, rhsPre) <- operand2operandTrunc env signed op2
   comp' <- lift $ return $ predicate2instructuion pred' ret lhs rhs -- Do the comparison
   toRTL $ lhsPre ++ rhsPre ++ comp'
                         
@@ -796,6 +816,8 @@ isMove env op ret = -- lift $ toRTL <$>
      return $ smartMove ret op'
   
 -- | Optimize away the move if it's to the same register
+--
+-- TODO: is the same-register case even possible on inputs in SSA form?
 smartMove
   :: Eq regT
   => regT

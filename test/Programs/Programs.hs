@@ -66,6 +66,12 @@ testTrivial = ManyTests "Trivial programs" $ OneTest <$>
     ,testLen = 50
     ,testResult =   10
     } :
+  defaultTest {
+    testName = "signed icmp"
+    ,fileName ="test/Programs/icmp_signed.ll"
+    ,testLen = 100
+    ,testResult = 3
+    } :
     []
 
 -- Compilation errors
