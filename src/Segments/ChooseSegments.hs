@@ -124,7 +124,6 @@ data PathSearchState reg = PathSearchState {
 instance Eq (PathSearchState reg) where
   (==) pss1 pss2 = (segIndxPSS pss1) == (segIndxPSS pss2) 
 
-
 instance Ord (PathSearchState reg) where
   compare pss1 pss2 = (segIndxPSS pss1) `compare` (segIndxPSS pss2) 
 
@@ -152,7 +151,7 @@ findPublicPath segments usedSegs startInds initRemTrace =
         nextStates :: PathSearchState reg -> [PathSearchState reg]
         nextStates pss =
           case segments V.!? (segIndxPSS pss) of
-            Nothing -> map (PathSearchState initRemTrace) startInds
+            Nothing -> map (PathSearchState initRemTrace) $ filter notUsed startInds
             Just seg ->
               let (usedTrace,trimTrace) = splitAt (segLen seg) (remTracePSS pss)
                   allSuccIndx =  filter notUsed $ segSuc seg
@@ -176,14 +175,14 @@ chooseSegment segments privSize = do
   let possiblePath = findPublicPath segments usedSegs startInds initRemTrace
   case possiblePath of -- T.trace ("Pc :" ++ show currentPc ++ ". Possible next: " ++ show checkedNextSegments ++ "\n\tUnfiltered: " ++ show possibleNextSegments) checkedNextSegments of 
     Just path -> do
-      -- T.traceM ("Path:" ++ show path)
+      -- T.traceM ("Path: " ++ show path)
       -- allocates the current queue in private pc segments (if there is more than just the last state).  
       queue <- queueSt <$> get
       when (length queue >1) $ allocateQueue privSize
       -- allocates states to use the public pc segment. Returns the last state (now the start of the queue)
       queueInitSt <- mapM (allocateSegment segments) path
       modify (\st -> st {queueSt = [last queueInitSt] -- push the initial state of the private queue. Already in trace, this one gets dropped
-               , usedSegments = (Set.fromList path) `Set.union` (usedSegments st) -- Mark path as used (TODO: Move to allocatePublicPath)
+               , usedSegments = (Set.fromList path) `Set.union` usedSegs -- Mark path as used (TODO: Move to allocatePublicPath)
                , nextPc = pc $ last queueInitSt }) 
     Nothing -> do -- If no public segment fits try private
       execSt <- pullStates 1  -- returns singleton list
@@ -306,6 +305,14 @@ splitEvery _ [] = []
 splitEvery n list = first : (splitEvery n rest)
   where
     (first,rest) = splitAt n list
+
+
+
+
+
+
+
+
 
 -------
 -- TESTING
