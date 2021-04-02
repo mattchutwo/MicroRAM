@@ -72,6 +72,12 @@ testTrivial = ManyTests "Trivial programs" $ OneTest <$>
     ,testLen = 100
     ,testResult = 3
     } :
+  defaultTest {
+    testName = "binops with truncated operands"
+    ,fileName ="test/Programs/binopTrunc.ll"
+    ,testLen = 300
+    ,testResult = 9
+    } :
     []
 
 -- Compilation errors

@@ -218,6 +218,33 @@ liftToRTL ls = toRTL =<< lift ls
 
 type BinopInstruction = VReg -> MAOperand VReg MWord -> MAOperand VReg MWord ->
   MA2Instruction VReg MWord
+
+isBinopCommon
+  :: Env
+     -> Maybe Bool      -- ^ `Just signed` if operands should be truncated
+     -> Maybe VReg
+     -> LLVM.Operand
+     -> LLVM.Operand
+     -> BinopInstruction
+     -> Statefully [MIRInstr Metadata MWord]
+isBinopCommon env signed ret op1 op2 bopisBinop =
+    toRTL =<< isBinop' ret op1 op2 bopisBinop
+  where isBinop' ::
+          Maybe VReg
+          -> LLVM.Operand
+          -> LLVM.Operand
+          -> BinopInstruction
+          -> Statefully [MA2Instruction VReg MWord]
+        isBinop' Nothing _ _ _ = return [] --  without return is a noop
+        isBinop' (Just ret') op1' op2' bop = do
+          (a, aExtra) <- case signed of
+            Nothing -> lift $ operand2operand env op1' >>= \x -> return (x, [])
+            Just signed' -> operand2operandTrunc env signed' op1'
+          (b, bExtra) <- case signed of
+            Nothing -> lift $ operand2operand env op2' >>= \x -> return (x, [])
+            Just signed' -> operand2operandTrunc env signed' op2'
+          return $ aExtra ++ bExtra ++ [bop ret' a b]
+
 isBinop
   :: Env
      -> Maybe VReg
@@ -225,19 +252,19 @@ isBinop
      -> LLVM.Operand
      -> BinopInstruction
      -> Statefully [MIRInstr Metadata MWord]
-isBinop env ret op1 op2 bopisBinop = toRTL =<< lift (isBinop' ret op1 op2 bopisBinop)
-  where isBinop' ::
-          Maybe VReg
-          -> LLVM.Operand
-          -> LLVM.Operand
-          -> BinopInstruction
-          -> Hopefully $ [MA2Instruction VReg MWord]
-        isBinop' Nothing _ _ _ = Right [] --  without return is a noop
-        isBinop' (Just ret') op1' op2' bop = do
-          a <- operand2operand env op1'
-          b <- operand2operand env op2'
-          return [bop ret' a b]
-  
+isBinop env ret op1 op2 bopisBinop = isBinopCommon env Nothing ret op1 op2 bopisBinop
+
+isBinopTrunc
+  :: Env
+     -> Bool
+     -> Maybe VReg
+     -> LLVM.Operand
+     -> LLVM.Operand
+     -> BinopInstruction
+     -> Statefully [MIRInstr Metadata MWord]
+isBinopTrunc env signed ret op1 op2 bopisBinop =
+  isBinopCommon env (Just signed) ret op1 op2 bopisBinop
+
 -- ** Comparisons
 
 -- | Instruction selection for comparisons
@@ -349,11 +376,11 @@ isInstruction env ret instr =
     (LLVM.FMul _ _o1 _o2 _)  -> unsupported "FMul"
     (LLVM.FDiv _ _o1 _o2 _)  -> unsupported "FDiv"
     (LLVM.FRem _ _o1 _o2 _)  -> unsupported "FRem"
-    (LLVM.UDiv _ o1 o2 _)    -> isBinop env ret o1 o2 MRAM.Iudiv -- this is easy
-    (LLVM.URem o1 o2 _)      -> isBinop env ret o1 o2 MRAM.Iumod -- this is eay
+    (LLVM.UDiv _ o1 o2 _)    -> isBinopTrunc env False ret o1 o2 MRAM.Iudiv -- this is easy
+    (LLVM.URem o1 o2 _)      -> isBinopTrunc env False ret o1 o2 MRAM.Iumod -- this is eay
     -- Binary
     (LLVM.Shl _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Ishl
-    (LLVM.LShr _ o1 o2 _)    -> isBinop env ret o1 o2 MRAM.Ishr
+    (LLVM.LShr _ o1 o2 _)    -> isBinopTrunc env False ret o1 o2 MRAM.Ishr
     (LLVM.AShr _ o1 o2 _)    -> isArithShr env ret o1 o2
     (LLVM.And o1 o2 _)       -> isBinop env ret o1 o2 MRAM.Iand
     (LLVM.Or o1 o2 _)        -> isBinop env ret o1 o2 MRAM.Ior
