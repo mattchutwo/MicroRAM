@@ -170,15 +170,17 @@ instrSuccessor blockMap pc instr =
   
 
 -- | Cut to segment
-cut2segment :: Cut Metadata reg MWord -> [Int] -> ToNetwork -> Segment reg MWord 
+cut2segment :: Show reg => Cut Metadata reg MWord -> [Int] -> ToNetwork -> Segment reg MWord 
 cut2segment (Cut _funName instrs pc len) succs toNet =
-  Segment
-  { segIntrs = (map fst instrs) 
-    , constraints = [PcConst pc]
-    , segLen = len
-    , segSuc = succs
-    , fromNetwork = fromNet  -- ^ From network can change later.
-    , toNetwork = toNet }
+  let ret =  
+        Segment
+        { segIntrs = (map fst instrs) 
+        , constraints = [PcConst pc]
+        , segLen = len
+        , segSuc = succs
+        , fromNetwork = fromNet  -- ^ From network can change later.
+        , toNetwork = toNet } in
+    if fromNet then T.trace ("Segmetn to net: " <> (show $ constraints ret)) ret else ret
   where fromNet = case instrs of
                     [] -> False
                     (_i,md):_ -> mdReturnCall md || mdFunctionStart md
@@ -196,7 +198,7 @@ segmentFunction cuts funName = loopConnections functionSegs
         functionCuts = filter (\cut -> cutFunction cut == funName) cuts 
 
         pcToIndexMap = foldr (\(i,cut) -> Map.insert (cutPc cut) i) Map.empty (zip [0..] functionCuts)   
-        toSegment :: Cut Metadata reg MWord -> Segment reg MWord
+        toSegment :: Show reg => Cut Metadata reg MWord -> Segment reg MWord
         toSegment cut = let (cutSuccs, toNet) = cutSuccessors pcToIndexMap cut in
                           cut2segment cut cutSuccs toNet
 

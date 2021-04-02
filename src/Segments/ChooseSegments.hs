@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Wall -fno-warn-unused-binds -fno-warn-missing-signatures #-}
 {-
@@ -11,12 +12,15 @@ Stability   : experimental
 module Segments.ChooseSegments where
 
 import qualified Debug.Trace as T (trace, traceShow)
+
+import qualified Algorithm.Search as Alg (dfs)
+
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
 import qualified Data.Map as Map 
 import qualified Data.Set as Set 
-import qualified Data.Vector as V (Vector, (!), fromList, ifoldl)
+import qualified Data.Vector as V (Vector, (!), (!?), fromList, ifoldl)
 
 import Segments.Segmenting
 import Sparsity.Sparsity
@@ -38,8 +42,6 @@ data PartialState reg = PartialState {
   , chunksPS :: [TraceChunk reg]
   , queueSt :: Trace reg -- ^ Carries a list of visited but unalocated states (backwards) including the inital state.
   , availableSegments :: Map.Map MWord [Int]
-  , successorSegs :: [Int] -- successors to the current segment
-  , stToNetwork :: Bool -- If the current segment goes to network. 
   , privLoc :: Int -- The next location of a private segment
   , sparsityPS :: Sparsity
   , progPS :: Program reg MWord
@@ -58,8 +60,6 @@ chooseSegments privSize spar prog trace segments = do
         , chunksPS = []
         , queueSt = [head trace] -- initial state.
         , availableSegments = segmentSets
-        , successorSegs = []
-        , stToNetwork = True
         , privLoc = length segments
         , sparsityPS = spar
         , progPS = prog
@@ -115,44 +115,77 @@ showESt es = "EState at " ++ (show $ pc es) ++ ". "
 showQueue
   :: (Foldable t, Functor t) => t (ExecutionState mreg) -> String
 showQueue q = "[" ++ (concat $ showESt <$> q) ++ "]"
-   
+
+data PathSearchState reg = PathSearchState {
+  remTracePSS :: Trace reg
+  , segIndxPSS :: Int
+  } 
+
+instance Eq (PathSearchState reg) where
+  (==) pss1 pss2 = (segIndxPSS pss1) == (segIndxPSS pss2) 
+
+
+instance Ord (PathSearchState reg) where
+  compare pss1 pss2 = (segIndxPSS pss1) `compare` (segIndxPSS pss2) 
+
+
+-- | Finds a path of public segments that conforms to the given trace.
+-- We use depth first search, which will find A solution if one exists.
+-- TODO: Find longest path  
+
+findPublicPath :: forall reg. Show reg
+               => V.Vector (Segment reg MWord)
+               -> Set.Set Int
+               -> [Int] -> Trace reg -> Maybe [Int] 
+findPublicPath segments usedSegs startInds initRemTrace = 
+  map segIndxPSS <$> Alg.dfs nextStates hasToNetwork (initState initRemTrace)
+  where initState :: Trace reg -> PathSearchState reg
+        initState initRemTrace = PathSearchState {
+          remTracePSS = initRemTrace
+          , segIndxPSS = -1 -- Special initial index
+          }
+        hasToNetwork :: PathSearchState reg -> Bool
+        hasToNetwork pss =
+          case segments V.!? (segIndxPSS pss) of
+            Nothing -> False -- For the boggus initial state
+            Just seg -> toNetwork seg
+        nextStates :: PathSearchState reg -> [PathSearchState reg]
+        nextStates pss =
+          case segments V.!? (segIndxPSS pss) of
+            Nothing -> map (PathSearchState initRemTrace) startInds
+            Just seg ->
+              let (usedTrace,trimTrace) = splitAt (segLen seg) (remTracePSS pss)
+                  allSuccIndx =  filter notUsed $ segSuc seg
+                  pcSuccIndx  =  filter (pcIs $ pc $ last usedTrace) allSuccIndx 
+                  result = map (PathSearchState trimTrace) $ pcSuccIndx in
+                T.trace ("Current:" <> show (segIndxPSS pss) <> " Succ: " <> show pcSuccIndx) result
+        notUsed :: Int -> Bool
+        notUsed segIndx = not $ segIndx `Set.member` usedSegs
+        pcIs pcTocheck segIndx = pcTocheck == getPcConstraint (constraints $ segments V.! segIndx)
+          where getPcConstraint (PcConst thePc:_) = thePc  -- Public segments allways have a pc
+                -- getPcConstraint (_:ls) = getPcConstraint ls
 -- | chooses the next segment
 chooseSegment :: Show reg => V.Vector (Segment reg MWord) -> Int -> PState reg ()
 chooseSegment segments privSize = do
-  currentPc <- nextPc <$> get
-  avalStates <- availableSegments <$> get
-  succs <- successorSegs <$> get
-  toNet <- stToNetwork <$> get
-  let networkSuccs = if toNet then Map.findWithDefault [] currentPc avalStates else []
-  let possibleNextSegments = succs ++ networkSuccs
-  checkedNextSegments <- filterM (checkSegment False segments) possibleNextSegments
-  when (null checkedNextSegments) $ do
-    _ <- filterM (checkSegment True segments) possibleNextSegments
-    return ()
-  case checkedNextSegments of -- T.trace ("Pc :" ++ show currentPc ++ ". Possible next: " ++ show checkedNextSegments ++ "\n\tUnfiltered: " ++ show possibleNextSegments) checkedNextSegments of 
-    segment:_ -> do
-      queue <- queueSt <$> get
+  thePc <- nextPc <$> get
+  initRemTrace <- remainingTrace <$> get
+  avalSegs <-  availableSegments <$> get
+  usedSegs <-  usedSegments <$> get
+  -- _ <-  T.trace ("Choose segment for pc: " <> show thePc) $ return ()
+  let startInds = Map.findWithDefault [] thePc avalSegs
+  let possiblePath = findPublicPath segments usedSegs startInds initRemTrace
+  case possiblePath of -- T.trace ("Pc :" ++ show currentPc ++ ". Possible next: " ++ show checkedNextSegments ++ "\n\tUnfiltered: " ++ show possibleNextSegments) checkedNextSegments of 
+    Just path -> do
+      _ <- T.trace ("Path:" ++ show path) $ return ()
       -- allocates the current queue in private pc segments (if there is more than just the last state).  
+      queue <- queueSt <$> get
       when (length queue >1) $ allocateQueue privSize
-      -- allocates states to use the public pc segment. Returns the last state
-      queueInitSt <- allocateSegment segments segment
-      let newSeg = segments V.! segment
-      modify (\st -> st {queueSt = [queueInitSt] -- push the initial state of the private queue. Already in trace, this one gets dropped
-               , usedSegments = Set.insert segment $ usedSegments st -- Mark segment as used
-               , successorSegs = segSuc $ newSeg -- Record the new successors.
-               , stToNetwork = toNetwork $ newSeg }) -- Record the new toNetwork
-    _ -> do -- If no public segment fits try private
-      when (not toNet) $ progError ("Can't find a successor. \nToNet = False. "
-                                    ++ "\n\t Filtered segments:"
-                                    ++ show checkedNextSegments
-                                    ++ "\n\t unfiltered segments:"
-                                    ++ show possibleNextSegments
-                                    ++ "\n\t Just successors:"
-                                    ++ show succs
-                                    ++ ".\n\t PC: "
-                                    ++ show currentPc
-                                    ++ ".\n\t Network matching the pc: "
-                                    ++ show (Map.lookup currentPc avalStates)) -- Check to network!!!
+      -- allocates states to use the public pc segment. Returns the last state (now the start of the queue)
+      queueInitSt <- mapM (allocateSegment segments) path
+      modify (\st -> st {queueSt = [last queueInitSt] -- push the initial state of the private queue. Already in trace, this one gets dropped
+               , usedSegments = (Set.fromList path) `Set.union` (usedSegments st) -- Mark path as used (TODO: Move to allocatePublicPath)
+               , nextPc = pc $ last queueInitSt }) 
+    Nothing -> do -- If no public segment fits try private
       execSt <- pullStates 1  -- returns singleton list
       pushQueue (head execSt) -- take the element in the list add it to the queue
    where
@@ -160,13 +193,14 @@ chooseSegment segments privSize = do
      -- pull enough states to fill the segment and
      -- return the last state
      allocateSegment :: V.Vector (Segment reg MWord) -> Int -> PState reg (ExecutionState reg)
-     allocateSegment segments' segmentIndx =
-       let segment = segments' V.! segmentIndx
-           len = segLen segment in
-         do nextStates <- pullStates len
-            let newChunk = TraceChunk segmentIndx nextStates
-            addChunks [newChunk]
-            return $ last nextStates
+     allocateSegment segments' segmentIndx =do
+       nextStates <- pullStates len
+       let newChunk = TraceChunk segmentIndx nextStates
+       addChunks [newChunk]
+       modify (\st -> st{usedSegments = segmentIndx `Set.insert` usedSegments st})
+       return $ last nextStates
+         where segment = segments' V.! segmentIndx
+               len = segLen segment
 
      -- | Checks if we can use the segment next
      checkSegment :: Bool -> V.Vector (Segment reg MWord) -> Int -> PState reg Bool
