@@ -429,6 +429,10 @@ traceHandler active _nextH (Iext name ops) | Just desc <- Text.stripPrefix "trac
   vals <- mapM opVal ops
   when active $ traceM $ "TRACE[" ++ Text.unpack desc ++ "] " ++ intercalate ", " (map show vals)
   nextPc
+traceHandler active nextH instr@(Ianswer op) = do
+  val <- opVal op
+  when active $ traceM $ "ANSWER = " ++ show val
+  nextH instr
 traceHandler _active nextH instr = nextH instr
 
 
