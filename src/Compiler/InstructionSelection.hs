@@ -277,12 +277,12 @@ function2function _ (Right op) =
 
 functionTypes :: LLVMTypeEnv ->  LLVM.Type -> Hopefully (Ty, [Ty])
 functionTypes tenv' (LLVM.PointerType funTy _) = functionTypes tenv' funTy
-functionTypes tenv' (LLVM.FunctionType retTy argTys False) = do
+functionTypes tenv' (LLVM.FunctionType retTy argTys _) = do
   retT' <- type2type  tenv' retTy
   paramT' <- mapM (type2type tenv') argTys
   return (retT',paramT')
-functionTypes _tenv (LLVM.FunctionType  _ _ True) =
-  implError "Variable parameters (isVarArg in function call)."
+-- functionTypes _tenv (LLVM.FunctionType  _ _ True) =
+--   implError "Variable parameters (isVarArg in function call)."
 functionTypes _ ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
 
 -- | Process parameters into RTL format

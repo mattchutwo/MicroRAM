@@ -28,7 +28,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 
-import Compiler.Common (Name(Name))
+import Compiler.Common (Name(Name), Ty(..))
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.LazyConstants
@@ -107,6 +107,9 @@ cc_trace :: IntrinsicImpl m w
 cc_trace [msg] Nothing md = return [MirM (Iext "tracestr" [msg]) md]
 cc_trace _ _ _ = progError "bad arguments"
 
+va_start :: IntrinsicImpl m w
+va_start [ptr] Nothing md = return [MirI (RCall TVoid Nothing (Label "Name \"__va_start\"") [Tptr] [ptr]) md]
+va_start _ _ _ = progError "bad arguments"
 
 intrinsics :: Map String (IntrinsicImpl m MWord)
 intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
@@ -123,6 +126,9 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
 
   , ("llvm.lifetime.start.p0i8", cc_noop)
   , ("llvm.lifetime.end.p0i8", cc_noop)
+
+  , ("llvm.va_start", va_start)
+  , ("llvm.va_end", cc_noop)
 
   -- Exception handling
   , ("__gxx_personality_v0", cc_trap)
