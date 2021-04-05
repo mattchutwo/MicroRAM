@@ -14,13 +14,15 @@ module Segments.ChooseSegments where
 import qualified Debug.Trace as T (trace, traceShow, traceM)
 
 import qualified Algorithm.Search as Alg (dfs)
+import qualified Data.Graph as G
+import Data.Foldable (toList)
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
 import qualified Data.Map as Map 
 import qualified Data.Set as Set 
-import qualified Data.Vector as V (Vector, (!), (!?), fromList, ifoldl)
+import qualified Data.Vector as V (Vector, (!), (!?), fromList, ifoldl, imap, map)
 
 import Segments.Segmenting
 import Sparsity.Sparsity
@@ -63,7 +65,7 @@ chooseSegments privSize spar prog trace segments = do
         , privLoc = length segments
         , sparsityPS = spar
         , progPS = prog
-        , usedSegments = Set.empty}   
+        , usedSegments = Set.empty}
   -- run the choose statement
   let go = whileM_ traceNotEmpty (chooseSegment segments privSize) *> allocateQueue privSize
   finalSt <- execStateT go initSt 
@@ -116,11 +118,17 @@ showQueue
   :: (Foldable t, Functor t) => t (ExecutionState mreg) -> String
 showQueue q = "[" ++ (concat $ showESt <$> q) ++ "]"
 
+
+
+-- ## Path search 
 data PathSearchState reg = PathSearchState {
   remTracePSS :: Trace reg
   , segIndxPSS :: Int
-  } 
+  }
 
+instance Show (PathSearchState reg) where
+  show (PathSearchState _ idx) = "PS" ++ show idx
+    
 instance Eq (PathSearchState reg) where
   (==) pss1 pss2 = (segIndxPSS pss1) == (segIndxPSS pss2) 
 
@@ -131,37 +139,113 @@ instance Ord (PathSearchState reg) where
 -- | Finds a path of public segments that conforms to the given trace.
 -- We use depth first search, which will find A solution if one exists.
 -- TODO: Find longest path  
+findPublicPath' :: forall reg. Show reg
+               => V.Vector (Segment reg MWord)
+               -> Set.Set Int
+               -> [Int]
+               -> Trace reg -> [Int] 
+findPublicPath' segments usedSegs startIndx trace =  
+  let allPaths = G.dfs segmGraph startIndx
+      result = longestPathForest constrs hasToNetwork $ allPaths
+      toNetworks = toList $ V.imap (\i seg -> (i, toNetwork seg)) segments in
+    if null $ startIndx then result else
+      T.trace ("GRAPH: " ++ show segmGraph ++
+               "\nSTART: " ++ show startIndx ++
+               "\nEND: " ++ show (toNetworks) ++
+               "\nALL PATHS: " ++ show allPaths ++
+               "\n\tRESULT:" ++ show result) result 
+  where hasToNetwork :: G.Vertex -> Bool
+        hasToNetwork segIdx = toNetwork $ segments V.! segIdx
+
+        segmGraph :: G.Graph
+        (segmGraph, _) = G.graphFromEdges' $ toList $ V.imap buildNode segments
+
+        buildNode :: Int -> Segment reg wrd -> (Int, Int, [Int])
+        buildNode indx seg = (indx, indx, filter notUsed $ segSuc seg)
+        notUsed :: Int -> Bool
+        notUsed segIndx = not $ segIndx `Set.member` usedSegs
+        
+        constrs :: [(G.Vertex -> Bool)]
+        constrs = map (\est idx -> pcIs (pc est) idx) trace
+        pcIs pcTocheck segIndx = pcTocheck == getPcConstraint (constraints $ segments V.! segIndx)
+          where getPcConstraint (PcConst thePc:_) = thePc  -- Public segments allways have a pc
+                getPcConstraint [] = 404 -- This should never happen
+
+
+longestPathForest :: [(G.Vertex -> Bool)] -> (G.Vertex -> Bool) -> G.Forest G.Vertex -> [G.Vertex]
+longestPathForest constrs end paths =
+  maxWith length [] $ map (longestPathTree constrs) paths
+  where longestPathTree :: [(G.Vertex -> Bool)] -> G.Tree G.Vertex -> [G.Vertex]
+        longestPathTree constrs (G.Node v forest) =
+          case constrs of
+            [] -> []
+            const: constrs' ->
+              if not $ const v then [] else -- Must satisfy the contraint. 
+                case longestPathForest constrs' end forest of
+                  hd:tl ->  v : hd : tl              -- If the path is not empty    
+                  []  -> if end v then [v] else [] -- Otherwise
+
+        maxWith :: (Ord n, Foldable f) => (a -> n) -> a -> f a -> a
+        maxWith f def ls = foldl (\path other -> if f path < f other then other else path) def ls
+
+                             
+longestPath :: (Ord state, Show (t state), Show state, Foldable t, Functor t)
+            => (state -> t state) -- Next
+            -> (state -> Bool)  -- End
+            -> t state -- START
+            -> [state]
+longestPath next end start = longestPath' Set.empty start 
+  where longestPath' visited start =
+          let paths = fmap (longestPathOne visited) start in
+            maxWith length [] paths
+        longestPathOne visited start
+          | start `Set.member` visited = [] -- looped
+          | otherwise =
+            let visited' = Set.insert start visited 
+                path = longestPath' visited' $ next start in   
+                T.trace ("\tVisiting " ++ show start ++
+                         "\n\tNext states are: " ++ show (next start) ++
+                         "\n\tPath so far: " ++ show path) $
+              if not $ null path then
+                start : path
+              else if end start then [start] else []
+
+        maxWith :: (Ord n, Foldable f) => (a -> n) -> a -> f a -> a --
+        maxWith f def ls = foldl (\path other -> if f path < f other then other else path) def ls
+
 
 findPublicPath :: forall reg. Show reg
                => V.Vector (Segment reg MWord)
                -> Set.Set Int
-               -> [Int] -> Trace reg -> Maybe [Int] 
-findPublicPath segments usedSegs startInds initRemTrace = 
-  map segIndxPSS <$> Alg.dfs nextStates hasToNetwork (initState initRemTrace)
-  where initState :: Trace reg -> PathSearchState reg
-        initState initRemTrace = PathSearchState {
-          remTracePSS = initRemTrace
-          , segIndxPSS = -1 -- Special initial index
-          }
+               -> [Int] -> Trace reg -> [Int] 
+findPublicPath segments usedSegs startIndx initRemTrace = 
+  let result = map segIndxPSS $ longestPath nextStates hasToNetwork (initState initRemTrace) in
+    if null (filter notUsed startIndx) then result else
+      T.trace ("START " ++ show (filter notUsed startIndx) ++
+               "\n\tRESULT"++ show result) result
+  where initState :: Trace reg -> [PathSearchState reg]
+        initState initRnemTrace = map (PathSearchState initRemTrace) $ filter notUsed startIndx 
+
         hasToNetwork :: PathSearchState reg -> Bool
-        hasToNetwork pss =
-          case segments V.!? (segIndxPSS pss) of
-            Nothing -> False -- For the boggus initial state
-            Just seg -> toNetwork seg
+        hasToNetwork pss = toNetwork $ segments V.! (segIndxPSS pss) 
+
         nextStates :: PathSearchState reg -> [PathSearchState reg]
         nextStates pss =
-          case segments V.!? (segIndxPSS pss) of
-            Nothing -> map (PathSearchState initRemTrace) $ filter notUsed startInds
-            Just seg ->
-              let (usedTrace,trimTrace) = splitAt (segLen seg) (remTracePSS pss)
-                  allSuccIndx =  filter notUsed $ segSuc seg
-                  pcSuccIndx  =  filter (pcIs $ pc $ last usedTrace) allSuccIndx 
-                  result = map (PathSearchState trimTrace) $ pcSuccIndx in
-                result -- T.trace ("Current:" <> show (segIndxPSS pss) <> " Succ: " <> show pcSuccIndx) result
+          let seg = segments V.! (segIndxPSS pss)
+              (usedTrace,trimTrace) = splitAt (segLen seg) (remTracePSS pss)
+              allSuccIndx =  filter notUsed $ segSuc seg
+              pcSuccIndx  =  filter (pcIs $ pc $ last usedTrace) allSuccIndx 
+              result = map (PathSearchState trimTrace) $ pcSuccIndx in
+            T.trace ("\t\t\tCurrent:" <> show (segIndxPSS pss) <>
+                     " Succ: " <> show pcSuccIndx <>
+                     ". Almost succ:  " <> show allSuccIndx) result
         notUsed :: Int -> Bool
         notUsed segIndx = not $ segIndx `Set.member` usedSegs
-        pcIs pcTocheck segIndx = pcTocheck == getPcConstraint (constraints $ segments V.! segIndx)
-          where getPcConstraint (PcConst thePc:_) = thePc  -- Public segments allways have a pc
+        pcIs pcTocheck segIndx =
+          T.trace ("\t\t\t\t State pc: " ++ show pcTocheck ++ "=? segment pc " ++ show segPc) $
+          pcTocheck == getPcConstraint (constraints $ segments V.! segIndx)
+          where segPc = getPcConstraint (constraints $ segments V.! segIndx)
+                getPcConstraint (PcConst thePc:_) = thePc  -- Public segments allways have a pc
                 -- getPcConstraint (_:ls) = getPcConstraint ls
 -- | chooses the next segment
 chooseSegment :: Show reg => V.Vector (Segment reg MWord) -> Int -> PState reg ()
@@ -174,17 +258,17 @@ chooseSegment segments privSize = do
   let startInds = Map.findWithDefault [] thePc avalSegs
   let possiblePath = findPublicPath segments usedSegs startInds initRemTrace
   case possiblePath of -- T.trace ("Pc :" ++ show currentPc ++ ". Possible next: " ++ show checkedNextSegments ++ "\n\tUnfiltered: " ++ show possibleNextSegments) checkedNextSegments of 
-    Just path -> do
+    x:path -> do
       -- T.traceM ("Path: " ++ show path)
       -- allocates the current queue in private pc segments (if there is more than just the last state).  
       queue <- queueSt <$> get
       when (length queue >1) $ allocateQueue privSize
       -- allocates states to use the public pc segment. Returns the last state (now the start of the queue)
-      queueInitSt <- mapM (allocateSegment segments) path
+      queueInitSt <- mapM (allocateSegment segments) (x:path)
       modify (\st -> st {queueSt = [last queueInitSt] -- push the initial state of the private queue. Already in trace, this one gets dropped
-               , usedSegments = (Set.fromList path) `Set.union` usedSegs -- Mark path as used (TODO: Move to allocatePublicPath)
+               , usedSegments = (Set.fromList (x:path)) `Set.union` usedSegs -- Mark path as used (TODO: Move to allocatePublicPath)
                , nextPc = pc $ last queueInitSt }) 
-    Nothing -> do -- If no public segment fits try private
+    [] -> do -- If no public segment fits try private
       execSt <- pullStates 1  -- returns singleton list
       pushQueue (head execSt) -- take the element in the list add it to the queue
    where
