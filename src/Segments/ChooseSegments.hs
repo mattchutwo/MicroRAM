@@ -149,11 +149,12 @@ findPublicPath' segments usedSegs startIndx trace =
       result = longestPathForest constrs hasToNetwork $ allPaths
       toNetworks = toList $ V.imap (\i seg -> (i, toNetwork seg)) segments in
     if null $ startIndx then result else
-      T.trace ("GRAPH: " ++ show segmGraph ++
-               "\nSTART: " ++ show startIndx ++
-               "\nEND: " ++ show (toNetworks) ++
-               "\nALL PATHS: " ++ show allPaths ++
-               "\n\tRESULT:" ++ show result) result 
+      -- T.trace ("GRAPH: " ++ show segmGraph ++
+      --          "\nSTART: " ++ show startIndx ++
+      --          "\nEND: " ++ show (toNetworks) ++
+      --          "\nALL PATHS: " ++ show allPaths ++
+      --          "\n\tRESULT:" ++ show result)
+      result 
   where hasToNetwork :: G.Vertex -> Bool
         hasToNetwork segIdx = toNetwork $ segments V.! segIdx
 
@@ -199,16 +200,16 @@ longestPath next end start = longestPath' Set.empty start
           let paths = fmap (longestPathOne visited) start in
             maxWith length [] paths
         longestPathOne visited start
-          | start `Set.member` visited =  T.trace ("\t\t\t Looped to " ++ show start) [] -- looped
+          | start `Set.member` visited =  [] -- looped
           | otherwise =
             let visited' = Set.insert start visited 
                 path = longestPath' visited' $ next start in   
-                T.trace ("\tVisiting " ++ show start ++
-                         "\n\tNext states are: " ++ show (next start) ++
-                         "\n\tPath so far: " ++ show path) $
+                -- T.trace ("\tVisiting " ++ show start ++
+                --          "\n\tNext states are: " ++ show (next start) ++
+                --          "\n\tPath so far: " ++ show path) $
               if not $ null path then
                 start : path
-              else if end start then [start] else  T.trace ("\t\t\t No end " ++ show start) []
+              else if end start then [start] else  []
 
         maxWith :: (Ord n, Foldable f) => (a -> n) -> a -> f a -> a --
         maxWith f def ls = foldl (\path other -> if f path < f other then other else path) def ls
@@ -221,8 +222,9 @@ findPublicPath :: forall reg. Show reg
 findPublicPath segments usedSegs startIndx initRemTrace = 
   let result = map segIndxPSS $ longestPath nextStates hasToNetwork (initState initRemTrace) in
     if null (filter notUsed startIndx) then result else
-      T.trace ("START " ++ show (filter notUsed startIndx) ++
-               "\n\tRESULT"++ show result) result
+      -- T.trace ("START " ++ show (filter notUsed startIndx) ++
+      --          "\n\tRESULT"++ show result)
+      result
   where initState :: Trace reg -> [PathSearchState reg]
         initState initRnemTrace = map (PathSearchState initRemTrace) $ filter notUsed startIndx 
 
