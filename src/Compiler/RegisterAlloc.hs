@@ -64,8 +64,8 @@ registerAlloc :: RegisterAllocOptions
               -> CompilationUnit a (Rprog Metadata MWord)
               -> Hopefully $ CompilationUnit a (Lprog Metadata AReg MWord)
 registerAlloc opt comp = do
-  regData <- return $ NumRegisters $ fromEnum $ numRegisters
-  lprog   <- registerAllocProg (programCU comp)
+  let regData = NumRegisters $ fromEnum numRegisters
+  lprog <- registerAllocProg (programCU comp)
   return $ comp {programCU = lprog, regData = regData}
   where
     registerAllocProg :: Rprog Metadata MWord
