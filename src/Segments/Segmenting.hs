@@ -11,7 +11,7 @@ Stability   : experimental
 
 module Segments.Segmenting (segmentProgram, Segment(..), Constraints(..)) where
 
-import qualified Debug.Trace as T (trace, traceShow)
+
 
 import Compiler.Errors
 import Compiler.Metadata
@@ -109,14 +109,6 @@ cutProg prog =
           then ((makeCut count currentCut): cuts, [instr]) -- Will be folded right, so everything is built in reverse.
           else (cuts, instr:currentCut )
 
-        -- Find how many times the current cut will be repeated.
-        -- Assume all the cut is in the same function
-        howMany funCount currentCut =
-          case currentCut of
-            hd : _ ->
-              Map.findWithDefault 1 (mdFunction $ snd hd) funCount
-            [] -> 0
-        
         isJump :: Instruction reg wrd -> Bool
         isJump (Ijmp _) = True
         isJump (Icjmp _ _) = True
@@ -151,24 +143,24 @@ pcSuccessors pc instr =
         isReg (Reg   _) = True  -- By default it goes to network.
         isReg (Const _) = False
 
-instrSuccessor :: Map.Map MWord [Int] -> MWord -> Instruction reg MWord -> Hopefully $ [Int]
-instrSuccessor blockMap pc instr =
-  case instr of
-    Ijmp op       -> ifConst op
-    Icjmp  _ op2  -> (++) <$> (getBlock (pc + 1)) <*> ifConst op2
-    Icnjmp _ op2  -> (++) <$> (getBlock (pc + 1)) <*> ifConst op2
-    _             -> return $ []
+-- instrSuccessor :: Map.Map MWord [Int] -> MWord -> Instruction reg MWord -> Hopefully $ [Int]
+-- instrSuccessor blockMap pc instr =
+--   case instr of
+--     Ijmp op       -> ifConst op
+--     Icjmp  _ op2  -> (++) <$> (getBlock (pc + 1)) <*> ifConst op2
+--     Icnjmp _ op2  -> (++) <$> (getBlock (pc + 1)) <*> ifConst op2
+--     _             -> return $ []
 
-  where ifConst :: Operand regT MWord -> Hopefully $ [Int]
-        ifConst (Reg   _) = return $ []  -- By default it goes to network.
-        ifConst (Const c) = do { block <- getBlock c; return block }
+--   where ifConst :: Operand regT MWord -> Hopefully $ [Int]
+--         ifConst (Reg   _) = return $ []  -- By default it goes to network.
+--         ifConst (Const c) = do { block <- getBlock c; return block }
           
-        getBlock :: MWord -> Hopefully [Int] 
-        getBlock pc = 
-          case Map.lookup pc blockMap of
-            Just blocks -> return blocks
-            Nothing  -> otherError $ "Cutting segments: found jump to an instruction not at the beggining of a block. PC: "
-                        ++ show pc
+--         getBlock :: MWord -> Hopefully [Int] 
+--         getBlock pc = 
+--           case Map.lookup pc blockMap of
+--             Just blocks -> return blocks
+--             Nothing  -> otherError $ "Cutting segments: found jump to an instruction not at the beggining of a block. PC: "
+--                         ++ show pc
   
 
 -- | Cut to segment
@@ -215,7 +207,7 @@ loopConnections segs =
   let cfg = makeCFG segs
       sccs = G.stronglyConnComp cfg in
     toList $
-    (removeBackEdges sccs) . (connectLoopExits sccs) $
+    (backEdgesToNet sccs) . (connectLoopExits sccs) $
     Seq.fromList segs   
       
   
@@ -246,35 +238,27 @@ connectLoopExits sccs segs = foldOverComponents connectComponent segs sccs
         addFromNetwork seg = seg{fromNetwork = True}
 
         
--- | 4. Remove back-edges in loops and replace them with toNetwork to every back-edge in loops (to break the loop) 
---      The goal here is to add exits to the loop.
---      Why do we need to remove the edges? A back jump might not directly jump to a used segment, but it might make
---      the segmentChooser stuck. There are two ways to fix them (both useful):
---      (1) Optimize the segmentChooser so it can look ahead/backtrack if it chooses a hopeless path.
---      (2) Add smarter exits to the loop like so:
---          (Algorithm sketch) For each entry to the loop, do a breath first search.
---          Whenever the search jumps to a visited segment, add to/fromNetwork in that jump.
-removeBackEdges :: [G.SCC Int]               -- Connected components
+-- | 4. For each back edge in the loop, add a toNetwork so we can get out of the loop.
+backEdgesToNet :: [G.SCC Int]               -- Connected components
                 -> Seq.Seq (Segment reg wrd) -- Segments
                 -> Seq.Seq (Segment reg wrd)
-removeBackEdges sccs segs = foldOverComponents go segs sccs
+backEdgesToNet sccs segs = foldOverComponents go segs sccs
   where go  :: [Int]
             -> Seq.Seq (Segment reg wrd)
             -> Seq.Seq (Segment reg wrd)
         go component segs =
           let compSet = Set.fromList component in
-            foldl (removeBackEdgesSeg compSet) segs component
-        removeBackEdgesSeg compSet segsList compSeg =
+            foldl (backEdgesToNetSeg compSet) segs component
+        backEdgesToNetSeg :: Set.Set Int -> Seq.Seq (Segment reg wrd) -> Int -> Seq.Seq (Segment reg wrd)   
+        backEdgesToNetSeg compSet segsList compSeg =
           let successors = segSuc (segsList `Seq.index` compSeg)
-              -- Remove back edges within the loop
-              filteredSucc = filter (\idx -> not $ idx `Set.member` compSet && idx >= compSeg) $
-                successors in
-            if length successors == length filteredSucc
-            then -- nothing was filtered, do nothing 
-              segsList
-            else -- Back edges removed -> add a toNetwork 
-              Seq.adjust' (\seg -> seg{segSuc = filteredSucc, toNetwork = True}) compSeg segsList
-
+              -- See if there are any back-egdes in the component
+              backEdgesComp = filter 
+                              (\idx -> (idx `Set.member` compSet) && (idx <= compSeg)) $
+                              successors in
+            if null backEdgesComp then segsList else 
+              Seq.adjust' (\seg -> seg{toNetwork = True}) compSeg segsList
+                              
 foldOverComponents :: Foldable t => ([Int] -> b -> b) -> b -> t (G.SCC Int) -> b
 foldOverComponents f segs sccs = foldl go segs sccs
   where go segs comp = case comp of

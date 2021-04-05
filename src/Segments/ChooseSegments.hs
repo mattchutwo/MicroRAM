@@ -199,7 +199,7 @@ longestPath next end start = longestPath' Set.empty start
           let paths = fmap (longestPathOne visited) start in
             maxWith length [] paths
         longestPathOne visited start
-          | start `Set.member` visited = [] -- looped
+          | start `Set.member` visited =  T.trace ("\t\t\t Looped to " ++ show start) [] -- looped
           | otherwise =
             let visited' = Set.insert start visited 
                 path = longestPath' visited' $ next start in   
@@ -208,7 +208,7 @@ longestPath next end start = longestPath' Set.empty start
                          "\n\tPath so far: " ++ show path) $
               if not $ null path then
                 start : path
-              else if end start then [start] else []
+              else if end start then [start] else  T.trace ("\t\t\t No end " ++ show start) []
 
         maxWith :: (Ord n, Foldable f) => (a -> n) -> a -> f a -> a --
         maxWith f def ls = foldl (\path other -> if f path < f other then other else path) def ls
@@ -236,13 +236,13 @@ findPublicPath segments usedSegs startIndx initRemTrace =
               allSuccIndx =  filter notUsed $ segSuc seg
               pcSuccIndx  =  filter (pcIs $ pc $ last usedTrace) allSuccIndx 
               result = map (PathSearchState trimTrace) $ pcSuccIndx in
-            T.trace ("\t\t\tCurrent:" <> show (segIndxPSS pss) <>
-                     " Succ: " <> show pcSuccIndx <>
-                     ". Almost succ:  " <> show allSuccIndx) result
+            result
+            -- T.trace ("\t\t\tCurrent:" <> show (segIndxPSS pss) <>
+            --          " Succ: " <> show pcSuccIndx <>
+            --          ". Almost succ:  " <> show allSuccIndx) 
         notUsed :: Int -> Bool
         notUsed segIndx = not $ segIndx `Set.member` usedSegs
         pcIs pcTocheck segIndx =
-          T.trace ("\t\t\t\t State pc: " ++ show pcTocheck ++ "=? segment pc " ++ show segPc) $
           pcTocheck == getPcConstraint (constraints $ segments V.! segIndx)
           where segPc = getPcConstraint (constraints $ segments V.! segIndx)
                 getPcConstraint (PcConst thePc:_) = thePc  -- Public segments allways have a pc
