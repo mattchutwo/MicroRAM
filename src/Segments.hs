@@ -35,10 +35,10 @@ data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (P
                                               , segTrace :: Maybe [TraceChunk reg]
                                               , segAdvice :: Maybe (Map.Map MWord [Advice])}
 
-segment :: Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
-segment privSize compRes = do 
+segment :: Int -> Maybe Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
+segment privSize privSegs compRes  = do 
   (segs, segMap') <- segmentProgram $ (lowProg . programCU) compRes
-  privateSegments <- return $ mkPrivateSegments (traceLen compRes) privSize -- Should we substract the public segments?  
+  privateSegments <- return $ mkPrivateSegments (traceLen compRes) privSize privSegs  -- Should we substract the public segments?  
   return $ SegmentedProgram compResNoMD segs privateSegments segMap' Nothing Nothing
   where compResNoMD = compRes {programCU = (map fst) <$> programCU compRes}
 
@@ -53,6 +53,10 @@ chooseSegment' privSize spar trace segProg =
   where chunks = chooseSegments privSize spar (lowProg . programCU . compiled $ segProg) trace (segMap segProg) (V.fromList $ pubSegments segProg)
         segmentsTrace = maximum (map chunkSeg chunks)
         numSegments = length (pubSegments segProg) + length (privSegments segProg) 
-mkPrivateSegments :: Word -> Int -> [Segment reg MWord]
-mkPrivateSegments len size = replicate (fromEnum len `div` size) (Segment [] [] size [] True True) 
+mkPrivateSegments :: Word -> Int -> Maybe Int -> [Segment reg MWord]
+mkPrivateSegments len size privSegs = replicate howMany (Segment [] [] size [] True True)
+  where howMany = case privSegs of
+                    Just numSegs -> numSegs
+                    Nothing ->  fromEnum len `div` size
+   
 
