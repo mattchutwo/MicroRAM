@@ -33,11 +33,11 @@ data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (P
                                               , segTrace :: Maybe [TraceChunk reg]
                                               , segAdvice :: Maybe (Map.Map MWord [Advice])}
 
-segment :: (Show reg) => Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
-segment privSize compRes = do
+segment :: (Show reg) => Int -> Maybe Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
+segment privSize privSegs compRes = do
   let funCount = functionUsage $ aData compRes 
   segs <- segmentProgram funCount $ (lowProg . programCU) compRes
-  privateSegments <- return $ mkPrivateSegments (traceLen compRes) privSize -- Should we substract the public segments?  
+  privateSegments <- return $ mkPrivateSegments (traceLen compRes) privSize privSegs -- Should we substract the public segments?  
   return $ SegmentedProgram compResNoMD segs privateSegments Nothing Nothing
   where compResNoMD = compRes {programCU = (map fst) <$> programCU compRes}
 
@@ -53,7 +53,11 @@ chooseSegment' privSize spar trace segProg = do
     return $ segProg {segTrace = Just chunks}
   else
     assumptError $ "Trace is not long enough. Execution uses: " ++ (show segmentsTrace) ++ " segments, but only " ++ show numSegments ++ " where generated."
-     
-mkPrivateSegments :: Word -> Int -> [Segment reg MWord]
-mkPrivateSegments len size = replicate (fromEnum len `div` size) (Segment [] [] size [] True True) 
+
+mkPrivateSegments :: Word -> Int -> Maybe Int -> [Segment reg MWord]
+mkPrivateSegments len size privSegs = replicate howMany (Segment [] [] size [] True True)
+  where howMany = case privSegs of
+                    Just numSegs -> numSegs
+                    Nothing ->  fromEnum len `div` size
+   
 

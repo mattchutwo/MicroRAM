@@ -120,6 +120,15 @@ name2label :: Monad m => LLVM.Name -> m $ MAOperand VReg MWord
 name2label nm = return $ Label $ show $ name2name nm
 
 getConstant :: Env -> LLVM.Constant.Constant -> Hopefully $ MAOperand VReg MWord
+getConstant env (LLVM.Constant.GlobalReference ty name) | itIsFunctionType ty = do
+  _ <- checkName (globs env) name
+  return $ Label $ show $ name2name name
+
+  where
+    itIsFunctionType (LLVM.PointerType (LLVM.FunctionType _ _ _) _) = True
+    itIsFunctionType _                                              = False -- Recurse instead?
+
+-- JP: We may want to generalize `constant2OnelazyConst` so it can return labels.
 getConstant env c = LImm <$> constant2OnelazyConst env c
 
 operand2operand :: Env -> LLVM.Operand -> Hopefully $ MAOperand VReg MWord
@@ -267,6 +276,7 @@ function2function _ (Right op) =
   implError $ "Calling a function with unsuported operand. You called: \n \t" ++ show op
 
 functionTypes :: LLVMTypeEnv ->  LLVM.Type -> Hopefully (Ty, [Ty])
+functionTypes tenv' (LLVM.PointerType funTy _) = functionTypes tenv' funTy
 functionTypes tenv' (LLVM.FunctionType retTy argTys False) = do
   retT' <- type2type  tenv' retTy
   paramT' <- mapM (type2type tenv') argTys

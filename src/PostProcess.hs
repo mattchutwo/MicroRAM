@@ -35,9 +35,16 @@ import Segments.ChooseSegments (TraceChunk(..))
 
 import Sparsity.Sparsity (Sparsity)
 
-postProcess_v :: (Show reg, Regs reg) => Bool -> Int -> Bool -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (Output reg)
-postProcess_v verb chunkSize private comp =
-  (segment chunkSize)
+  
+postProcess_v :: (Show reg, Regs reg)
+              => Bool
+              -> Int
+              -> Bool
+              -> CompilationResult (AnnotatedProgram Metadata reg MWord)
+              -> Maybe Int
+              -> Hopefully (Output reg)
+postProcess_v verb chunkSize private comp privSegs =
+  (segment chunkSize privSegs)
   >=> (doIf private (buildTrace verb chunkSize spar))
   >=> (doIf private recoverAdvice)
   >=> segProg2Output $
