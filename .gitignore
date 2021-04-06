@@ -25,3 +25,6 @@ test/programs/**/*.c.bc
 *.cbor
 out.txt
 **/flycheck_*.hs
+Output/
+fulltest.sh
+rungrit.sh
