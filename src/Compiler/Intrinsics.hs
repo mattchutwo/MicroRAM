@@ -80,10 +80,6 @@ cc_malloc :: IntrinsicImpl m w
 cc_malloc [size] (Just dest) md = return [MirM (Iextval "malloc" dest [size]) md]
 cc_malloc _ _ _ = progError "bad arguments"
 
-cc_free :: IntrinsicImpl m w
-cc_free [ptr] Nothing md = return [MirM (Iext "free" [ptr]) md]
-cc_free _ _ _ = progError "bad arguments"
-
 cc_access_valid :: IntrinsicImpl m w
 cc_access_valid [lo, hi] Nothing md = return [MirM (Iext "access_valid" [lo, hi]) md]
 cc_access_valid _ _ _ = progError "bad arguments"
@@ -137,7 +133,6 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("__cc_flag_bug", cc_flag_bug)
 
   , ("__cc_malloc", cc_malloc)
-  , ("__cc_free", cc_free)
   , ("__cc_access_valid", cc_access_valid)
   , ("__cc_access_invalid", cc_access_invalid)
   , ("__cc_advise_poison", cc_advise_poison)

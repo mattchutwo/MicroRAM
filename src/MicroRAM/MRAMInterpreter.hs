@@ -517,7 +517,7 @@ checkAccess verbose allocState addr = do
 allocHandler :: Regs r => Bool -> Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
 allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
   size <- opVal sizeOp
-  let sizeClass = ceilLog2 (size + fromIntegral wordBytes)
+  let sizeClass = ceilLog2 size
   let size' = 1 `shiftL` sizeClass
 
   base <- use $ sExt . allocState . asFrontier
@@ -532,14 +532,6 @@ allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
     ") at " ++ showHex ptr
 
   sMach . mReg rd .= ptr
-  finishInstr
-allocHandler verbose _allocState _nextH (Iext "free" [ptrOp]) = do
-  ptr <- opVal ptrOp
-
-  let sizeClass = ptr `shiftR` 58
-  let size' = (1 :: MWord) `shiftL` fromIntegral sizeClass
-  when verbose $ traceM $ "free " ++ show size' ++ " words at " ++ showHex ptr
-
   finishInstr
 allocHandler verbose allocState _nextH (Iext "access_valid" [loOp, hiOp]) = do
   lo <- opVal loOp
