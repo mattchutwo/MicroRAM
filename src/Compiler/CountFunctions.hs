@@ -12,6 +12,8 @@ Stability   : experimental
 -}
 module Compiler.CountFunctions (countFunctions) where
 
+import qualified Debug.Trace as T
+
 import Compiler.Analysis
 import Compiler.Errors
 import Compiler.IRs
@@ -23,7 +25,8 @@ import qualified Data.Map as Map
 type FunctionCount = Map.Map String Int
 
 countFunctions :: Lprog mdata mreg wrdT -> Hopefully (AnalysisPiece)
-countFunctions prog = return $ FunctionUsage doFCount
+countFunctions prog = --T.trace ("Functions: " ++ show doFCount) $
+  return $ FunctionUsage doFCount
     
   where doFCount :: FunctionCount
         doFCount = execState (mapM_ goFunc $ code prog) Map.empty
@@ -44,7 +47,7 @@ countFunctions prog = return $ FunctionUsage doFCount
         addCount lbl = do
           fCount <- get
           let n = fromMaybe $ Map.lookup lbl fCount
-          modify (Map.insert lbl (n + 1))
+          modify (Map.insert lbl (min 5 $ n + 1))
 
         fromMaybe :: Maybe Int -> Int
         fromMaybe (Just n) = n
