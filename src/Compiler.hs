@@ -174,21 +174,20 @@ compile1
   :: Bool
   -> Word
   -> LLVM.Module
-  -> Hopefully (CompilationUnit () (Rprog Metadata MWord))
+  -> Hopefully (CompilationUnit () (MIRprog Metadata MWord))
 compile1 allowUndefFun len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
   >>= (tagPass "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
   >>= (tagPass "Lower Intrinsics" $ justCompile lowerIntrinsics)
   >>= (tagPass "Catch undefined Functions" $ justCompile (catchUndefinedFunctions allowUndefFun))
-  >>= (tagPass "Legalize Instructions" $ justCompile legalize)
-  >>= (tagPass "Localize Labels" $ justCompile localizeLabels)
-  >>= (tagPass "Edge split" $ justCompile edgeSplit)
 
 compile2
   :: Maybe Int
-  -> CompilationUnit () (Rprog Metadata MWord) ->
+  -> CompilationUnit () (MIRprog Metadata MWord) ->
   Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
 compile2 spars prog = return prog
+  >>= (tagPass "Legalize Instructions" $ justCompile legalize)
+  >>= (tagPass "Localize Labels" $ justCompile localizeLabels)
   >>= (tagPass "Edge split"          $ justCompile edgeSplit)
   >>= (tagPass "Remove Phi Nodes"    $ justCompile removePhi)
   >>= (tagPass "Register Allocation" $ registerAlloc def)
