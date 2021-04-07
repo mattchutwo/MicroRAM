@@ -24,3 +24,4 @@ test/programs/**/*.c.bc
 *.py
 *.cbor
 **/flycheck_*.hs
+fulltest.sh
