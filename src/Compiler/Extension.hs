@@ -20,7 +20,7 @@ import Compiler.Errors
 import Compiler.Common (Name)
 import Compiler.IRs
 
-import MicroRAM (Instruction'(..))
+import MicroRAM (Instruction'(..), pattern WWord)
 import           MicroRAM (MWord)
 
 type Statefully a = StateT Word Hopefully a
@@ -35,6 +35,10 @@ lowerExtInstr "malloc" (Just dest) md ops =
 lowerExtInstr "free" _ _ _ = return []
 lowerExtInstr "advise_poison" (Just dest) md ops =
   return [MirM (Iextadvise "advise_poison" dest ops) md]
+lowerExtInstr "load_unchecked" (Just dest) md [ptr] =
+  return [MirM (Iload WWord dest ptr) md]
+lowerExtInstr "store_unchecked" Nothing md [ptr, val] =
+  return [MirM (Istore WWord ptr val) md]
 lowerExtInstr name optDest _md ops = assumptError $
   "unsupported extension instruction: " ++ show name ++ " " ++
     intercalate ", " (maybe [] (\x -> [show x]) optDest ++ map show ops)

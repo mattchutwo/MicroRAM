@@ -93,6 +93,16 @@ cc_write_and_poison [ptr, val] Nothing md =
   return [MirM (IpoisonW ptr val) md]
 cc_write_and_poison _ _ _ = progError "bad arguments"
 
+cc_read_unchecked :: IntrinsicImpl m w
+cc_read_unchecked [ptr] (Just dest) md =
+  return [MirM (Iextval "load_unchecked" dest [ptr]) md]
+cc_read_unchecked _ _ _ = progError "bad arguments"
+
+cc_write_unchecked :: IntrinsicImpl m w
+cc_write_unchecked [ptr, val] Nothing md =
+  return [MirM (Iext "store_unchecked" [ptr, val]) md]
+cc_write_unchecked _ _ _ = progError "bad arguments"
+
 cc_flag_invalid :: IntrinsicImpl m MWord
 cc_flag_invalid [] Nothing md =
   return [
@@ -122,6 +132,8 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("__cc_free", cc_free)
   , ("__cc_advise_poison", cc_advise_poison)
   , ("__cc_write_and_poison", cc_write_and_poison)
+  , ("__cc_read_unchecked", cc_read_unchecked)
+  , ("__cc_write_unchecked", cc_write_unchecked)
 
   , ("__cc_trace", cc_trace)
 

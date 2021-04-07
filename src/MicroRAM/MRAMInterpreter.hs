@@ -159,7 +159,7 @@ stepInstr i = do
     Ipoison w op2 r1 -> stepStore w op2 r1 >> poison w op2
     
     Iadvise _ -> assumptError $ "unhandled advice request"
-    
+
     Iext name _ -> assumptError $ "unhandled extension instruction " ++ show name
     Iextval name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
     Iextadvise name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
@@ -239,19 +239,29 @@ subBytes w off f x = put <$> f x'
 
 stepStore :: Regs r => MemWidth -> Operand r MWord -> r -> InterpM r s Hopefully ()
 stepStore w op2 r1 = do
-  (waddr, offset) <- splitAlignedAddr w =<< opVal op2
+  addr <- opVal op2
   val <- regVal r1
+  doStore w addr val
+  nextPc
+
+doStore :: MemWidth -> MWord -> MWord -> InterpM r s Hopefully ()
+doStore w addr val = do
+  (waddr, offset) <- splitAlignedAddr w addr
   checkPoison waddr
   sMach . mMemWord waddr . subBytes w offset .= val
-  nextPc
 
 stepLoad :: Regs r => MemWidth -> r -> Operand r MWord -> InterpM r s Hopefully ()
 stepLoad w rd op2 = do
-  (waddr, offset) <- splitAlignedAddr w =<< opVal op2
+  addr <- opVal op2
+  doLoad w rd addr
+  nextPc
+
+doLoad :: Regs r => MemWidth -> r -> MWord -> InterpM r s Hopefully ()
+doLoad w rd addr = do
+  (waddr, offset) <- splitAlignedAddr w addr
   val <- use $ sMach . mMemWord waddr . subBytes w offset
   checkPoison waddr
   sMach . mReg rd .= val
-  nextPc
 
 poison :: Regs r => MemWidth -> Operand r MWord -> InterpM r s Hopefully ()
 poison w op2 = do
@@ -551,6 +561,15 @@ allocHandler verbose allocState nextH instr@(Iload _w _rd op2) = do
   addr <- opVal op2
   checkAccess verbose allocState addr
   nextH instr
+allocHandler _ _ _ (Iextval "load_unchecked" rd [op2]) = do
+  addr <- opVal op2
+  doLoad WWord rd addr
+  finishInstr
+allocHandler _ _ _ (Iext "store_unchecked" [op2, op1]) = do
+  addr <- opVal op2
+  val <- opVal op1
+  doStore WWord addr val
+  finishInstr
 allocHandler _ _ nextH instr = nextH instr
 
 -- Memory handling, second pass
