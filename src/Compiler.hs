@@ -146,6 +146,7 @@ import Compiler.Analysis
 import Compiler.BlockCleanup
 import Compiler.CallingConvention
 import Compiler.CompilationUnit
+import Compiler.CountFunctions
 import Compiler.Globals
 import Compiler.Errors
 import Compiler.Extension
@@ -193,6 +194,7 @@ compile2 spars prog = return prog
   >>= (tagPass "Register Allocation" $ registerAlloc def)
   >>= (tagPass "Calling Convention"  $ justCompile callingConvention)
   >>= (tagPass "Remove Globals"      $ replaceGlobals)
+  >>= (tagPass "Count Funcitons"     $ justAnalyse countFunctions)
   >>= (tagPass "Stacking"            $ justCompile stacking)
   >>= (tagPass "Computing Sparsity"  $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
   >>= (tagPass "Block cleanup"       $ blockCleanup)

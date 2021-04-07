@@ -95,7 +95,7 @@ freshName = do
 
 getMetadata :: Statefully Metadata
 getMetadata = do
-  Metadata <$> use currentFunction <*> use currentBlock <*> use lineNumber <*> (return False)
+  Metadata <$> use currentFunction <*> use currentBlock <*> use lineNumber <*> (return False) <*> (return False)
 
 withMeta :: (Metadata -> x) -> Statefully x
 withMeta f = do {md <- getMetadata; return $ f md}

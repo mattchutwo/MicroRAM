@@ -52,11 +52,7 @@ edgeSplitFunc (Function name retTy argTys blocks nextReg) =
     buildEdgeBlock funcName ((pred, succ), edgeIdx) = 
       let name = makeEdgeBlockName pred succ edgeIdx in
       let body = [] in
-      let md = Metadata {
-            mdFunction = show funcName
-            , mdBlock = show name
-            , mdLine = 0             -- This is buggus, but we don't care about this line. We could make it -1.
-            , mdReturnCall = False } in
+      let md = trivialMetadata (show funcName) (show name) in
       let term = [MRI (Ijmp $ nameLabel succ) md] in -- This will eventually be deleted
       BB name body term [succ]
 

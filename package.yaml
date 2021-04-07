@@ -49,6 +49,7 @@ dependencies:
 - filepath
 - directory
 - lens
+- search-algorithms 
 - vector
 
 library:
