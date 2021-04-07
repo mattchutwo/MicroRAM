@@ -84,6 +84,14 @@ cc_free :: IntrinsicImpl m w
 cc_free [ptr] Nothing md = return [MirM (Iext "free" [ptr]) md]
 cc_free _ _ _ = progError "bad arguments"
 
+cc_access_valid :: IntrinsicImpl m w
+cc_access_valid [lo, hi] Nothing md = return [MirM (Iext "access_valid" [lo, hi]) md]
+cc_access_valid _ _ _ = progError "bad arguments"
+
+cc_access_invalid :: IntrinsicImpl m w
+cc_access_invalid [lo, hi] Nothing md = return [MirM (Iext "access_invalid" [lo, hi]) md]
+cc_access_invalid _ _ _ = progError "bad arguments"
+
 cc_advise_poison :: IntrinsicImpl m w
 cc_advise_poison [lo, hi] (Just dest) md = return [MirM (Iextval "advise_poison" dest [lo, hi]) md]
 cc_advise_poison _ _ _ = progError "bad arguments"
@@ -130,6 +138,8 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
 
   , ("__cc_malloc", cc_malloc)
   , ("__cc_free", cc_free)
+  , ("__cc_access_valid", cc_access_valid)
+  , ("__cc_access_invalid", cc_access_invalid)
   , ("__cc_advise_poison", cc_advise_poison)
   , ("__cc_write_and_poison", cc_write_and_poison)
   , ("__cc_read_unchecked", cc_read_unchecked)

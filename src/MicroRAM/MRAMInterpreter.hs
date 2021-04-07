@@ -426,23 +426,16 @@ traceHandler _active nextH instr = nextH instr
 
 -- Memory allocation tracking
 
-data Alloc = Alloc
-  { _aLen :: MWord
-  , _aFreed :: Bool
-  }
-
 data MemErrorKind = OutOfBounds | UseAfterFree | Unallocated
   deriving (Show, Eq)
 
 data AllocState = AllocState
-  -- | A map for tracking all allocations made by the program, including those
-  -- that have already been freed.  This works becaus eall allocations are
-  -- nonoverlapping and memory is never reused.  The map key is the
-  -- allocation's start address; use `Map.lookupLE addr` to find the allocation
-  -- that might contain `addr`.
-  { _asAllocs :: Map MWord Alloc
   -- | The next unused address.  Used for future allocations.
-  , _asFrontier :: MWord
+  { _asFrontier :: MWord
+  -- | Map tracking all memory that is valid to access at the moment.  An entry
+  -- `(k, v)` means that addresses `k <= addr < v` are valid to access.
+  -- Entries are all non-empty (`k < v`) and non-overlapping.
+  , _asValid :: Map MWord MWord
   -- | The address of each `malloc` performed by the program.  This is passed
   -- to the second run so it can replicate the same `malloc` behavior, without
   -- having to repeat the same allocation logic.  (Currently, the logic is
@@ -453,17 +446,15 @@ data AllocState = AllocState
   , _asMemErrors :: Seq (MemErrorKind, MWord)
   }
 
-makeLenses ''Alloc
 makeLenses ''AllocState
-
-_useALen :: Lens' Alloc MWord
-_useALen = aLen
 
 heapStart :: MWord
 heapStart = 0x10000000
 
 initAllocState :: AllocState
-initAllocState = AllocState Map.empty heapStart Seq.empty Seq.empty
+initAllocState = AllocState heapStart initValid Seq.empty Seq.empty
+  -- Initially, only the range 0 .. heapStart is valid.
+  where initValid = Map.singleton 0 heapStart
 
 redzoneSize :: MWord
 redzoneSize = 128
@@ -472,40 +463,56 @@ ceilLog2 :: MWord -> Int
 ceilLog2 0 = 1
 ceilLog2 n = wordBits - countLeadingZeros (n - 1)
 
-
--- | Compute the bounds of the usable space in the block containing `addr`.
-blockBounds :: MWord -> (MWord, MWord)
-blockBounds addr = (start, end)
+-- | Helper function for markValid and markInvalid.  Deletes all entries with
+-- key `start <= k < end` from `valid`.
+validDeleteRange :: MWord -> MWord -> Map MWord MWord -> Map MWord MWord
+validDeleteRange start end valid = go valid
   where
-    sizeClass = addr `shiftR` 58
-    size = 1 `shiftL` fromIntegral sizeClass
-    start = addr .&. complement (size - 1)
-    -- The last word of the block is reserved for metadata.
-    end = start + size - 1
+    -- Find the first entry with `start <= k`, and if `k < end`, delete it.
+    go m = case Map.lookupGE start m of
+      Just (k, _) | k < end -> go $ Map.delete k m
+      _ -> m
+
+markValid :: MWord -> MWord -> Map MWord MWord -> Map MWord MWord
+markValid start end valid | end <= start = valid
+markValid start end valid =
+    Map.insert start' end' $ validDeleteRange start' end' valid
+  where
+    -- If the range `start .. end` overlaps some ranges already in the map,
+    -- extend to cover those ranges as well.
+    start' = case Map.lookupLE start valid of
+      Just (prevStart, prevEnd) | prevStart < start && start <= prevEnd -> prevStart
+      _ -> start
+    end' = case Map.lookupLE end valid of
+      Just (nextStart, nextEnd) | nextStart <= end && end < nextEnd -> nextEnd
+      _ -> end
+
+markInvalid :: MWord -> MWord -> Map MWord MWord -> Map MWord MWord
+markInvalid start end valid | end <= start = valid
+markInvalid start end valid =
+    validDeleteRange start end $ splitAt start $ splitAt end $ valid
+  where
+    -- If an entry in the map overlaps `pos`, split the entry in two so that
+    -- `pos` falls on the boundary.
+    splitAt pos m = case Map.lookupLE pos m of
+      Just (start, end) | start < pos && pos < end ->
+        Map.union (Map.fromList [(start, pos), (pos, end)]) $ Map.delete start m
+      _ -> m
+
 
 -- | Check the allocation status of `addr`, and record a memory error if it
 -- isn't valid.
 checkAccess :: Regs r => Bool -> Lens' s AllocState -> MWord -> InterpM r s Hopefully ()
-checkAccess _ _ addr | addr < heapStart = return ()
 checkAccess verbose allocState addr = do
-  let (start, end) = blockBounds addr
-  optAlloc <- use $ sExt . allocState . asAllocs . at start
-  case optAlloc of
-    -- We check against `end` to avoid complaining about accesses of the
-    -- block's metadata word.
-    Just (Alloc len _) | start + len <= addr && addr < end -> do
-      when verbose $ traceM $ "detected out-of-bounds access at " ++ showHex addr ++
-        ", after the block at " ++ showHex start
-      sExt . allocState . asMemErrors %= (Seq.|> (OutOfBounds, addr))
-    Just (Alloc _ True) | start <= addr && addr < end -> do
-      when verbose $ traceM $ "detected use-after-free at " ++ showHex addr ++
-        ", in the block at " ++ showHex start
-      sExt . allocState . asMemErrors  %= (Seq.|> (UseAfterFree, addr))
-    Nothing -> do
-      when verbose $ traceM $ "detected bad access at " ++ showHex addr ++
-        ", in the unallocated block at " ++ showHex start
-      sExt . allocState . asMemErrors  %= (Seq.|> (Unallocated, addr))
-    _ -> return ()
+  validMap <- use $ sExt . allocState . asValid
+  let valid = case Map.lookupLE addr validMap of
+        Just (start, end) -> start <= addr && addr < end
+        Nothing -> False
+  when (not valid) $ do
+    -- TODO: update `asValid` to keep track of why a given region is invalid,
+    -- so we can produce a more precise message and MemErrorKind
+    when verbose $ traceM $ "detected bad access at " ++ showHex addr
+    sExt . allocState . asMemErrors  %= (Seq.|> (OutOfBounds, addr))
 
 allocHandler :: Regs r => Bool -> Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
 allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
@@ -519,7 +526,6 @@ allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
   sExt . allocState . asFrontier .= addr + size'
 
   let ptr = addr .|. (fromIntegral sizeClass `shiftL` 58)
-  sExt . allocState . asAllocs %= Map.insert ptr (Alloc size False)
   sExt . allocState . asMallocAddrs %= (Seq.|> ptr)
 
   when verbose $ traceM $ "malloc " ++ show size ++ " bytes (extended to " ++ show size' ++
@@ -527,24 +533,25 @@ allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
 
   sMach . mReg rd .= ptr
   finishInstr
-allocHandler verbose allocState _nextH (Iext "free" [ptrOp]) = do
+allocHandler verbose _allocState _nextH (Iext "free" [ptrOp]) = do
   ptr <- opVal ptrOp
 
   let sizeClass = ptr `shiftR` 58
   let size' = (1 :: MWord) `shiftL` fromIntegral sizeClass
   when verbose $ traceM $ "free " ++ show size' ++ " words at " ++ showHex ptr
 
-  cur <- use $ sExt . allocState . asAllocs . at ptr
-  case cur of
-    Just (Alloc _ True) -> do
-      when verbose $ traceM $ "detected double free at " ++ showHex ptr
-      -- This kind of bug is detected automatically - no advice required.
-    Nothing -> do
-      when verbose $ traceM $ "detected invalid free at " ++ showHex ptr
-      -- This kind of bug is detected automatically - no advice required.
-    _ -> return ()
-
-  sExt . allocState . asAllocs . ix ptr . aFreed .= True
+  finishInstr
+allocHandler verbose allocState _nextH (Iext "access_valid" [loOp, hiOp]) = do
+  lo <- opVal loOp
+  hi <- opVal hiOp
+  sExt . allocState . asValid %= markValid lo hi
+  when verbose $ traceM $ "valid: " ++ showHex lo ++ " .. " ++ showHex hi
+  finishInstr
+allocHandler verbose allocState _nextH (Iext "access_invalid" [loOp, hiOp]) = do
+  lo <- opVal loOp
+  hi <- opVal hiOp
+  sExt . allocState . asValid %= markInvalid lo hi
+  when verbose $ traceM $ "invalid: " ++ showHex lo ++ " .. " ++ showHex hi
   finishInstr
 allocHandler _verbose _allocState _nextH (Iextval "advise_poison" rd [_lo, _hi]) = do
   -- Always return 0 (don't poison)

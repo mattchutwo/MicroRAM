@@ -33,6 +33,8 @@ lowerExtInstr name _ _ _ | "trace_" `Text.isPrefixOf` name = return []
 lowerExtInstr "malloc" (Just dest) md ops =
   return [MirM (Iextadvise "malloc" dest ops) md]
 lowerExtInstr "free" _ _ _ = return []
+lowerExtInstr "access_valid" _ _ _ = return []
+lowerExtInstr "access_invalid" _ _ _ = return []
 lowerExtInstr "advise_poison" (Just dest) md ops =
   return [MirM (Iextadvise "advise_poison" dest ops) md]
 lowerExtInstr "load_unchecked" (Just dest) md [ptr] =
