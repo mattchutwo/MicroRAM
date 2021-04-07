@@ -10,7 +10,8 @@ Stability   : experimental
 
 
 -}
-module Compiler.CountFunctions (countFunctions) where
+module Compiler.CountFunctions (countFunctions, countFunctionsEmpty) where
+import qualified Debug.Trace as T (trace, )
 
 import Compiler.Analysis
 import Compiler.Errors
@@ -22,8 +23,11 @@ import qualified Data.Map as Map
 
 type FunctionCount = Map.Map String Int
 
+countFunctionsEmpty :: Lprog mdata mreg wrdT -> Hopefully (AnalysisPiece)
+countFunctionsEmpty _ = return $ FunctionUsage Map.empty
+
 countFunctions :: Lprog mdata mreg wrdT -> Hopefully (AnalysisPiece)
-countFunctions prog = return $ FunctionUsage doFCount
+countFunctions prog = T.trace ("Function name count: " ++ show doFCount) $ return $ FunctionUsage doFCount
     
   where doFCount :: FunctionCount
         doFCount = execState (mapM_ goFunc $ code prog) Map.empty

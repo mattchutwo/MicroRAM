@@ -44,7 +44,7 @@ postProcess_v :: (Show reg, Regs reg)
               -> Maybe Int
               -> Hopefully (Output reg)
 postProcess_v verb chunkSize private comp privSegs =
-  (segment chunkSize privSegs)
+  (segmentEmpty chunkSize privSegs)
   >=> (doIf private (buildTrace verb chunkSize spar))
   >=> (doIf private recoverAdvice)
   >=> segProg2Output $

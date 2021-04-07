@@ -11,8 +11,6 @@ Stability   : experimental
 
 module Segments.Segmenting (segmentProgram, Segment(..), Constraints(..)) where
 
-
-
 import Compiler.Errors
 import Compiler.Metadata
 import Compiler.IRs

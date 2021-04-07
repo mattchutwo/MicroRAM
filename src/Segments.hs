@@ -8,7 +8,7 @@ Stability   : experimental
 
 -}
 
-module Segments (segment, SegmentedProgram(..), chooseSegment') where
+module Segments (segment, segmentEmpty, SegmentedProgram(..), chooseSegment') where
 
 import Compiler.Analysis
 import Compiler.CompilationUnit
@@ -32,6 +32,12 @@ data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (P
                                               , privSegments :: [Segment reg MWord]
                                               , segTrace :: Maybe [TraceChunk reg]
                                               , segAdvice :: Maybe (Map.Map MWord [Advice])}
+
+segmentEmpty :: (Show reg) => Int -> Maybe Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
+segmentEmpty privSize _ compRes = do
+  privateSegment <- return $ mkPrivateSegments (traceLen compRes) privSize Nothing -- One big segment  
+  return $ SegmentedProgram compResNoMD [] privateSegment Nothing Nothing
+  where compResNoMD = compRes {programCU = (map fst) <$> programCU compRes}
 
 segment :: (Show reg) => Int -> Maybe Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
 segment privSize privSegs compRes = do
