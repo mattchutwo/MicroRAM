@@ -75,3 +75,4 @@ callingConventionFunc (LFunction fname typ typs stackSize (firstBlock:blocks)) =
     restoreLTLInstruction _restoreInsts inst@(Lsetstack _r1 _s _w _t) mdata = pure (IRI inst mdata)
     restoreLTLInstruction _restoreInsts inst@(LCall _t _mr _op _ts _ops) mdata = pure (IRI inst mdata)
     restoreLTLInstruction _restoreInsts inst@(LAlloc _mr _t _op) mdata = pure (IRI inst mdata)
+    restoreLTLInstruction _restoreInsts inst@(LGetBP _r) mdata = pure (IRI inst mdata)

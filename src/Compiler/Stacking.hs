@@ -214,6 +214,9 @@ stackLTLInstr (Lsetstack reg Local offset _) = return $
    [ Isub bp bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
    , IstoreW (AReg bp) reg
    , Iadd bp bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))] -- JP: offset+1?
+stackLTLInstr (LGetBP reg) = return $
+   [ Imov reg (AReg bp)
+   ]
 
 stackLTLInstr (LCall typ ret f argsT args) = return $
   funCallInstructions typ ret f argsT args

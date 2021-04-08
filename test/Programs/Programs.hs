@@ -90,7 +90,7 @@ testVarArgs = ManyTests "Test varargs" $ OneTest <$> [
     defaultTest {
       testName = "call function with varargs"
     , fileName = "test/Programs/varArgs.ll"
-    , testLen = 100
+    , testLen = 700
     , testResult = 15
     }
   ]

@@ -64,7 +64,7 @@ registerAlloc :: RegisterAllocOptions
               -> CompilationUnit a (Rprog Metadata MWord)
               -> Hopefully $ CompilationUnit a (Lprog Metadata AReg MWord)
 registerAlloc opt comp = do
-  regData <- return $ NumRegisters $ fromEnum $ numRegisters
+  let regData = NumRegisters $ fromEnum numRegisters
   lprog   <- registerAllocProg (programCU comp)
   return $ comp {programCU = lprog, regData = regData}
   where
@@ -172,7 +172,7 @@ registerAllocFunc registers (LFunction name typ typs stackSize' blocks') = do
             let weightMap = foldr (\s m -> foldr (\r m -> Map.insertWith (+) r 1 m) m s) mempty liveness in
             Map.findWithDefault 0 n weightMap
 
-      let registerMappingOrSpilled = Graph.color registers weightFunc (not . isSpillReg) interferenceGraph
+      let registerMappingOrSpilled = Graph.color registers weightFunc canSpill interferenceGraph
 
       case registerMappingOrSpilled of
         Left spillReg -> do
@@ -189,6 +189,8 @@ registerAllocFunc registers (LFunction name typ typs stackSize' blocks') = do
 
         Right coloring ->
           lift $ applyColoring coloring blocks
+
+    canSpill = not . isSpillReg
 
     isSpillReg (Name n) = "_reg_alloc" `BSC.isPrefixOf` BSS.fromShort n
     isSpillReg _ = False
@@ -296,6 +298,7 @@ applyColoring coloring = mapM applyBasicBlock
     applyLTLInstruction (LRet mo) = LRet <$> maybe (pure Nothing) (\o -> Just <$> applyOperand o) mo
     applyLTLInstruction (LAlloc mr t op) = LAlloc <$> mr' <*> pure t <*> applyOperand op
       where mr' = maybe (pure Nothing) (\r -> Just <$> applyReg r) mr
+    applyLTLInstruction (LGetBP r) = LGetBP <$> applyReg r
 
     applyMRIInstruction :: MAInstruction reg0 wrdT -> Hopefully (MAInstruction reg wrdT)
     applyMRIInstruction instr = MRAM.mapInstrM applyReg applyReg applyOperand instr

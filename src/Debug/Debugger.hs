@@ -45,8 +45,6 @@ import Compiler.Intrinsics
 --import Compiler.IRs
 import Compiler.Legalize
 import Compiler.LocalizeLabels
-import Compiler.Metadata
-import Compiler.IRs
 import Compiler.RegisterAlloc
 import Compiler.Registers
 import Compiler.RemoveLabels
@@ -338,7 +336,7 @@ summaryFromFile myfile myCS 300
 
 -- jpProgComp :: Word -> IO (CompilationResult (AnnotatedProgram Metadata AReg MWord))
 jpProgComp len = do
-  m <- fromLLVMFile "test/programs/funcPointer.ll"
+  m <- fromLLVMFile "test/programs/varArgs.ll"
   -- return m
   return $ either (error . show) id $
         (justCompile instrSelect) (prog2unit len m)
@@ -358,6 +356,8 @@ jpProgComp len = do
     >>= (justAnalyse (return . SparsityData . (forceSparsity spars))) 
     >>= (blockCleanup)
     >>= (removeLabels)
+    --
+    -- compile False len m Nothing
   where
     allowUndefFun = False
     spars = Nothing
@@ -368,6 +368,13 @@ jpProgComp len = do
 -- putStr $ microPrint $ lowProg $ programCU p
 --
 -- do {p <- jpProgComp 200; print $ pretty $ map fst $ programCU p}
+--
+-- let len = 250
+-- p <- jpProgComp len
+-- let convert = map fst
+-- let p' = (\(MultiProg h l) -> MultiProg (convert h) (convert l)) <$> p
+-- let t = run p'
+-- printSummary defaultSummary t len
 
 {- SC: Broken after resgiter allocation was moved to
    work on compilation units, not just programs.

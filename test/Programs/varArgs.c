@@ -11,21 +11,27 @@
 // } va_list[1];
 
 // TODO: Move to libfromager
-void __va_start(char* raw_list) {
+void __va_start(char* raw_list, char* bp, int offset) {
     // TODO: Endianness, alignment?
 
     // va_list* list = (va_list*) raw_list;
     // list->gp_offset = 999;
 
     // Set gp_offset to 999.
-    // va_list[0] = 0;
-    // unsigned int* gp_offset = ((unsigned int*)va_list);
-    // *gp_offset = 0;
+    unsigned int* gp_offset = (unsigned int*) raw_list;
+    *gp_offset = 999;
 
-    // TODO
     // Set fp_offset to 999.
+    unsigned int* fp_offset = gp_offset + 1;
+    *fp_offset = 999;
+
     // Set overflow_arg_area to first variable argument.
+    void** overflow_arg_area = (void**) (fp_offset + 1);
+    *overflow_arg_area = bp + offset;
+
     // Set reg_save_area to 0xffff_0000.
+    void** reg_save_area = overflow_arg_area + 1;
+    *reg_save_area = (void*) 0xffff0000;
 }
 
 int sum(int n, ...) {
