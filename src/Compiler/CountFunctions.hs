@@ -27,7 +27,8 @@ countFunctionsEmpty :: Lprog mdata mreg wrdT -> Hopefully (AnalysisPiece)
 countFunctionsEmpty _ = return $ FunctionUsage Map.empty
 
 countFunctions :: Lprog mdata mreg wrdT -> Hopefully (AnalysisPiece)
-countFunctions prog = T.trace ("Function name count: " ++ show doFCount) $ return $ FunctionUsage doFCount
+countFunctions prog = -- T.trace ("Function name count: " ++ show doFCount) $
+  return $ FunctionUsage doFCount
     
   where doFCount :: FunctionCount
         doFCount = execState (mapM_ goFunc $ code prog) Map.empty
