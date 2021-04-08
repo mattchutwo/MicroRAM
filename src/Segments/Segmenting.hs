@@ -11,6 +11,8 @@ Stability   : experimental
 
 module Segments.Segmenting (segmentProgram, Segment(..), Constraints(..)) where
 
+import qualified Debug.Trace as T
+
 import Compiler.Errors
 import Compiler.Metadata
 import Compiler.IRs
@@ -189,7 +191,8 @@ findAllFunctions prog = do
         addFunction accumulator (_instr, md) = Set.insert (mdFunction md) accumulator 
 
 segmentFunction :: Show reg => [Cut Metadata reg MWord] -> String -> [Segment reg MWord]
-segmentFunction cuts funName = loopConnections functionSegs 
+segmentFunction cuts funName = -- T.trace ("Segments in " ++ funName ++ ": " ++ show (length $ loopConnections functionSegs) )
+  loopConnections functionSegs 
   where functionSegs = map toSegment functionCuts 
         functionCuts = filter (\cut -> cutFunction cut == funName) cuts 
 

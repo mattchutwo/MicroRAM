@@ -13,6 +13,8 @@ Stability   : experimental
 module Compiler.CountFunctions (countFunctions, countFunctionsEmpty) where
 import qualified Debug.Trace as T (trace, )
 
+import qualified Debug.Trace as T
+
 import Compiler.Analysis
 import Compiler.Errors
 import Compiler.IRs
@@ -49,7 +51,7 @@ countFunctions prog = -- T.trace ("Function name count: " ++ show doFCount) $
         addCount lbl = do
           fCount <- get
           let n = fromMaybe $ Map.lookup lbl fCount
-          modify (Map.insert lbl (n + 1))
+          modify (Map.insert lbl (min 5 $ n + 1))
 
         fromMaybe :: Maybe Int -> Int
         fromMaybe (Just n) = n
