@@ -123,6 +123,6 @@ blockCleanup :: (Show regT, Show wrdT) => (CompilationUnit mem (MAProgram md reg
 blockCleanup cu = do
   prog' <- return (programCU cu) >>=
     threadJumps >>=
-    elimDead >>=
+    --elimDead >>=
     return
   return $ cu { programCU = prog' }

@@ -137,9 +137,11 @@ returnBlock = NBlock retName [(Ianswer (AReg ax),md)]
 -- ** Function Prologues and Epilogues
 
 -- | prologue: allocates the stack at the beggining of the function
-prologue :: Regs mreg => MWord -> [MAInstruction mreg MWord]
-prologue size =
-    [Iadd sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size + 1))]
+prologue :: Regs mreg => MWord -> String -> [MAInstruction mreg MWord]
+prologue size entry =
+    [ Iadd sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size + 1))
+    , Ijmp $ Label entry
+    ]
 
 
 -- | epilogue: deallocate the stack, then jump to return address
@@ -264,9 +266,12 @@ stackFunction
   LFunction Metadata mreg MWord
   -> Hopefully $ [NamedBlock Metadata mreg MWord]
 stackFunction (LFunction name _retT _argT size code) = do
-  let prologueBody = addMD prolMD (prologue size) :: Regs mreg => [(MAInstruction mreg MWord, Metadata)]
-  let prologueBlock = NBlock (Just name) $ markFunStart prologueBody 
   codeBlocks <- mapM stackBlock code
+  entryName <- case codeBlocks of
+    NBlock (Just name) _ : _ -> return name
+    _ -> assumptError $ "function " ++ show name ++ " entry block has no name"
+  let prologueBody = addMD prolMD (prologue size entryName)
+  let prologueBlock = NBlock (Just name) $ markFunStart prologueBody 
   return $ prologueBlock : codeBlocks
   where prolMD = trivialMetadata name (show $ Just name)
         -- | Add metadata for the first instruction in a funciton
