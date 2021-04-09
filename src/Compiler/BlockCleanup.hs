@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 {-|
 Module      : BlockCleanup
 Description : Cleanup passes for MAProgram blocks
@@ -12,6 +14,8 @@ Currently implemented:
 
 * Basic jump threading.  If block A contains nothing but a jump to B, we
   replace each jump to A with a jump directly to B instead.
+
+* Remove redundant moves (like `mov r1 r1`)
 
 -}
 module Compiler.BlockCleanup
@@ -31,6 +35,17 @@ import Compiler.CompilationUnit
 import Compiler.Errors
 
 import Util.Util
+
+-- | Removes redundant moves (like `mov r1 r1`).
+redundantMovs :: forall md reg wrd . Eq reg => MAProgram md reg wrd -> Hopefully (MAProgram md reg wrd)
+redundantMovs prog = return $ map updateBlock prog
+  where
+    updateBlock (NBlock name instrs) = NBlock name $ filter (not . isRedundant . fst) instrs
+
+    isRedundant :: MAInstruction reg wrd -> Bool
+    isRedundant (Imov r1 (AReg r2)) = r1 == r2
+    isRedundant _                  = False
+
 
 -- | Basic jump threading.  If block A contains nothing but a jump to B, then
 -- replace each reference to `Label "A"` with `Label "B"`.  This should
@@ -118,11 +133,12 @@ elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
     liveBlocks = execState (gather 0) mempty
 
 
-blockCleanup :: (Show regT, Show wrdT) => (CompilationUnit mem (MAProgram md regT wrdT))
+blockCleanup :: (Eq regT, Show regT, Show wrdT) => (CompilationUnit mem (MAProgram md regT wrdT))
              -> Hopefully (CompilationUnit mem (MAProgram md regT wrdT))
 blockCleanup cu = do
   prog' <- return (programCU cu) >>=
     threadJumps >>=
-    --elimDead >>=
+    elimDead >>=
+    redundantMovs >>=
     return
   return $ cu { programCU = prog' }

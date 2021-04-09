@@ -182,7 +182,6 @@ compile1 allowUndefFun len llvmProg = (return $ prog2unit len llvmProg)
   >>= (tagPass "Catch undefined Functions" $ justCompile (catchUndefinedFunctions allowUndefFun))
   >>= (tagPass "Legalize Instructions" $ justCompile legalize)
   >>= (tagPass "Localize Labels" $ justCompile localizeLabels)
-  >>= (tagPass "Edge split" $ justCompile edgeSplit)
 
 compile2
   :: Maybe Int
