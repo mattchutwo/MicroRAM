@@ -36,18 +36,18 @@ data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (P
 segment :: (Show reg) => Bool -> Int -> Maybe Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
 segment producePublic privSize privSegs compRes = do
   let funCount = functionUsage $ aData compRes 
-  segs <- segmentProgram funCount $ (lowProg . programCU) compRes
+  segs <- segmentProgram funCount $ (pmProg . lowProg . programCU) compRes
   let pubSegs = if producePublic then segs else []
   let privateSegments = if producePublic then
         mkPrivateSegments (traceLen compRes) privSize privSegs
         else
         mkPrivateSegments (traceLen compRes) (fromEnum $ traceLen compRes) privSegs
   return $ SegmentedProgram compResNoMD pubSegs privateSegments Nothing Nothing
-  where compResNoMD = compRes {programCU = (map fst) <$> programCU compRes}
+  where compResNoMD = compRes {programCU = fmap (fmap (map fst)) (programCU compRes)}
 
 chooseSegment' :: (Show reg, Regs reg) => Int -> Sparsity -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 
 chooseSegment' privSize spar trace segProg = do
-  let prog = lowProg . programCU . compiled $ segProg
+  let prog = pmProg . lowProg . programCU . compiled $ segProg
   let segs = (V.fromList $ pubSegments segProg)
   chunks <- chooseSegments privSize spar prog trace segs
   let segmentsTrace = maximum (map chunkSeg chunks)

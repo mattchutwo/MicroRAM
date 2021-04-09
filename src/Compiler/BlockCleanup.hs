@@ -136,9 +136,9 @@ elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
 blockCleanup :: (Eq regT, Show regT, Show wrdT) => (CompilationUnit mem (MAProgram md regT wrdT))
              -> Hopefully (CompilationUnit mem (MAProgram md regT wrdT))
 blockCleanup cu = do
-  prog' <- return (programCU cu) >>=
+  prog' <- return (pmProg $ programCU cu) >>=
     threadJumps >>=
     --elimDead >>=
     redundantMovs >>=
     return
-  return $ cu { programCU = prog' }
+  return $ cu { programCU = (programCU cu) { pmProg = prog' } }

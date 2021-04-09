@@ -770,13 +770,15 @@ initMach prog imem = MachineState
 type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
 run_v :: Regs mreg => Bool ->  Executor mreg (Trace mreg)
-run_v verbose (CompUnit progs trLen _ _analysis initMem _) = case go of
+run_v verbose (CompUnit progs trLen _ _analysis _) = case go of
   Left e -> error $ describeError e
   Right x -> x
   where
     go = do
-      memInfo <- runPass1 verbose  (trLen - 1) (initMach (highProg progs) initMem)
-      tr <- runPass2 (trLen - 1) (initMach (lowProg progs) initMem) memInfo
+      let highState = initMach (pmProg $ highProg progs) (pmMem $ highProg progs)
+      memInfo <- runPass1 verbose  (trLen - 1) highState
+      let lowState = initMach (pmProg $ lowProg progs) (pmMem $ lowProg progs)
+      tr <- runPass2 (trLen - 1) lowState memInfo
       return tr
       
 run :: Regs mreg => Executor mreg (Trace mreg)
