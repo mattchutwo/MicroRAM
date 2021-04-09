@@ -13,7 +13,7 @@ module Segments.ChooseSegments where
 
 import qualified Debug.Trace as T (trace, traceShow, traceM)
 
-import qualified Algorithm.Search as Alg (dfs)
+-- import qualified Algorithm.Search as Alg (dfs)
 import qualified Data.Graph as G
 import Data.Foldable (toList)
 
