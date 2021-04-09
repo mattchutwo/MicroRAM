@@ -33,12 +33,16 @@ data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (P
                                               , segTrace :: Maybe [TraceChunk reg]
                                               , segAdvice :: Maybe (Map.Map MWord [Advice])}
 
-segment :: (Show reg) => Int -> Maybe Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
-segment privSize privSegs compRes = do
+segment :: (Show reg) => Bool -> Int -> Maybe Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
+segment producePublic privSize privSegs compRes = do
   let funCount = functionUsage $ aData compRes 
   segs <- segmentProgram funCount $ (lowProg . programCU) compRes
-  privateSegments <- return $ mkPrivateSegments (traceLen compRes) privSize privSegs -- Should we substract the public segments?  
-  return $ SegmentedProgram compResNoMD segs privateSegments Nothing Nothing
+  let pubSegs = if producePublic then segs else []
+  let privateSegments = if producePublic then
+        mkPrivateSegments (traceLen compRes) privSize privSegs
+        else
+        mkPrivateSegments (traceLen compRes) (fromEnum $ traceLen compRes) privSegs
+  return $ SegmentedProgram compResNoMD pubSegs privateSegments Nothing Nothing
   where compResNoMD = compRes {programCU = (map fst) <$> programCU compRes}
 
 chooseSegment' :: (Show reg, Regs reg) => Int -> Sparsity -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 

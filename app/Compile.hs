@@ -95,7 +95,11 @@ main = do
                     -> CompilationResult (AnnotatedProgram Metadata Int MWord)
                     -> Maybe Int
                     -> IO (Output Int)
-        postProcess fr mramProg privSegsNum = handleErrors $ postProcess_v (verbose fr) chunkSize (end fr == FullOutput) mramProg privSegsNum
+        postProcess fr mramProg privSegsNum = handleErrors $
+          postProcess_v (verbose fr) (produceSegs fr) (forcedTraceLen) (end fr == FullOutput) mramProg privSegsNum
+          where forcedTraceLen = case trLen fr of
+                                   Just len -> fromEnum len
+                                   Nothing ->  0
         outputTheResult :: FlagRecord -> Output AReg -> IO ()
         outputTheResult fr out =
           case fileOut fr of
@@ -137,6 +141,7 @@ data Flag
    | MemSparsity Int
    | AllowUndefFun
    | PrettyPrint
+   | ProduceSegs
    -- Interpreter flags
    | FromMRAM
    | Output String
@@ -168,6 +173,7 @@ data FlagRecord = FlagRecord
   , spars :: Maybe Int
   , allowUndefFun:: Bool
   , ppMRAM :: Bool
+  , produceSegs :: Bool
   -- Interpreter
   , fileOut :: Maybe String
   , end :: Stages
@@ -195,6 +201,7 @@ defaultFlags name len =
   , spars     = Just 2
   , allowUndefFun = False
   , ppMRAM = False
+  , produceSegs = True
   -- Interpreter
   , fileOut   = Nothing
   , end       = FullOutput
@@ -219,6 +226,7 @@ parseFlag flag fr =
     MemSparsity s ->           fr {spars = Just s}
     AllowUndefFun ->           fr {allowUndefFun = True}
     PrettyPrint ->             fr {ppMRAM = True}
+    ProduceSegs ->              fr {produceSegs = False}
     -- Interpreter flags
     FromMRAM ->                fr {beginning = MRAMLang} -- In this case we are reading the fileIn
     MRAMout (Just outFile) ->  fr {mramFile = Just outFile}
@@ -254,6 +262,7 @@ options =
   , Option ['s'] ["sparsity"]    (ReqArg (\s -> MemSparsity $ read s) "MEM SARSITY")               "check the result"
   , Option []    ["allow-undef"] (NoArg AllowUndefFun)          "Allow declared functions with no body."
   , Option []    ["pretty-print"] (NoArg PrettyPrint)          "Pretty print the MicroRAM program with metadata."
+  , Option []    ["no-segs"] (NoArg ProduceSegs)              "Don't use segments (old version)."
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)

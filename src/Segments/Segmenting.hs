@@ -16,14 +16,14 @@ import qualified Debug.Trace as T
 import Compiler.Errors
 import Compiler.Metadata
 import Compiler.IRs
-import Control.Monad (when)
+import Control.Monad (when, guard)
 
-import Data.Foldable (toList)
+import qualified Data.Foldable as F (foldl,toList)
 import qualified Data.Map as Map
 import qualified Data.Graph as G (stronglyConnComp, SCC(..))
 import qualified Data.Sequence as Seq
 
-import Data.Maybe (mapMaybe)
+import Data.Maybe (catMaybes, mapMaybe)
 import qualified Data.Set as Set 
 import MicroRAM
 import Util.Util
@@ -81,15 +81,15 @@ segmentProgram funCount prog = do
   let funSegments = map (segmentFunction cuts) funNames -- for each function, create the corresponding segments 
   let funCountList = map (\k -> Map.findWithDefault 1 k funCount) funNames
   let expandedFunSegments = expandList funSegments funCountList -- repeat the segments in each function as necessary
-  return $ foldl addFunSegments [] expandedFunSegments -- Successors need to be updated accordingly.
-  where addFunSegments :: [Segment reg MWord] -> [Segment reg MWord] -> [Segment reg MWord]
-        addFunSegments accumulated funSegments =
-            let lenAcc = length accumulated in 
-            accumulated ++ (shiftSegment lenAcc  <$> funSegments)
+  return $ F.toList $ foldl appendSegments Seq.empty expandedFunSegments -- Successors need to be updated accordingly.
 
-        -- | Shifts the successors 
-        shiftSegment :: Int -> Segment reg MWord -> Segment reg MWord
-        shiftSegment len seg = seg {segSuc = map (+ len) $ segSuc seg}
+appendSegments :: Seq.Seq (Segment reg wrd) -> Seq.Seq (Segment reg wrd) -> Seq.Seq (Segment reg wrd)
+appendSegments accumulated funSegments =
+  let lenAcc = length accumulated in 
+    accumulated Seq.>< (shiftSegment lenAcc  <$> funSegments)
+  where -- | Shifts the successors 
+    shiftSegment :: Int -> Segment reg wrd -> Segment reg wrd
+    shiftSegment len seg = seg {segSuc = map (+ len) $ segSuc seg}
           
 cutProg :: AnnotatedProgram Metadata reg wrd -> [Cut Metadata reg wrd]
 cutProg prog =
@@ -190,9 +190,9 @@ findAllFunctions prog = do
   where funcSet = (foldl addFunction Set.empty prog) -- Can we make this faster with unique?
         addFunction accumulator (_instr, md) = Set.insert (mdFunction md) accumulator 
 
-segmentFunction :: Show reg => [Cut Metadata reg MWord] -> String -> [Segment reg MWord]
+segmentFunction :: Show reg => [Cut Metadata reg MWord] -> String -> Seq.Seq (Segment reg MWord)
 segmentFunction cuts funName = -- T.trace ("Segments in " ++ funName ++ ": " ++ show (length $ loopConnections functionSegs) )
-  loopConnections functionSegs 
+  loopConnections funName functionSegs 
   where functionSegs = map toSegment functionCuts 
         functionCuts = filter (\cut -> cutFunction cut == funName) cuts 
 
@@ -203,15 +203,43 @@ segmentFunction cuts funName = -- T.trace ("Segments in " ++ funName ++ ": " ++ 
 
 -- | Loop operations
 -- We define loops as Strongly Connected Component
-loopConnections :: [Segment reg wrd] -> [Segment reg wrd]
-loopConnections segs =
-  let cfg = makeCFG segs
-      sccs = G.stronglyConnComp cfg in
-    toList $
-    (backEdgesToNet sccs) . (connectLoopExits sccs) $
-    Seq.fromList segs   
-      
-  
+loopConnections :: String -> [Segment reg wrd] -> Seq.Seq (Segment reg wrd)
+loopConnections fName segs = go --T.trace ("Cycles in" ++ fName ++" : " ++ show (countSCCs sccs)) go
+  where go = (replicateLoops sccs) . (backEdgesToNet sccs) . (connectLoopExits sccs) $
+             Seq.fromList segs   
+        cfg = makeCFG segs
+        sccs = G.stronglyConnComp cfg
+
+        countSCCs :: [G.SCC node] -> Int
+        countSCCs ls = length $ filter isCycle ls
+        isCycle (G.CyclicSCC _) = True
+        isCycle (G.AcyclicSCC _) = False
+          
+replicateLoops :: [G.SCC Int]               -- Connected components
+                 -> Seq.Seq (Segment reg wrd) -- Segments
+                 -> Seq.Seq (Segment reg wrd)
+replicateLoops sccs segs = F.foldl (replicateLoop 5) segs sccs 
+  where
+    replicateLoop :: Int
+                  -> Seq.Seq (Segment reg wrd)
+                  -> G.SCC Int
+                  -> Seq.Seq (Segment reg wrd)
+    replicateLoop n segs component =
+          case component of
+            G.AcyclicSCC _ -> segs
+            G.CyclicSCC loopIdx ->
+              let loop =  extractLoop loopIdx segs in
+                foldl appendSegments segs $ replicate n loop
+    -- Extracts a loop from the segmetns, making the edges relative.
+    -- Removes edges going outside the loop (replace with toNetwork)
+    extractLoop :: [Int] -> Seq.Seq (Segment reg wrd)  -> Seq.Seq (Segment reg wrd)
+    extractLoop is segs =  
+      let transform = Map.fromList $ zip is [0..] in
+        do (i,seg) <- Seq.zip (Seq.fromList [0..(length segs)]) segs
+           guard (i `Map.member` transform) 
+           let loopSucc = catMaybes $ map (flip Map.lookup transform) (segSuc seg)
+           return $ seg{segSuc = loopSucc}
+           
 -- | 1. Make the CFG with nodes (node, key, [key])
 makeCFG :: [Segment reg wrd]
         -> [(Int,Int,[Int])]
@@ -239,7 +267,7 @@ connectLoopExits sccs segs = foldOverComponents connectComponent segs sccs
         addFromNetwork seg = seg{fromNetwork = True}
 
         
--- | 4. For each back edge in the loop, add a toNetwork so we can get out of the loop.
+-- | 4. For each back edge in the loop, add a fromNet/toNetwork so we can get out of the loop.
 backEdgesToNet :: [G.SCC Int]               -- Connected components
                 -> Seq.Seq (Segment reg wrd) -- Segments
                 -> Seq.Seq (Segment reg wrd)
@@ -254,11 +282,14 @@ backEdgesToNet sccs segs = foldOverComponents go segs sccs
         backEdgesToNetSeg compSet segsList compSeg =
           let successors = segSuc (segsList `Seq.index` compSeg)
               -- See if there are any back-egdes in the component
+              -- Replacethem with network connections.
               backEdgesComp = filter 
                               (\idx -> (idx `Set.member` compSet) && (idx <= compSeg)) $
                               successors in
-            if null backEdgesComp then segsList else 
-              Seq.adjust' (\seg -> seg{toNetwork = True}) compSeg segsList
+            if null backEdgesComp then segsList else
+              Seq.adjust' (\seg -> seg{toNetwork = True}) compSeg $ -- add toNetwork
+              foldl (flip $ Seq.adjust' (\seg -> seg{fromNetwork = True})) segsList -- Add FromNetwork
+                   backEdgesComp
                               
 foldOverComponents :: Foldable t => ([Int] -> b -> b) -> b -> t (G.SCC Int) -> b
 foldOverComponents f segs sccs = foldl go segs sccs
