@@ -49,7 +49,9 @@ dependencies:
 - filepath
 - directory
 - lens
+- search-algorithms 
 - vector
+- data-binary-ieee754
 
 library:
   source-dirs: src

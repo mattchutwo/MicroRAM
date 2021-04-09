@@ -110,11 +110,7 @@ initializeFunctionArgs (LFunction fname typ typs stackSize blocks) =
   where
     insts = map (\(typ, i) -> 
         let inst = Lgetstack Incoming i typ (Name $ wordToBSS i)
-            md = Metadata {
-              mdFunction = fname
-              , mdBlock = show bname
-              , mdLine = 0 -- Bogus, but it's ok.
-              , mdReturnCall = False } in
+            md = trivialMetadata fname (show bname) in
         IRI inst md 
       ) $ zip typs [0..]
 
@@ -212,11 +208,7 @@ spillRegister fName spillReg isArg pos blocks = do
   where
     spillBlock :: String -> BB name (LTLInstr Metadata VReg wrdT) -> StateT RAState Hopefully [BB name (LTLInstr Metadata VReg wrdT)]
     spillBlock fName (BB (name, iid) insts tInsts dag) = do
-      let md = Metadata {
-            mdFunction = fName
-            , mdBlock = show name
-            , mdLine = 0
-            , mdReturnCall = False } 
+      let md = trivialMetadata fName (show name) 
       insts' <- concat <$> mapM (spillIRInstruction md) insts
       tInsts' <- concat <$> mapM (spillIRInstruction md) tInsts
 

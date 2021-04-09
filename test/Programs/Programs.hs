@@ -66,6 +66,18 @@ testTrivial = ManyTests "Trivial programs" $ OneTest <$>
     ,testLen = 50
     ,testResult =   10
     } :
+  defaultTest {
+    testName = "signed icmp"
+    ,fileName ="test/Programs/icmp_signed.ll"
+    ,testLen = 100
+    ,testResult = 3
+    } :
+  defaultTest {
+    testName = "binops with truncated operands"
+    ,fileName ="test/Programs/binopTrunc.ll"
+    ,testLen = 300
+    ,testResult = 9
+    } :
     []
 
 -- Compilation errors
@@ -83,6 +95,18 @@ testFunctionPointer = ManyTests "Test function pointers" $ OneTest <$> [
     , fileName = "test/Programs/funcPointer.ll"
     , testLen = 100
     , testResult = 5
+    },
+    defaultTest {
+      testName = "function pointer in static initializer"
+    , fileName = "test/Programs/funcPointerStatic.ll"
+    , testLen = 100
+    , testResult = 5
+    },
+    defaultTest {
+      testName = "function pointer with multiple args"
+    , fileName = "test/Programs/funcPointerArgs.ll"
+    , testLen = 100
+    , testResult = 15
     }
   ]
 
@@ -92,7 +116,7 @@ testLoops = ManyTests "Conditionals, Branching and loops" $ OneTest <$>
   defaultTest {
     testName = "Fibonacci loop (not optimized)"
     ,fileName ="test/Programs/fibSlow.ll"
-    ,testLen = 600
+    ,testLen = 800
     ,testResult =   55
     } :
   defaultTest {
