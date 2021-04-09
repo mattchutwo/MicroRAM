@@ -38,13 +38,14 @@ import Sparsity.Sparsity (Sparsity)
   
 postProcess_v :: (Show reg, Regs reg)
               => Bool
+              -> Bool
               -> Int
               -> Bool
               -> CompilationResult (AnnotatedProgram Metadata reg MWord)
               -> Maybe Int
               -> Hopefully (Output reg)
-postProcess_v verb chunkSize private comp privSegs =
-  (segment chunkSize privSegs)
+postProcess_v verb producePublic chunkSize private comp privSegs =
+  (segment producePublic chunkSize privSegs)
   >=> (doIf private (buildTrace verb chunkSize spar))
   >=> (doIf private recoverAdvice)
   >=> segProg2Output $
