@@ -138,7 +138,7 @@ blockCleanup :: (Eq regT, Show regT, Show wrdT) => (CompilationUnit mem (MAProgr
 blockCleanup cu = do
   prog' <- return (programCU cu) >>=
     threadJumps >>=
-    elimDead >>=
+    --elimDead >>=
     redundantMovs >>=
     return
   return $ cu { programCU = prog' }
