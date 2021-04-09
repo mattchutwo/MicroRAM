@@ -96,10 +96,7 @@ main = do
                     -> Maybe Int
                     -> IO (Output Int)
         postProcess fr mramProg privSegsNum = handleErrors $
-          postProcess_v (verbose fr) (produceSegs fr) (forcedTraceLen) (end fr == FullOutput) mramProg privSegsNum
-          where forcedTraceLen = case trLen fr of
-                                   Just len -> fromEnum len
-                                   Nothing ->  0
+          postProcess_v (verbose fr) (produceSegs fr) chunkSize (end fr == FullOutput) mramProg privSegsNum
         outputTheResult :: FlagRecord -> Output AReg -> IO ()
         outputTheResult fr out =
           case fileOut fr of

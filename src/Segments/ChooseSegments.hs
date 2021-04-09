@@ -71,7 +71,6 @@ chooseSegments privSize spar prog trace segments = do
   finalSt <- execStateT go initSt 
   -- extract values and return
   return (reverse $ chunksPS finalSt)
-
   where
     traceNotEmpty :: PState reg Bool
     traceNotEmpty = do
