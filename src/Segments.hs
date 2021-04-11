@@ -45,11 +45,11 @@ segment producePublic privSize privSegs compRes = do
   return $ SegmentedProgram compResNoMD pubSegs privateSegments Nothing Nothing
   where compResNoMD = compRes {programCU = fmap (fmap (map fst)) (programCU compRes)}
 
-chooseSegment' :: (Show reg, Regs reg) => Int -> Sparsity -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 
-chooseSegment' privSize spar trace segProg = do
+chooseSegment' :: (Show reg, Regs reg) => Bool -> Int -> Sparsity -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 
+chooseSegment' producePublic privSize spar trace segProg = do
   let prog = pmProg . lowProg . programCU . compiled $ segProg
   let segs = (V.fromList $ pubSegments segProg)
-  chunks <- chooseSegments privSize spar prog trace segs
+  chunks <- chooseSegments privSize' spar prog trace segs
   let segmentsTrace = maximum (map chunkSeg chunks)
   let numSegments = length (pubSegments segProg) + length (privSegments segProg) 
   -- Check if there are enough segments:
@@ -57,6 +57,8 @@ chooseSegment' privSize spar trace segProg = do
     return $ segProg {segTrace = Just chunks}
   else
     assumptError $ "Trace is not long enough. Execution uses: " ++ (show segmentsTrace) ++ " segments, but only " ++ show numSegments ++ " where generated."
+
+  where privSize' = if producePublic then privSize else (fromEnum $ traceLen $ compiled segProg) 
 
 mkPrivateSegments :: Word -> Int -> Maybe Int -> [Segment reg MWord]
 mkPrivateSegments len size privSegs = replicate howMany (Segment [] [] size [] True True)
