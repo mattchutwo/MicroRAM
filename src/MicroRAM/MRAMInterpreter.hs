@@ -697,6 +697,7 @@ runPass2 steps initMach' memInfo = do
       traceHandler False $
       stepInstr
 
+
 -- | Used for checking final traces after post porocessing
 runPassGeneric :: Regs r => Lens' s (Seq (ExecutionState r)) -> Lens' s (AdviceMap) -> (InstrHandler r s -> InstrHandler r s)
                 -> s -> Word -> MachineState r -> Hopefully (Trace r)
