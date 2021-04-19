@@ -154,11 +154,11 @@ buildCircuitParameters regData aData regNum = -- Ok regNum can be removed if Inf
         sparcInWords spar = Map.map fromIntegral spar
 
 compUnit2Output :: Regs reg => [Segment reg MWord] -> CompilationResult (Program reg MWord) -> Output reg
-compUnit2Output segs (CompUnit p _trLen regData aData initMem _) =
+compUnit2Output segs (CompUnit p _trLen regData aData _) =
   let regNum = getRegNum regData
       circParams = buildCircuitParameters regData aData regNum
       segsOut = map mkSegmentOut segs in
-  PublicOutput (lowProg p) segsOut circParams initMem
+  PublicOutput (pmProg $ lowProg p) segsOut circParams (pmMem $ lowProg p)
 
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).

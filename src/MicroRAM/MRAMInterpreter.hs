@@ -417,10 +417,22 @@ traceHandler active _nextH (Iext "tracestr" [ptrOp]) = do
   s <- readStr ptr
   when active $ traceM $ "TRACESTR " ++ Text.unpack s
   nextPc
+traceHandler active _nextH (Iext "traceexec" (nameOp : valOps)) = do
+  namePtr <- opVal nameOp
+  name <- readStr namePtr
+  vals <- mapM opVal valOps
+  let vals' = reverse $ dropWhile (== 0) $ reverse vals
+  when active $ traceM $ "[FUNC] " ++ Text.unpack name ++
+    "(" ++ intercalate ", " (map (drop 2 . showHex) vals') ++ ")"
+  nextPc
 traceHandler active _nextH (Iext name ops) | Just desc <- Text.stripPrefix "trace_" name = do
   vals <- mapM opVal ops
   when active $ traceM $ "TRACE[" ++ Text.unpack desc ++ "] " ++ intercalate ", " (map show vals)
   nextPc
+traceHandler active nextH instr@(Ianswer op) = do
+  val <- opVal op
+  when active $ traceM $ "ANSWER = " ++ show val
+  nextH instr
 traceHandler _active nextH instr = nextH instr
 
 
@@ -685,6 +697,7 @@ runPass2 steps initMach' memInfo = do
       traceHandler False $
       stepInstr
 
+
 -- | Used for checking final traces after post porocessing
 runPassGeneric :: Regs r => Lens' s (Seq (ExecutionState r)) -> Lens' s (AdviceMap) -> (InstrHandler r s -> InstrHandler r s)
                 -> s -> Word -> MachineState r -> Hopefully (Trace r)
@@ -758,13 +771,15 @@ initMach prog imem = MachineState
 type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
 run_v :: Regs mreg => Bool ->  Executor mreg (Trace mreg)
-run_v verbose (CompUnit progs trLen _ _analysis initMem _) = case go of
+run_v verbose (CompUnit progs trLen _ _analysis _) = case go of
   Left e -> error $ describeError e
   Right x -> x
   where
     go = do
-      memInfo <- runPass1 verbose  (trLen - 1) (initMach (highProg progs) initMem)
-      tr <- runPass2 (trLen - 1) (initMach (lowProg progs) initMem) memInfo
+      let highState = initMach (pmProg $ highProg progs) (pmMem $ highProg progs)
+      memInfo <- runPass1 verbose  (trLen - 1) highState
+      let lowState = initMach (pmProg $ lowProg progs) (pmMem $ lowProg progs)
+      tr <- runPass2 (trLen - 1) lowState memInfo
       return tr
       
 run :: Regs mreg => Executor mreg (Trace mreg)

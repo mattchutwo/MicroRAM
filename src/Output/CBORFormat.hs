@@ -197,7 +197,7 @@ encodeInstr (Iadvise r1          ) = list2CBOR $ encodeString "advise" : encode 
 -- we encode the operands doesn't really matter - it's only for human
 -- consumption.
 encodeInstr (Iext name ops       ) = list2CBOR $ encodeString "ext" : encodeString name : concatMap encodeOperand' ops
-encodeInstr (Iextval name rd ops ) = list2CBOR $ encodeString "ext" : encodeString name : encode rd : concatMap encodeOperand' ops
+encodeInstr (Iextval name rd ops ) = list2CBOR $ encodeString "extval" : encodeString name : encode rd : concatMap encodeOperand' ops
 -- `Iextadvise` is `Iadvise` plus a hint to the interpreter.  We serialize it
 -- just like a plain `Iadvise`.
 encodeInstr (Iextadvise _ r1 _   ) = encodeInstr @regT @wrdT (Iadvise r1)

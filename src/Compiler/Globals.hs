@@ -50,9 +50,9 @@ import Util.Util
 replaceGlobals :: Regs mreg =>
         CompilationUnit () (Lprog m mreg MWord)
         -> Hopefully $ CompilationUnit LazyInitialMem (Lprog m mreg MWord)
-replaceGlobals (CompUnit prog tr regs anData _ _) = do
-  (prog', initMem) <- globals' prog
-  return $ CompUnit prog' tr regs anData [] initMem 
+replaceGlobals (CompUnit pm tr regs anData _) = do
+  (prog', initMem) <- globals' $ pmProg pm
+  return $ CompUnit (pm { pmProg = prog' }) tr regs anData initMem 
 
 globals' :: Regs mreg => Lprog m mreg MWord
          -> Hopefully $ (Lprog m mreg MWord, LazyInitialMem)

@@ -48,7 +48,7 @@ main = do
   microProg <-  if (beginning fr >= LLVMLang) then -- Compile or read from file
                   callBackend fr
                 else read <$> readFile (fileIn fr)
-  when (ppMRAM fr) $ putStr $ microPrint (lowProg $ programCU microProg)
+  when (ppMRAM fr) $ putStr $ microPrint (pmProg $ lowProg $ programCU microProg)
   saveMramProgram fr microProg
   -- --------------
   -- POST PROCESS

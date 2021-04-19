@@ -286,7 +286,7 @@ summaryFromFile file cs length = do
 
 pprint :: CompilationResult (Program Int MWord) -> String
 pprint compUnit =
-  let prog = lowProg $ programCU compUnit in
+  let prog = pmProg $ lowProg $ programCU compUnit in
     concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ pprintInst inst ++ "\n") $ enumerate prog
 
 -- | Large numbers are shown in hex 

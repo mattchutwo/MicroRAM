@@ -46,7 +46,7 @@ postProcess_v :: (Show reg, Regs reg)
               -> Hopefully (Output reg)
 postProcess_v verb producePublic chunkSize private comp privSegs =
   (segment producePublic chunkSize privSegs)
-  >=> (doIf private (buildTrace verb chunkSize spar))
+  >=> (doIf private (buildTrace producePublic verb chunkSize spar))
   >=> (doIf private recoverAdvice)
   >=> segProg2Output $
   comp
@@ -57,10 +57,10 @@ postProcess_v verb producePublic chunkSize private comp privSegs =
         doIf cond f = if cond then f else return
 
 
-buildTrace :: (Show reg, Regs reg) => Bool -> Int -> Sparsity -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
-buildTrace verb chunkSize spar segProg = do
+buildTrace :: (Show reg, Regs reg) => Bool -> Bool -> Int -> Sparsity -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
+buildTrace producePublic verb chunkSize spar segProg = do
   flatTrace <- return $ run_v verb $ compiled segProg
-  chooseSegment' chunkSize spar flatTrace segProg
+  chooseSegment' producePublic chunkSize spar flatTrace segProg
 
 recoverAdvice :: SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
 recoverAdvice segProg = do

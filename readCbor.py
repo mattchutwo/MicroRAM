@@ -1,7 +1,7 @@
 import cbor
 from pprint import pprint
 
-file = 'Output/grit_naive.cbor'
+file = 'Output/out_ffmpeg.cbor'
 
 allCBOR = cbor.load(open(file, 'rb'))
 version = allCBOR[0]

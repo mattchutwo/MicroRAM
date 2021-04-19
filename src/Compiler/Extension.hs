@@ -29,6 +29,7 @@ lowerExtInstr :: Text -> Maybe VReg -> md -> [MAOperand VReg MWord] ->
   Statefully [MIRInstr md MWord]
 lowerExtInstr "trace" _ _ _ = return []
 lowerExtInstr "tracestr" _ _ _ = return []
+lowerExtInstr "traceexec" _ _ _ = return []
 lowerExtInstr name _ _ _ | "trace_" `Text.isPrefixOf` name = return []
 lowerExtInstr "malloc" (Just dest) md ops =
   return [MirM (Iextadvise "malloc" dest ops) md]
