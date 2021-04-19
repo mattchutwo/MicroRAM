@@ -160,12 +160,13 @@ stepInstr i = do
     
     Iadvise _ -> assumptError $ "unhandled advice request"
 
-    Iext name _ -> assumptError $ "unhandled extension instruction " ++ show name
-    Iextval name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
-    Iextadvise name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
+    i -> do
+      -- Replace input operands with their values, and convert the destination
+      -- register to a `Word` so it can be printed.
+      i' <- mapInstrM (return . toWord) regVal opVal i
+      assumptError $ "unhandled instruction: " ++ show i'
 
   sMach . mCycle %= (+ 1)
-  
 
 
 stepUnary :: Regs r => (MWord -> MWord) ->
@@ -408,26 +409,22 @@ readStr ptr = do
     splitWord x = [fromIntegral $ x `shiftR` (i * 8) | i <- [0 .. wordBytes - 1]]
 
 traceHandler :: Regs r => Bool -> InstrHandler r s -> InstrHandler r s
-traceHandler active _nextH (Iext "trace" ops) = do
+traceHandler active _nextH (Iext (XTrace desc ops)) = do
   vals <- mapM opVal ops
-  when active $ traceM $ "TRACE " ++ intercalate ", " (map show vals)
+  when active $ traceM $ "TRACE[" ++ Text.unpack desc ++ "] " ++ intercalate ", " (map show vals)
   nextPc
-traceHandler active _nextH (Iext "tracestr" [ptrOp]) = do
+traceHandler active _nextH (Iext (XTraceStr ptrOp)) = do
   ptr <- opVal ptrOp
   s <- readStr ptr
   when active $ traceM $ "TRACESTR " ++ Text.unpack s
   nextPc
-traceHandler active _nextH (Iext "traceexec" (nameOp : valOps)) = do
+traceHandler active _nextH (Iext (XTraceExec nameOp valOps)) = do
   namePtr <- opVal nameOp
   name <- readStr namePtr
   vals <- mapM opVal valOps
   let vals' = reverse $ dropWhile (== 0) $ reverse vals
   when active $ traceM $ "[FUNC] " ++ Text.unpack name ++
     "(" ++ intercalate ", " (map (drop 2 . showHex) vals') ++ ")"
-  nextPc
-traceHandler active _nextH (Iext name ops) | Just desc <- Text.stripPrefix "trace_" name = do
-  vals <- mapM opVal ops
-  when active $ traceM $ "TRACE[" ++ Text.unpack desc ++ "] " ++ intercalate ", " (map show vals)
   nextPc
 traceHandler active nextH instr@(Ianswer op) = do
   val <- opVal op
@@ -527,7 +524,7 @@ checkAccess verbose allocState addr = do
     sExt . allocState . asMemErrors  %= (Seq.|> (OutOfBounds, addr))
 
 allocHandler :: Regs r => Bool -> Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
-allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
+allocHandler verbose allocState _nextH (Iextadvise rd (XMalloc sizeOp)) = do
   size <- opVal sizeOp
   let sizeClass = ceilLog2 size
   let size' = 1 `shiftL` sizeClass
@@ -545,19 +542,19 @@ allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
 
   sMach . mReg rd .= ptr
   finishInstr
-allocHandler verbose allocState _nextH (Iext "access_valid" [loOp, hiOp]) = do
+allocHandler verbose allocState _nextH (Iext (XAccessValid loOp hiOp)) = do
   lo <- opVal loOp
   hi <- opVal hiOp
   sExt . allocState . asValid %= markValid lo hi
   when verbose $ traceM $ "valid: " ++ showHex lo ++ " .. " ++ showHex hi
   finishInstr
-allocHandler verbose allocState _nextH (Iext "access_invalid" [loOp, hiOp]) = do
+allocHandler verbose allocState _nextH (Iext (XAccessInvalid loOp hiOp)) = do
   lo <- opVal loOp
   hi <- opVal hiOp
   sExt . allocState . asValid %= markInvalid lo hi
   when verbose $ traceM $ "invalid: " ++ showHex lo ++ " .. " ++ showHex hi
   finishInstr
-allocHandler _verbose _allocState _nextH (Iextval "advise_poison" rd [_lo, _hi]) = do
+allocHandler _verbose _allocState _nextH (Iextadvise rd (XAdvisePoison _lo _hi)) = do
   -- Always return 0 (don't poison)
   sMach . mReg rd .= 0
   finishInstr
@@ -572,11 +569,11 @@ allocHandler verbose allocState nextH instr@(Iload _w _rd op2) = do
   addr <- opVal op2
   checkAccess verbose allocState addr
   nextH instr
-allocHandler _ _ _ (Iextval "load_unchecked" rd [op2]) = do
+allocHandler _ _ _ (Iextval rd (XLoadUnchecked op2)) = do
   addr <- opVal op2
   doLoad WWord rd addr
   finishInstr
-allocHandler _ _ _ (Iext "store_unchecked" [op2, op1]) = do
+allocHandler _ _ _ (Iext (XStoreUnchecked op2 op1)) = do
   addr <- opVal op2
   val <- opVal op1
   doStore WWord addr val
@@ -598,13 +595,13 @@ doAdvise advice rd val = do
 
 memErrorHandler :: Regs r => Lens' s MemInfo -> Lens' s AdviceMap ->
   InstrHandler r s -> InstrHandler r s
-memErrorHandler info advice _nextH (Iextadvise "malloc" rd [_size]) = do
+memErrorHandler info advice _nextH (Iextadvise rd (XMalloc _size)) = do
   val <- maybe (assumptError "ran out of malloc addrs") return =<<
     use (sExt . info . miMallocAddrs . to (Seq.lookup 0))
   sExt . info . miMallocAddrs %= Seq.drop 1
   doAdvise advice rd val
   finishInstr
-memErrorHandler info advice _nextH (Iextadvise "advise_poison" rd [loOp, hiOp]) = do
+memErrorHandler info advice _nextH (Iextadvise rd (XAdvisePoison loOp hiOp)) = do
   lo <- opVal loOp
   hi <- opVal hiOp
   addrs <- use $ sExt . info . miPoisonAddrs

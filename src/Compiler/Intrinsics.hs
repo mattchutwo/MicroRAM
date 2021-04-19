@@ -73,23 +73,24 @@ cc_noop _ _ _ = return []
 
 cc_trap :: Text -> IntrinsicImpl m MWord
 cc_trap desc _ _ md = return [
-  MirM (Iext ("trace_Trap: " <> desc) []) md,
+  MirM (Iext (XTrace ("Trap: " <> desc) [])) md,
   MirM (Ianswer (LImm $ SConst 0)) md] -- TODO
 
 cc_malloc :: IntrinsicImpl m w
-cc_malloc [size] (Just dest) md = return [MirM (Iextval "malloc" dest [size]) md]
+cc_malloc [size] (Just dest) md = return [MirM (Iextadvise dest (XMalloc size)) md]
 cc_malloc _ _ _ = progError "bad arguments"
 
 cc_access_valid :: IntrinsicImpl m w
-cc_access_valid [lo, hi] Nothing md = return [MirM (Iext "access_valid" [lo, hi]) md]
+cc_access_valid [lo, hi] Nothing md = return [MirM (Iext (XAccessValid lo hi)) md]
 cc_access_valid _ _ _ = progError "bad arguments"
 
 cc_access_invalid :: IntrinsicImpl m w
-cc_access_invalid [lo, hi] Nothing md = return [MirM (Iext "access_invalid" [lo, hi]) md]
+cc_access_invalid [lo, hi] Nothing md = return [MirM (Iext (XAccessInvalid lo hi)) md]
 cc_access_invalid _ _ _ = progError "bad arguments"
 
 cc_advise_poison :: IntrinsicImpl m w
-cc_advise_poison [lo, hi] (Just dest) md = return [MirM (Iextval "advise_poison" dest [lo, hi]) md]
+cc_advise_poison [lo, hi] (Just dest) md =
+  return [MirM (Iextadvise dest (XAdvisePoison lo hi)) md]
 cc_advise_poison _ _ _ = progError "bad arguments"
 
 cc_write_and_poison :: IntrinsicImpl m w
@@ -99,18 +100,18 @@ cc_write_and_poison _ _ _ = progError "bad arguments"
 
 cc_read_unchecked :: IntrinsicImpl m w
 cc_read_unchecked [ptr] (Just dest) md =
-  return [MirM (Iextval "load_unchecked" dest [ptr]) md]
+  return [MirM (Iextval dest (XLoadUnchecked ptr)) md]
 cc_read_unchecked _ _ _ = progError "bad arguments"
 
 cc_write_unchecked :: IntrinsicImpl m w
 cc_write_unchecked [ptr, val] Nothing md =
-  return [MirM (Iext "store_unchecked" [ptr, val]) md]
+  return [MirM (Iext (XStoreUnchecked ptr val)) md]
 cc_write_unchecked _ _ _ = progError "bad arguments"
 
 cc_flag_invalid :: IntrinsicImpl m MWord
 cc_flag_invalid [] Nothing md =
   return [
-    MirM (Iext ("trace___cc_flag_invalid") []) md,
+    MirM (Iext (XTrace "__cc_flag_invalid" [])) md,
     MirM (IpoisonW zero zero) md ]
   where zero = LImm $ SConst 0
 cc_flag_invalid _ _ _ = progError "bad arguments"
@@ -122,11 +123,12 @@ cc_flag_bug [] Nothing md =
 cc_flag_bug _ _ _ = progError "bad arguments"
 
 cc_trace :: IntrinsicImpl m w
-cc_trace [msg] Nothing md = return [MirM (Iext "tracestr" [msg]) md]
+cc_trace [msg] Nothing md = return [MirM (Iext (XTraceStr msg)) md]
 cc_trace _ _ _ = progError "bad arguments"
 
 cc_trace_exec :: IntrinsicImpl m w
-cc_trace_exec args Nothing md = return [MirM (Iext "traceexec" args) md]
+cc_trace_exec (name : args) Nothing md =
+  return [MirM (Iext (XTraceExec name args)) md]
 cc_trace_exec _ _ _ = progError "bad arguments"
 
 

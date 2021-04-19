@@ -961,7 +961,7 @@ isTerminator' env ret term =
 makeTraceInvalid :: String -> Metadata -> [MIRInstruction Metadata regT MWord]
 makeTraceInvalid desc md = [MirM traceInstr md, MirI rtlCallFlagInvalid md]
   where
-    traceInstr = MRAM.Iext (Text.pack $ "trace_Invalid: " ++ desc) []
+    traceInstr = MRAM.Iext (MRAM.XTrace (Text.pack $ "Invalid: " ++ desc) [])
     rtlCallFlagInvalid = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_invalid") [Tint] []
 triggerBug :: Metadata -> [MIRInstruction Metadata regT MWord]
 triggerBug md = [MirI rtlCallFlagBug md]
