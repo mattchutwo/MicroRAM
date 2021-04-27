@@ -27,6 +27,7 @@ import Control.Monad.State
 
 import MicroRAM
 import Compiler.IRs
+import Compiler.Metadata
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -89,7 +90,7 @@ threadJumps prog = return $ map updateBlock $ filter (not . isJumpSource) $ prog
 
 -- | Eliminate any blocks that are not reachable from the first (entry point)
 -- block.
-elimDead :: (Show regT, Show wrdT) => MAProgram md regT wrdT -> Hopefully (MAProgram md regT wrdT)
+elimDead :: (Show regT, Show wrdT) => MAProgram Metadata regT wrdT -> Hopefully (MAProgram Metadata regT wrdT)
 elimDead [] = return []
 elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
   where
@@ -118,6 +119,16 @@ elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
             Ijmp _ -> mempty
             _ -> Set.singleton (i + 1)
 
+    -- | All the blocks that are at the beggining of a function.
+    -- TODO: this is just an approximation of all blocks reachable from globals.
+    -- If we could extract the function calls from the globals, we can use that instead.
+    functionEntries :: [Int]
+    functionEntries = do
+      (i, NBlock _ instrs) <- zip [0..] prog
+      guard $ not $ null instrs                     -- Block is not empty
+      guard $ mdFunctionStart . snd $ (instrs !! 0) -- It's a function start
+      return i
+  
     -- | Add `cur` and all blocks it references (transitively) to the state.
     gather :: Int -> State (Set.Set Int) ()
     gather cur = do
@@ -130,15 +141,15 @@ elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
 
     -- | Set of all blocks referenced transitively from `start`.
     liveBlocks :: Set.Set Int
-    liveBlocks = execState (gather 0) mempty
+    liveBlocks = execState (mapM_ gather $ 0:functionEntries) mempty
 
 
-blockCleanup :: (Eq regT, Show regT, Show wrdT) => (CompilationUnit mem (MAProgram md regT wrdT))
-             -> Hopefully (CompilationUnit mem (MAProgram md regT wrdT))
+blockCleanup :: (Eq regT, Show regT, Show wrdT) => (CompilationUnit mem (MAProgram Metadata regT wrdT))
+             -> Hopefully (CompilationUnit mem (MAProgram Metadata regT wrdT))
 blockCleanup cu = do
   prog' <- return (pmProg $ programCU cu) >>=
     threadJumps >>=
-    --elimDead >>=
+    elimDead >>=
     redundantMovs >>=
     return
   return $ cu { programCU = (programCU cu) { pmProg = prog' } }
