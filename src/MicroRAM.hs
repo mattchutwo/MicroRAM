@@ -107,6 +107,10 @@ module MicroRAM
   pattern WWord,
   widthInt,
 
+  ExtInstr(..),
+  ExtValInstr(..),
+  ExtAdviseInstr(..),
+
   pattern IstoreW,
   pattern IloadW,
   pattern IpoisonW,
@@ -133,6 +137,7 @@ module MicroRAM
 import Control.Monad.Identity
 import Data.Bifunctor
 import Data.Bits
+import Data.Foldable
 import Data.Text (Text)
 import Data.Word (Word64)
 import GHC.Generics -- Helps testing
@@ -173,6 +178,37 @@ data Operand regT wrdT where
 instance Bifunctor Operand where
   bimap regF _ (Reg r) = Reg $ regF r
   bimap _ conF (Const c) = Const $ conF c
+
+data ExtInstr operand2 =
+    XTrace Text [operand2]
+  -- ^ Print the `Text` and all operand values.
+  | XTraceStr operand2
+  -- ^ Read a string from the pointer operand and print it.
+  | XTraceExec operand2 [operand2]
+  -- ^ Read a string from the first pointer operand, and print it along with
+  -- the values of the remaining operands.
+  | XFree operand2
+  -- ^ Free the memory at the pointer operand.
+  | XAccessValid operand2 operand2
+  -- ^ Mark memory between the two operands as valid to access.
+  | XAccessInvalid operand2 operand2
+  -- ^ Mark memory between the two operands as invalid to access.
+  | XStoreUnchecked operand2 operand2
+  -- ^ Store the second operand at the address given by the first operand,
+  -- bypassing memory safety checks.
+  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
+
+data ExtValInstr operand2 =
+    XLoadUnchecked operand2
+  -- ^ Load a word from the pointer operand, bypassing memory safety checks.
+  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
+
+data ExtAdviseInstr operand2 =
+    XMalloc operand2
+  -- ^ Allocate N bytes, returning the address of the new allocation.
+  | XAdvisePoison operand2 operand2
+  -- ^ Choose an address to poison between the two operands.
+  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
 -- | TinyRAM Instructions
 data Instruction' regT operand1 operand2 =
@@ -217,9 +253,9 @@ data Instruction' regT operand1 operand2 =
   -- Poison
   | Ipoison MemWidth operand2 operand1
   -- Extensions
-  | Iext Text [operand2]      -- ^ Custom instruction with no return value
-  | Iextval Text regT [operand2] -- ^ Custom instruction, returning a value
-  | Iextadvise Text regT [operand2] -- ^ Like `Iextval`, but gets serialized as `Iadvise`
+  | Iext (ExtInstr operand2)                -- ^ Custom instruction with no return value
+  | Iextval regT (ExtValInstr operand2)     -- ^ Custom instruction, returning a value
+  | Iextadvise regT (ExtAdviseInstr operand2)   -- ^ Like `Iextval`, but gets serialized as `Iadvise`
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
 pattern IstoreW :: operand2 -> operand1 -> Instruction' regT operand1 operand2
@@ -377,9 +413,9 @@ mapInstrM regF opF1 opF2 instr =
   -- Poison                                    
   Ipoison w op2 op1      -> Ipoison w <$>  (opF2 op2) <*> (opF1 op1)      
   -- Extensions                            
-  Iext txt ops2          -> Iext txt <$> (mapM opF2 ops2)             
-  Iextval txt r1 ops2    -> Iextval txt <$> (regF r1) <*> (mapM opF2 ops2)     
-  Iextadvise txt r1 ops2 -> Iextadvise txt <$> (regF r1) <*> (mapM opF2 ops2)
+  Iext ext               -> Iext <$> (mapM opF2 ext)
+  Iextval dest ext       -> Iextval <$> (regF dest) <*> (mapM opF2 ext)
+  Iextadvise dest ext    -> Iextadvise <$> (regF dest) <*> (mapM opF2 ext)
 
 
 foldInstr :: Monoid a =>
@@ -422,6 +458,6 @@ aggregateOps instr =
     Ianswer op2            ->              op2
     Iadvise r1             -> r1
     Ipoison _ op2 op1      ->       op1 <> op2
-    Iext _txt ops2          -> mconcat ops2
-    Iextval _txt r1 ops2    -> mconcat $ r1 : ops2
-    Iextadvise _txt r1 ops2 -> mconcat $ r1 : ops2
+    Iext ext               -> fold ext
+    Iextval dest ext       -> dest <> fold ext
+    Iextadvise dest ext    -> dest <> fold ext

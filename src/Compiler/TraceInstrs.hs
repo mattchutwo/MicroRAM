@@ -21,7 +21,7 @@ enableTrace = False
 
 maybeTrace :: String -> [op] -> [MRAM.Instruction' a b op]
 maybeTrace _ _ | not enableTrace = []
-maybeTrace name ops = [MRAM.Iext (Text.pack $ "trace_" ++ name) ops]
+maybeTrace name ops = [MRAM.Iext (MRAM.XTrace (Text.pack $ name) ops)]
 
 maybeTraceIR :: md -> String -> [MAOperand VReg w] -> [MIRInstr md w]
 maybeTraceIR md name ops = map (\i -> MirM i md) $ maybeTrace name ops

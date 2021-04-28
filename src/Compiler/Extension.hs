@@ -20,35 +20,27 @@ import Compiler.Errors
 import Compiler.Common (Name)
 import Compiler.IRs
 
-import MicroRAM (Instruction'(..), pattern WWord)
+import MicroRAM (Instruction'(..), ExtInstr(..), ExtValInstr(..), pattern WWord)
 import           MicroRAM (MWord)
 
 type Statefully a = StateT Word Hopefully a
 
-lowerExtInstr :: Text -> Maybe VReg -> md -> [MAOperand VReg MWord] ->
-  Statefully [MIRInstr md MWord]
-lowerExtInstr "trace" _ _ _ = return []
-lowerExtInstr "tracestr" _ _ _ = return []
-lowerExtInstr "traceexec" _ _ _ = return []
-lowerExtInstr name _ _ _ | "trace_" `Text.isPrefixOf` name = return []
-lowerExtInstr "malloc" (Just dest) md ops =
-  return [MirM (Iextadvise "malloc" dest ops) md]
-lowerExtInstr "free" _ _ _ = return []
-lowerExtInstr "access_valid" _ _ _ = return []
-lowerExtInstr "access_invalid" _ _ _ = return []
-lowerExtInstr "advise_poison" (Just dest) md ops =
-  return [MirM (Iextadvise "advise_poison" dest ops) md]
-lowerExtInstr "load_unchecked" (Just dest) md [ptr] =
-  return [MirM (Iload WWord dest ptr) md]
-lowerExtInstr "store_unchecked" Nothing md [ptr, val] =
-  return [MirM (Istore WWord ptr val) md]
-lowerExtInstr name optDest _md ops = assumptError $
-  "unsupported extension instruction: " ++ show name ++ " " ++
-    intercalate ", " (maybe [] (\x -> [show x]) optDest ++ map show ops)
-
 lowerInstr :: MIRInstr md MWord -> Statefully [MIRInstr md MWord]
-lowerInstr (MirM (Iext name ops) md) = lowerExtInstr name Nothing md ops
-lowerInstr (MirM (Iextval name dest ops) md) = lowerExtInstr name (Just dest) md ops
+lowerInstr (MirM (Iext ext) md) = case ext of
+  XTrace _ _ -> return []
+  XTraceStr _ -> return []
+  XTraceExec _ _ -> return []
+  XFree _ -> return []
+  XAccessValid _ _ -> return []
+  XAccessInvalid _ _ -> return []
+  XStoreUnchecked ptr val -> return [MirM (Istore WWord ptr val) md]
+lowerInstr (MirM (Iextval dest ext) md) = case ext of
+  XLoadUnchecked ptr -> return [MirM (Iload WWord dest ptr) md]
+-- Note that `Iextadvise` instructions are not handled here.  Those are left
+-- unchanged until the very end, then they get serialized as `Iadvise`,
+-- discarding the extension details.  This ensures the extension info is
+-- available during the second (lower level) interpreter pass, so the
+-- interpreter knows which kind of advice to give.
 lowerInstr i = return [i]
 
 -- TODO: share this basic rewriting infrastructure between here and Legalize

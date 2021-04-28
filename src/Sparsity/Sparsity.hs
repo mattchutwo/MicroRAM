@@ -181,9 +181,9 @@ instrType inst =
     Ianswer _     -> [Kanswer]     
     Ipoison _ _ _ -> [Kpoison, KmemOp]           
     Iadvise _     -> []
-    Iext _ _      -> []
-    Iextval _ _ _ -> []
-    Iextadvise _ _ _ -> []
+    Iext _        -> []
+    Iextval _ _   -> []
+    Iextadvise _ _ -> []
 
 
 -- * Computing Sparsity
