@@ -11,9 +11,6 @@ Stability   : experimental
 
 module Segments.ChooseSegments where
 
-import qualified Debug.Trace as T (trace, traceShow, traceM)
-
--- import qualified Algorithm.Search as Alg (dfs)
 import qualified Data.Graph as G
 import Data.Foldable (toList)
 
@@ -22,7 +19,7 @@ import MicroRAM.MRAMInterpreter
 
 import qualified Data.Map as Map 
 import qualified Data.Set as Set 
-import qualified Data.Vector as V (Vector, (!), (!?), fromList, ifoldl, imap, map)
+import qualified Data.Vector as V (Vector, (!), fromList, ifoldl, imap)
 
 import Segments.Segmenting
 import Sparsity.Sparsity
@@ -94,7 +91,7 @@ chooseSegments privSize spar prog trace segments = do
                     flip (Map.insert k) mp $ case currentValue of
                                                Just ls -> a:ls
                                                Nothing -> [a]
-    segPc seg = getPcFromConstraint (constraints seg)
+    segPc seg = getPcFromConstraint (segConstraints seg)
     getPcFromConstraint :: [Constraints] -> Maybe MWord 
     getPcFromConstraint constrs =
       case constrs of
@@ -167,20 +164,20 @@ findPublicPath' segments usedSegs startIndx trace =
         
         constrs :: [(G.Vertex -> Bool)]
         constrs = map (\est idx -> pcIs (pc est) idx) trace
-        pcIs pcTocheck segIndx = pcTocheck == getPcConstraint (constraints $ segments V.! segIndx)
+        pcIs pcTocheck segIndx = pcTocheck == getPcConstraint (segConstraints $ segments V.! segIndx)
           where getPcConstraint (PcConst thePc:_) = thePc  -- Public segments allways have a pc
                 getPcConstraint [] = 404 -- This should never happen
 
 
 longestPathForest :: [(G.Vertex -> Bool)] -> (G.Vertex -> Bool) -> G.Forest G.Vertex -> [G.Vertex]
-longestPathForest constrs end paths =
-  maxWith length [] $ map (longestPathTree constrs) paths
+longestPathForest constraints end paths =
+  maxWith length [] $ map (longestPathTree constraints) paths
   where longestPathTree :: [(G.Vertex -> Bool)] -> G.Tree G.Vertex -> [G.Vertex]
         longestPathTree constrs (G.Node v forest) =
           case constrs of
             [] -> []
-            const: constrs' ->
-              if not $ const v then [] else -- Must satisfy the contraint. 
+            constr: constrs' ->
+              if not $ constr v then [] else -- Must satisfy the contraint. 
                 case longestPathForest constrs' end forest of
                   hd:tl ->  v : hd : tl              -- If the path is not empty    
                   []  -> if end v then [v] else [] -- Otherwise
@@ -195,20 +192,17 @@ longestPath :: (Ord state, Show (t state), Show state, Foldable t, Functor t)
             -> t state -- START
             -> [state]
 longestPath next end start = longestPath' Set.empty start 
-  where longestPath' visited start =
-          let paths = fmap (longestPathOne visited) start in
+  where longestPath' visited start' =
+          let paths = fmap (longestPathOne visited) start' in
             maxWith length [] paths
-        longestPathOne visited start
-          | start `Set.member` visited =  [] -- looped
+        longestPathOne visited start'
+          | start' `Set.member` visited =  [] -- looped
           | otherwise =
-            let visited' = Set.insert start visited 
-                path = longestPath' visited' $ next start in   
-                -- T.trace ("\tVisiting " ++ show start ++
-                --          "\n\tNext states are: " ++ show (next start) ++
-                --          "\n\tPath so far: " ++ show path) $
+            let visited' = Set.insert start' visited 
+                path = longestPath' visited' $ next start' in
               if not $ null path then
-                start : path
-              else if end start then [start] else  []
+                start' : path
+              else if end start' then [start'] else  []
 
         maxWith :: (Ord n, Foldable f) => (a -> n) -> a -> f a -> a --
         maxWith f def ls = foldl (\path other -> if f path < f other then other else path) def ls
@@ -219,13 +213,11 @@ findPublicPath :: forall reg. Show reg
                -> Set.Set Int
                -> [Int] -> Trace reg -> [Int] 
 findPublicPath segments usedSegs startIndx initRemTrace = 
-  let result = map segIndxPSS $ longestPath nextStates hasToNetwork (initState initRemTrace) in
+  let result = map segIndxPSS $ longestPath nextStates hasToNetwork initState in
     if null (filter notUsed startIndx) then result else
-      -- T.trace ("START " ++ show (filter notUsed startIndx) ++
-      --          "\n\tRESULT"++ show result)
       result
-  where initState :: Trace reg -> [PathSearchState reg]
-        initState initRnemTrace = map (PathSearchState initRemTrace) $ filter notUsed startIndx 
+  where initState :: [PathSearchState reg]
+        initState = map (PathSearchState initRemTrace) $ filter notUsed startIndx 
 
         hasToNetwork :: PathSearchState reg -> Bool
         hasToNetwork pss = toNetwork $ segments V.! (segIndxPSS pss) 
@@ -238,16 +230,15 @@ findPublicPath segments usedSegs startIndx initRemTrace =
               pcSuccIndx  =  filter (pcIs $ pc $ last usedTrace) allSuccIndx 
               result = map (PathSearchState trimTrace) $ pcSuccIndx in
             result
-            -- T.trace ("\t\t\tCurrent:" <> show (segIndxPSS pss) <>
-            --          " Succ: " <> show pcSuccIndx <>
-            --          ". Almost succ:  " <> show allSuccIndx) 
         notUsed :: Int -> Bool
         notUsed segIndx = not $ segIndx `Set.member` usedSegs
         pcIs pcTocheck segIndx =
-          pcTocheck == getPcConstraint (constraints $ segments V.! segIndx)
-          where segPc = getPcConstraint (constraints $ segments V.! segIndx)
-                getPcConstraint (PcConst thePc:_) = thePc  -- Public segments allways have a pc
-                -- getPcConstraint (_:ls) = getPcConstraint ls
+          pcTocheck == getPcConstraint (segConstraints $ segments V.! segIndx)
+          where segPc = getPcConstraint (segConstraints $ segments V.! segIndx)
+                getPcConstraint (PcConst thePc:_) = thePc
+                --getPcConstraint (_:ls) = getPcConstraint ls
+                getPcConstraint [] = error "No PC constraint found on public segment."
+                
 -- | chooses the next segment
 chooseSegment :: Show reg => V.Vector (Segment reg MWord) -> Int -> PState reg ()
 chooseSegment segments privSize = do
@@ -255,12 +246,10 @@ chooseSegment segments privSize = do
   initRemTrace <- remainingTrace <$> get
   avalSegs <-  availableSegments <$> get
   usedSegs <-  usedSegments <$> get
-  -- _ <-  T.trace ("Choose segment for pc: " <> show thePc) $ return ()
   let startInds = Map.findWithDefault [] thePc avalSegs
   let possiblePath = findPublicPath segments usedSegs startInds initRemTrace
-  case possiblePath of -- T.trace ("Pc :" ++ show currentPc ++ ". Possible next: " ++ show checkedNextSegments ++ "\n\tUnfiltered: " ++ show possibleNextSegments) checkedNextSegments of 
+  case possiblePath of
     x:path -> do
-      -- T.traceM ("Path: " ++ show path)
       -- allocates the current queue in private pc segments (if there is more than just the last state).  
       queue <- queueSt <$> get
       when (length queue >1) $ allocateQueue privSize
@@ -287,15 +276,14 @@ chooseSegment segments privSize = do
                len = segLen segment
 
      -- | Checks if we can use the segment next
-     checkSegment :: Bool -> V.Vector (Segment reg MWord) -> Int -> PState reg Bool
-     checkSegment verbose segs segInx = do
+     checkSegment :: V.Vector (Segment reg MWord) -> Int -> PState reg Bool
+     checkSegment segs segInx = do
        let seg = segs V.! segInx
        usedSegs <- usedSegments <$> get
        let available = not $ segInx `Set.member` usedSegs
        trace <- remainingTrace <$> get
        let satLength = length trace >= segLen seg 
        satCons <- satConstraints seg
-       --when verbose $ T.traceShow ("Index",segInx,"Available:", available,"length:", satLength) (return ()) 
        return $ available && satLength && satCons
 
      
@@ -303,7 +291,7 @@ chooseSegment segments privSize = do
      -- | Check if segment's constraints are satisfied.
      satConstraints :: Segment reg MWord -> PState reg Bool
      satConstraints seg = do
-       sat   <- mapM satConstraint $ constraints seg 
+       sat   <- mapM satConstraint $ segConstraints seg 
        return $ and sat
      satConstraint :: Constraints -> PState reg Bool
      satConstraint (PcConst pcConst) = do
