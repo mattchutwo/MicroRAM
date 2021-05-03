@@ -1514,7 +1514,6 @@ isDefs defs = do
   setGlobNames <- return $ nameOfGlobals defs
   env <- return $ Env typeDefs setGlobNames
   globVars <- (isGlobVars env) $ filter itIsGlobVar defs -- filtered inside the def 
-  --otherError $ "DEBUG HERE: \n" ++ show typeDefs ++ "\n" ++ show globVars ++ "\n"  
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
   funcs <- evalStateT (isFunctions env) initState
   checkDiscardedDefs defs -- Make sure we dont drop something important

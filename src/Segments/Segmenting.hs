@@ -123,7 +123,6 @@ cutSuccessors cutMap (Cut _ instrs pc len)
   | otherwise =
     let (pcSuccs, toNet) = pcSuccessors (pc + toEnum len - 1) $ fst term -- Should use Seq?
         cutSuccs = mapMaybe (\pc -> Map.lookup pc cutMap) pcSuccs in
-      --T.trace ("Function: "++ show (mdFunction $ snd term)++ "@ PC:" ++ show pc ++ "\n\tProposed: \t" ++ show pcSuccs ++ "\n\tFiltered:\t" ++ show cutSuccs)
       (cutSuccs, toNet || length cutSuccs /= length pcSuccs)
       where term = last instrs
 
@@ -170,7 +169,7 @@ findAllFunctions prog = do
         addFunction accumulator (_instr, md) = Set.insert (mdFunction md) accumulator 
 
 segmentFunction :: Show reg => [Cut Metadata reg MWord] -> String -> Seq.Seq (Segment reg MWord)
-segmentFunction cuts funName = -- T.trace ("Segments in " ++ funName ++ ": " ++ show (length $ loopConnections functionSegs) )
+segmentFunction cuts funName = 
   loopConnections functionSegs 
   where functionSegs = map toSegment functionCuts 
         functionCuts = filter (\cut -> cutFunction cut == funName) cuts 

@@ -76,7 +76,7 @@ chooseSegments privSize spar prog trace segments = do
     -- | Maps pc to the index of segments that start with that pc
     -- but only if the segment comes from network
     segmentSets :: Map.Map MWord [Int]
-    segmentSets = segMap -- T.trace ("Map of pc -> segment: " ++ show segMap) segMap
+    segmentSets = segMap
       where segMap = V.ifoldl addSegment Map.empty segments
     addSegment :: Map.Map MWord [Int] -> Int -> Segment reg wrd -> Map.Map MWord [Int] 
     addSegment sets indx seg =
