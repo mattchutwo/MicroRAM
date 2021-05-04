@@ -840,8 +840,7 @@ isMove env op ret = -- lift $ toRTL <$>
      return $ smartMove ret op'
   
 -- | Optimize away the move if it's to the same register
---
--- TODO: is the same-register case even possible on inputs in SSA form?
+-- Probably never triggers is input is in SSA form
 smartMove
   :: Eq regT
   => regT
@@ -855,8 +854,7 @@ smartMove ret op = if (checkEq op ret) then [] else [MRAM.Imov ret op]
 -- ** Exeptions 
   
 -- *** Not supprted instructions (return meaningfull error)
-{-isInstruction _env _ instr =  implError $ "Instruction: " ++ (show instr)
--}
+{-isInstruction _env _ instr =  implError $ "Instruction: " ++ (show instr)-}
 
 
 ------------------------------------------------------
@@ -879,8 +877,6 @@ constantMultiplication ::
   MWord
   -> MAOperand VReg MWord
   -> Statefully $ (MAOperand VReg MWord, [MA2Instruction VReg MWord])
--- TODO switch to Statefully monad so we can generate a fresh register here
--- TODO support all operand kinds
 constantMultiplication c (LImm r) =
   return (LImm $ (SConst c)*r,[])
 constantMultiplication c x = do
@@ -1505,7 +1501,7 @@ getUniqueWord _ = assumptError "Tryed to compute a binary operation with an aggr
 
 
 
-isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
+isFuncAttributes :: [LLVM.Definition] -> Hopefully $ ()
 isFuncAttributes _ = return () 
 
 isDefs :: [LLVM.Definition] -> Hopefully $ MIRprog Metadata MWord

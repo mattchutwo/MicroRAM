@@ -31,7 +31,6 @@ import Compiler.Errors
 data TraceChunk reg = TraceChunk {
   chunkSeg :: Int
   , chunkStates :: Trace reg }
-  --deriving Eq
 
 instance Show (TraceChunk reg) where
   show tc = "# TraceChunk: Indx = " ++ (show $ chunkSeg tc) ++ ". ChunkStates = " ++ (show $ map pc (chunkStates tc))++ ". " 
@@ -133,8 +132,6 @@ instance Ord (PathSearchState reg) where
 
 
 -- | Finds a path of public segments that conforms to the given trace.
--- We use depth first search, which will find A solution if one exists.
--- TODO: Find longest path  
 findPublicPath' :: forall reg. Show reg
                => V.Vector (Segment reg MWord)
                -> Set.Set Int
@@ -145,11 +142,6 @@ findPublicPath' segments usedSegs startIndx trace =
       result = longestPathForest constrs hasToNetwork $ allPaths
       toNetworks = toList $ V.imap (\i seg -> (i, toNetwork seg)) segments in
     if null $ startIndx then result else
-      -- T.trace ("GRAPH: " ++ show segmGraph ++
-      --          "\nSTART: " ++ show startIndx ++
-      --          "\nEND: " ++ show (toNetworks) ++
-      --          "\nALL PATHS: " ++ show allPaths ++
-      --          "\n\tRESULT:" ++ show result)
       result 
   where hasToNetwork :: G.Vertex -> Bool
         hasToNetwork segIdx = toNetwork $ segments V.! segIdx
@@ -256,7 +248,7 @@ chooseSegment segments privSize = do
       -- allocates states to use the public pc segment. Returns the last state (now the start of the queue)
       queueInitSt <- mapM (allocateSegment segments) (x:path)
       modify (\st -> st {queueSt = [last queueInitSt] -- push the initial state of the private queue. Already in trace, this one gets dropped
-               , usedSegments = (Set.fromList (x:path)) `Set.union` usedSegs -- Mark path as used (TODO: Move to allocatePublicPath)
+               , usedSegments = (Set.fromList (x:path)) `Set.union` usedSegs -- Mark path as used 
                , nextPc = pc $ last queueInitSt }) 
     [] -> do -- If no public segment fits try private
       execSt <- pullStates 1  -- returns singleton list

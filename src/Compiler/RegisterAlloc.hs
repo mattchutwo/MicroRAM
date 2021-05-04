@@ -266,7 +266,7 @@ spillRegister fName spillReg isArg pos blocks = do
       modify' $ \(RAState c s m) -> RAState (c+1) s m
       return reg
 
-    getTyForRegister _reg _instr = Tint -- TODO: How do we get the Ty?
+    getTyForRegister _reg _instr = Tint
 
 
 -- JP: lens/uniplate would make this easier.

@@ -120,8 +120,6 @@ elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
             _ -> Set.singleton (i + 1)
 
     -- | All the blocks that are at the beggining of a function.
-    -- TODO: this is just an approximation of all blocks reachable from globals.
-    -- If we could extract the function calls from the globals, we can use that instead.
     functionEntries :: [Int]
     functionEntries = do
       (i, NBlock _ instrs) <- zip [0..] prog

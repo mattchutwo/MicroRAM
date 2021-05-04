@@ -74,7 +74,7 @@ cc_noop _ _ _ = return []
 cc_trap :: Text -> IntrinsicImpl m MWord
 cc_trap desc _ _ md = return [
   MirM (Iext (XTrace ("Trap: " <> desc) [])) md,
-  MirM (Ianswer (LImm $ SConst 0)) md] -- TODO
+  MirM (Ianswer (LImm $ SConst 0)) md] 
 
 cc_malloc :: IntrinsicImpl m w
 cc_malloc [size] (Just dest) md = return [MirM (Iextadvise dest (XMalloc size)) md]
