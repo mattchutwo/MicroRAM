@@ -58,7 +58,7 @@ import qualified Data.Set as Set
 
 import Debug.PrettyPrint
 
-import GHC.Word
+import Data.Word
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
@@ -340,10 +340,7 @@ summaryFromFile myfile myCS 300
 -}
 
 jpProgComp
-  :: Word
-     -> IO
-          (CompilationUnit
-             () (AnnotatedProgram Metadata AReg Word64))
+  :: Word -> IO (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
 jpProgComp len = do
   m <- fromLLVMFile "test/programs/funcPointer.ll"
   -- return m
