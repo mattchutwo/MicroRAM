@@ -11,8 +11,6 @@ Stability   : experimental
 
 module Segments.Segmenting (segmentProgram, Segment(..), Constraints(..)) where
 
-import qualified Debug.Trace as T
-
 import Compiler.Errors
 import Compiler.Metadata
 import Compiler.IRs
@@ -36,7 +34,7 @@ import GHC.Generics
 -- The map relates the beggining of each segment, in the original program, with the segment in the cut program
 data Segment reg wrd = Segment
   { segIntrs :: [Instruction reg wrd]
-    , constraints :: [Constraints]
+    , segConstraints :: [Constraints]
     , segLen :: Int
     , segSuc :: [Int]
     , fromNetwork :: Bool
@@ -125,7 +123,6 @@ cutSuccessors cutMap (Cut _ instrs pc len)
   | otherwise =
     let (pcSuccs, toNet) = pcSuccessors (pc + toEnum len - 1) $ fst term -- Should use Seq?
         cutSuccs = mapMaybe (\pc -> Map.lookup pc cutMap) pcSuccs in
-      --T.trace ("Function: "++ show (mdFunction $ snd term)++ "@ PC:" ++ show pc ++ "\n\tProposed: \t" ++ show pcSuccs ++ "\n\tFiltered:\t" ++ show cutSuccs)
       (cutSuccs, toNet || length cutSuccs /= length pcSuccs)
       where term = last instrs
 
@@ -142,25 +139,6 @@ pcSuccessors pc instr =
         isReg :: Operand regT MWord -> Bool
         isReg (Reg   _) = True  -- By default it goes to network.
         isReg (Const _) = False
-
--- instrSuccessor :: Map.Map MWord [Int] -> MWord -> Instruction reg MWord -> Hopefully $ [Int]
--- instrSuccessor blockMap pc instr =
---   case instr of
---     Ijmp op       -> ifConst op
---     Icjmp  _ op2  -> (++) <$> (getBlock (pc + 1)) <*> ifConst op2
---     Icnjmp _ op2  -> (++) <$> (getBlock (pc + 1)) <*> ifConst op2
---     _             -> return $ []
-
---   where ifConst :: Operand regT MWord -> Hopefully $ [Int]
---         ifConst (Reg   _) = return $ []  -- By default it goes to network.
---         ifConst (Const c) = do { block <- getBlock c; return block }
-          
---         getBlock :: MWord -> Hopefully [Int] 
---         getBlock pc = 
---           case Map.lookup pc blockMap of
---             Just blocks -> return blocks
---             Nothing  -> otherError $ "Cutting segments: found jump to an instruction not at the beggining of a block. PC: "
---                         ++ show pc
   
 
 -- | Cut to segment
@@ -169,12 +147,12 @@ cut2segment (Cut _funName instrs pc len) succs toNet =
   let ret =  
         Segment
         { segIntrs = (map fst instrs) 
-        , constraints = [PcConst pc]
+        , segConstraints = [PcConst pc]
         , segLen = len
         , segSuc = succs
         , fromNetwork = fromNet  -- ^ From network can change later.
         , toNetwork = toNet } in
-    ret --if fromNet then T.trace ("Segmetn to net: " <> (show $ constraints ret)) ret else ret
+    ret
   where fromNet = case instrs of
                     [] -> False
                     (_i,md):_ -> mdReturnCall md || mdFunctionStart md
@@ -191,8 +169,8 @@ findAllFunctions prog = do
         addFunction accumulator (_instr, md) = Set.insert (mdFunction md) accumulator 
 
 segmentFunction :: Show reg => [Cut Metadata reg MWord] -> String -> Seq.Seq (Segment reg MWord)
-segmentFunction cuts funName = -- T.trace ("Segments in " ++ funName ++ ": " ++ show (length $ loopConnections functionSegs) )
-  loopConnections funName functionSegs 
+segmentFunction cuts funName = 
+  loopConnections functionSegs 
   where functionSegs = map toSegment functionCuts 
         functionCuts = filter (\cut -> cutFunction cut == funName) cuts 
 
@@ -203,18 +181,13 @@ segmentFunction cuts funName = -- T.trace ("Segments in " ++ funName ++ ": " ++ 
 
 -- | Loop operations
 -- We define loops as Strongly Connected Component
-loopConnections :: String -> [Segment reg wrd] -> Seq.Seq (Segment reg wrd)
-loopConnections fName segs = go --T.trace ("Cycles in" ++ fName ++" : " ++ show (countSCCs sccs)) go
+loopConnections :: [Segment reg wrd] -> Seq.Seq (Segment reg wrd)
+loopConnections segs = go
   where go = (replicateLoops sccs) . (backEdgesToNet sccs) . (connectLoopExits sccs) $
              Seq.fromList segs   
         cfg = makeCFG segs
         sccs = G.stronglyConnComp cfg
-
-        countSCCs :: [G.SCC node] -> Int
-        countSCCs ls = length $ filter isCycle ls
-        isCycle (G.CyclicSCC _) = True
-        isCycle (G.AcyclicSCC _) = False
-          
+  
 replicateLoops :: [G.SCC Int]               -- Connected components
                  -> Seq.Seq (Segment reg wrd) -- Segments
                  -> Seq.Seq (Segment reg wrd)

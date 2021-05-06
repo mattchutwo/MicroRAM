@@ -332,9 +332,6 @@ functionTypes tenv' (LLVM.FunctionType retTy argTys _) = do
   retT' <- type2type  tenv' retTy
   paramT' <- mapM (type2type tenv') argTys
   return (retT',paramT')
-functionTypes tenv' (LLVM.PointerType t _) = functionTypes tenv' t
---functionTypes _tenv (LLVM.FunctionType  _ _ True) =
---  implError "Variable parameters (isVarArg in function call)."
 functionTypes _ ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
 
 functionPtrTypes :: LLVMTypeEnv -> LLVM.Type -> Hopefully (Ty, [Ty])
@@ -843,8 +840,7 @@ isMove env op ret = -- lift $ toRTL <$>
      return $ smartMove ret op'
   
 -- | Optimize away the move if it's to the same register
---
--- TODO: is the same-register case even possible on inputs in SSA form?
+-- Probably never triggers is input is in SSA form
 smartMove
   :: Eq regT
   => regT
@@ -858,8 +854,7 @@ smartMove ret op = if (checkEq op ret) then [] else [MRAM.Imov ret op]
 -- ** Exeptions 
   
 -- *** Not supprted instructions (return meaningfull error)
-{-isInstruction _env _ instr =  implError $ "Instruction: " ++ (show instr)
--}
+{-isInstruction _env _ instr =  implError $ "Instruction: " ++ (show instr)-}
 
 
 ------------------------------------------------------
@@ -882,8 +877,6 @@ constantMultiplication ::
   MWord
   -> MAOperand VReg MWord
   -> Statefully $ (MAOperand VReg MWord, [MA2Instruction VReg MWord])
--- TODO switch to Statefully monad so we can generate a fresh register here
--- TODO support all operand kinds
 constantMultiplication c (LImm r) =
   return (LImm $ (SConst c)*r,[])
 constantMultiplication c x = do
@@ -1225,7 +1218,7 @@ flattenConstant env c = do
     chunks <- constant2typedLazyConst env c
     return $ go (SConst 0) 0 $ map unpack chunks
   where
-    unpack (TypedLazyConst lc w align) = (lc, widthInt w)
+    unpack (TypedLazyConst lc w _) = (lc, widthInt w)
 
     go ::
       LazyConst String MWord -> Int -> [(LazyConst String MWord, Int)] ->
@@ -1508,7 +1501,7 @@ getUniqueWord _ = assumptError "Tryed to compute a binary operation with an aggr
 
 
 
-isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
+isFuncAttributes :: [LLVM.Definition] -> Hopefully $ ()
 isFuncAttributes _ = return () 
 
 isDefs :: [LLVM.Definition] -> Hopefully $ MIRprog Metadata MWord
@@ -1517,7 +1510,6 @@ isDefs defs = do
   setGlobNames <- return $ nameOfGlobals defs
   env <- return $ Env typeDefs setGlobNames
   globVars <- (isGlobVars env) $ filter itIsGlobVar defs -- filtered inside the def 
-  --otherError $ "DEBUG HERE: \n" ++ show typeDefs ++ "\n" ++ show globVars ++ "\n"  
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
   funcs <- evalStateT (isFunctions env) initState
   checkDiscardedDefs defs -- Make sure we dont drop something important

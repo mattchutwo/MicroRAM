@@ -26,9 +26,6 @@ instruction number to produce well formed MicroRAM. It does so in three passes:
 
 3) Replace all labels with the location given in the label map.
 
-TODO: It can all be done in 2 passes. Optimize?
-
-
 -}
 module Compiler.RemoveLabels
     ( removeLabels,
