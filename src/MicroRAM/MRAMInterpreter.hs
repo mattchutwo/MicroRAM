@@ -131,7 +131,7 @@ stepInstr i = do
     Imull rd r1 op2 -> stepBinary (*) rd r1 op2
     Iumulh rd r1 op2 -> stepBinary umulh rd r1 op2
     Ismulh rd r1 op2 -> stepBinary smulh rd r1 op2
-
+    -- TODO div/mod vs quot/rem?
     Iudiv rd r1 op2 -> stepBinary safeDiv rd r1 op2
     Iumod rd r1 op2 -> stepBinary safeMod rd r1 op2
     
@@ -563,7 +563,6 @@ allocHandler verbose  allocState nextH instr@(Istore _w op2 _r1) = do
   -- TODO: this misses errors when the first byte of the access is in bounds
   -- but the later bytes are not.  However, we can't catch such errors yet,
   -- since we can't poison only part of a word.
-  -- Should be solved soon by the new malloc.
   checkAccess verbose allocState addr
   nextH instr
 allocHandler verbose allocState nextH instr@(Iload _w _rd op2) = do

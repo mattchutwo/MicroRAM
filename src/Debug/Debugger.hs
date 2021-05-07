@@ -42,6 +42,7 @@ import Compiler.CompilationUnit
 import Compiler.Globals
 import Compiler.InstructionSelection
 import Compiler.Intrinsics
+--import Compiler.IRs
 import Compiler.Legalize
 import Compiler.LocalizeLabels
 import Compiler.Metadata
@@ -52,19 +53,15 @@ import Compiler.RemoveLabels
 import Compiler.RemovePhi
 import Compiler.Stacking
 import Compiler.UndefinedFunctions
+import Sparsity.Sparsity
 
 import Data.Default
 import qualified Data.Set as Set
 
 import Debug.PrettyPrint
-
-import Data.Word
-
 import MicroRAM.MRAMInterpreter
 import MicroRAM
 import LLVMutil.LLVMIO
-import Sparsity.Sparsity
-
 
 
 -- * Summary: Pretty prints summary of an execution.
@@ -339,8 +336,7 @@ summaryFromFile myfile myCS 300
 *******************************
 -}
 
-jpProgComp
-  :: Word -> IO (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
+-- jpProgComp :: Word -> IO (CompilationResult (AnnotatedProgram Metadata AReg MWord))
 jpProgComp len = do
   m <- fromLLVMFile "test/programs/funcPointer.ll"
   -- return m

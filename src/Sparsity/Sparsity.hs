@@ -22,6 +22,10 @@ must approximate in the following way:
 
 The overall sparsity of `op` is then approximated by `Min (begSpar+endSpar, spar)`.
 
+TODO: We can improve the approximation of a accross jumps by following the
+controll flow graph (in development). However the program can allways make
+indirect calls which make some jumps unknowable at compile time.
+
 NOTE: we are assuming here that we are compiling a `complete` program.
 But supporting separate compilation is easy:
 
@@ -144,9 +148,7 @@ type Sparsity = Map.Map InstrKind Int
 
 
 
--- | Classifies instructions in classes
--- one instruction can be in several calsses.
--- Sparsity can be done at any class level.
+-- TODO: There probably is a better way to dos this 
 instrType :: Instruction' r o1 o2 -> [InstrKind]
 instrType inst =
   case inst of
@@ -249,11 +251,11 @@ sparsBlock (NBlock _ instrs) =
   foldl sparsInstr Map.empty $ enumerate $ fst <$> instrs -- first step
   where setEndSpars lastLoc spars = fmap (setNewEnd lastLoc) spars
 
--- ** Functions
+-- ** TODO: Functions
 -- If we carry the controll flow of functions, we can improve the approximation
 -- We merge the sparsity of blocks, only with those adjacent to it (int the right order.
--- We still have "edge effect" at the beggining and end of functions and function
--- calls (which at this point are just `jmp`s).
+-- We still have "edge effect" at the beggining and end of functions and funciotn
+-- calls (which at this point are just `jmp`s.
 
 
 -- ** Sparsity for Full program

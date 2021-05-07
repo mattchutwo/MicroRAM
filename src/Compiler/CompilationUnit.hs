@@ -87,6 +87,9 @@ justAnalyse analysis cUnit = do
   a' <-  analysis (pmProg $ programCU cUnit)
   return $ cUnit {aData = addAnalysisPiece a' $ aData cUnit}
 
+
+-- TODO: Should we move this to a separate file (e.g. Compiler/InitMem.hs) ?
+
 data InitMemSegment = InitMemSegment
   { isSecret :: Bool
   , isReadOnly :: Bool
