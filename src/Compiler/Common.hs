@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TypeOperators #-}
@@ -27,12 +26,14 @@ module Compiler.Common (
   -- * Identifiers
   -- $names
   Name(..),
+  short2string, string2short,
   )
   where
 
 
 
-import Data.ByteString.Short
+import Data.ByteString.Short (ShortByteString, fromShort, toShort) 
+import qualified Data.ByteString.UTF8 as BSU
 
 import qualified Data.Map as Map
 
@@ -131,24 +132,46 @@ heapInitAddress = 0x100000000   -- 2^32
 -- It includes a `NewName` to produce temporary registers that
 -- don't intefere with existing ones. 
 data Name =
-  Name ShortByteString   -- ^ we keep the LLVM names
-  | NewName Word         -- ^ and add some new ones
-  deriving (Eq, Ord, Read, Show)
+  Name Word ShortByteString   -- ^ Global identifier and a human readable name for debugging.
+
+instance Eq Name where
+  (Name n _) == (Name m _) = n == m
+
+instance Ord Name where
+  compare (Name n _ ) (Name m _) = compare n m
+
+instance Show Name where
+  show (Name n dbgName) = (short2string dbgName) <> "#" <> (show n)
+
+instance Read Name where
+  readsPrec _ txt = case splitLast '#' txt of
+                      Right (dbgName, nTxt) -> [(Name (read nTxt) (string2short dbgName), "")]
+                      Left _ -> error $  "Malformed variable name: " <> txt 
+    where splitLast :: Eq a => a -> [a] -> Either [a] ([a],[a])
+          splitLast c' = foldr go (Left [])
+            where
+              go c (Right (f,b)) = Right (c:f,b)
+              go c (Left s) | c' == c = Right ([],s)
+                            | otherwise = Left (c:s)
+
+short2string :: ShortByteString -> String
+short2string s = BSU.toString $ fromShort s
+
+string2short :: String -> ShortByteString
+string2short s = toShort $ BSU.fromString s
+
 
 instance Regs Name where
-  sp = NewName 0
-  bp = NewName 1
-  ax = NewName 2
+  sp = Name 0 "sp"
+  bp = Name 1 "bp"
+  ax = Name 2 "ax"
   -- argc = Name "0" -- Where the first arguemtns to main is passed
   -- argv = Name "1" -- Where the second arguemtns to main is passed
-  fromWord w      -- FIXME this is terribled: depends on read and show! Ugh!
-    | w == 1 = Name "0"
-    | even w = NewName $ w `div` 2
-    | otherwise = Name $ pack $ read $ show $ digits ((w-1) `div` 2)
-  toWord (NewName x) = 2*x
-  toWord (Name sh) = 1 + (2 * (read $ read $ show sh))
+  fromWord w = Name w ""
+  toWord (Name n _) = n
   
 -- Produces the digits, shifted by 48 (ie. the ASCII representation)
-digits :: Integral x => x -> [x]
-digits 0 = []
-digits x = digits (x `div` 10) ++ [x `mod` 10 + 48] -- ASCII 0 = 0
+-- digits :: Integral x => x -> [x]
+-- digits 0 = []
+-- digits x = digits (x `div` 10) ++ [x `mod` 10 + 48] -- ASCII 0 = 0
+

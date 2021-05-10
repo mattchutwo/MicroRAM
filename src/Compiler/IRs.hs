@@ -80,7 +80,7 @@ import Util.Util
 data MAOperand regT wrdT where
   AReg :: regT -> MAOperand regT wrdT    -- ^ Assembly register 
   LImm :: LazyConst String wrdT -> MAOperand regT wrdT    -- ^ lazy immidiates
-  Label :: String -> MAOperand regT wrdT -- 
+  Label :: Name -> MAOperand regT wrdT -- 
   Glob ::  Name -> MAOperand regT wrdT
   HereLabel :: MAOperand regT wrdT
   deriving (Show)

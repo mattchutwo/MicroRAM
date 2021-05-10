@@ -174,7 +174,7 @@ removePhiFunc f@(Function name retTy argTys blocks nextReg) = do
 
 nameLabel :: Name -> MAOperand VReg wrdT
 nameLabel n@(Name _) = Label $ show n
-nameLabel (NewName w) = error $ "tried to convert NewName " ++ show w ++ " back to a label"
+--nameLabel (NewName w) = error $ "tried to convert NewName " ++ show w ++ " back to a label"
 
 -- | Gather all outgoing CFG edges from a block.  This considers only direct
 -- jumps to labels - indirect jumps are ignored.

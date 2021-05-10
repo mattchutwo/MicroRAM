@@ -93,11 +93,17 @@ initState =
   , _nextReg = 2 -- Leave space for ESP and EBP
   }
 
-freshName :: Statefully Name
-freshName = do
+useReg :: Statefully Word
+useReg = do
   n <- use nextReg
   nextReg %= (+1)
-  return $ NewName n
+  return n
+
+newName :: Short.ShortByteString -> Statefully Name
+newName debugName =  Name <$> useReg <*> return debugName
+
+freshName :: Statefully Name
+freshName = newName "fresh"
 
 getMetadata :: Statefully Metadata
 getMetadata = do
@@ -115,20 +121,20 @@ data Env = Env {llvmtTypeEnv :: LLVMTypeEnv, globs :: Set.Set LLVM.Name}
 any2short :: Show a => a -> Short.ShortByteString
 any2short n = Short.toShort $ BSU.fromString $ show $ n
 
-name2name :: LLVM.Name -> Name
-name2name (LLVM.Name s) = Name s
-name2name (LLVM.UnName n) = Name $ any2short n
+name2name :: LLVM.Name -> Statefully Name
+name2name (LLVM.Name s) = newName s
+name2name (LLVM.UnName n) = newName $ any2short n
 
-name2nameM :: Monad m => LLVM.Name -> m Name
-name2nameM nm = return $ name2name nm
+--name2nameM :: Monad m => LLVM.Name -> m Name
+--name2nameM nm = return $ name2name nm
 
-name2label :: Monad m => LLVM.Name -> m $ MAOperand VReg MWord
-name2label nm = return $ Label $ show $ name2name nm
+name2label :: LLVM.Name -> Statefully $ MAOperand VReg MWord
+name2label nm = return $ Label $ name2name nm
 
 getConstant :: Env -> LLVM.Constant.Constant -> Hopefully $ MAOperand VReg MWord
 getConstant env (LLVM.Constant.GlobalReference ty name) | itIsFunctionType ty = do
-  _ <- checkName (globs env) name
-  return $ Label $ show $ name2name name
+  _ <- checkName (globs env) name -- ^ check it's a global variable
+  return $ Label $ name2name name
 
   where
     itIsFunctionType (LLVM.PointerType (LLVM.FunctionType _ _ _) _) = True
@@ -137,9 +143,9 @@ getConstant env (LLVM.Constant.GlobalReference ty name) | itIsFunctionType ty = 
 -- JP: We may want to generalize `constant2OnelazyConst` so it can return labels.
 getConstant env c = LImm <$> constant2OnelazyConst env c
 
-operand2operand :: Env -> LLVM.Operand -> Hopefully $ MAOperand VReg MWord
+operand2operand :: Env -> LLVM.Operand -> Statefully $ MAOperand VReg MWord
 operand2operand env (LLVM.ConstantOperand c) = getConstant env c
-operand2operand _env (LLVM.LocalReference _ name') = AReg <$> name2nameM name'
+operand2operand _env (LLVM.LocalReference _ name') = AReg <$> name2name name'
 operand2operand _ _= implError "operand, probably metadata"
 
 -- | Get the value of `op`, masking off high bits if necessary to emulate
@@ -305,21 +311,21 @@ constOne = LLVM.ConstantOperand (LLVM.Constant.Int (toEnum 1) 1)
 -- *** Trtanslating Function parameters and types
 
 function2function
-  :: LLVMTypeEnv -> Either a LLVM.Operand -> Hopefully (MAOperand VReg MWord, Ty, [Ty])
+  :: LLVMTypeEnv -> Either a LLVM.Operand -> Statefully (MAOperand VReg MWord, Ty, [Ty])
 function2function _ (Left _ ) = implError $ "Inlined assembly not supported"
 function2function tenv (Right (LLVM.LocalReference ty nm)) = do
-  nm' <- name2nameM nm
-  (retT', paramT') <- functionTypes tenv ty
+  nm' <- name2name nm
+  (retT', paramT') <- lift $ functionTypes tenv ty
   return (AReg nm',retT',paramT')
 function2function tenv (Right (LLVM.ConstantOperand (LLVM.Constant.GlobalReference ty nm))) = do
   lbl <- name2label nm
-  (retT', paramT') <- functionPtrTypes tenv ty
+  (retT', paramT') <- lift $ functionPtrTypes tenv ty
   return (lbl,retT',paramT')
 function2function tenv (Right (LLVM.ConstantOperand (LLVM.Constant.BitCast op ty))) = do
   -- Use the `lbl` from evaluating `op`, but get the param/return types from
   -- the new type `ty`.
   (lbl, _retT, _paramT) <- function2function tenv (Right (LLVM.ConstantOperand op))
-  (retT', paramT') <- functionPtrTypes tenv ty
+  (retT', paramT') <- lift $ functionPtrTypes tenv ty
   return (lbl, retT', paramT')
 function2function _tenv (Right (LLVM.ConstantOperand c)) =
   implError $ "Calling a function with a constant. You called: \n \t" ++ show c
@@ -348,7 +354,7 @@ params2params
   :: Traversable t =>
      Env
   -> t (LLVM.Operand, b)
-  -> Either CmplError (t (MAOperand VReg MWord))
+  -> Statefully (t (MAOperand VReg MWord))
 params2params env params  = do
   params' <- mapM ((operand2operand env) . fst) params -- fst dumps the attributes
   return params' 
@@ -472,7 +478,8 @@ intrinCall env name dest retTy ops = do
     retTy' <- lift $ type2type (llvmtTypeEnv env) retTy
     opTys' <- lift $ mapM (type2type tenv) $ map (typeOf tenv) ops
     ops' <- lift $ mapM (operand2operand env) ops
-    let instr = RCall retTy' dest (Label $ show $ Name $ fromString name) opTys' ops'
+    labelName <- name2label name 
+    let instr = RCall retTy' dest labelName opTys' ops'
     md <- getMetadata
     return [MirI instr md]
   where
@@ -722,8 +729,8 @@ isCall
      -> [(LLVM.Operand, b)]
      -> Statefully $ [MIRInstruction Metadata VReg MWord]
 isCall env ret f args = do
-  (f',retT,paramT) <- lift $ function2function (llvmtTypeEnv env) f
-  args' <- lift $ params2params env args
+  (f',retT,paramT) <- function2function (llvmtTypeEnv env) f
+  args' <- params2params env args
   md <- getMetadata
   return $
     maybeTraceIR md ("call " ++ show f') ([optRegName ret, f'] ++ args') ++
@@ -866,10 +873,10 @@ smartMove ret op = if (checkEq op ret) then [] else [MRAM.Imov ret op]
 -- * Utils for instructions selection of instructions
 
 
-convertPhiInput :: Env -> (LLVM.Operand, LLVM.Name) -> Hopefully $ (MAOperand VReg MWord, Name)
+convertPhiInput :: Env -> (LLVM.Operand, LLVM.Name) -> Statefully $ (MAOperand VReg MWord, Name)
 convertPhiInput env (op, name) = do
   op' <- operand2operand env op
-  name' <- name2nameM name
+  name' <- name2name name
   return (op', name')
 
 typeFromOperand :: Env -> LLVM.Operand -> Hopefully $ LLVM.Type

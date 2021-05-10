@@ -28,10 +28,10 @@ import Compiler.Registers
 
 import Control.Monad.State.Lazy
 import Data.Bifunctor (first)
-import Data.ByteString.Short (fromShort)
+--import Data.ByteString.Short (fromShort)
 import Data.List
-import Data.Text.Encoding (decodeUtf8)
-import Data.Text.Prettyprint.Doc
+--import Data.Text.Encoding (decodeUtf8)
+import Data.Text.Prettyprint.Doc -- Soon deprecated and eventually removed. Use Prettyprinter instead. ?
 import Util.Util
 
 type MetaState = State Metadata
@@ -71,13 +71,12 @@ pprintInst :: (Pretty wrd, Bounded wrd, Integral wrd, Show wrd) => Instruction' 
 pprintInst = show . pretty
 
 instance Pretty func => Pretty (IRprog mdata wrd func) where
-  pretty (IRprog tenv globals code) =
+  pretty (IRprog _tenv _globals code) =
     -- TODO: tenv + globals
     vsep $ map pretty code
 
 instance Pretty Name where
-  pretty (Name s) = pretty (decodeUtf8 $ fromShort s) <> "_"
-  pretty (NewName n) = pretty n
+  pretty name = pretty $ show name
   
 instance Pretty Ty where
   pretty = viaShow -- TODO: improve this
@@ -106,7 +105,7 @@ instance Pretty wrd => Pretty (LazyConst l wrd) where
 instance (Pretty (PrettyPrintWrapper reg), Pretty wrd) => Pretty (PrettyPrintWrapper (MAOperand reg wrd)) where
   pretty (PPW (AReg reg)) = pretty $ PPW reg
   pretty (PPW (LImm lc)) = pretty lc
-  pretty (PPW (Label l)) = "@" <> cleanName l
+  pretty (PPW (Label l)) = "@" <> pretty l
   pretty (PPW (Glob n)) = pretty n
   pretty (PPW (HereLabel)) = "@here"
 

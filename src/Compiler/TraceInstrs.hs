@@ -5,8 +5,8 @@ module Compiler.TraceInstrs
     optRegName,
   ) where
 
-import qualified Data.ByteString.Short as Short
-import qualified Data.ByteString.UTF8 as BSU
+--import qualified Data.ByteString.Short as Short
+--import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Text as Text
 
 import Compiler.LazyConstants
@@ -27,8 +27,7 @@ maybeTraceIR :: md -> String -> [MAOperand VReg w] -> [MIRInstr md w]
 maybeTraceIR md name ops = map (\i -> MirM i md) $ maybeTrace name ops
 
 regName :: VReg -> MAOperand VReg MWord
-regName (Name n) = LImm $ SConst $ read $ BSU.toString $ Short.fromShort n
-regName (NewName w) = LImm $ SConst $ fromIntegral w
+regName (Name w _) = LImm $ SConst $ fromIntegral w  -- ^ Debug name is lost. Text names were never supported.
 
 optRegName :: Maybe VReg -> MAOperand VReg MWord
 optRegName (Just r) = regName r

@@ -29,7 +29,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 
-import Compiler.Common (Name(Name))
+import Compiler.Common (Name(Name), string2short)
 import Compiler.Metadata
 import Compiler.Errors
 import Compiler.IRs
@@ -57,10 +57,10 @@ expandInstrs f = goProg
 
 type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> m -> Hopefully [MIRInstr m w]
 
-expandIntrinsicCall :: forall m w. Show w => Map String (IntrinsicImpl m w) -> MIRInstr m w -> Hopefully [MIRInstr m w]
+expandIntrinsicCall :: forall m w. Show w => Map Name (IntrinsicImpl m w) -> MIRInstr m w -> Hopefully [MIRInstr m w]
 expandIntrinsicCall intrinMap (MirI (RCall _ dest (Label name) _ args) meta)
   | Just impl <- Map.lookup name intrinMap =
-    tag ("bad call to intrinsic " ++ name) $ impl args dest meta
+    tag ("bad call to intrinsic " ++ show name) $ impl args dest meta
 expandIntrinsicCall _ instr = return [instr]
 
 
@@ -185,6 +185,10 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   where
     mkTrap name = (name, cc_trap $ Text.pack name)
 
+
+intrinsicName :: String -> Name
+intrinsicName str = Name (toEnum $ Map.findIndex str intrinsics) $ string2short str
+
 lowerIntrinsics :: forall m. MIRprog m MWord -> Hopefully (MIRprog m MWord)
 lowerIntrinsics = expandInstrs (expandIntrinsicCall intrinsics)
                   >=> removeIntrinsics
@@ -243,3 +247,4 @@ mapMetadataMIRFunction mdF fn =
 
         mapMetadataInstr (MirM inst md) = MirM inst $ mdF md
         mapMetadataInstr (MirI inst md) = MirI inst $ mdF md
+

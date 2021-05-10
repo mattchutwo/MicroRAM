@@ -124,7 +124,7 @@ premain = return $
   IstoreW (AReg sp) bp :  -- Store "old" base pointer 
   Imov bp (AReg sp) :    -- set base pointer to the stack pointer
   callMain)              -- jump to main
-  where callMain = return $ Ijmp $ Label $ show $ Name "main"
+  where callMain = return $ Ijmp $ Label $ show $ Name 0 "main" -- TODO is main really 0?
         md = trivialMetadata "Premain" ""
 
 -- | returnBlock: return lets the program output an answer (when main returns)
