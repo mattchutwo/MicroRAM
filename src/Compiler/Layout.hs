@@ -73,7 +73,7 @@ structPadding env tys = tail $ go 0 1 tys
 offsetOfStructElement :: LLVMTypeEnv -> Type -> [Type] -> MWord
 offsetOfStructElement tenv ty_head tys =
   alignTo (alignOf tenv ty_head) $
-  foldl (\pos ty -> alignTo (alignOf tenv ty) pos + sizeOf tenv ty) 0 tys
+  foldl (\pos ty -> alignTo (alignOf tenv ty) pos - sizeOf tenv ty) 0 tys
   
 
 alignOfStruct :: LLVMTypeEnv -> [Type] -> MWord
