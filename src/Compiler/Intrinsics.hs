@@ -21,6 +21,7 @@ module Compiler.Intrinsics
 
 
 import Control.Monad
+import Data.ByteString.Short (ShortByteString)
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map
@@ -29,7 +30,8 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 
-import Compiler.Common (Name(Name), string2short)
+
+import Compiler.Common (Name(Name), short2string)
 import Compiler.Metadata
 import Compiler.Errors
 import Compiler.IRs
@@ -37,32 +39,7 @@ import Compiler.LazyConstants
 
 import MicroRAM
 
-
-expandInstrs :: forall f m w.
-  Applicative f => (MIRInstr m w -> f [MIRInstr m w]) -> MIRprog m w -> f (MIRprog m w)
-expandInstrs f = goProg
-  -- TODO: this can probably be done more cleanly with traverse or lenses
-  where goProg :: MIRprog m w -> f (MIRprog m w)
-        goProg (IRprog te gs code) = IRprog te gs <$> traverse goFunc code
-
-        goFunc :: MIRFunction m w -> f (MIRFunction m w)
-        goFunc (Function nm rty atys bbs nr) =
-          Function nm rty atys <$> traverse goBB bbs <*> pure nr
-
-        goBB :: BB n (MIRInstr m w) -> f (BB n (MIRInstr m w))
-        goBB (BB nm body term dag) = BB nm <$> goInstrs body <*> goInstrs term <*> pure dag
-
-        goInstrs :: [MIRInstr m w] -> f [MIRInstr m w]
-        goInstrs is = concat <$> traverse f is
-
 type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> m -> Hopefully [MIRInstr m w]
-
-expandIntrinsicCall :: forall m w. Show w => Map Name (IntrinsicImpl m w) -> MIRInstr m w -> Hopefully [MIRInstr m w]
-expandIntrinsicCall intrinMap (MirI (RCall _ dest (Label name) _ args) meta)
-  | Just impl <- Map.lookup name intrinMap =
-    tag ("bad call to intrinsic " ++ show name) $ impl args dest meta
-expandIntrinsicCall _ instr = return [instr]
-
 
 cc_test_add :: IntrinsicImpl m w
 cc_test_add [x, y] (Just dest) md = return [MirM (Iadd dest x y) md]
@@ -132,8 +109,11 @@ cc_trace_exec (name : args) Nothing md =
 cc_trace_exec _ _ _ = progError "bad arguments"
 
 
-intrinsics :: Map String (IntrinsicImpl m MWord)
-intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
+intrinsics :: Map ShortByteString (IntrinsicImpl m MWord)
+intrinsics = Map.fromList $ map (\(x :: ShortByteString, y) -> (x, y)) $ intrinsicsList
+
+intrinsicsList :: [(ShortByteString, IntrinsicImpl m MWord)]
+intrinsicsList =
   [ ("__cc_test_add", cc_test_add)
   , ("__cc_flag_invalid", cc_flag_invalid)
   , ("__cc_flag_bug", cc_flag_bug)
@@ -183,11 +163,34 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , mkTrap "llvm.va_end"
   ]
   where
-    mkTrap name = (name, cc_trap $ Text.pack name)
+    mkTrap :: ShortByteString -> (ShortByteString, IntrinsicImpl m MWord)
+    mkTrap name = (name, cc_trap $ Text.pack $ short2string name)
 
+-- | Inlines the code for intrinsic funcitons.
+-- It uses the debugName to search for the function,
+-- so it expectds the names to be reserved (not enforced right now). 
+expandIntrinsicCall :: forall m w. Show w => Map ShortByteString (IntrinsicImpl m w) -> MIRInstr m w -> Hopefully [MIRInstr m w]
+expandIntrinsicCall intrinMap (MirI (RCall _ dest (Label (Name _ debugName)) _ args) meta)
+  | Just impl <- Map.lookup debugName intrinMap = -- ^ uses the debugName 
+    tag ("bad call to intrinsic " ++ show debugName) $ impl args dest meta
+expandIntrinsicCall _ instr = return [instr]
 
-intrinsicName :: String -> Name
-intrinsicName str = Name (toEnum $ Map.findIndex str intrinsics) $ string2short str
+expandInstrs :: forall f m w.
+  Applicative f => (MIRInstr m w -> f [MIRInstr m w]) -> MIRprog m w -> f (MIRprog m w)
+expandInstrs f = goProg
+  -- TODO: this can probably be done more cleanly with traverse or lenses
+  where goProg :: MIRprog m w -> f (MIRprog m w)
+        goProg (IRprog te gs code) = IRprog te gs <$> traverse goFunc code
+
+        goFunc :: MIRFunction m w -> f (MIRFunction m w)
+        goFunc (Function nm rty atys bbs nr) =
+          Function nm rty atys <$> traverse goBB bbs <*> pure nr
+
+        goBB :: BB n (MIRInstr m w) -> f (BB n (MIRInstr m w))
+        goBB (BB nm body term dag) = BB nm <$> goInstrs body <*> goInstrs term <*> pure dag
+
+        goInstrs :: [MIRInstr m w] -> f [MIRInstr m w]
+        goInstrs is = concat <$> traverse f is
 
 lowerIntrinsics :: forall m. MIRprog m MWord -> Hopefully (MIRprog m MWord)
 lowerIntrinsics = expandInstrs (expandIntrinsicCall intrinsics)
@@ -198,8 +201,8 @@ lowerIntrinsics = expandInstrs (expandIntrinsicCall intrinsics)
 removeIntrinsics :: MIRprog m MWord -> Hopefully (MIRprog m MWord)
 removeIntrinsics prog = 
   return $ prog {code = filter (not . isIntrinsic) $ code prog}
-  where isIntrinsic f = show (funcName f) `Map.member` intrinsics
-  
+  where isIntrinsic f = debugName (funcName f) `Map.member` intrinsics
+        debugName (Name _ dName) = dName
 -- | Rename C/LLVM implementations of LLVM intrinsics to line up with their
 -- intrinsic name.
 --
@@ -214,9 +217,9 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
     renameList :: [(Name, Name)]
     renameList = do
       Function nm _ _ _ _ <- code
-      Name ss <- return nm
+      Name n ss <- return nm
       Just name <- return $ Text.stripPrefix "__llvm__" $ toText ss
-      return (nm, Name $ fromText $ "llvm." <> Text.replace "__" "." name)
+      return (nm, Name n $ fromText $ "llvm." <> Text.replace "__" "." name) -- ^ Doesn't change the Word
 
     renameMap = Map.fromList renameList
     renameMapString = Map.fromList $ map (\(x,y) -> (show x, show y)) renameList

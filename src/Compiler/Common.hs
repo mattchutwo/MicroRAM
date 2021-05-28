@@ -40,6 +40,7 @@ import qualified Data.Map as Map
 import Compiler.Registers
 import Compiler.LazyConstants
 
+
 import MicroRAM(MWord)
 
 
@@ -132,7 +133,8 @@ heapInitAddress = 0x100000000   -- 2^32
 -- It includes a `NewName` to produce temporary registers that
 -- don't intefere with existing ones. 
 data Name =
-  Name Word ShortByteString   -- ^ Global identifier and a human readable name for debugging.
+  Name {nameID:: Word,
+        dbName :: ShortByteString}   -- ^ Global identifier and a human readable name for debugging.
 
 instance Eq Name where
   (Name n _) == (Name m _) = n == m

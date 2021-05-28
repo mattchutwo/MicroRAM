@@ -52,4 +52,4 @@ localizeFunc funcNames func = func { funcBlocks = map goBB $ funcBlocks func }
 
 nameStr :: Name -> ShortByteString
 nameStr (Name s) = s
-nameStr (NewName w) = fromString $ show w
+-- nameStr (NewName w) = fromString $ show w

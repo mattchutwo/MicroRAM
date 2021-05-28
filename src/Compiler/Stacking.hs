@@ -119,12 +119,12 @@ premain = return $
   [ Iadd sp sp (LImm 1)
   , Imull sp sp (LImm $ fromIntegral wordBytes)] ++
   -- push return address for main 
-  Imov ax (Label "_ret_") : (push ax) ++
+  Imov ax (Label $ "_ret_") : (push ax) ++
   -- set stack frame
   IstoreW (AReg sp) bp :  -- Store "old" base pointer 
   Imov bp (AReg sp) :    -- set base pointer to the stack pointer
   callMain)              -- jump to main
-  where callMain = return $ Ijmp $ Label $ show $ Name 0 "main" -- TODO is main really 0?
+  where callMain = return $ Ijmp $ Label $ "main" -- TODO is main really 0?
         md = trivialMetadata "Premain" ""
 
 -- | returnBlock: return lets the program output an answer (when main returns)
@@ -137,7 +137,7 @@ returnBlock = NBlock retName [(Ianswer (AReg ax),md)]
 -- ** Function Prologues and Epilogues
 
 -- | prologue: allocates the stack at the beggining of the function
-prologue :: Regs mreg => MWord -> String -> [MAInstruction mreg MWord]
+prologue :: Regs mreg => MWord -> Name -> [MAInstruction mreg MWord]
 prologue size entry =
     [ Iadd sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size + 1))
     , Ijmp $ Label entry
@@ -257,7 +257,7 @@ stackBlock
   -> Hopefully (NamedBlock Metadata mreg MWord)
 stackBlock (BB name body term _) = do
   body' <- mapM stackInstr (body++term)
-  return $ NBlock (Just $ show name) $ concat body'
+  return $ NBlock (Just name) $ concat body'
 
 -- | Translating funcitons
 stackFunction
@@ -273,7 +273,7 @@ stackFunction (LFunction name _retT _argT size code) = do
   let prologueBody = addMD prolMD (prologue size entryName)
   let prologueBlock = NBlock (Just name) $ markFunStart prologueBody 
   return $ prologueBlock : codeBlocks
-  where prolMD = trivialMetadata name (show $ Just name)
+  where prolMD = trivialMetadata (dbName name) (dbName name)
         -- | Add metadata for the first instruction in a funciton
         markFunStart :: [(MAInstruction mreg MWord, Metadata)] -> [(MAInstruction mreg MWord, Metadata)]
         markFunStart ls = let firstInst = head ls in -- We know ls is not empyt because the prelude is not empyt.

@@ -99,7 +99,7 @@ type MA2Instruction regT wrdT = MRAM.Instruction' regT (MAOperand regT wrdT) (MA
 -- | One oprand MicroAssembly
 type MAInstruction regT wrdT = MRAM.Instruction' regT regT (MAOperand regT wrdT)
 
-data NamedBlock md r w = NBlock (Maybe String) [(MAInstruction r w, md)]
+data NamedBlock md r w = NBlock (Maybe Name) [(MAInstruction r w, md)]
   deriving (Show)
 type MAProgram md r w = [NamedBlock md r w] -- These are MicroASM programs
 type AnnotatedProgram md r w = [(MRAM.Instruction r w, md)]
@@ -286,7 +286,7 @@ traverseOpLTLInstr = traverseOpIRInstr
 
 
 data LFunction mdata mreg wrdT = LFunction {
-    funName :: String -- should this be a special label?
+    funName :: Name
   , retType :: Ty
   , paramTypes :: [Ty]
   , stackSize :: MRAM.MWord
@@ -323,7 +323,7 @@ rtlToLtl (IRprog tenv globals code) = do
    convertFunc (Function name retType paramTypes body _nextReg) = do
      -- JP: Where should we get the metadata and stack size from?
      let stackSize = 0 -- Since nothing is spilled 0
-     let name' = show name
+     let name' = name
      body' <- mapM convertBasicBlock body
      return $ LFunction name' retType paramTypes stackSize body' 
 

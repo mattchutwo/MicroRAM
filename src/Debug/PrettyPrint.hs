@@ -127,7 +127,7 @@ instance (Pretty name, Pretty inst) => Pretty (BB name inst) where
 
 instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (NamedBlock meta reg wrd) where
   pretty (NBlock nameM insts) = 
-    vsep [ "/// Block " <> maybe "" cleanName nameM
+    vsep [ "/// Block " <> pretty nameM
          , vsep (map (pretty . fst) insts)
          , line
          ]
@@ -144,7 +144,7 @@ instance (Pretty name, Pretty param, Pretty block) => Pretty (Function name para
 
 instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (LFunction mdata reg wrd) where
   pretty (LFunction name retTy argTys _stackSize blocks) =
-    vsep [ "// " <> cleanName name <> " :: " <> prettyArgs argTys <> " -> " <> pretty retTy
+    vsep [ "// " <> pretty name <> " :: " <> prettyArgs argTys <> " -> " <> pretty retTy
          , vsep (map pretty blocks)
          , line
          ]

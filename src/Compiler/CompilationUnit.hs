@@ -33,7 +33,8 @@ data CompilationUnit' a prog = CompUnit
   , traceLen :: Word
   , regData :: RegisterData
   , aData   :: AnalysisData
-  , intermediateInfo :: a -- Other stuff we carry during compilation, but starts and ends as `()`
+  , nameBound :: Word -- ^ All names are bounded by this 
+  , intermediateInfo :: a -- ^ Other stuff we carry during compilation, but starts and ends as `()`
   }
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
@@ -57,8 +58,8 @@ type CompilationUnit a prog = CompilationUnit' a (ProgAndMem prog)
 
 type CompilationResult prog = CompilationUnit' () (MultiProg (ProgAndMem prog))
 
-prog2unit :: Word -> prog -> CompilationUnit () prog
-prog2unit len p = CompUnit (ProgAndMem p []) len InfinityRegs def ()
+prog2unit :: Word -> Word -> prog -> CompilationUnit () prog
+prog2unit len nBound p = CompUnit (ProgAndMem p []) len InfinityRegs def nBound ()
 
 -- * Lifting operators
 
@@ -68,6 +69,19 @@ justCompile :: Monad m =>
   -> CompilationUnit a progS
   -> m $ CompilationUnit a progT
 justCompile pass p = mapM (mapM pass) p
+
+-- | Just compile with fresh names, lift passes that only deal with code and create fresh names
+justCompileWithNames :: Monad m =>
+  ((progS, Word) -> m (progT, Word))
+  -> CompilationUnit a progS
+  -> m $ CompilationUnit a progT
+justCompileWithNames pass p = do
+  let ProgAndMem sProg mem = programCU p
+  let nBound = nameBound p
+  (tProg, nBound') <- pass (sProg, nBound)   
+  return $ p {programCU = ProgAndMem tProg mem, nameBound = nBound'}
+
+
 
 -- | Informed Compilation: passes that use analysis data but only change code
 informedCompile :: Monad m =>

@@ -140,35 +140,35 @@ module Compiler
     , module Export
     ) where
 
+import           Compiler.Analysis
+import           Compiler.BlockCleanup
+import           Compiler.CallingConvention
+import           Compiler.CompilationUnit
+import           Compiler.CountFunctions
+import           Compiler.Errors
+import           Compiler.Extension
+import           Compiler.Globals
+import           Compiler.IRs
+import           Compiler.InstructionSelection
+import           Compiler.Intrinsics
+import           Compiler.Legalize
+import           Compiler.LocalizeLabels
+import           Compiler.Metadata
+import           Compiler.RegisterAlloc
+import           Compiler.RegisterAlloc as Export (AReg)
+import           Compiler.RemoveLabels
+import           Compiler.RemovePhi
+import           Compiler.Stacking
+import           Compiler.UndefinedFunctions
+
+import           MicroRAM (MWord)
+import           Sparsity.Sparsity
+import           Util.Util
+
 import           Data.Default
 
-import Compiler.Analysis
-import Compiler.BlockCleanup
-import Compiler.CallingConvention
-import Compiler.CompilationUnit
-import Compiler.CountFunctions
-import Compiler.Globals
-import Compiler.Errors
-import Compiler.Extension
-import Compiler.InstructionSelection
-import Compiler.Intrinsics
-import Compiler.IRs
-import Compiler.LocalizeLabels
-import Compiler.Legalize
-import Compiler.Metadata
-import Compiler.RegisterAlloc
-import Compiler.RegisterAlloc as Export (AReg)
-import Compiler.RemoveLabels
-import Compiler.RemovePhi
-import Compiler.Stacking
-import Compiler.UndefinedFunctions
-
-import MicroRAM (MWord)
-
-import Sparsity.Sparsity
-
 import qualified LLVM.AST as LLVM
-import Util.Util
+
 
 compile1
   :: Bool

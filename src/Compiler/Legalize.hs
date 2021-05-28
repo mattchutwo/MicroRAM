@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-|
 Module      : Legalize
@@ -73,7 +74,7 @@ withMetadata m act = do
 freshReg :: Statefully m w Name
 freshReg = do
   x <- state $ \s -> (lsNextReg s, s { lsNextReg = lsNextReg s + 1 })
-  return $ NewName x
+  return $ Name x "fresh"
 
 emitInstr :: RTLInstr m w -> Statefully m w ()
 emitInstr i = do
