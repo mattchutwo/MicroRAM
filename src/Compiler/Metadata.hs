@@ -14,11 +14,11 @@ module Compiler.Metadata
       trivialMetadata,
     ) where
 
---import Compiler.Common
+import Compiler.Common (Name(..))
 
 data Metadata = Metadata {
-    mdFunction       :: String   -- Name of the function containing instruction
-  , mdBlock          :: String   -- Name of the Block containing instruction
+    mdFunction       :: Name   -- Name of the function containing instruction
+  , mdBlock          :: Name   -- Name of the Block containing instruction
   , mdLine           :: Int      -- Line of source instruction
   , mdFunctionStart :: Bool      -- If instruction is at the start of a function (only added at stacking)
   , mdReturnCall :: Bool         -- If instruction happens right after a function call jump
@@ -27,12 +27,12 @@ data Metadata = Metadata {
 defaultMetadata :: Metadata
 defaultMetadata =
   Metadata {
-  mdFunction = ""
-  , mdBlock = ""
+  mdFunction = Name 0 ""
+  , mdBlock = Name 0 ""
   , mdLine = 0
   , mdFunctionStart = False
   , mdReturnCall = False
   }
 
-trivialMetadata :: String -> String -> Metadata
+trivialMetadata :: Name -> Name -> Metadata
 trivialMetadata fname bname = defaultMetadata {mdFunction = fname, mdBlock = bname}

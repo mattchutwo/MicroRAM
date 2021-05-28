@@ -35,26 +35,30 @@ import MicroRAM
 
 
 -- Split edges to ensure the "unique successor or predecessor property" (Modern Compiler Implementation in Java, 19.6).
-edgeSplit :: Rprog Metadata wrdT -> Hopefully (Rprog Metadata wrdT)
-edgeSplit (IRprog te ge funcs) = return $ IRprog te ge $ map edgeSplitFunc funcs
+edgeSplit :: (Rprog Metadata wrdT, Word) -> Hopefully (Rprog Metadata wrdT, Word)
+edgeSplit (IRprog te ge funcs, nextReg) = do
+  let (funcs', nextReg') = runState (mapM edgeSplitFunc funcs) nextReg
+  return $ (IRprog te ge funcs', nextReg')
 
-edgeSplitFunc :: forall wrdT . RFunction Metadata wrdT -> RFunction Metadata wrdT
-edgeSplitFunc (Function name retTy argTys blocks nextReg) =
-  let edgeBlocks = map (buildEdgeBlock name) $ Map.toList edgeIndex in
-  Function name retTy argTys (blocks' ++ edgeBlocks) nextReg
+edgeSplitFunc :: forall wrdT . RFunction Metadata wrdT -> State Word (RFunction Metadata wrdT)
+edgeSplitFunc (Function name retTy argTys blocks nextReg) = do
+  edgeBlocks <- mapM (buildEdgeBlock name) $ Map.toList edgeIndex
+  -- Modify existing blocks
+  blocks' <- mapM fixInstrs blocks
+  return $ Function name retTy argTys (blocks' ++ edgeBlocks) nextReg
 
   where
     cfg = buildCFG blocks
 
     -- Build new blocks to place along the previous CFG edges.
 
-    buildEdgeBlock :: Name -> ((Name, Name), Int) -> BB Name (RTLInstr Metadata wrdT)
-    buildEdgeBlock funcName ((pred, succ), edgeIdx) = 
-      let name = makeEdgeBlockName pred succ edgeIdx in
-      let body = [] in
-      let md = trivialMetadata (show funcName) (show name) in
-      let term = [MRI (Ijmp $ nameLabel succ) md] in -- This will eventually be deleted
-      BB name body term [succ]
+    buildEdgeBlock :: Name -> ((Name, Name), Int) -> State Word (BB Name (RTLInstr Metadata wrdT))
+    buildEdgeBlock funcName ((pred, succ), edgeIdx) = do
+      name <- makeEdgeBlockName pred succ edgeIdx
+      let body = []
+      let md = trivialMetadata funcName name
+      let term = [MRI (Ijmp $ nameLabel succ) md] -- This will eventually be deleted
+      return $ BB name body term [succ]
 
     -- | Map from (pred, succ) to a unique index.  This is mainly used to
     -- ensure that every new block gets a unique name, even if there are
@@ -88,45 +92,53 @@ edgeSplitFunc (Function name retTy argTys blocks nextReg) =
 
       Map.fromList $ zip splitEdges [0..]
 
-    -- Modify existing blocks
+    
+    fixInstrs :: BB Name (RTLInstr Metadata wrdT) -> State Word (BB Name (RTLInstr Metadata wrdT))
+    fixInstrs (BB name body term dag) = do
+      dag' <- fixDag name dag
+      body' <- mapM (fixInstr name) body
+      term' <- mapM (fixInstr name) term
+      return $ BB name body' term' dag'
 
-    blocks' = map fixInstrs blocks
+    fixInstr :: Name -> RTLInstr Metadata wrdT -> State Word (RTLInstr Metadata wrdT)
+    fixInstr pred (MRI (Ijmp (Label succ)) mdata) = MRI . Ijmp <$> jumpDest pred succ <*> return mdata
+    fixInstr pred (MRI (Icjmp r (Label succ)) mdata) = MRI . (Icjmp r) <$> (jumpDest pred succ) <*> return mdata
+    fixInstr pred (MRI (Icnjmp r (Label succ)) mdata) = MRI . (Icnjmp r) <$> (jumpDest pred succ) <*> return mdata
+    fixInstr succ (IRI (RPhi r vs) mdata) = do
+      vs' <- mapM fixSuccs vs
+      return $ IRI (RPhi r $ vs') mdata
+      where fixSuccs (o, pred) = do {pred' <- fixPred pred succ; return (o, pred')} 
+    fixInstr _ instr = return instr
 
-    fixInstrs :: BB Name (RTLInstr Metadata wrdT) -> BB Name (RTLInstr Metadata wrdT)
-    fixInstrs (BB name body term dag) = BB name (map (fixInstr name) body) (map (fixInstr name) term) (fixDag name dag)
+    jumpDest :: Name -> Name -> State Word (MAOperand VReg wrdT)
+    jumpDest pred succ = Label <$> fixSucc pred succ
 
-    fixInstr :: Name -> RTLInstr Metadata wrdT -> RTLInstr Metadata wrdT
-    fixInstr pred (MRI (Ijmp (Label succ)) mdata) = MRI (Ijmp (jumpDest pred succ)) mdata
-    fixInstr pred (MRI (Icjmp r (Label succ)) mdata) = MRI (Icjmp r (jumpDest pred succ)) mdata
-    fixInstr pred (MRI (Icnjmp r (Label succ)) mdata) = MRI (Icnjmp r (jumpDest pred succ)) mdata
-    fixInstr succ (IRI (RPhi r vs) mdata) = IRI (RPhi r $ map (\(o,pred) -> (o, fixPred pred succ)) vs) mdata
-    fixInstr _ instr = instr
-
-    jumpDest :: Name -> String -> MAOperand VReg wrdT
-    jumpDest pred succStr = nameLabel $ fixSucc pred (read succStr)
-
-    fixDag pred succs = map (fixSucc pred) succs
+    fixDag :: Name -> DAGinfo Name -> State Word (DAGinfo Name) 
+    fixDag pred succs = mapM (fixSucc pred) succs
 
     fixSucc pred succ = case Map.lookup (pred, succ) edgeIndex of
       Just idx -> makeEdgeBlockName pred succ idx
 
       -- Leave target unchanged if we're not splitting this edge. 
-      Nothing -> succ 
+      Nothing -> return $ succ 
     fixPred pred succ = case Map.lookup (pred, succ) edgeIndex of
       Just idx -> makeEdgeBlockName pred succ idx
 
       -- Leave target unchanged if we're not splitting this edge. 
-      Nothing -> pred
+      Nothing -> return $ pred
 
 -- | Removes phis. Assumes edge splitting has already happened.
-removePhi :: Rprog Metadata wrdT -> Hopefully (Rprog Metadata wrdT)
-removePhi (IRprog te ge funcs) = IRprog te ge <$> mapM removePhiFunc funcs
+removePhi :: (Rprog Metadata wrdT, Word) -> Hopefully (Rprog Metadata wrdT, Word)
+removePhi (IRprog te ge funcs, nextReg) = do
+  (funcs', nextReg') <- runStateT (mapM removePhiFunc funcs) nextReg
+  return (IRprog te ge funcs', nextReg')
 
 removePhiFunc :: forall wrdT.
-  RFunction Metadata wrdT -> Hopefully (RFunction Metadata wrdT)
-removePhiFunc f@(Function name retTy argTys blocks nextReg) = do
-    (blocks', nextReg') <- runStateT (mapM removePhiBlock blocks) nextReg
-    return $ Function name retTy argTys blocks' nextReg'
+  RFunction Metadata wrdT -> StateT Word Hopefully (RFunction Metadata wrdT)
+removePhiFunc f@(Function name retTy argTys blocks _ ) = do
+    blocks' <- mapM removePhiBlock blocks
+    nr' <- get
+    return $ Function name retTy argTys blocks' nr'
   where
     -- Remove phis from a block.
     removePhiBlock :: BB Name (RTLInstr Metadata wrdT) -> StateT Word Hopefully (BB Name (RTLInstr Metadata wrdT))
@@ -155,7 +167,7 @@ removePhiFunc f@(Function name retTy argTys blocks nextReg) = do
         -- the value to a temporary first, then read from the temporary later.
         case op of
           AReg r | Set.member r writtenRegs -> do
-            tmpReg <- NewName <$> get <* modify (+1)
+            tmpReg <- Name <$> get <* modify (+1) <*> return "tempReg"
             let move = MRI (Imov dest (AReg tmpReg)) mdata
             let preMove = MRI (Imov tmpReg op) mdata
             return (move : body, preMove : preBody, Set.insert dest writtenRegs)
@@ -173,7 +185,7 @@ removePhiFunc f@(Function name retTy argTys blocks nextReg) = do
     phiMoves = funcPhiMoves f
 
 nameLabel :: Name -> MAOperand VReg wrdT
-nameLabel n@(Name _) = Label $ show n
+nameLabel n@(Name _ _) = Label $ n
 --nameLabel (NewName w) = error $ "tried to convert NewName " ++ show w ++ " back to a label"
 
 -- | Gather all outgoing CFG edges from a block.  This considers only direct
@@ -181,9 +193,9 @@ nameLabel n@(Name _) = Label $ show n
 blockEdges :: BB Name (RTLInstr Metadata wrdT) -> Set (Name, Name)
 blockEdges (BB name _body term _dag) = Set.unions $ map go term
   where
-    go (MRI (Ijmp (Label dest)) _) = Set.singleton (name, read dest)
-    go (MRI (Icjmp _ (Label dest)) _) = Set.singleton (name, read dest)
-    go (MRI (Icnjmp _ (Label dest)) _) = Set.singleton (name, read dest)
+    go (MRI (Ijmp (Label dest)) _) = Set.singleton (name, dest)
+    go (MRI (Icjmp _ (Label dest)) _) = Set.singleton (name, dest)
+    go (MRI (Icnjmp _ (Label dest)) _) = Set.singleton (name, dest)
     go _ = Set.empty
 
 _funcEdges :: RFunction Metadata wrdT -> Set (Name, Name)
@@ -213,12 +225,13 @@ blockPhiMoves (BB name body _term _dag) acc = foldr goInstr acc body
         ) predLabel m
 
 
-makeEdgeBlockName :: Name -> Name -> Int -> Name
-makeEdgeBlockName a b i = Name $ "phi" <> (fromString $ show i) <> "_" <> go a <> "_" <> go b
-  where
-    go (Name n) = n
-    go (NewName w) = fromString $ show w
-
+makeEdgeBlockName :: Name -> Name -> Int -> State Word Name
+makeEdgeBlockName a b i = do
+  nextReg <- get
+  put $ nextReg + 1
+  return $ Name nextReg $ "phi" <> (fromString $ show i) <> "_" <> go a <> "_" <> go b
+  where go (Name _ dbName) = dbName
+  
 removePhis :: BB Name (RTLInstr Metadata wrdT) -> BB Name (RTLInstr Metadata wrdT)
 removePhis (BB name body term dag) = BB name (filter (not . isPhi) body) term dag
   where

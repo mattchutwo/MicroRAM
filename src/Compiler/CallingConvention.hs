@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -29,7 +30,7 @@ callingConventionFunc :: (Regs reg, Ord reg) => LFunction Metadata reg MWord -> 
 callingConventionFunc lf@(LFunction _fname _typ _typs _stackSize []) = lf
 callingConventionFunc (LFunction fname typ typs stackSize (firstBlock:blocks)) = 
     -- Get all registers that the function writes to.
-    let isMain = fname == "Name \"main\"" in    -- TODO: Improve this.
+    let isMain = dbName fname == "Main" in    -- ATTENTION: relies on debugging name!
     let registers = if isMain then
             []
           else
@@ -54,7 +55,7 @@ callingConventionFunc (LFunction fname typ typs stackSize (firstBlock:blocks)) =
 
     calleeSave fname stackSize registers (BB n insts insts' dag) = 
       let saveInsts = map (\(pos, reg) -> 
-              IRI (Lsetstack reg Local pos ty) (trivialMetadata fname $ show n)
+              IRI (Lsetstack reg Local pos ty) (trivialMetadata (show fname) (show n)) 
             ) $ zip [stackSize..] registers
       in
       BB n (saveInsts <> insts) insts' dag

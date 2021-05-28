@@ -19,7 +19,7 @@ module Compiler.LocalizeLabels
 import Data.ByteString.Short
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.String (fromString)
+-- import Data.String (fromString)
 
 import Compiler.Common (Name(..))
 import Compiler.Errors
@@ -39,17 +39,17 @@ localizeFunc funcNames func = func { funcBlocks = map goBB $ funcBlocks func }
     goInstr (IRI i m) = IRI (goRTLInstr i) m
     goInstr (MRI i m) = MRI (fmap goOperand i) m
 
-    goOperand (Label s) = Label $ show $ rename $ read s
+    goOperand (Label s) = Label $ rename s
     goOperand o = o
 
     goRTLInstr (RPhi ret inps) =
       RPhi ret (map (\(op, label) -> (goOperand op, rename label)) inps)
     goRTLInstr i = fmap goOperand i
 
-    rename n
-      | Set.member n funcNames = n
-      | otherwise = Name $ nameStr (funcName func) <> "_" <> nameStr n
+    rename name@(Name n dbName)
+      | Set.member name funcNames = name
+      | otherwise = Name n $ nameStr (funcName func) <> "_" <> dbName
 
 nameStr :: Name -> ShortByteString
-nameStr (Name s) = s
+nameStr (Name _ s) = s
 -- nameStr (NewName w) = fromString $ show w

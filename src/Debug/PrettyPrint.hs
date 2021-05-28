@@ -55,15 +55,15 @@ prettyAnn prog = mconcat $ evalState (mapM prettyPrintInstr (zip [0..] prog)) $ 
           return outString
 
         functionString md md' = if (mdFunction md == mdFunction md') then "" else
-          "\n\n// Define " <> (cleanName $ mdFunction md') <> ": \n"
+          "\n\n// Define " <> (pretty $ mdFunction md') <> ": \n"
         blockString md md'    = if (mdBlock md == mdBlock md') then "" else 
-          "\n// " <> (cleanName $ mdBlock md') <> ": \n"
+          "\n// " <> (pretty $ mdBlock md') <> ": \n"
         microLine n = pretty n <> ".\t"
         lineString md md' = if (mdLine md == mdLine md') then "" else 
           "\t \t // Line " <> (viaShow $ mdLine md')
 
-cleanName :: String -> Doc a
-cleanName st =
+_cleanName :: String -> Doc a
+_cleanName st =
   pretty $ filter (\l -> l /= '\"') $
   if "Name " `isPrefixOf` st then drop 5 st else st
 

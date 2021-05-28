@@ -237,7 +237,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
 
     changeMetadata :: Metadata -> Metadata
     changeMetadata md = md {mdFunction = changeString $ mdFunction md}
-    changeString nm = maybe nm id $ Map.lookup nm renameMapString
+    changeString (Name n dbName) = Name n $ maybe dbName id $ Map.lookup dbName renameMapString
 
     fromText t = Short.toShort $ BSU.fromString $ Text.unpack t
     toText s = Text.pack $ BSU.toString $ Short.fromShort s
