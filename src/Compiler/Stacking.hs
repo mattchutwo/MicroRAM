@@ -225,11 +225,11 @@ stackLTLInstr (LRet (Just _retVal)) =
   return epilogue 
   -- (Imov ax retVal) : epilogue -- Calling convention inserts the move to ax for us, so we skip it here. Can we move `restoreLTLInstruction` here?
 stackLTLInstr (LAlloc reg sz n) = do
-  -- Return the current sp (that's the base of the new allocation)
-  copySp <- return $ smartMovMaybe reg sp
   -- sp = sp + n * sz
   increaseSp <- incrSP sz n
-  return $ copySp ++ increaseSp
+  -- Compute the base of the new allocation (one word above the current sp)
+  let addSp = maybe [] (\r -> [Iadd r sp $ LImm $ fromIntegral wordBytes]) reg
+  return $ increaseSp ++ addSp
   where incrSP :: (Regs mreg) => MWord -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]
         incrSP sz (AReg r) = return $
           [Imull r r (LImm $ roundUp $ fromIntegral sz),
