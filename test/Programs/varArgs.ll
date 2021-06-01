@@ -3,6 +3,7 @@ source_filename = "varArgs.c"
 target datalayout = "e-m:o-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-apple-macosx10.14.0"
 
+%struct.__cc_va_list = type { i32, i32, i8*, i8* }
 %struct.__va_list_tag = type { i32, i32, i8*, i8* }
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable
@@ -10,38 +11,29 @@ define void @__cc_va_start(i8*, i8*, i32) #0 {
   %4 = alloca i8*, align 8
   %5 = alloca i8*, align 8
   %6 = alloca i32, align 4
-  %7 = alloca i32*, align 8
-  %8 = alloca i32*, align 8
-  %9 = alloca i8**, align 8
-  %10 = alloca i8**, align 8
+  %7 = alloca %struct.__cc_va_list*, align 8
   store i8* %0, i8** %4, align 8
   store i8* %1, i8** %5, align 8
   store i32 %2, i32* %6, align 4
-  %11 = load i8*, i8** %4, align 8
-  %12 = bitcast i8* %11 to i32*
-  store i32* %12, i32** %7, align 8
-  %13 = load i32*, i32** %7, align 8
+  %8 = load i8*, i8** %4, align 8
+  %9 = bitcast i8* %8 to %struct.__cc_va_list*
+  store %struct.__cc_va_list* %9, %struct.__cc_va_list** %7, align 8
+  %10 = load %struct.__cc_va_list*, %struct.__cc_va_list** %7, align 8
+  %11 = getelementptr inbounds %struct.__cc_va_list, %struct.__cc_va_list* %10, i32 0, i32 0
+  store i32 999, i32* %11, align 8
+  %12 = load %struct.__cc_va_list*, %struct.__cc_va_list** %7, align 8
+  %13 = getelementptr inbounds %struct.__cc_va_list, %struct.__cc_va_list* %12, i32 0, i32 1
   store i32 999, i32* %13, align 4
-  %14 = load i32*, i32** %7, align 8
-  %15 = getelementptr inbounds i32, i32* %14, i64 1
-  store i32* %15, i32** %8, align 8
-  %16 = load i32*, i32** %8, align 8
-  store i32 999, i32* %16, align 4
-  %17 = load i32*, i32** %8, align 8
-  %18 = getelementptr inbounds i32, i32* %17, i64 1
-  %19 = bitcast i32* %18 to i8**
-  store i8** %19, i8*** %9, align 8
-  %20 = load i8*, i8** %5, align 8
-  %21 = load i32, i32* %6, align 4
-  %22 = sext i32 %21 to i64
-  %23 = getelementptr inbounds i8, i8* %20, i64 %22
-  %24 = load i8**, i8*** %9, align 8
-  store i8* %23, i8** %24, align 8
-  %25 = load i8**, i8*** %9, align 8
-  %26 = getelementptr inbounds i8*, i8** %25, i64 1
-  store i8** %26, i8*** %10, align 8
-  %27 = load i8**, i8*** %10, align 8
-  store i8* inttoptr (i64 4294901760 to i8*), i8** %27, align 8
+  %14 = load i8*, i8** %5, align 8
+  %15 = load i32, i32* %6, align 4
+  %16 = sext i32 %15 to i64
+  %17 = getelementptr inbounds i8, i8* %14, i64 %16
+  %18 = load %struct.__cc_va_list*, %struct.__cc_va_list** %7, align 8
+  %19 = getelementptr inbounds %struct.__cc_va_list, %struct.__cc_va_list* %18, i32 0, i32 2
+  store i8* %17, i8** %19, align 8
+  %20 = load %struct.__cc_va_list*, %struct.__cc_va_list** %7, align 8
+  %21 = getelementptr inbounds %struct.__cc_va_list, %struct.__cc_va_list* %20, i32 0, i32 3
+  store i8* inttoptr (i64 4294901760 to i8*), i8** %21, align 8
   ret void
 }
 
