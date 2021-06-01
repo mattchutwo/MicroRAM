@@ -135,6 +135,11 @@ va_start [ptr] Nothing md (CCM argTys) = do
     offset = LImm $ SConst $ fromIntegral wordBytes * (2 + (sum $ map tySize argTys))
 va_start _ _ _ _ = progError "bad arguments"
 
+va_copy :: IntrinsicImpl m MWord
+va_copy [dest,src] Nothing md _ = do
+  return [MirI (RCall TVoid Nothing (Label "Name \"__cc_va_copy\"") [Tptr, Tptr] [dest, src]) md]
+va_copy _ _ _ _ = progError "bad arguments"
+
 intrinsics :: Map String (IntrinsicImpl m MWord)
 intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   [ ("__cc_test_add", cc_test_add)
@@ -152,6 +157,7 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("llvm.lifetime.end.p0i8", cc_noop)
 
   , ("llvm.va_start", va_start)
+  , ("llvm.va_copy", va_copy)
   , ("llvm.va_end", cc_noop)
 
   -- Exception handling
