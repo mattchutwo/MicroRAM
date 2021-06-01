@@ -31,7 +31,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 
 
-import Compiler.Common (Name(Name), short2string)
+import Compiler.Common (Name(..), short2string)
 import Compiler.Metadata
 import Compiler.Errors
 import Compiler.IRs
@@ -214,15 +214,14 @@ removeIntrinsics prog =
 renameLLVMIntrinsicImpls :: MIRprog Metadata MWord -> Hopefully (MIRprog Metadata MWord)
 renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
   where
-    renameList :: [(Name, Name)]
+    renameList :: [(ShortByteString, ShortByteString)]
     renameList = do
       Function nm _ _ _ _ <- code
-      Name n ss <- return nm
+      Name _ ss <- return nm
       Just name <- return $ Text.stripPrefix "__llvm__" $ toText ss
-      return (nm, Name n $ fromText $ "llvm." <> Text.replace "__" "." name) -- ^ Doesn't change the Word
+      return (ss, fromText $ "llvm." <> Text.replace "__" "." name) -- ^ Doesn't change the Word
 
     renameMap = Map.fromList renameList
-    renameMapString = Map.fromList $ map (\(x,y) -> (show x, show y)) renameList
     removeSet = Set.fromList $ map snd renameList
     
 
@@ -230,14 +229,15 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
     code' :: [MIRFunction Metadata MWord]
     code' = do
       Function nm rty atys bbs nr <- code
-      guard $ not $ Set.member nm removeSet
+      guard $ not $ Set.member (dbName nm) removeSet
       let replaceName =  Function (changeName nm) rty atys bbs nr
-      return $ mapMetadataMIRFunction changeMetadata replaceName 
-    changeName nm = maybe nm id $ Map.lookup nm renameMap
+      return $ mapMetadataMIRFunction changeMetadata replaceName
+      
+    changeString name = maybe name id $ Map.lookup name renameMap
+    changeName (Name i dbnm) = Name i $ changeString dbnm
 
     changeMetadata :: Metadata -> Metadata
-    changeMetadata md = md {mdFunction = changeString $ mdFunction md}
-    changeString (Name n dbName) = Name n $ maybe dbName id $ Map.lookup dbName renameMapString
+    changeMetadata md = md {mdFunction = changeName $ mdFunction md}
 
     fromText t = Short.toShort $ BSU.fromString $ Text.unpack t
     toText s = Text.pack $ BSU.toString $ Short.fromShort s

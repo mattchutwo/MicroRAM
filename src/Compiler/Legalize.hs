@@ -74,7 +74,7 @@ withMetadata m act = do
 freshReg :: Statefully m w Name
 freshReg = do
   x <- state $ \s -> (lsNextReg s, s { lsNextReg = lsNextReg s + 1 })
-  return $ Name x "fresh"
+  return $ Name x "fresh" -- This might be wrong. Should I get the global bound instead of the function local?
 
 emitInstr :: RTLInstr m w -> Statefully m w ()
 emitInstr i = do

@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
@@ -75,8 +76,8 @@ import Debug.Trace
 -- ** State
 -- We create a state to create new variables and carry metadata
 data SelectionState = SelectionState {
-  _currentFunction :: String
-  , _currentBlock  :: String
+  _currentFunction :: Name
+  , _currentBlock  :: Name
   , _lineNumber    :: Int
   , _nextReg       :: Word
   }
@@ -87,8 +88,8 @@ type Statefully = StateT SelectionState Hopefully
 initState :: SelectionState
 initState =
   SelectionState {
-  _currentFunction = ""
-  , _currentBlock = ""
+  _currentFunction = Name 0 ""
+  , _currentBlock = Name 0 ""
   , _lineNumber = 0
   , _nextReg = 2 -- Leave space for ESP and EBP
   }
@@ -129,19 +130,19 @@ name2name (LLVM.UnName n) = newName $ any2short n
 --name2nameM nm = return $ name2name nm
 
 name2label :: LLVM.Name -> Statefully $ MAOperand VReg MWord
-name2label nm = return $ Label $ name2name nm
+name2label nm = Label <$> name2name nm
 
-getConstant :: Env -> LLVM.Constant.Constant -> Hopefully $ MAOperand VReg MWord
+getConstant :: Env -> LLVM.Constant.Constant -> Statefully $ MAOperand VReg MWord
 getConstant env (LLVM.Constant.GlobalReference ty name) | itIsFunctionType ty = do
-  _ <- checkName (globs env) name -- ^ check it's a global variable
-  return $ Label $ name2name name
+  _ <- lift $ checkName (globs env) name -- ^ check it's a global variable
+  Label <$> name2name name
 
   where
     itIsFunctionType (LLVM.PointerType (LLVM.FunctionType _ _ _) _) = True
     itIsFunctionType _                                              = False -- Recurse instead?
 
 -- JP: We may want to generalize `constant2OnelazyConst` so it can return labels.
-getConstant env c = LImm <$> constant2OnelazyConst env c
+getConstant env c = lift $ LImm <$> constant2OnelazyConst env c
 
 operand2operand :: Env -> LLVM.Operand -> Statefully $ MAOperand VReg MWord
 operand2operand env (LLVM.ConstantOperand c) = getConstant env c
@@ -156,7 +157,7 @@ operand2operandTrunc :: Env
                      -> LLVM.Operand
                      -> Statefully (MAOperand VReg MWord, [MA2Instruction VReg MWord])
 operand2operandTrunc env signed op = do
-  op' <- lift $ operand2operand env op
+  op' <- operand2operand env op
   case typeOf (llvmtTypeEnv env) op of
     LLVM.IntegerType w | w < 64 -> do
       -- TODO: special case when `op` is `LImm` (const eval)
@@ -244,10 +245,10 @@ isBinopCommon env signed ret op1 op2 bopisBinop =
         isBinop' Nothing _ _ _ = return [] --  without return is a noop
         isBinop' (Just ret') op1' op2' bop = do
           (a, aExtra) <- case signed of
-            Nothing -> lift $ operand2operand env op1' >>= \x -> return (x, [])
+            Nothing -> operand2operand env op1' >>= \x -> return (x, [])
             Just signed' -> operand2operandTrunc env signed' op1'
           (b, bExtra) <- case signed of
-            Nothing -> lift $ operand2operand env op2' >>= \x -> return (x, [])
+            Nothing -> operand2operand env op2' >>= \x -> return (x, [])
             Just signed' -> operand2operandTrunc env signed' op2'
           return $ aExtra ++ bExtra ++ [bop ret' a b]
 
@@ -452,16 +453,17 @@ isInstruction env ret instr =
 
 typedIntrinCall ::
   Env ->
-  String ->
+  Short.ShortByteString ->
   Maybe VReg ->
   LLVM.Type ->
-  [LLVM.Operand] ->
+  [LLVM.Operand] -> 
   Statefully [MIRInstr Metadata MWord]
 typedIntrinCall env baseName dest retTy ops = intrinCall env name dest retTy ops
   where
     opTys = map (typeOf (llvmtTypeEnv env)) ops
     name = concat (baseName : map (\ty -> '_' : tyName ty) opTys)
 
+    tyName :: LLVM.Type -> Short.ShortByteString
     tyName ty = case ty of
       LLVM.VoidType -> "void"
       LLVM.IntegerType bits -> "i" ++ show bits
@@ -469,7 +471,7 @@ typedIntrinCall env baseName dest retTy ops = intrinCall env name dest retTy ops
 
 intrinCall ::
   Env ->
-  String ->
+  Short.ShortByteString ->
   Maybe VReg ->
   LLVM.Type ->
   [LLVM.Operand] ->
@@ -477,8 +479,8 @@ intrinCall ::
 intrinCall env name dest retTy ops = do
     retTy' <- lift $ type2type (llvmtTypeEnv env) retTy
     opTys' <- lift $ mapM (type2type tenv) $ map (typeOf tenv) ops
-    ops' <- lift $ mapM (operand2operand env) ops
-    labelName <- name2label name 
+    ops' <- mapM (operand2operand env) ops
+    labelName <- Label <$> newName name 
     let instr = RCall retTy' dest labelName opTys' ops'
     md <- getMetadata
     return [MirI instr md]
@@ -969,15 +971,15 @@ makeTraceInvalid :: String -> Metadata -> [MIRInstruction Metadata regT MWord]
 makeTraceInvalid desc md = [MirM traceInstr md, MirI rtlCallFlagInvalid md]
   where
     traceInstr = MRAM.Iext (MRAM.XTrace (Text.pack $ "Invalid: " ++ desc) [])
-    rtlCallFlagInvalid = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_invalid") [Tint] []
+    rtlCallFlagInvalid = RCall TVoid Nothing (Label $ Name 2 "__cc_flag_invalid") [Tint] [] -- Notice the number doesn't matter
 triggerBug :: Metadata -> [MIRInstruction Metadata regT MWord]
 triggerBug md = [MirI rtlCallFlagBug md]
-  where rtlCallFlagBug = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_bug") [Tint] []
+  where rtlCallFlagBug = RCall TVoid Nothing (Label $ Name 2 "__cc_flag_bug") [Tint] [] -- Notice the number doesn't matter
 
 -- | Branch terminator
 isBr :: LLVM.Name -> Statefully [MIRInstr Metadata MWord]
 isBr name =  do
-  name' <- name2nameM name
+  name' <- name2name name
   toRTL $ [MRAM.Ijmp $ Label (show name')] -- FIXME: This works but it's a hack. Think about labels as strings.
 
 isCondBr
@@ -988,8 +990,8 @@ isCondBr
      -> Statefully [MIRInstr Metadata MWord]
 isCondBr env cond name1 name2 = do
   cond' <- lift $ operand2operand env cond
-  loc1 <- name2nameM name1
-  loc2 <- name2nameM name2 
+  loc1 <- name2name name1
+  loc2 <- name2name name2 
   toRTL $ [MRAM.Icjmp cond' $ Label (show loc1), -- FIXME: This works but it's a hack. Think about labels.
                 MRAM.Ijmp $ Label (show loc2)]
 
@@ -1002,13 +1004,13 @@ isSwitch
      -> Statefully [MIRInstr Metadata MWord]
 isSwitch env cond deflt dests = do
   cond' <- lift $ operand2operand env cond
-  deflt' <- lift $ name2nameM deflt
+  deflt' <- lift $ name2name deflt
   switchInstrs <- mapM (isDest cond') dests
   toRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Label $ show deflt')]
     where isDest cond' (switch,dest) = do
             switch' <- lift $ getConstant env switch
             isEq <- freshName
-            dest' <- lift $ name2nameM dest
+            dest' <- lift $ name2name dest
             return [MRAM.Icmpe isEq cond' switch', MRAM.Icjmp (AReg isEq) (Label $ show dest')]
 
 -- Possible optimisation:
@@ -1061,7 +1063,7 @@ dumpName f (LLVM.Do a) = f a
 blockJumpsTo :: LLVM.Named LLVM.Terminator -> Hopefully [Name]
 blockJumpsTo term = do
   dests <- (dumpName blockJumpsTo' term)
-  mapM name2nameM dests 
+  mapM name2name dests 
 
 
 -- instruction selection for blocks
