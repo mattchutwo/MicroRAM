@@ -302,7 +302,7 @@ firstRegs bound = map fromWord $ map (2*) [0..bound]
 
 myCS :: CustomSummary AReg
 myCS = defaultCSName
-  {theseRegs = Just [] -- Just $ [0..8]
+  {theseRegs = Just [0..8]
   ,showMem = False
   ,showFlag = False
   ,theseMem = [0..15]
@@ -336,35 +336,43 @@ summaryFromFile myfile myCS 300
 
 -- jpProgComp :: Word -> IO (CompilationResult (AnnotatedProgram Metadata AReg MWord))
 jpProgComp len = do
-  m <- fromLLVMFile "test/programs/varArgs.ll"
+  m <- fromLLVMFile "test/programs/varArgs2.ll"
   -- return m
   return $ either (error . show) id $
-        (justCompile instrSelect) (prog2unit len m)
-    >>= (justCompile renameLLVMIntrinsicImpls)
-    >>= (justCompile lowerIntrinsics)
-    >>= (justCompile (catchUndefinedFunctions allowUndefFun))
-    >>= (justCompile legalize)
-    >>= (justCompile localizeLabels)
-    >>= (justCompile edgeSplit)
+    --     (justCompile instrSelect) (prog2unit len m)
+    -- >>= (justCompile renameLLVMIntrinsicImpls)
+    -- >>= (justCompile lowerIntrinsics)
+    -- >>= (justCompile (catchUndefinedFunctions allowUndefFun))
+    -- >>= (justCompile legalize)
+    -- >>= (justCompile localizeLabels)
+    -- >>= (justCompile edgeSplit)
 
-    >>= (justCompile edgeSplit)
-    >>= (justCompile removePhi)
-    >>= (registerAlloc def)
-    >>= (justCompile callingConvention)
-    >>= (replaceGlobals)
-    >>= (justCompile stacking)
-    >>= (justAnalyse (return . SparsityData . (forceSparsity spars))) 
-    >>= (blockCleanup)
-    >>= (removeLabels)
-    --
-    -- compile False len m Nothing
+    -- >>= (justCompile edgeSplit)
+    -- >>= (justCompile removePhi)
+    -- >>= (registerAlloc def)
+    -- >>= (justCompile callingConvention)
+    -- >>= (replaceGlobals)
+    -- >>= (justCompile stacking)
+    -- >>= (justAnalyse (return . SparsityData . (forceSparsity spars))) 
+    -- >>= (blockCleanup)
+    -- >>= (removeLabels)
+    
+    compile False len m Nothing
   where
     allowUndefFun = False
     spars = Nothing
 
     -- return $ either undefined id $
     --   compile False len m Nothing
+--
+-- import Compiler.CompilationUnit
+-- import Data.Text.Prettyprint.Doc
+-- import Debug.PrettyPrint
+-- import MicroRAM.MRAMInterpreter
+--
 -- p <- jpProgComp 2000
+-- putStr $ microPrint $ programCU p
+--
 -- putStr $ microPrint $ lowProg $ programCU p
 --
 -- do {p <- jpProgComp 200; print $ pretty $ map fst $ programCU p}

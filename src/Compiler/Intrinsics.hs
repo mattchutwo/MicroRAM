@@ -128,7 +128,7 @@ va_start [ptr] Nothing md (CCM argTys) = do
   reg <- getNextRegister
   return [
       MirI (RGetBP reg) md
-    , MirI (RCall TVoid Nothing (Label "Name \"__va_start\"") [Tptr, Tptr, Tint] [ptr, AReg reg, offset]) md
+    , MirI (RCall TVoid Nothing (Label "Name \"__cc_va_start\"") [Tptr, Tptr, Tint] [ptr, AReg reg, offset]) md
     ]
   where
     -- Skip return address and nonvariadic arguments.

@@ -1,14 +1,9 @@
 
-// clang-9 -S -emit-llvm -o varArgs.ll varArgs.c
+// clang -S -emit-llvm -o varArgs2.ll varArgs2.c
 
 #include <stdarg.h>
-
-// typedef struct {
-//   unsigned int gp_offset;
-//   unsigned int fp_offset;
-//   void* overflow_arg_area;
-//   void* reg_save_area;
-// } va_list[1];
+#include <stdbool.h>
+#include <stdint.h>
 
 // TODO: Move to libfromager
 void __cc_va_start(char* raw_list, char* bp, int offset) {
@@ -34,19 +29,54 @@ void __cc_va_start(char* raw_list, char* bp, int offset) {
     *reg_save_area = (void*) 0xffff0000;
 }
 
-int sum(int n, ...) {
+void __llvm__memcpy__p0i8__p0i8__i64(uint8_t *dest, const uint8_t *src, uint64_t len) {
+    for (uint64_t i = 0; i < len; ++i) {
+      dest[i] = src[i];
+    }
+}
+
+typedef struct {
+  int  f1;
+  bool f2;
+  int* f3;
+} test_struct;
+
+int test(int n, ...) {
   va_list p;
   va_start(p,n);
-  int sum = 0;
 
-  for (int i = 0; i < n; i++) {
-    sum += va_arg(p, int);
+  int sum = n;
+
+  test_struct arg2 = va_arg(p, test_struct);
+  sum += arg2.f1;
+  if (arg2.f2) {
+      sum += 3;
   }
+  sum += *(arg2.f3);
+
+  int* arg3 = va_arg(p, int*);
+  sum += arg3[0];
+  sum += arg3[1];
+  sum += arg3[2];
+
+  int arg4 = va_arg(p, int);
+  sum += arg4;
+
   va_end(p);
 
   return sum;
 }
 
 int main() {
-    return sum(5, 1, 2, 3, 4, 5);
+  int arg1 = 1;
+  test_struct arg2;
+  arg2.f1 = 2;
+  arg2.f2 = true;
+  arg2.f3 = &arg1;
+
+  int arg3[3] = {0,5,0};
+  arg3[0] = 4;
+  arg3[2] = 6;
+  
+  return test( arg1, arg2, arg3, arg1);
 }

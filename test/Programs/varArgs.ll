@@ -6,7 +6,7 @@ target triple = "x86_64-apple-macosx10.14.0"
 %struct.__va_list_tag = type { i32, i32, i8*, i8* }
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable
-define void @__va_start(i8*, i8*, i32) #0 {
+define void @__cc_va_start(i8*, i8*, i32) #0 {
   %4 = alloca i8*, align 8
   %5 = alloca i8*, align 8
   %6 = alloca i32, align 4
