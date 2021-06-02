@@ -125,6 +125,7 @@ module MicroRAM
 
   -- * Words
   MWord,
+  MInt,
   logWordBytes,
   wordBytes,
   wordBits,
@@ -138,6 +139,7 @@ import Control.Monad.Identity
 import Data.Bifunctor
 import Data.Bits
 import Data.Foldable
+import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Word (Word64)
 import GHC.Generics -- Helps testing
@@ -334,6 +336,7 @@ instance Generic (Operand regT wrdT) where
 -- Note that the rest of the MicroRAM module *has* been parameterized, so
 -- `MWord` should not be used here.
 type MWord = Word64
+type MInt = Int64
 
 pattern WWord :: MemWidth
 pattern WWord = W8

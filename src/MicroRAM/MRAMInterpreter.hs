@@ -1,11 +1,15 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE TypeApplications #-}
+
 {-
 Module      : MRAM Interpreter
 Description : Interpreter for MicrRAM programs
@@ -23,6 +27,7 @@ module MicroRAM.MRAMInterpreter
     run, run_v, execAnswer, execBug,
     -- For post processing check (e.g. segment checking)
     runWith, initMach, InstrHandler, runPassGeneric, InterpState, sMach, sExt, mCycle,
+    InstrHandler', InterpState',
     -- * Trace
     ExecutionState(..),
     Trace, 
@@ -35,8 +40,9 @@ module MicroRAM.MRAMInterpreter
     ) where
 
 import Control.Monad
+import Control.Monad.Except
 import Control.Monad.State
-import Control.Lens (makeLenses, ix, at, to, lens, (^.), (^?), (&), (.~), (.=), (%=), use, Lens', _1, _2, _3)
+import Control.Lens (makeLenses, ix, at, to, lens, (^.), (^?), (&), (.~), (%~), (.=), (%=), use, Lens', _1, _2, _3)
 import Data.Bits
 import qualified Data.ByteString as BS
 import Data.Foldable
@@ -44,7 +50,7 @@ import Data.List (intercalate)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import qualified Data.Set as Set
-import Data.Set (Set, member)
+import Data.Set (Set)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Text (Text)
@@ -64,169 +70,62 @@ import Util.Util
 
 import Debug.Trace
 
-type Poison = Set MWord
-data Mem = Mem MWord (Map MWord MWord)
 
-data MachineState r = MachineState
-  { _mCycle :: MWord
-  , _mPc :: MWord
-  , _mRegs :: RegBank r MWord
-  , _mProg :: Seq (Instruction r MWord)
-  , _mMem :: Mem
-  , _mPsn :: Poison
-  , _mBug :: Bool
-  , _mAnswer :: Maybe MWord
-  }  
-makeLenses ''MachineState
+class (Show v, Show (Memory v)) => AbsDomain v where
+  type Memory v
+
+  absInitMem :: Map MWord MWord -> Memory v
+
+  absExact :: MWord -> v
+
+  -- Arithemtic operations
+  absAdd :: v -> v -> v
+  absSub :: v -> v -> v
+  absUMul :: v -> v -> (v, v)
+  absSMul :: v -> v -> (v, v)
+  absDiv :: v -> v -> v
+  absMod :: v -> v -> v
+  absNeg :: v -> v
+
+  -- Bitwise operations
+  absAnd :: v -> v -> v
+  absOr :: v -> v -> v
+  absXor :: v -> v -> v
+  absNot :: v -> v
+  absShl :: v -> v -> v
+  absShr :: v -> v -> v
+
+  -- Comparisons.  These return either zero or one.
+  absEq :: v -> v -> v
+  absUGt :: v -> v -> v
+  absUGe :: v -> v -> v
+  absSGt :: v -> v -> v
+  absSGe :: v -> v -> v
+
+  -- | `absMux c t e`: produces `t` if `c` is nonzero and `e` otherwise.
+  absMux :: v -> v -> v -> v
+
+  absStore :: MemWidth -> v -> v -> Memory v -> Hopefully (Memory v)
+  absLoad :: MemWidth -> v -> Memory v -> Hopefully v
+  absPoison :: MemWidth -> v -> Memory v -> Hopefully (Memory v)
+
+  absGetPoison :: MemWidth -> v -> Memory v -> Hopefully Bool
+  absGetValue :: v -> Hopefully MWord
 
 
-  
-data InterpState r s = InterpState
-  { _sExt :: s
-  , _sMach :: MachineState r
+data WordMemory = WordMemory {
+    _wmDefault :: MWord,
+    _wmMem :: Map MWord MWord,
+    _wmPoison :: Set MWord
   }
-makeLenses ''InterpState
+  deriving (Show)
+makeLenses ''WordMemory
 
-type InterpM r s m a = StateT (InterpState r s) m a
+toMInt :: MWord -> MInt
+toMInt = fromIntegral
 
-type InstrHandler r s = Instruction r MWord -> InterpM r s Hopefully ()
-
-
--- | Lens for accessing a particular register in `mRegs`.  Returns the default
--- value 0 when the register is uninitialized.
-mReg :: (Functor f, Regs r) => r -> (MWord -> f MWord) -> (MachineState r -> f (MachineState r))
-mReg r = mRegs . lens (maybe 0 id . lookupReg r) (flip $ updateBank r)
-
--- | Lens for accessing a particular word of memory.  Produces the `Mem`'s
--- default value when reading an uninitialized location.
-memWord :: Functor f => MWord -> (MWord -> f MWord) -> (Mem -> f Mem)
-memWord addr = lens (get addr) (set addr)
-  where
-    get addr (Mem d m) = maybe d id $ Map.lookup addr m
-    set addr (Mem d m) val = Mem d $ Map.insert addr val m
-
-mMemWord :: Functor f => MWord -> (MWord -> f MWord) -> (MachineState r -> f (MachineState r))
-mMemWord addr = mMem . memWord addr
-
-
--- | Fetch the instruction at `addr`.  Typically, `addr` will be the current
--- program counter (`sMach . mPc`).
-fetchInstr :: MWord -> InterpM r s Hopefully (Instruction r MWord)
-fetchInstr addr = do
-  prog <- use $ sMach . mProg
-  case Seq.lookup (fromIntegral addr) prog of
-    Just x -> return x
-    Nothing -> assumptError $ "program executed out of bounds: " ++ show addr
-
-stepInstr :: Regs r => Instruction r MWord -> InterpM r s Hopefully ()
-stepInstr i = do
-  case i of
-    Iand rd r1 op2 -> stepBinary (.&.) rd r1 op2
-    Ior rd r1 op2 -> stepBinary (.|.) rd r1 op2
-    Ixor rd r1 op2 -> stepBinary xor rd r1 op2
-    Inot rd op2 -> stepUnary complement rd op2
-    
-    Iadd rd r1 op2 -> stepBinary (+) rd r1 op2
-    Isub rd r1 op2 -> stepBinary (-) rd r1 op2
-    Imull rd r1 op2 -> stepBinary (*) rd r1 op2
-    Iumulh rd r1 op2 -> stepBinary umulh rd r1 op2
-    Ismulh rd r1 op2 -> stepBinary smulh rd r1 op2
-    -- TODO div/mod vs quot/rem?
-    Iudiv rd r1 op2 -> stepBinary safeDiv rd r1 op2
-    Iumod rd r1 op2 -> stepBinary safeMod rd r1 op2
-    
-    Ishl rd r1 op2 -> stepBinary shiftL' rd r1 op2
-    Ishr rd r1 op2 -> stepBinary shiftR' rd r1 op2
-    
-    Icmpe r1 op1 op2 -> stepCompare (==) r1 op1 op2
-    Icmpa r1 op1 op2 -> stepCompare (>) r1 op1 op2
-    Icmpae r1 op1 op2 -> stepCompare (>=) r1 op1 op2
-    Icmpg r1 op1 op2 -> stepCompare signedGt r1 op1 op2
-    Icmpge r1 op1 op2 -> stepCompare signedGe r1 op1 op2
-    
-    Imov rd op2 -> stepMove rd (Const 1) op2
-    Icmov rd op1 op2 -> stepMove rd (Reg op1) op2
-    
-    Ijmp op2 -> stepJump (Const 1) True op2
-    Icjmp r2 op2 -> stepJump (Reg r2) True op2
-    Icnjmp r2 op2 -> stepJump (Reg r2) False op2
-    
-    Istore w op2 r1 -> stepStore w op2 r1
-    Iload w rd op2 -> stepLoad w rd op2
-    
-    Iread rd op2 -> stepRead rd op2
-    Ianswer op2  -> stepAnswer op2
-    Ipoison w op2 r1 -> stepStore w op2 r1 >> poison w op2
-    
-    Iadvise _ -> assumptError $ "unhandled advice request"
-
-    i -> do
-      -- Replace input operands with their values, and convert the destination
-      -- register to a `Word` so it can be printed.
-      i' <- mapInstrM (return . toWord) regVal opVal i
-      assumptError $ "unhandled instruction: " ++ show i'
-
-  sMach . mCycle %= (+ 1)
-
-
-stepUnary :: Regs r => (MWord -> MWord) ->
-  r -> Operand r MWord -> InterpM r s Hopefully ()
-stepUnary f rd op2 = do
-  y <- opVal op2
-  let result = f y
-  sMach . mReg rd .= result
-  nextPc
-
-stepBinary :: Regs r => (MWord -> MWord -> MWord) ->
-  r -> r -> Operand r MWord -> InterpM r s Hopefully ()
-stepBinary f rd r1 op2 = do
-  x <- regVal r1
-  y <- opVal op2
-  let result = f x y
-  sMach . mReg rd .= result
-  nextPc 
-
-stepCompare :: Regs r => (MWord -> MWord -> Bool) ->
-  r -> r -> Operand r MWord -> InterpM r s Hopefully ()
-stepCompare flag rd r1 op2 = do
-  x <- regVal r1
-  y <- opVal op2
-  sMach . mReg rd .= fromIntegral (fromEnum (flag x y))
-  nextPc
-
-stepMove :: Regs r => r -> Operand r MWord -> Operand r MWord -> InterpM r s Hopefully ()
-stepMove rd cond op2 = do
-  y <- opVal op2
-  ok <- (/= 0) <$> (opVal cond)
-  when ok $ sMach . mReg rd .= y
-  nextPc
-
-stepJump :: Regs r => Operand r MWord -> Bool -> Operand r MWord -> InterpM r s Hopefully ()
-stepJump cond pos op2 = do
-  y <- opVal op2
-  cond' <- opVal cond
-  if pos `xnor` (0 /= cond') then sMach . mPc .= y else nextPc
-    where xnor = (==)
-checkPoison :: MWord -> InterpM r s Hopefully ()
-checkPoison addr = do
-  psn <- use $ sMach . mPsn
-  when (addr `member` psn) setBug
-  where setBug = sMach . mBug .= True
-
-splitAddr :: MWord -> (MWord, Int)
-splitAddr a = (waddr, offset)
-  where
-    waddr = a `shiftR` logWordBytes
-    offset = fromIntegral $ a .&. ((1 `shiftL` logWordBytes) - 1)
-
-splitAlignedAddr :: MemWidth -> MWord -> InterpM r s Hopefully (MWord, Int)
-splitAlignedAddr w a = do
-  let (waddr, offset) = splitAddr a
-  when (offset `mod` widthInt w /= 0) $ do
-    cyc <- use $ sMach . mCycle
-    otherError $ "unaligned access of " ++ show (widthInt w) ++ " bytes at " ++
-        showHex a ++ " on cycle " ++ show cyc
-  return (waddr, offset)
+toSignedInteger :: MWord -> Integer
+toSignedInteger = toInteger . toMInt
 
 subBytes :: Functor f => MemWidth -> Int -> (MWord -> f MWord) -> MWord -> f MWord
 subBytes w off f x = put <$> f x'
@@ -238,98 +137,323 @@ subBytes w off f x = put <$> f x'
     -- Insert `w` bytes of `y'` into `x` at `off`
     put y' = (x .&. complement (mask `shiftL` offBits)) .|. ((y' .&. mask) `shiftL` offBits)
 
-stepStore :: Regs r => MemWidth -> Operand r MWord -> r -> InterpM r s Hopefully ()
+splitAddr :: MWord -> (MWord, Int)
+splitAddr a = (waddr, offset)
+  where
+    waddr = a `shiftR` logWordBytes
+    offset = fromIntegral $ a .&. ((1 `shiftL` logWordBytes) - 1)
+
+splitAlignedAddr :: MemWidth -> MWord -> Hopefully (MWord, Int)
+splitAlignedAddr w a = do
+  let (waddr, offset) = splitAddr a
+  when (offset `mod` widthInt w /= 0) $ do
+    otherError $ "unaligned access of " ++ show (widthInt w) ++ " bytes at " ++ showHex a
+  return (waddr, offset)
+
+instance AbsDomain MWord where
+  type Memory MWord = WordMemory
+
+  absInitMem mem = WordMemory {
+      _wmDefault = 0,
+      _wmMem = mem,
+      _wmPoison = mempty
+    }
+
+  absExact = id
+
+  absAdd = (+)
+  absSub = (-)
+  absUMul a b = (lo, hi)
+    where
+      prod = toInteger a * toInteger b
+      lo = fromInteger prod
+      hi = fromInteger $ prod `shiftR` wordBits
+  absSMul a b = (lo, hi)
+    where
+      prod = toSignedInteger a * toSignedInteger b
+      lo = fromIntegral prod
+      hi = fromIntegral $ prod `shiftR` wordBits
+  absDiv a b = if b == 0 then 0 else a `div` b
+  absMod a b = if b == 0 then 0 else a `mod` b
+  absNeg = negate
+
+  absAnd = (.&.)
+  absOr = (.|.)
+  absXor = xor
+  absNot = complement
+  absShl a b = a `shiftL` fromIntegral b
+  absShr a b = a `shiftR` fromIntegral b
+
+  absEq a b = if a == b then 1 else 0
+  absUGt a b = if a > b then 1 else 0
+  absUGe a b = if a >= b then 1 else 0
+  absSGt a b = if toMInt a > toMInt b then 1 else 0
+  absSGe a b = if toMInt a >= toMInt b then 1 else 0
+
+  absMux c t e = if c /= 0 then t else e
+
+  absStore w addr val mem = do
+    (waddr, offset) <- splitAlignedAddr w addr
+    let old = maybe (mem ^. wmDefault) id (mem ^. wmMem . at waddr)
+    let new = old & subBytes w offset .~ val
+    return $ mem & wmMem . at waddr .~ Just new
+
+  absLoad w addr mem = do
+    (waddr, offset) <- splitAlignedAddr w addr
+    let wval = maybe (mem ^. wmDefault) id (mem ^. wmMem . at waddr)
+    return $ wval ^. subBytes w offset
+
+  absPoison w addr mem = do
+    when (w /= WWord) $ otherError $ "bad poison width " ++ show w
+    (waddr, _offset) <- splitAlignedAddr w addr
+    return $ mem & wmPoison %~ Set.insert waddr
+
+  absGetPoison w addr mem = do
+    (waddr, _offset) <- splitAlignedAddr w addr
+    return $ Set.member waddr (mem ^. wmPoison)
+
+  absGetValue x = return x
+
+
+type Poison = Set MWord
+
+data MachineState' r v = MachineState
+  { _mCycle :: v
+  , _mPc :: MWord
+  , _mRegs :: RegBank r v
+  , _mProg :: Seq (Instruction r MWord)
+  , _mMem :: Memory v
+  , _mBug :: Bool
+  , _mAnswer :: Maybe MWord
+  }  
+makeLenses ''MachineState'
+
+deriving instance (Show r, AbsDomain v) => Show (MachineState' r v)
+
+data InterpState' r v s = InterpState
+  { _sExt :: s
+  , _sMach :: MachineState' r v
+  }
+makeLenses ''InterpState'
+
+type InterpM' r v s m a = StateT (InterpState' r v s) m a
+type InstrHandler' r v s = Instruction r MWord -> InterpM' r v s Hopefully ()
+
+type MachineState r = MachineState' r MWord
+type InterpState r s = InterpState' r MWord s
+type InterpM r s m a = InterpM' r MWord s m a
+type InstrHandler r s = InstrHandler' r MWord s
+
+
+-- | Lens for accessing a particular register in `mRegs`.  Returns the default
+-- value 0 when the register is uninitialized.
+mReg :: (Functor f, Regs r, AbsDomain v) =>
+  r -> (v -> f v) -> (MachineState' r v -> f (MachineState' r v))
+mReg r = mRegs . lens (maybe (absExact 0) id . lookupReg r) (flip $ updateBank r)
+
+-- | Lens for accessing a particular word of memory.  Produces the `Mem`'s
+-- default value when reading an uninitialized location.
+memWord :: Functor f => MWord -> (MWord -> f MWord) -> (WordMemory -> f WordMemory)
+memWord addr = lens (get addr) (set addr)
+  where
+    get addr m = maybe (m ^. wmDefault) id $ m ^? wmMem . ix addr
+    set addr m val = m & wmMem . at addr .~ Just val
+
+mMemWord :: Functor f =>
+  MWord ->
+  (MWord -> f MWord) ->
+  (MachineState' r MWord -> f (MachineState' r MWord))
+mMemWord addr = mMem . memWord addr
+
+-- | Lift a partial into the interpreter monad, annotating any errors that
+-- occur with the current PC.
+liftWrap :: Hopefully a -> InterpM' r v s Hopefully a
+liftWrap f = do
+  pc <- use $ sMach . mPc
+  lift $ tag ("pc = " ++ show pc) f
+
+doStore :: (AbsDomain v) => MemWidth -> v -> v -> InterpM' r v s Hopefully ()
+doStore w addr val = do
+  old <- use $ sMach . mMem
+  new <- liftWrap $ absStore w addr val old
+  sMach . mMem .= new
+
+doLoad :: (AbsDomain v) => MemWidth -> v -> InterpM' r v s Hopefully v
+doLoad w addr = do
+  mem <- use $ sMach . mMem
+  liftWrap $ absLoad w addr mem
+
+doPoison :: (AbsDomain v) => MemWidth -> v -> InterpM' r v s Hopefully ()
+doPoison w addr = do
+  old <- use $ sMach . mMem
+  new <- liftWrap $ absPoison w addr old
+  sMach . mMem .= new
+
+doGetPoison :: (AbsDomain v) => MemWidth -> v -> InterpM' r v s Hopefully Bool
+doGetPoison w addr = do
+  mem <- use $ sMach . mMem
+  liftWrap $ absGetPoison w addr mem
+
+doGetValue :: (AbsDomain v) => v -> InterpM' r v s Hopefully MWord
+doGetValue x = liftWrap $ absGetValue x
+
+
+-- | Fetch the instruction at `addr`.  Typically, `addr` will be the current
+-- program counter (`sMach . mPc`).
+fetchInstr :: MWord -> InterpM' r v s Hopefully (Instruction r MWord)
+fetchInstr addr = do
+  prog <- use $ sMach . mProg
+  case Seq.lookup (fromIntegral addr) prog of
+    Just x -> return x
+    Nothing -> assumptError $ "program executed out of bounds: " ++ show addr
+
+stepInstr :: (Regs r, AbsDomain v) => Instruction r MWord -> InterpM' r v s Hopefully ()
+stepInstr i = do
+  case i of
+    Iand rd r1 op2 -> stepBinary absAnd rd r1 op2
+    Ior rd r1 op2 -> stepBinary absOr rd r1 op2
+    Ixor rd r1 op2 -> stepBinary absXor rd r1 op2
+    Inot rd op2 -> stepUnary absNot rd op2
+
+    Iadd rd r1 op2 -> stepBinary absAdd rd r1 op2
+    Isub rd r1 op2 -> stepBinary absSub rd r1 op2
+    Imull rd r1 op2 -> stepBinary (\a b -> fst $ absUMul a b) rd r1 op2
+    Iumulh rd r1 op2 -> stepBinary (\a b -> snd $ absUMul a b) rd r1 op2
+    Ismulh rd r1 op2 -> stepBinary (\a b -> snd $ absSMul a b) rd r1 op2
+    -- TODO div/mod vs quot/rem?
+    Iudiv rd r1 op2 -> stepBinary absDiv rd r1 op2
+    Iumod rd r1 op2 -> stepBinary absMod rd r1 op2
+
+    Ishl rd r1 op2 -> stepBinary absShl rd r1 op2
+    Ishr rd r1 op2 -> stepBinary absShr rd r1 op2
+
+    Icmpe r1 op1 op2 -> stepBinary absEq r1 op1 op2
+    Icmpa r1 op1 op2 -> stepBinary absUGt r1 op1 op2
+    Icmpae r1 op1 op2 -> stepBinary absUGe r1 op1 op2
+    Icmpg r1 op1 op2 -> stepBinary absSGt r1 op1 op2
+    Icmpge r1 op1 op2 -> stepBinary absSGe r1 op1 op2
+
+    Imov rd op2 -> stepMove rd (Const 1) op2
+    Icmov rd op1 op2 -> stepMove rd (Reg op1) op2
+
+    Ijmp op2 -> stepJump (Const 1) True op2
+    Icjmp r2 op2 -> stepJump (Reg r2) True op2
+    Icnjmp r2 op2 -> stepJump (Reg r2) False op2
+
+    Istore w op2 r1 -> stepStore w op2 r1
+    Iload w rd op2 -> stepLoad w rd op2
+    Ipoison w op2 r1 -> stepPoison w op2 r1
+
+    Iread rd op2 -> stepRead rd op2
+    Ianswer op2  -> stepAnswer op2
+
+    Iadvise _ -> assumptError $ "unhandled advice request"
+
+    i -> do
+      -- Replace input operands with their values, and convert the destination
+      -- register to a `Word` so it can be printed.
+      i' <- mapInstrM (return . toWord) regVal opVal i
+      assumptError $ "unhandled instruction: " ++ show i'
+
+  sMach . mCycle %= (`absAdd` absExact 1)
+
+
+stepUnary :: (Regs r, AbsDomain v) =>
+  (v -> v) -> r -> Operand r MWord -> InterpM' r v s Hopefully ()
+stepUnary f rd op2 = do
+  y <- opVal op2
+  let result = f y
+  sMach . mReg rd .= result
+  nextPc
+
+stepBinary :: (Regs r, AbsDomain v) =>
+  (v -> v -> v) -> r -> r -> Operand r MWord -> InterpM' r v s Hopefully ()
+stepBinary f rd r1 op2 = do
+  x <- regVal r1
+  y <- opVal op2
+  let result = f x y
+  sMach . mReg rd .= result
+  nextPc 
+
+stepMove :: (Regs r, AbsDomain v) =>
+  r -> Operand r MWord -> Operand r MWord -> InterpM' r v s Hopefully ()
+stepMove rd cond op2 = do
+  y <- opVal op2
+  c <- opVal cond
+  old <- use $ sMach . mReg rd
+  sMach . mReg rd .= absMux c y old
+  nextPc
+
+stepJump :: (Regs r, AbsDomain v) =>
+  Operand r MWord -> Bool -> Operand r MWord -> InterpM' r v s Hopefully ()
+stepJump cond pos op2 = do
+  y <- opVal op2 >>= doGetValue
+  cond' <- opVal cond >>= doGetValue
+  if pos `xnor` (0 /= cond') then sMach . mPc .= y else nextPc
+    where xnor = (==)
+
+checkPoison :: AbsDomain v => MemWidth -> v -> InterpM' r v s Hopefully ()
+checkPoison w addr = do
+  poisoned <- doGetPoison w addr
+  when poisoned $ sMach . mBug .= True
+
+stepStore :: (Regs r, AbsDomain v) =>
+  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully ()
 stepStore w op2 r1 = do
   addr <- opVal op2
   val <- regVal r1
+  checkPoison w addr
   doStore w addr val
   nextPc
 
-doStore :: MemWidth -> MWord -> MWord -> InterpM r s Hopefully ()
-doStore w addr val = do
-  (waddr, offset) <- splitAlignedAddr w addr
-  checkPoison waddr
-  sMach . mMemWord waddr . subBytes w offset .= val
-
-stepLoad :: Regs r => MemWidth -> r -> Operand r MWord -> InterpM r s Hopefully ()
+stepLoad :: (Regs r, AbsDomain v) =>
+  MemWidth -> r -> Operand r MWord -> InterpM' r v s Hopefully ()
 stepLoad w rd op2 = do
   addr <- opVal op2
-  doLoad w rd addr
+  checkPoison w addr
+  val <- doLoad w addr
+  sMach . mReg rd .= val
   nextPc
 
-doLoad :: Regs r => MemWidth -> r -> MWord -> InterpM r s Hopefully ()
-doLoad w rd addr = do
-  (waddr, offset) <- splitAlignedAddr w addr
-  val <- use $ sMach . mMemWord waddr . subBytes w offset
-  checkPoison waddr
-  sMach . mReg rd .= val
+stepPoison :: (Regs r, AbsDomain v) =>
+  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully ()
+stepPoison w op2 r1 = do
+  addr <- opVal op2
+  val <- regVal r1
+  doStore w addr val
+  doPoison w addr
+  nextPc
 
-poison :: Regs r => MemWidth -> Operand r MWord -> InterpM r s Hopefully ()
-poison w op2 = do
-  when (w /= WWord) $ do
-    pc <- use $ sMach . mPc
-    otherError $ "bad poison width " ++ show w ++ " at pc = " ++ showHex pc
-  (waddr, _offset) <- splitAlignedAddr w =<< opVal op2
-  sMach . mPsn %= (Set.insert waddr)
-  -- don't modify pc. This is not a full step!
-
-stepRead :: Regs r => r -> Operand r MWord -> InterpM r s Hopefully ()
+stepRead :: (Regs r, AbsDomain v) =>
+  r -> Operand r MWord -> InterpM' r v s Hopefully ()
 stepRead rd _op2 = do
   -- All tapes are empty.
-  sMach . mReg rd .= 0
+  sMach . mReg rd .= absExact 0
   nextPc
 
-stepAnswer :: Regs r => Operand r MWord -> InterpM r s Hopefully ()
+stepAnswer :: (Regs r, AbsDomain v) =>
+  Operand r MWord -> InterpM' r v s Hopefully ()
 stepAnswer op2 = do
-  y <- opVal op2
+  y <- opVal op2 >>= doGetValue
   sMach . mAnswer .= Just y
   -- No `nextPc` here.  We just keep looping on the `answer` instruction until
   -- the interpreter stops running.
 
-nextPc :: InterpM r s Hopefully ()
-nextPc = sMach . mPc %= (+ 1)
+nextPc :: AbsDomain v => InterpM' r v s Hopefully ()
+nextPc = sMach . mPc %= (`absAdd` absExact 1)
 
-finishInstr :: InterpM r s Hopefully ()
+finishInstr :: AbsDomain v => InterpM' r v s Hopefully ()
 finishInstr = do
-  sMach . mPc %= (+ 1)
-  sMach . mCycle %= (+ 1)
+  sMach . mPc %= (`absAdd` absExact 1)
+  sMach . mCycle %= (`absAdd` absExact 1)
 
 
-toSignedInteger :: MWord -> Integer
-toSignedInteger x = toInteger x - if msb x then 1 `shiftL` wordBits else 0
-
-umulh :: MWord -> MWord -> MWord
-umulh x y = fromInteger $ (toInteger x * toInteger y) `shiftR` wordBits
-
-smulh :: MWord -> MWord -> MWord
-smulh x y = fromInteger $ (toSignedInteger x * toSignedInteger y) `shiftR` wordBits
-
-safeDiv :: MWord -> MWord -> MWord
-safeDiv x y = if y == 0 then 0 else x `div` y
-
-safeMod :: MWord -> MWord -> MWord
-safeMod x y = if y == 0 then 0 else x `mod` y
-
-shiftL' :: MWord -> MWord -> MWord
-shiftL' x y = x `shiftL` fromIntegral y
-shiftR' :: MWord -> MWord -> MWord
-shiftR' x y = x `shiftR` fromIntegral y
-
-msb :: MWord -> Bool
-msb w = testBit w (wordBits - 1)
-
-signedGt :: MWord -> MWord -> Bool
-signedGt x y = toSignedInteger x > toSignedInteger y
-
-signedGe :: MWord -> MWord -> Bool
-signedGe x y = toSignedInteger x >= toSignedInteger y
-
-regVal :: Regs r => r -> InterpM r s Hopefully MWord
+regVal :: (Regs r, AbsDomain v) => r -> InterpM' r v s Hopefully v
 regVal r = use $ sMach . mReg r
 
-opVal ::  Regs r => Operand r MWord -> InterpM r s Hopefully MWord
+opVal ::  (Regs r, AbsDomain v) => Operand r MWord -> InterpM' r v s Hopefully v
 opVal (Reg r) = regVal r
-opVal (Const w) = return w
+opVal (Const w) = return $ absExact w
 
 
 -- Advice-generating extension
@@ -374,14 +498,14 @@ recordAdvice adviceMap adv = do
 adviceHandler :: Regs r => Lens' s AdviceMap -> InstrHandler r s
 adviceHandler advice (Istore w op2 r1) = do
   addr <- opVal op2
-  (waddr, offset) <- splitAlignedAddr w addr
+  (waddr, offset) <- lift $ splitAlignedAddr w addr
   storeVal <- regVal r1
   memVal <- use $ sMach . mMemWord waddr
   let memVal' = memVal & subBytes w offset .~ storeVal
   recordAdvice advice (MemOp addr memVal' MOStore w)
 adviceHandler advice (Iload w _rd op2) = do
   addr <- opVal op2
-  (waddr, _offset) <- splitAlignedAddr w addr
+  (waddr, _offset) <- lift $ splitAlignedAddr w addr
   val <- use $ sMach . mMemWord waddr
   recordAdvice advice (MemOp addr val MOLoad w)
 adviceHandler advice (Ipoison w op2 r1) = do
@@ -396,7 +520,7 @@ adviceHandler _ _ = return ()
 readStr :: Monad m => MWord -> InterpM r s m Text
 readStr ptr = do
   let (waddr, offset) = splitAddr ptr
-  Mem _ mem <- use $ sMach . mMem
+  mem <- use $ sMach . mMem . wmMem
   let firstWord = maybe 0 id $ mem ^? ix waddr
       firstBytes = drop offset $ splitWord firstWord
       restWords = [maybe 0 id $ mem ^? ix waddr' | waddr' <- [waddr + 1 ..]]
@@ -511,7 +635,7 @@ markInvalid start end valid =
 
 -- | Check the allocation status of `addr`, and record a memory error if it
 -- isn't valid.
-checkAccess :: Regs r => Bool -> Lens' s AllocState -> MWord -> InterpM r s Hopefully ()
+checkAccess :: Regs r => Bool -> Lens' s AllocState -> MWord -> InterpM' r v s Hopefully ()
 checkAccess verbose allocState addr = do
   validMap <- use $ sExt . allocState . asValid
   let valid = case Map.lookupLE addr validMap of
@@ -571,7 +695,8 @@ allocHandler verbose allocState nextH instr@(Iload _w _rd op2) = do
   nextH instr
 allocHandler _ _ _ (Iextval rd (XLoadUnchecked op2)) = do
   addr <- opVal op2
-  doLoad WWord rd addr
+  val <- doLoad WWord addr
+  sMach . mReg rd .= val
   finishInstr
 allocHandler _ _ _ (Iext (XStoreUnchecked op2 op1)) = do
   addr <- opVal op2
@@ -739,13 +864,12 @@ getStateWithAdvice :: Monad m => Lens' s AdviceMap -> InterpM r s m (ExecutionSt
 getStateWithAdvice advice = do
   pc <- use $ sMach . mPc
   regs <- use $ sMach . mRegs
-  Mem d m <- use $ sMach . mMem
+  WordMemory d m psn <- use $ sMach . mMem
   let mem = (d, m)
   cycle <- use $ sMach . mCycle
   -- Retrieve advice for the cycle that just finished executing.
   adv <- use $ sExt . advice . ix (cycle - 1)
   bug <- use $ sMach . mBug
-  psn <- use $ sMach . mPsn
   let inv = False
   answer <- use $ sMach . mAnswer
   return $ ExecutionState pc regs mem psn adv bug inv (maybe 0 id answer)
@@ -759,8 +883,7 @@ initMach prog imem = MachineState
   , _mPc = 0
   , _mRegs = initBank (lengthInitMem imem)
   , _mProg = Seq.fromList prog
-  , _mMem = Mem 0 $ flatInitMem imem
-  , _mPsn = Set.empty
+  , _mMem = absInitMem @MWord $ flatInitMem imem
   , _mBug = False
   , _mAnswer = Nothing
   }
