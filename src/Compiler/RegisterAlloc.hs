@@ -24,6 +24,7 @@ module Compiler.RegisterAlloc
 import           Control.Applicative (liftA2)
 import           Control.Monad.State (runStateT, StateT, get, modify')
 import           Control.Monad.Trans.Class (lift)
+import           Control.Monad.State (State, runState, get, put)
 import qualified Data.ByteString.Char8 as BSC
 
 import qualified Data.ByteString.Short as BSS
@@ -65,23 +66,24 @@ registerAlloc :: RegisterAllocOptions
               -> Hopefully $ CompilationUnit a (Lprog Metadata AReg MWord)
 registerAlloc opt comp = do
   let regData = NumRegisters $ fromEnum numRegisters
-  lprog   <- registerAllocProg (pmProg $ programCU comp)
-  return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData}
+  (lprog, nextName')   <- registerAllocProg (pmProg $ programCU comp)
+  return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData, nameBound = nextName'}
   where
     registerAllocProg :: Rprog Metadata MWord
-                  -> Hopefully $ Lprog Metadata AReg MWord
+                  -> Hopefully $ (Lprog Metadata AReg MWord, Word)
     registerAllocProg rprog = do
       -- Convert to ltl.
       lprog <- rtlToLtl rprog
 
       -- JP: Load arguments from stack? 
       -- Replace `Name "0"` with `Lgetstack Incoming 0 _ _`, ...
-      let code' = map initializeFunctionArgs $ code lprog
-
+      let codeM = mapM initializeFunctionArgs $ code lprog
+      let (code', nextName') = runState codeM (nameBound comp)
+      
       -- Run register allocation.
       code <- mapM (registerAllocFunc registers) code'
 
-      return $ setCode lprog code
+      return $ (setCode lprog code, nextName')
 
       
     -- Available registers.
@@ -103,19 +105,26 @@ data RAState = RAState {
 
 -- Initialize function arguments according to the calling convention.
 -- Currently, this loads arguments from the stack with `Lgetstack Incoming 0 _ (Name "0")`.
-initializeFunctionArgs :: LFunction Metadata VReg MWord -> LFunction Metadata VReg MWord
-initializeFunctionArgs (LFunction fname typ typs stackSize blocks) = 
-    let b = BB bname insts [] daginfo in
-    LFunction fname typ typs stackSize $ b:blocks
+initializeFunctionArgs :: LFunction Metadata VReg MWord -> State Word (LFunction Metadata VReg MWord)
+initializeFunctionArgs (LFunction fname typ typs stackSize blocks) = do
+  nextName <- get
+  put (nextName + 1)
+  instrs <- getStackInstrs nextName
+  let b :: BB Name (LTLInstr Metadata VReg MWord); b = BB (bname nextName) instrs [] daginfo
+  return $ LFunction fname typ typs stackSize $ b : blocks
   where
-    insts = map (\(typ, i) -> 
-        let inst = Lgetstack Incoming i typ (Name $ wordToBSS i)
-            md = trivialMetadata fname (show bname) in
-        IRI inst md 
-      ) $ zip typs [0..]
+    getStackInstrs :: Word ->  State Word [LTLInstr Metadata VReg MWord]
+    getStackInstrs id = mapM (\(typ, i) -> do
+                                nextName <- get
+                                put (nextName + 1)
+                                let inst = Lgetstack Incoming i typ (Name $ wordToBSS i)
+                                let md = trivialMetadata fname (bname id)
+                                return $ IRI inst md 
+                            ) $ zip typs [0..]
 
-    bname = Name $ BSS.toShort $ BSC.pack (fname <> "_args")
+    bname id = Name id $ BSS.toShort $ BSC.pack (fname <> "_args")
 
+    daginfo :: [Name]
     daginfo = case blocks of
       ((BB name _ _ _):_) -> [name]
       _ -> []

@@ -12,7 +12,7 @@ Stability   : experimental
 
 module Segments.Segmenting (segmentProgram, Segment(..), Constraints(..)) where
 
-import qualified Debug.Trace as T
+--import qualified Debug.Trace as T
 
 import Compiler.Common
 import Compiler.Errors
@@ -206,14 +206,14 @@ segmentFunction cuts funName = -- T.trace ("Segments in " ++ funName ++ ": " ++ 
 -- | Loop operations
 -- We define loops as Strongly Connected Component
 loopConnections :: Name -> [Segment reg wrd] -> Seq.Seq (Segment reg wrd)
-loopConnections fName segs = go --T.trace ("Cycles in" ++ fName ++" : " ++ show (countSCCs sccs)) go
+loopConnections _fName segs = go --T.trace ("Cycles in" ++ fName ++" : " ++ show (countSCCs sccs)) go
   where go = (replicateLoops sccs) . (backEdgesToNet sccs) . (connectLoopExits sccs) $
              Seq.fromList segs   
         cfg = makeCFG segs
         sccs = G.stronglyConnComp cfg
 
-        countSCCs :: [G.SCC node] -> Int
-        countSCCs ls = length $ filter isCycle ls
+        _countSCCs :: [G.SCC node] -> Int
+        _countSCCs ls = length $ filter isCycle ls
         isCycle (G.CyclicSCC _) = True
         isCycle (G.AcyclicSCC _) = False
           

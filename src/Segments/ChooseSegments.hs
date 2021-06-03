@@ -11,7 +11,7 @@ Stability   : experimental
 
 module Segments.ChooseSegments where
 
-import qualified Debug.Trace as T (trace, traceShow, traceM)
+
 
 -- import qualified Algorithm.Search as Alg (dfs)
 import qualified Data.Graph as G
@@ -22,7 +22,7 @@ import MicroRAM.MRAMInterpreter
 
 import qualified Data.Map as Map 
 import qualified Data.Set as Set 
-import qualified Data.Vector as V (Vector, (!), (!?), fromList, ifoldl, imap, map)
+import qualified Data.Vector as V (Vector, (!), fromList, ifoldl, imap)
 
 import Segments.Segmenting
 import Sparsity.Sparsity
@@ -176,12 +176,12 @@ longestPathForest :: [(G.Vertex -> Bool)] -> (G.Vertex -> Bool) -> G.Forest G.Ve
 longestPathForest constrs end paths =
   maxWith length [] $ map (longestPathTree constrs) paths
   where longestPathTree :: [(G.Vertex -> Bool)] -> G.Tree G.Vertex -> [G.Vertex]
-        longestPathTree constrs (G.Node v forest) =
-          case constrs of
+        longestPathTree cnstrnts (G.Node v forest) =
+          case cnstrnts of
             [] -> []
-            const: constrs' ->
-              if not $ const v then [] else -- Must satisfy the contraint. 
-                case longestPathForest constrs' end forest of
+            cnst: cnstrs' ->
+              if not $ cnst v then [] else -- Must satisfy the contraint. 
+                case longestPathForest cnstrs' end forest of
                   hd:tl ->  v : hd : tl              -- If the path is not empty    
                   []  -> if end v then [v] else [] -- Otherwise
 
