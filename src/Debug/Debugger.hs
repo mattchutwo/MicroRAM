@@ -341,20 +341,19 @@ jpProgComp len = do
   m <- fromLLVMFile "test/programs/funcPointer.ll"
   -- return m
   return $ either (error . show) id $
-        (justCompile instrSelect) (prog2unit len m)
+        (justCompileWithNames instrSelect) (prog2unit len m)
     >>= (justCompile renameLLVMIntrinsicImpls)
     >>= (justCompile lowerIntrinsics)
     >>= (justCompile (catchUndefinedFunctions allowUndefFun))
     >>= (justCompile legalize)
     >>= (justCompile localizeLabels)
-    >>= (justCompile edgeSplit)
 
-    >>= (justCompile edgeSplit)
-    >>= (justCompile removePhi)
+    >>= (justCompileWithNames edgeSplit)
+    >>= (justCompileWithNames removePhi)
     >>= (registerAlloc def)
     >>= (justCompile callingConvention)
     >>= (replaceGlobals)
-    >>= (justCompile stacking)
+    >>= (justCompileWithNames stacking)
     >>= (justAnalyse (return . SparsityData . (forceSparsity spars))) 
     >>= (blockCleanup)
     >>= (removeLabels)
