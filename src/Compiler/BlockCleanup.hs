@@ -26,6 +26,7 @@ module Compiler.BlockCleanup
 import Control.Monad.State
 
 import MicroRAM
+import Compiler.Common
 import Compiler.IRs
 import Compiler.Metadata
 import qualified Data.Map.Strict as Map
@@ -56,6 +57,7 @@ threadJumps prog = return $ map updateBlock $ filter (not . isJumpSource) $ prog
   where
     -- Map from old labels to new ones.  If block A contains only a jump to B,
     -- then we record (A, B) in this map.
+    jumpMap :: Map.Map Name Name 
     jumpMap = Map.fromList $ do
       NBlock (Just src) [(Ijmp (Label dest), _)] <- prog
       return (src, dest)
@@ -68,11 +70,13 @@ threadJumps prog = return $ map updateBlock $ filter (not . isJumpSource) $ prog
     -- if jumpMap maps A to B and B to B, then jumpMap' contains entries for
     -- neither A nor B.  There are more effective solutions, but this one's
     -- easy and the situation should be quite rare anyway.
+    jumpMap' :: Map.Map Name Name
     jumpMap' = Map.mapMaybe resolve jumpMap
       where
+        resolve :: Name -> Maybe Name
         resolve l = resolve' 1000 l
 
-        resolve' :: Int -> String -> Maybe String
+        resolve' :: Int -> Name -> Maybe Name
         resolve' 0 _ = Nothing
         resolve' n l
           | Just l' <- Map.lookup l jumpMap = resolve' (n - 1) l'
@@ -96,7 +100,7 @@ elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
   where
     progSeq = Seq.fromList prog
 
-    nameMap :: Map.Map String Int
+    nameMap :: Map.Map Name Int
     nameMap = Map.fromList [(name, i) | (i, NBlock (Just name) _) <- zip [0..] prog]
 
     blockDeps :: Int -> Set.Set Int
