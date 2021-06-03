@@ -85,13 +85,13 @@ makeLenses ''SelectionState
 
 type Statefully = StateT SelectionState Hopefully
 
-initState :: SelectionState
-initState =
+initState :: Word -> SelectionState
+initState bound =
   SelectionState {
   _currentFunction = Name 0 ""
   , _currentBlock = Name 0 ""
   , _lineNumber = 0
-  , _nextReg = 2 -- Leave space for ESP and EBP
+  , _nextReg = bound -- Leave space for ESP and EBP
   }
 
 useReg :: Statefully Word
@@ -1524,19 +1524,19 @@ getUniqueWord _ = assumptError "Tryed to compute a binary operation with an aggr
 isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
 isFuncAttributes _ = return () 
 
-isDefs :: [LLVM.Definition] -> Hopefully $ MIRprog Metadata MWord
-isDefs defs = do
+isDefs :: Word -> [LLVM.Definition] -> Hopefully $ (MIRprog Metadata MWord, Word)
+isDefs nameBound defs = do
   typeDefs <- isTypeDefs $ filter itIsTypeDef defs
   setGlobNames <- return $ nameOfGlobals defs
   env <- return $ Env typeDefs setGlobNames
   let globalEvaluation = isGlobVars env $ filter itIsGlobVar defs  -- filtered inside the def 
-  (globVars, state') <- runStateT globalEvaluation initState 
+  (globVars, state') <- runStateT globalEvaluation (initState nameBound) 
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
-  funcs <- evalStateT (isFunctions env) state'
+  (funcs, state'') <- runStateT (isFunctions env) state'
   checkDiscardedDefs defs -- Make sure we dont drop something important
-  return $ IRprog Map.empty globVars funcs 
+  return $ (IRprog Map.empty globVars funcs, _nextReg state'') 
   where isFunctions env = mapM (isFunction env) $ filter itIsFunc defs
   
 -- | Instruction selection generates an RTL Program
-instrSelect :: LLVM.Module -> Hopefully $ MIRprog Metadata MWord
-instrSelect (LLVM.Module _ _ _ _ defs) = isDefs defs
+instrSelect :: (LLVM.Module, Word) -> Hopefully $ (MIRprog Metadata MWord, Word)
+instrSelect (LLVM.Module _ _ _ _ defs, bound) = isDefs bound defs
