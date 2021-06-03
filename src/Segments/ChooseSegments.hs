@@ -194,7 +194,7 @@ longestPath :: (Ord state, Show (t state), Show state, Foldable t, Functor t)
             -> (state -> Bool)  -- End
             -> t state -- START
             -> [state]
-longestPath next end start = longestPath' Set.empty start 
+longestPath next end strt = longestPath' Set.empty strt 
   where longestPath' visited start =
           let paths = fmap (longestPathOne visited) start in
             maxWith length [] paths
@@ -219,13 +219,13 @@ findPublicPath :: forall reg. Show reg
                -> Set.Set Int
                -> [Int] -> Trace reg -> [Int] 
 findPublicPath segments usedSegs startIndx initRemTrace = 
-  let result = map segIndxPSS $ longestPath nextStates hasToNetwork (initState initRemTrace) in
+  let result = map segIndxPSS $ longestPath nextStates hasToNetwork initState in
     if null (filter notUsed startIndx) then result else
       -- T.trace ("START " ++ show (filter notUsed startIndx) ++
       --          "\n\tRESULT"++ show result)
       result
-  where initState :: Trace reg -> [PathSearchState reg]
-        initState initRnemTrace = map (PathSearchState initRemTrace) $ filter notUsed startIndx 
+  where initState :: [PathSearchState reg]
+        initState = map (PathSearchState initRemTrace) $ filter notUsed startIndx 
 
         hasToNetwork :: PathSearchState reg -> Bool
         hasToNetwork pss = toNetwork $ segments V.! (segIndxPSS pss) 
@@ -247,7 +247,7 @@ findPublicPath segments usedSegs startIndx initRemTrace =
           pcTocheck == getPcConstraint (constraints $ segments V.! segIndx)
           where segPc = getPcConstraint (constraints $ segments V.! segIndx)
                 getPcConstraint (PcConst thePc:_) = thePc  -- Public segments allways have a pc
-                -- getPcConstraint (_:ls) = getPcConstraint ls
+                getPcConstraint [] = error "Found public segments without a pc constraint." -- Should this rais a Hopefully error instead? 
 -- | chooses the next segment
 chooseSegment :: Show reg => V.Vector (Segment reg MWord) -> Int -> PState reg ()
 chooseSegment segments privSize = do
@@ -288,7 +288,7 @@ chooseSegment segments privSize = do
 
      -- | Checks if we can use the segment next
      checkSegment :: Bool -> V.Vector (Segment reg MWord) -> Int -> PState reg Bool
-     checkSegment verbose segs segInx = do
+     checkSegment _verbose segs segInx = do
        let seg = segs V.! segInx
        usedSegs <- usedSegments <$> get
        let available = not $ segInx `Set.member` usedSegs

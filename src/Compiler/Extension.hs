@@ -12,16 +12,12 @@ module Compiler.Extension
     ) where
 
 import Control.Monad.State
-import Data.List (intercalate)
-import Data.Text (Text)
-import qualified Data.Text as Text
 
 import Compiler.Errors
 import Compiler.Common (Name)
 import Compiler.IRs
 
-import MicroRAM (Instruction'(..), ExtInstr(..), ExtValInstr(..), pattern WWord)
-import           MicroRAM (MWord)
+import MicroRAM (Instruction'(..), ExtInstr(..), ExtValInstr(..), pattern WWord, MWord)
 
 type Statefully a = StateT Word Hopefully a
 

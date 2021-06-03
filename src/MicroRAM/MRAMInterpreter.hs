@@ -768,7 +768,7 @@ initMach prog imem = MachineState
 type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
 run_v :: Regs mreg => Bool ->  Executor mreg (Trace mreg)
-run_v verbose (CompUnit progs trLen _ _ analysis _) = case go of
+run_v verbose (CompUnit progs trLen _ _ _analysis _) = case go of
   Left e -> error $ describeError e
   Right x -> x
   where

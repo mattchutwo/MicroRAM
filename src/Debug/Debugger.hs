@@ -42,11 +42,10 @@ import Compiler.CompilationUnit
 import Compiler.Globals
 import Compiler.InstructionSelection
 import Compiler.Intrinsics
---import Compiler.IRs
+import Compiler.IRs
 import Compiler.Legalize
 import Compiler.LocalizeLabels
 import Compiler.Metadata
-import Compiler.IRs
 import Compiler.RegisterAlloc
 import Compiler.Registers
 import Compiler.RemoveLabels
@@ -336,8 +335,12 @@ summaryFromFile myfile myCS 300
 *******************************
 -}
 
--- jpProgComp :: Word -> IO (CompilationResult (AnnotatedProgram Metadata AReg MWord))
-jpProgComp len = do
+_jpProgComp
+  :: Word
+     -> IO
+          (CompilationUnit
+             () (AnnotatedProgram Metadata AReg MWord))
+_jpProgComp len = do
   m <- fromLLVMFile "test/programs/funcPointer.ll"
   -- return m
   return $ either (error . show) id $

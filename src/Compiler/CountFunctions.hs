@@ -11,9 +11,6 @@ Stability   : experimental
 
 -}
 module Compiler.CountFunctions (countFunctions, countFunctionsEmpty) where
-import qualified Debug.Trace as T (trace, )
-
-import qualified Debug.Trace as T
 
 import Compiler.Analysis
 import Compiler.Common
