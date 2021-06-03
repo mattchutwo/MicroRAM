@@ -133,25 +133,25 @@ instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pr
          ]
 
 instance (Pretty name, Pretty param, Pretty block) => Pretty (Function name param block) where
-  pretty (Function name retTy argTys blocks _nextReg) =
-    vsep [ "// " <> pretty name <> " :: " <> prettyArgs argTys <> " -> " <> pretty retTy
+  pretty (Function name retTy argTys argNms blocks _nextReg) =
+    vsep [ "// " <> pretty name <> " " <> prettyArgs (zip argTys argNms) <> " -> " <> pretty retTy
          , vsep (map pretty blocks)
          , line
          ]
     where
       prettyArgs []     = "()"
-      prettyArgs argTys = concatWith (surround " -> ") (map pretty argTys)
+      prettyArgs args = "("<> concatWith (surround ", ") (map (\(typ,nm) -> pretty typ <> " " <> pretty nm) args) <> ")"
 
 instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (LFunction mdata reg wrd) where
-  pretty (LFunction name retTy argTys _stackSize blocks) =
-    vsep [ "// " <> pretty name <> " :: " <> prettyArgs argTys <> " -> " <> pretty retTy
+  pretty (LFunction name retTy argTys argNms _stackSize blocks) =
+    vsep [ "// " <> pretty name <> " :: " <> prettyArgs (zip argTys argNms) <> " -> " <> pretty retTy
          , vsep (map pretty blocks)
          , line
          ]
     where
       prettyArgs []     = "()"
-      prettyArgs argTys = concatWith (surround " -> ") (map pretty argTys)
-
+      prettyArgs args = "("<> concatWith (surround ", ") (map (\(typ,nm) -> pretty typ <> " " <> pretty nm) args) <> ")"
+      
 instance (Show reg, Show op1, Show op2, Pretty (PrettyPrintWrapper reg), Pretty (PrettyPrintWrapper op1), Pretty (PrettyPrintWrapper op2)) => Pretty (Instruction' reg op1 op2) where
   pretty (Iand r1 r2 op) = pretty (PPW r1) <>" = "<> pretty (PPW r2) <> " && "<> pretty (PPW op)
   pretty (Ior r1 r2 op) = pretty (PPW r1) <>" = "<>  pretty (PPW r2) <>" || "<> pretty (PPW op)

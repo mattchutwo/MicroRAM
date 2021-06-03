@@ -1080,8 +1080,12 @@ isBlock  env (LLVM.BasicBlock name instrs term) = do
 isBlocks :: Env ->  [LLVM.BasicBlock] -> Statefully [BB Name $ MIRInstr Metadata MWord]
 isBlocks env = mapM (isBlock env)
 
-processParams :: ([LLVM.Parameter], Bool) -> [Ty]
-processParams (params, _) = map (\_ -> Tint) params
+processParams :: ([LLVM.Parameter], Bool) -> Statefully ([Ty], [Name])
+processParams (params, _) = do
+  paramNames <- mapM paramName $ [0..(fromIntegral $ length params - 1)]
+  let paramTypes = map (\_ -> Tint) params
+  return (paramTypes, paramNames)
+  where paramName i = name2name (LLVM.UnName i)
 
 -- | Instruction generation for Functions
 
@@ -1089,13 +1093,13 @@ isFunction :: Env -> LLVM.Definition -> Statefully $ MIRFunction Metadata MWord
 isFunction env (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
   do
     name' <- name2name name
-    let params' = processParams params
+    (paramsTyp, paramNames) <- processParams params
     nextReg .= 2 -- Functions have separatedly numbere registers
     currentFunction .= name'
     body <- isBlocks env code -- runStateT (isBlocks env code) initState
     retT' <- lift $ type2type  (llvmtTypeEnv env) retT
     currentNextReg <- use nextReg
-    return $ Function name' retT' params' body currentNextReg
+    return $ Function name' retT' paramsTyp paramNames body currentNextReg
 isFunction _tenv other = lift $ unreachableError $ show other -- Shoudl be filtered out 
   
 -- | Instruction Selection for all definitions

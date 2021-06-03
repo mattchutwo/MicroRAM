@@ -265,7 +265,7 @@ stackFunction
   Regs mreg =>
   LFunction Metadata mreg MWord
   -> Hopefully $ [NamedBlock Metadata mreg MWord]
-stackFunction (LFunction name _retT _argT size code) = do
+stackFunction (LFunction name _retT _argT _argN size code) = do
   codeBlocks <- mapM stackBlock code
   entryName <- case codeBlocks of
     NBlock (Just name) _ : _ -> return name

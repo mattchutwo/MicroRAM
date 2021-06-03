@@ -183,8 +183,8 @@ expandInstrs f = goProg
         goProg (IRprog te gs code) = IRprog te gs <$> traverse goFunc code
 
         goFunc :: MIRFunction m w -> f (MIRFunction m w)
-        goFunc (Function nm rty atys bbs nr) =
-          Function nm rty atys <$> traverse goBB bbs <*> pure nr
+        goFunc (Function nm rty atys anms bbs nr) =
+          Function nm rty atys anms <$> traverse goBB bbs <*> pure nr
 
         goBB :: BB n (MIRInstr m w) -> f (BB n (MIRInstr m w))
         goBB (BB nm body term dag) = BB nm <$> goInstrs body <*> goInstrs term <*> pure dag
@@ -216,7 +216,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
   where
     renameList :: [(ShortByteString, ShortByteString)]
     renameList = do
-      Function nm _ _ _ _ <- code
+      Function nm _ _ _ _ _ <- code
       Name _ ss <- return nm
       Just name <- return $ Text.stripPrefix "__llvm__" $ toText ss
       return (ss, fromText $ "llvm." <> Text.replace "__" "." name) -- ^ Doesn't change the Word
@@ -228,9 +228,9 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
 
     code' :: [MIRFunction Metadata MWord]
     code' = do
-      Function nm rty atys bbs nr <- code
+      Function nm rty atys anms bbs nr <- code
       guard $ not $ Set.member (dbName nm) removeSet
-      let replaceName =  Function (changeName nm) rty atys bbs nr
+      let replaceName =  Function (changeName nm) rty atys anms bbs nr
       return $ mapMetadataMIRFunction changeMetadata replaceName
       
     changeString name = maybe name id $ Map.lookup name renameMap
