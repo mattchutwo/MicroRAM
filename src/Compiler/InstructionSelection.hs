@@ -1082,7 +1082,8 @@ isBlocks env = mapM (isBlock env)
 
 processParams :: ([LLVM.Parameter], Bool) -> Statefully ([Ty], [Name])
 processParams (params, _) = do
-  paramNames <- mapM paramName $ [0..(fromIntegral $ length params - 1)]
+  let paramNumberList = map snd $ zip params [0..]
+  paramNames <- mapM paramName $ paramNumberList
   let paramTypes = map (\_ -> Tint) params
   return (paramTypes, paramNames)
   where paramName i = name2name (LLVM.UnName i)
