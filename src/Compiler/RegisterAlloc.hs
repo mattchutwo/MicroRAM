@@ -61,16 +61,17 @@ type AReg = Int
 type Registers = [AReg]
 
 registerAlloc :: RegisterAllocOptions
-              -> (CompilationUnit a (Rprog Metadata MWord), Word)
-              -> Hopefully $ (CompilationUnit a (Lprog Metadata AReg MWord), Word)
-registerAlloc opt (comp, spillBound) = do
+              -> CompilationUnit a (Rprog Metadata MWord)
+              -> Hopefully $ CompilationUnit a (Lprog Metadata AReg MWord)
+registerAlloc opt comp = do
   let regData = NumRegisters $ fromEnum numRegisters
   (lprog, nextName')   <- registerAllocProg (pmProg $ programCU comp)
-  return $ (comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData, nameBound = nextName'},
-            -- We don't change the register bound, because after this pass, all registers will be allocated among
-            -- the architecture registers.
-            spillBound) 
+  return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData, nameBound = nextName'} 
   where
+    -- Spill registers will be created after this bound
+    -- and thats how we recognise them. 
+    spillBound = nameBound comp
+    
     registerAllocProg :: Rprog Metadata MWord
                   -> Hopefully $ (Lprog Metadata AReg MWord, Word)
     registerAllocProg rprog = do
