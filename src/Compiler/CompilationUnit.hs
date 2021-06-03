@@ -130,13 +130,21 @@ type LazyInitialMem = [LazyInitSegment]
 
 
 flatInitMem :: InitialMem -> Map.Map MWord MWord
-flatInitMem = foldr initSegment Map.empty
-  where initSegment :: InitMemSegment -> Map.Map MWord MWord -> Map.Map MWord MWord
-        initSegment (InitMemSegment _ _ _ _ _ Nothing) = id
-        initSegment (InitMemSegment _ _ _ loc _ (Just content)) =
-          Map.union $ Map.fromList $
-          -- Map with the new content
-          zip [loc..] content
+flatInitMem imem = Map.union public secret
+  where (public, secret) = flatInitMem' imem
+
+flatInitMem' :: InitialMem -> (Map.Map MWord MWord, Map.Map MWord MWord)
+flatInitMem' = foldr initSegment (Map.empty, Map.empty)
+  where initSegment ::
+          InitMemSegment ->
+          (Map.Map MWord MWord, Map.Map MWord MWord) ->
+          (Map.Map MWord MWord, Map.Map MWord MWord)
+        initSegment (InitMemSegment secret _ _ loc len optContent) (pub, sec)
+          | secret = (pub, sec `Map.union` words)
+          | otherwise = (pub `Map.union` words, sec)
+          where
+            words = Map.fromList $
+              zip [loc .. loc + len - 1] (maybe [] id optContent ++ repeat 0)
 
 lengthInitMem :: InitialMem -> MWord
 lengthInitMem = foldl (\tip seg -> max tip (segTip seg)) 0

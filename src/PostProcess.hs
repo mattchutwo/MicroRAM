@@ -27,6 +27,7 @@ import qualified Data.Map as Map
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
+import MicroRAM.MRAMInterpreter.AbsInt
 
 import Output.Output
 
@@ -44,13 +45,13 @@ postProcess_v :: (Show reg, Regs reg)
               -> CompilationResult (AnnotatedProgram Metadata reg MWord)
               -> Maybe Int
               -> Hopefully (Output reg)
-postProcess_v verb producePublic chunkSize private comp privSegs =
+postProcess_v verb producePublic chunkSize private comp privSegs = do
+  () <- testAbsInt_v comp
   (segment producePublic chunkSize privSegs)
-  >=> (doIf private (buildTrace producePublic verb chunkSize spar))
-  >=> (doIf private recoverAdvice)
-  >=> segProg2Output $
-  comp
-  
+    >=> (doIf private (buildTrace producePublic verb chunkSize spar))
+    >=> (doIf private recoverAdvice)
+    >=> segProg2Output $
+    comp
   where spar = sparsityData . aData $ comp
 
         doIf :: Monad m => Bool -> (a -> m a) -> a -> m a
