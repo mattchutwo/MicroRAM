@@ -46,7 +46,7 @@ list2InitMem ls = map word2InitSeg $ zip [0..] ls
 
 
 trivialCU :: Prog Int -> Word -> [MWord] -> CompilationResult (Prog Int)
-trivialCU prog len input = CompUnit progs len InfinityRegs def ()
+trivialCU prog len input = CompUnit progs len InfinityRegs def 2 ()
   where pm = ProgAndMem prog (list2InitMem input)
         progs = MultiProg pm pm
 

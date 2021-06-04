@@ -80,6 +80,7 @@ data SelectionState = SelectionState {
   , _currentBlock  :: Name
   , _lineNumber    :: Int
   , _nextReg       :: Word
+  , _namesLookup   :: Map.Map LLVM.Name Name
   }
 makeLenses ''SelectionState
 
@@ -91,9 +92,15 @@ initState bound =
   _currentFunction = Name 0 ""
   , _currentBlock = Name 0 ""
   , _lineNumber = 0
-  , _nextReg = bound -- Leave space for ESP and EBP
+  , _nextReg = max bound 2 -- Leave space for ESP and EBP
+  , _namesLookup = reservedNames
   }
-
+  where reservedNames :: Map.Map LLVM.Name Name
+        reservedNames = Map.fromList $ [
+          (LLVM.Name "main", Name 1 "main")
+          ,(LLVM.Name "premain", Name 0 "premain") -- not used in this pass.
+          ]
+        
 useReg :: Statefully Word
 useReg = do
   n <- use nextReg
@@ -125,8 +132,18 @@ any2short :: Show a => a -> Short.ShortByteString
 any2short n = Short.toShort $ BSU.fromString $ show $ n
 
 name2name :: LLVM.Name -> Statefully Name
-name2name (LLVM.Name s) = newName s
-name2name (LLVM.UnName n) = newName $ any2short n
+name2name nm = do
+  lkp <- use namesLookup
+  case Map.lookup nm lkp of
+             Just nm' -> return nm'
+             Nothing -> do
+               nm' <- createNewName
+               namesLookup %= Map.insert nm nm'
+               return nm'
+    where createNewName =
+            newName $ case nm of
+                        LLVM.Name s -> s
+                        LLVM.UnName n -> any2short n
 
 --name2nameM :: Monad m => LLVM.Name -> m Name
 --name2nameM nm = return $ name2name nm
