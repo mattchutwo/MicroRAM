@@ -4,13 +4,14 @@
 
 module MicroRAM.MRAMInterpreter.AbsInt where
 
-import Control.Lens (makeLenses, at, (^.), (&), (.~), use, (.=))
+import Control.Lens (makeLenses, (^.), (&), (.~), (%~), use, (.=))
 import Control.Monad
 import Control.Monad.State
 import Data.Bits
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 
 import Compiler.CompilationUnit
 import Compiler.Errors
@@ -31,18 +32,119 @@ data AbsValue =
   deriving (Show)
 
 data AbsMemory = AbsMemory {
-  _amMem :: Map MWord AbsValue,
+  _amMem :: Map MWord (MemWidth, AbsValue),
   _amPoisonedZero :: Bool
 }
   deriving (Show)
 
 makeLenses ''AbsMemory
 
+type AbsMemoryMap = Map MWord (MemWidth, AbsValue)
+
+amLoad :: MemWidth -> MWord -> AbsMemoryMap -> AbsValue
+amLoad w addr mem
+  -- Case 1: the load's address and width exactly matches the store.
+  | Just (w', val) <- mid, w' == w = val
+  -- Case 2a: the address matches but the width is larger.  We are loading a
+  -- prefix (low bits) of the value that was stored.
+  | Just (w', val) <- mid, w' > w = val `absAnd` VExact mask
+  -- Case 2b: a store at a lower address covers this load.  We are loading some
+  -- bits out of the middle of the value that was stored.
+  | Nothing <- mid, Just (addr', (w', val)) <- Map.lookupMax before,
+    w' > w, addr' + fromIntegral (widthInt w') >= addr =
+    (val `absShr` VExact (fromIntegral $ 8 * (addr - addr'))) `absAnd` VExact mask
+  -- Case 3: no stores cover any part of the load.
+  | null parts = VExact 0
+  -- Case 4: several smaller stores cover the load.
+  | otherwise = combine (VExact 0) 0 parts' `absAnd` VExact mask
+  where
+    (before, mid, after) = Map.splitLookup addr mem
+
+    mask = (1 `shiftL` (8 * widthInt w)) - 1
+
+    -- In case 4, we gather up all of the pieces that overlap `addr..addr + w`,
+    -- and combine them all together.  Note that since every memory op must be
+    -- aligned, we are guaranteed that all the pieces have width strictly less
+    -- than `w` and lie entirely within the load region.
+
+    endAddr = addr + fromIntegral (widthInt w)
+    parts :: [(MWord, (MemWidth, AbsValue))]
+    parts = maybe [] (\x -> [(addr, x)]) mid ++
+      takeWhile (\(k, _) -> k < endAddr) (Map.toList after)
+
+    go _pos [] = []
+    go pos ((a, (w, v)) : rest) =
+      replicate (fromIntegral $ a - pos) (W1, VExact 0) ++ [(w, v)] ++
+        go (a + fromIntegral (widthInt w)) rest
+
+    parts' = go addr parts
+
+    combine acc _off [] = acc
+    combine acc off ((w, v) : rest) =
+      let acc' = acc `absOr` (v `absShl` VExact off)
+          off' = off + fromIntegral (8 * widthInt w)
+      in combine acc' off' rest
+
+amStore :: MemWidth -> MWord -> AbsValue -> AbsMemoryMap -> AbsMemoryMap
+amStore w addr val mem
+  -- Case 1: the store exactly overwrites a previous value of the same width.
+  | Just (w', _) <- mid, w' == w = Map.insert addr (w, val) mem
+  -- Case 2a: the store overwrites a prefix of a wider value.
+  | Just (w', val') <- mid, w' > w =
+    Map.insert addr (w, val) $ Map.union mem $ removePartMap addr w' val' addr w
+  -- Case 2b: the store overwrites a middle portion of a wider value.
+  | Nothing <- mid, Just (addr', (w', val')) <- Map.lookupMax before,
+    w' > w, addr' + fromIntegral (widthInt w') >= addr =
+    Map.insert addr (w, val) $ Map.union mem $ removePartMap addr' w' val' addr w
+  -- Case 3: the store overwrites zero or more smaller values.
+  | otherwise = Map.insert addr (w, val) $ Map.withoutKeys mem overlappedKeys
+  where
+    (before, mid, after) = Map.splitLookup addr mem
+
+    removePart ::
+      MWord -> MemWidth -> AbsValue -> MWord -> MemWidth -> [(MWord, MemWidth, AbsValue)]
+    removePart addr w val addr' w'
+      -- `addr' .. end'` doesn't overlap `addr .. end`.
+      | addr >= end' || addr' >= end = [(addr, w, val)]
+      -- The regions overlap and have the same length.  Since all addresses
+      -- must be aligned, this means the cutout region overlaps the entire
+      -- value.
+      --
+      -- The `w' > w` case should never happen, but if it does, it means the
+      -- entire value is covered by the cutout.
+      | w' >= w = []
+      -- The regions overlap but the cutout only covers part of it.  Due to the
+      -- alignment requirement, the cutout must be entirely in one half or the
+      -- other.
+      | otherwise =
+        removePart addr prevW lo addr' w' ++
+        removePart (addr + fromIntegral (widthInt prevW)) prevW hi addr' w'
+      where
+        end = addr + fromIntegral (widthInt w)
+        end' = addr' + fromIntegral (widthInt w')
+
+        prevW = pred w
+        mask = (1 `shiftL` (8 * widthInt prevW)) - 1
+        lo = val `absAnd` VExact mask
+        hi = (val `absShr` VExact (fromIntegral $ 8 * widthInt prevW)) `absAnd` VExact mask
+
+    removePartMap ::
+      MWord -> MemWidth -> AbsValue -> MWord -> MemWidth -> AbsMemoryMap
+    removePartMap addr width val addr' width' =
+      Map.fromList [(a, (w, v)) | (a, w, v) <- removePart addr width val addr' width']
+
+    overlappedKeys = Set.fromList $
+      takeWhile (\a -> a < addr + fromIntegral (widthInt w)) $ Map.keys after
+
 
 instance AbsDomain AbsValue where
   type Memory AbsValue = AbsMemory
 
-  absInitMem mem = AbsMemory (fmap VExact mem) False
+  absInitMem mem = AbsMemory mem' False
+    where
+      mem' = Map.mapKeysMonotonic (* fromIntegral wordBytes) $
+        fmap (\x -> (WWord, VExact x)) mem
+
 
   absExact x = VExact x
 
@@ -137,22 +239,16 @@ instance AbsDomain AbsValue where
 
   absStore w addr val mem = case addr of
     VExact addr' -> do
-      (waddr, offset) <- splitAlignedAddr w addr'
-      let old = maybe (VExact 0) id (mem ^. amMem . at waddr)
-      let new = case (old, val) of
-            (VExact old', VExact val') -> VExact $ old' & subBytes w offset .~ val'
-            _ -> VTop
-      return $ mem & amMem . at waddr .~ Just new
+      checkAlign w addr'
+      return $ mem & amMem %~ amStore w addr' val
     VTop -> do
+      traceM "inexact store - trashing all memory!"
       return $ mem & amMem .~ mempty
 
   absLoad w addr mem = case addr of
     VExact addr' -> do
-      (waddr, offset) <- splitAlignedAddr w addr'
-      let wval = maybe (VExact 0) id (mem ^. amMem . at waddr)
-      let val = case wval of
-            VExact wval' -> VExact $ wval' ^. subBytes w offset
-            _ -> VTop
+      checkAlign w addr'
+      let val = amLoad w addr' $ mem ^. amMem
       return val
     VTop -> do
       return VTop
@@ -196,6 +292,11 @@ splitAlignedAddr w a = do
   when (offset `mod` widthInt w /= 0) $ do
     otherError $ "unaligned access of " ++ show (widthInt w) ++ " bytes at " ++ showHex a
   return (waddr, offset)
+
+checkAlign :: MemWidth -> MWord -> Hopefully ()
+checkAlign w addr = do
+  when (addr `mod` fromIntegral (widthInt w) /= 0) $ do
+    otherError $ "unaligned access of " ++ show (widthInt w) ++ " bytes at " ++ showHex addr
 
 uMul :: MWord -> MWord -> (MWord, MWord)
 uMul a b = (lo, hi)
@@ -319,7 +420,10 @@ initState (ProgAndMem prog mem) s =
   }
   where
     (pubMem, secMem) = flatInitMem' mem
-    amem = AbsMemory (Map.union (fmap VExact pubMem) (fmap (const VTop) secMem)) False
+    pubMemMap = fmap (\x -> (WWord, VExact x)) pubMem
+    secMemMap = fmap (\_ -> (WWord, VTop)) secMem
+    memMap = Map.mapKeysMonotonic (* fromIntegral wordBytes) $ Map.union pubMemMap secMemMap
+    amem = AbsMemory memMap False
 
 testAbsInt_v :: Regs r => CompilationResult (AnnotatedProgram m r MWord) -> Hopefully ()
 testAbsInt_v (CompUnit (MultiProg _ progMem) _ _ _ _ _) = do

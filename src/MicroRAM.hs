@@ -162,8 +162,10 @@ data Phase = Pre | Post
 
 
 
+-- Note that some code depends on these being in increasing order, via the
+-- `Enum` instance.
 data MemWidth = W1 | W2 | W4 | W8
-    deriving (Eq, Ord, Read, Show)
+    deriving (Eq, Ord, Enum, Read, Show)
 
 widthInt :: MemWidth -> Int
 widthInt w = case w of
