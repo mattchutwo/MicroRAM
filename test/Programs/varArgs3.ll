@@ -38,7 +38,7 @@ define void @__cc_va_start(i8*, i8*, i32) #0 {
 }
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable
-define void @__cc_va_copy(i8*, i8*) #0 {
+define void @__llvm__va_copy(i8*, i8*) #0 {
   %3 = alloca i8*, align 8
   %4 = alloca i8*, align 8
   %5 = alloca %struct.__cc_va_list*, align 8
