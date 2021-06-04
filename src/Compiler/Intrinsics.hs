@@ -38,8 +38,9 @@ import Compiler.LazyConstants
 
 import MicroRAM
 
+-- Metadata needed to expand intrinsics for function calls.
 data CallingContextMetadata = CCM {
-    _argTys :: [Ty]
+    _argTys :: [Ty] -- The list of nonvariadic argument types for a function. This is needed to compute the offset for variadic arguments on the stack.
   }
 
 expandInstrs :: forall f m w.
