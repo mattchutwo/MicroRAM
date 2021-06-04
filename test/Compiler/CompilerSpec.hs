@@ -63,7 +63,7 @@ compileTest executionFunction tester name file len =
         compileTest' file len _verb = do
           llvmProg <- llvmParse file
           mramProg <- handleErrorWith $ compile False len llvmProg Nothing 
-          return $ executionFunction (tripleFmap fst mramProg)
+          return $ executionFunction (fmap (tripleFmap fst) mramProg)
 
 tripleFmap :: (Functor f1, Functor f2, Functor f3) =>
      (a -> b) -> f1 (f2 (f3 a)) -> f1 (f2 (f3 b))

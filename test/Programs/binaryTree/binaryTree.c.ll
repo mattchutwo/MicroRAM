@@ -51,63 +51,74 @@ define internal fastcc noalias %struct.node* @new_node(i32, i32) unnamed_addr #0
   %5 = lshr i64 %4, 58
   %6 = shl i64 1, %5
   %7 = icmp ult i8* %3, inttoptr (i64 1441151880758558720 to i8*)
-  br i1 %7, label %12, label %8
+  br i1 %7, label %8, label %9
 
 8:                                                ; preds = %2
-  %9 = add i64 %6, -1
-  %10 = and i64 %9, %4
-  %11 = icmp eq i64 %10, 0
-  br i1 %11, label %13, label %12
-
-12:                                               ; preds = %8, %2
   tail call void @__cc_flag_invalid() #5
-  br label %13
+  br label %9
 
-13:                                               ; preds = %12, %8
-  %14 = getelementptr inbounds i8, i8* %3, i64 %6
-  %15 = getelementptr inbounds i8, i8* %14, i64 -8
-  %16 = bitcast i8* %15 to i64*
-  tail call void @__cc_write_and_poison(i64* nonnull %16, i64 1) #5
-  %17 = getelementptr inbounds i8, i8* %3, i64 24
-  %18 = tail call i64* @__cc_advise_poison(i8* nonnull %17, i8* nonnull %15) #5
-  %19 = icmp eq i64* %18, null
-  br i1 %19, label %malloc.exit, label %20
+9:                                                ; preds = %8, %2
+  %10 = add i64 %6, -1
+  %11 = and i64 %10, %4
+  %12 = icmp eq i64 %11, 0
+  br i1 %12, label %14, label %13
 
-20:                                               ; preds = %13
-  %21 = ptrtoint i64* %18 to i64
-  %22 = and i64 %21, 7
-  %23 = icmp eq i64 %22, 0
-  br i1 %23, label %25, label %24
-
-24:                                               ; preds = %20
+13:                                               ; preds = %9
   tail call void @__cc_flag_invalid() #5
-  br label %25
+  br label %14
 
-25:                                               ; preds = %24, %20
-  %26 = bitcast i64* %18 to i8*
-  %27 = icmp ugt i8* %17, %26
-  %28 = icmp uge i64* %18, %16
-  %29 = or i1 %28, %27
-  br i1 %29, label %30, label %31
+14:                                               ; preds = %13, %9
+  %15 = getelementptr inbounds i8, i8* %3, i64 %6
+  %16 = getelementptr inbounds i8, i8* %15, i64 -8
+  %17 = bitcast i8* %16 to i64*
+  tail call void @__cc_write_and_poison(i64* nonnull %17, i64 1) #5
+  %18 = getelementptr inbounds i8, i8* %3, i64 24
+  tail call void @__cc_access_valid(i8* %3, i8* nonnull %18) #5
+  %19 = tail call i64* @__cc_advise_poison(i8* nonnull %18, i8* nonnull %16) #5
+  %20 = icmp eq i64* %19, null
+  br i1 %20, label %malloc.exit, label %21
 
-30:                                               ; preds = %25
+21:                                               ; preds = %14
+  %22 = ptrtoint i64* %19 to i64
+  %23 = and i64 %22, 7
+  %24 = icmp eq i64 %23, 0
+  br i1 %24, label %26, label %25
+
+25:                                               ; preds = %21
   tail call void @__cc_flag_invalid() #5
-  br label %31
+  br label %26
 
-31:                                               ; preds = %30, %25
-  tail call void @__cc_write_and_poison(i64* nonnull %18, i64 0) #5
+26:                                               ; preds = %25, %21
+  %27 = bitcast i64* %19 to i8*
+  %28 = icmp ugt i8* %18, %27
+  br i1 %28, label %29, label %30
+
+29:                                               ; preds = %26
+  tail call void @__cc_flag_invalid() #5
+  br label %30
+
+30:                                               ; preds = %29, %26
+  %31 = icmp ult i64* %19, %17
+  br i1 %31, label %33, label %32
+
+32:                                               ; preds = %30
+  tail call void @__cc_flag_invalid() #5
+  br label %33
+
+33:                                               ; preds = %32, %30
+  tail call void @__cc_write_and_poison(i64* nonnull %19, i64 0) #5
   br label %malloc.exit
 
-malloc.exit:                                      ; preds = %13, %31
-  %32 = bitcast i8* %3 to %struct.node*
-  %33 = bitcast i8* %3 to i32*
-  store i32 %0, i32* %33, align 8, !tbaa !8
-  %34 = getelementptr inbounds i8, i8* %3, i64 4
-  %35 = bitcast i8* %34 to i32*
-  store i32 %1, i32* %35, align 4, !tbaa !11
-  %36 = getelementptr inbounds i8, i8* %3, i64 8
-  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 8 %36, i8 0, i64 16, i1 false)
-  ret %struct.node* %32
+malloc.exit:                                      ; preds = %14, %33
+  %34 = bitcast i8* %3 to %struct.node*
+  %35 = bitcast i8* %3 to i32*
+  store i32 %0, i32* %35, align 8, !tbaa !8
+  %36 = getelementptr inbounds i8, i8* %3, i64 4
+  %37 = bitcast i8* %36 to i32*
+  store i32 %1, i32* %37, align 4, !tbaa !11
+  %38 = getelementptr inbounds i8, i8* %3, i64 8
+  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 8 %38, i8 0, i64 16, i1 false)
+  ret %struct.node* %34
 }
 
 ; Function Attrs:  nounwind uwtable
@@ -145,6 +156,8 @@ declare dso_local i8* @__cc_malloc(i64) local_unnamed_addr #1
 declare dso_local void @__cc_flag_invalid() local_unnamed_addr #1
 
 declare dso_local void @__cc_write_and_poison(i64*, i64) local_unnamed_addr #1
+
+declare dso_local void @__cc_access_valid(i8*, i8*) local_unnamed_addr #1
 
 declare dso_local i64* @__cc_advise_poison(i8*, i8*) local_unnamed_addr #1
 
@@ -284,7 +297,7 @@ attributes #5 = { nobuiltin nounwind }
 !llvm.ident = !{!0, !0, !0, !0}
 !llvm.module.flags = !{!1, !2, !3}
 
-!0 = !{!"clang version 9.0.1-12 "}
+!0 = !{!"clang version 9.0.1-16 "}
 !1 = !{i32 1, !"wchar_size", i32 4}
 !2 = !{i32 1, !"ThinLTO", i32 0}
 !3 = !{i32 1, !"EnableSplitLTOUnit", i32 0}

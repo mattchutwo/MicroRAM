@@ -29,9 +29,11 @@ import qualified Data.ByteString.UTF8 as BSU
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Text (Text)
 import qualified Data.Text as Text
 
 import Compiler.Common (Name(Name), Ty(..), tySize)
+import Compiler.Metadata
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.LazyConstants
@@ -86,21 +88,26 @@ cc_test_add _ _ _ _ = progError "bad arguments"
 cc_noop :: IntrinsicImpl m w
 cc_noop _ _ _ _ = return []
 
-cc_trap :: IntrinsicImpl m MWord
-cc_trap _ _ md _ = return [
-  MirM (Iext "trace_trap" []) md,
-  MirM (Ianswer (LImm $ SConst 0)) md] -- TODO
+cc_trap :: Text -> IntrinsicImpl m MWord
+cc_trap desc _ _ md _ = return [
+  MirM (Iext (XTrace ("Trap: " <> desc) [])) md,
+  MirM (Ianswer (LImm $ SConst 0)) md] 
 
 cc_malloc :: IntrinsicImpl m w
-cc_malloc [size] (Just dest) md _ = return [MirM (Iextval "malloc" dest [size]) md]
+cc_malloc [size] (Just dest) md _ = return [MirM (Iextadvise dest (XMalloc size)) md]
 cc_malloc _ _ _ _ = progError "bad arguments"
 
-cc_free :: IntrinsicImpl m w
-cc_free [ptr] Nothing md _ = return [MirM (Iext "free" [ptr]) md]
-cc_free _ _ _ _ = progError "bad arguments"
+cc_access_valid :: IntrinsicImpl m w
+cc_access_valid [lo, hi] Nothing md _ = return [MirM (Iext (XAccessValid lo hi)) md]
+cc_access_valid _ _ _ _ = progError "bad arguments"
+
+cc_access_invalid :: IntrinsicImpl m w
+cc_access_invalid [lo, hi] Nothing md _ = return [MirM (Iext (XAccessInvalid lo hi)) md]
+cc_access_invalid _ _ _ _ = progError "bad arguments"
 
 cc_advise_poison :: IntrinsicImpl m w
-cc_advise_poison [lo, hi] (Just dest) md _ = return [MirM (Iextval "advise_poison" dest [lo, hi]) md]
+cc_advise_poison [lo, hi] (Just dest) md _ =
+  return [MirM (Iextadvise dest (XAdvisePoison lo hi)) md]
 cc_advise_poison _ _ _ _ = progError "bad arguments"
 
 cc_write_and_poison :: IntrinsicImpl m w
@@ -108,9 +115,21 @@ cc_write_and_poison [ptr, val] Nothing md _ =
   return [MirM (IpoisonW ptr val) md]
 cc_write_and_poison _ _ _ _ = progError "bad arguments"
 
+cc_read_unchecked :: IntrinsicImpl m w
+cc_read_unchecked [ptr] (Just dest) md _ =
+  return [MirM (Iextval dest (XLoadUnchecked ptr)) md]
+cc_read_unchecked _ _ _ _ = progError "bad arguments"
+
+cc_write_unchecked :: IntrinsicImpl m w
+cc_write_unchecked [ptr, val] Nothing md _ =
+  return [MirM (Iext (XStoreUnchecked ptr val)) md]
+cc_write_unchecked _ _ _ _ = progError "bad arguments"
+
 cc_flag_invalid :: IntrinsicImpl m MWord
 cc_flag_invalid [] Nothing md _ =
-  return [MirM (IpoisonW zero zero) md]
+  return [
+    MirM (Iext (XTrace "__cc_flag_invalid" [])) md,
+    MirM (IpoisonW zero zero) md ]
   where zero = LImm $ SConst 0
 cc_flag_invalid _ _ _ _ = progError "bad arguments"
 
@@ -121,8 +140,13 @@ cc_flag_bug [] Nothing md _ =
 cc_flag_bug _ _ _ _ = progError "bad arguments"
 
 cc_trace :: IntrinsicImpl m w
-cc_trace [msg] Nothing md _ = return [MirM (Iext "tracestr" [msg]) md]
+cc_trace [msg] Nothing md _ = return [MirM (Iext (XTraceStr msg)) md]
 cc_trace _ _ _ _ = progError "bad arguments"
+
+cc_trace_exec :: IntrinsicImpl m w
+cc_trace_exec (name : args) Nothing md _ =
+  return [MirM (Iext (XTraceExec name args)) md]
+cc_trace_exec _ _ _ _ = progError "bad arguments"
 
 va_start :: IntrinsicImpl m MWord
 va_start [ptr] Nothing md (CCM argTys) = do
@@ -143,11 +167,15 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("__cc_flag_bug", cc_flag_bug)
 
   , ("__cc_malloc", cc_malloc)
-  , ("__cc_free", cc_free)
+  , ("__cc_access_valid", cc_access_valid)
+  , ("__cc_access_invalid", cc_access_invalid)
   , ("__cc_advise_poison", cc_advise_poison)
   , ("__cc_write_and_poison", cc_write_and_poison)
+  , ("__cc_read_unchecked", cc_read_unchecked)
+  , ("__cc_write_unchecked", cc_write_unchecked)
 
   , ("__cc_trace", cc_trace)
+  , ("__cc_trace_exec", cc_trace_exec)
 
   , ("llvm.lifetime.start.p0i8", cc_noop)
   , ("llvm.lifetime.end.p0i8", cc_noop)
@@ -156,17 +184,37 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("llvm.va_end", cc_noop)
 
   -- Exception handling
-  , ("__gxx_personality_v0", cc_trap)
-  , ("__cxa_allocate_exception", cc_trap)
-  , ("__cxa_throw", cc_trap)
-  , ("__cxa_begin_catch", cc_trap)
-  , ("__cxa_end_catch", cc_trap)
-  , ("llvm.eh.typeid.for", cc_trap)
+  , mkTrap "__gxx_personality_v0"
+  , mkTrap "__cxa_allocate_exception"
+  , mkTrap "__cxa_throw"
+  , mkTrap "__cxa_begin_catch"
+  , mkTrap "__cxa_end_catch"
+  , mkTrap "llvm.eh.typeid.for"
 
   -- Explicit trap
-  , ("__cxa_pure_virtual", cc_trap)
-  , ("llvm.trap", cc_trap)
+  , mkTrap "__cxa_pure_virtual"
+  , mkTrap "llvm.trap"
+  , mkTrap "_ZSt9terminatev"
+
+  -- Floating-point ops
+  , mkTrap "llvm.ceil.f64"
+  , mkTrap "llvm.copysign.f64"
+  , mkTrap "llvm.exp2.f64"
+  , mkTrap "llvm.exp.f64"
+  , mkTrap "llvm.fabs.f64"
+  , mkTrap "llvm.floor.f64"
+  , mkTrap "llvm.log.f64"
+  , mkTrap "llvm.pow.f64"
+  , mkTrap "llvm.sqrt.f64"
+  , mkTrap "llvm.trunc.f64"
+  , mkTrap "llvm.llrint.i64.f64"
+
+  -- Varargs
+  , mkTrap "llvm.va_start"
+  , mkTrap "llvm.va_end"
   ]
+  where
+    mkTrap name = (name, cc_trap $ Text.pack name)
 
 lowerIntrinsics :: forall m. MIRprog m MWord -> Hopefully (MIRprog m MWord)
 lowerIntrinsics = expandInstrs (expandIntrinsicCall intrinsics)
@@ -187,7 +235,7 @@ removeIntrinsics prog =
 -- `__llvm__memset__p0i8__i64`, then this pass renames it to the dotted form.
 -- (It also renames the empty definition of the dotted form to `orig.llvm.foo`,
 -- to avoid conflicts later on.)
-renameLLVMIntrinsicImpls :: forall m. MIRprog m MWord -> Hopefully (MIRprog m MWord)
+renameLLVMIntrinsicImpls :: MIRprog Metadata MWord -> Hopefully (MIRprog Metadata MWord)
 renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
   where
     renameList :: [(Name, Name)]
@@ -198,14 +246,31 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
       return (nm, Name $ fromText $ "llvm." <> Text.replace "__" "." name)
 
     renameMap = Map.fromList renameList
+    renameMapString = Map.fromList $ map (\(x,y) -> (show x, show y)) renameList
     removeSet = Set.fromList $ map snd renameList
+    
 
-    code' :: [MIRFunction m MWord]
+
+    code' :: [MIRFunction Metadata MWord]
     code' = do
       Function nm rty atys bbs nr <- code
       guard $ not $ Set.member nm removeSet
-      let nm' = maybe nm id $ Map.lookup nm renameMap
-      return $ Function nm' rty atys bbs nr
+      let replaceName =  Function (changeName nm) rty atys bbs nr
+      return $ mapMetadataMIRFunction changeMetadata replaceName 
+    changeName nm = maybe nm id $ Map.lookup nm renameMap
+
+    changeMetadata :: Metadata -> Metadata
+    changeMetadata md = md {mdFunction = changeString $ mdFunction md}
+    changeString nm = maybe nm id $ Map.lookup nm renameMapString
 
     fromText t = Short.toShort $ BSU.fromString $ Text.unpack t
     toText s = Text.pack $ BSU.toString $ Short.fromShort s
+
+mapMetadataMIRFunction ::  (md1 -> md2) ->  MIRFunction md1 wrdT -> MIRFunction md2 wrdT
+mapMetadataMIRFunction mdF fn =
+  fn {funcBlocks = map mapMetadataBlocks (funcBlocks fn)}
+  where mapMetadataBlocks (BB nm instrs1 instrs2 dg) =
+          BB nm (map mapMetadataInstr instrs1) (map mapMetadataInstr instrs2) dg
+
+        mapMetadataInstr (MirM inst md) = MirM inst $ mdF md
+        mapMetadataInstr (MirI inst md) = MirI inst $ mdF md

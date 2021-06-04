@@ -131,7 +131,7 @@ stepInstr i = do
     Imull rd r1 op2 -> stepBinary (*) rd r1 op2
     Iumulh rd r1 op2 -> stepBinary umulh rd r1 op2
     Ismulh rd r1 op2 -> stepBinary smulh rd r1 op2
-    -- TODO div/mod vs quot/rem?
+
     Iudiv rd r1 op2 -> stepBinary safeDiv rd r1 op2
     Iumod rd r1 op2 -> stepBinary safeMod rd r1 op2
     
@@ -159,13 +159,14 @@ stepInstr i = do
     Ipoison w op2 r1 -> stepStore w op2 r1 >> poison w op2
     
     Iadvise _ -> assumptError $ "unhandled advice request"
-    
-    Iext name _ -> assumptError $ "unhandled extension instruction " ++ show name
-    Iextval name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
-    Iextadvise name _ _ -> assumptError $ "unhandled extension instruction " ++ show name
+
+    i -> do
+      -- Replace input operands with their values, and convert the destination
+      -- register to a `Word` so it can be printed.
+      i' <- mapInstrM (return . toWord) regVal opVal i
+      assumptError $ "unhandled instruction: " ++ show i'
 
   sMach . mCycle %= (+ 1)
-  
 
 
 stepUnary :: Regs r => (MWord -> MWord) ->
@@ -239,19 +240,29 @@ subBytes w off f x = put <$> f x'
 
 stepStore :: Regs r => MemWidth -> Operand r MWord -> r -> InterpM r s Hopefully ()
 stepStore w op2 r1 = do
-  (waddr, offset) <- splitAlignedAddr w =<< opVal op2
+  addr <- opVal op2
   val <- regVal r1
+  doStore w addr val
+  nextPc
+
+doStore :: MemWidth -> MWord -> MWord -> InterpM r s Hopefully ()
+doStore w addr val = do
+  (waddr, offset) <- splitAlignedAddr w addr
   checkPoison waddr
   sMach . mMemWord waddr . subBytes w offset .= val
-  nextPc
 
 stepLoad :: Regs r => MemWidth -> r -> Operand r MWord -> InterpM r s Hopefully ()
 stepLoad w rd op2 = do
-  (waddr, offset) <- splitAlignedAddr w =<< opVal op2
+  addr <- opVal op2
+  doLoad w rd addr
+  nextPc
+
+doLoad :: Regs r => MemWidth -> r -> MWord -> InterpM r s Hopefully ()
+doLoad w rd addr = do
+  (waddr, offset) <- splitAlignedAddr w addr
   val <- use $ sMach . mMemWord waddr . subBytes w offset
   checkPoison waddr
   sMach . mReg rd .= val
-  nextPc
 
 poison :: Regs r => MemWidth -> Operand r MWord -> InterpM r s Hopefully ()
 poison w op2 = do
@@ -398,41 +409,42 @@ readStr ptr = do
     splitWord x = [fromIntegral $ x `shiftR` (i * 8) | i <- [0 .. wordBytes - 1]]
 
 traceHandler :: Regs r => Bool -> InstrHandler r s -> InstrHandler r s
-traceHandler active _nextH (Iext "trace" ops) = do
+traceHandler active _nextH (Iext (XTrace desc ops)) = do
   vals <- mapM opVal ops
-  when active $ traceM $ "TRACE " ++ intercalate ", " (map show vals)
+  when active $ traceM $ "TRACE[" ++ Text.unpack desc ++ "] " ++ intercalate ", " (map show vals)
   nextPc
-traceHandler active _nextH (Iext "tracestr" [ptrOp]) = do
+traceHandler active _nextH (Iext (XTraceStr ptrOp)) = do
   ptr <- opVal ptrOp
   s <- readStr ptr
   when active $ traceM $ "TRACESTR " ++ Text.unpack s
   nextPc
-traceHandler active _nextH (Iext name ops) | Just desc <- Text.stripPrefix "trace_" name = do
-  vals <- mapM opVal ops
-  when active $ traceM $ "TRACE[" ++ Text.unpack desc ++ "] " ++ intercalate ", " (map show vals)
+traceHandler active _nextH (Iext (XTraceExec nameOp valOps)) = do
+  namePtr <- opVal nameOp
+  name <- readStr namePtr
+  vals <- mapM opVal valOps
+  let vals' = reverse $ dropWhile (== 0) $ reverse vals
+  when active $ traceM $ "[FUNC] " ++ Text.unpack name ++
+    "(" ++ intercalate ", " (map (drop 2 . showHex) vals') ++ ")"
   nextPc
+traceHandler active nextH instr@(Ianswer op) = do
+  val <- opVal op
+  when active $ traceM $ "ANSWER = " ++ show val
+  nextH instr
 traceHandler _active nextH instr = nextH instr
 
 
 -- Memory allocation tracking
 
-data Alloc = Alloc
-  { _aLen :: MWord
-  , _aFreed :: Bool
-  }
-
 data MemErrorKind = OutOfBounds | UseAfterFree | Unallocated
   deriving (Show, Eq)
 
 data AllocState = AllocState
-  -- | A map for tracking all allocations made by the program, including those
-  -- that have already been freed.  This works becaus eall allocations are
-  -- nonoverlapping and memory is never reused.  The map key is the
-  -- allocation's start address; use `Map.lookupLE addr` to find the allocation
-  -- that might contain `addr`.
-  { _asAllocs :: Map MWord Alloc
   -- | The next unused address.  Used for future allocations.
-  , _asFrontier :: MWord
+  { _asFrontier :: MWord
+  -- | Map tracking all memory that is valid to access at the moment.  An entry
+  -- `(k, v)` means that addresses `k <= addr < v` are valid to access.
+  -- Entries are all non-empty (`k < v`) and non-overlapping.
+  , _asValid :: Map MWord MWord
   -- | The address of each `malloc` performed by the program.  This is passed
   -- to the second run so it can replicate the same `malloc` behavior, without
   -- having to repeat the same allocation logic.  (Currently, the logic is
@@ -443,17 +455,15 @@ data AllocState = AllocState
   , _asMemErrors :: Seq (MemErrorKind, MWord)
   }
 
-makeLenses ''Alloc
 makeLenses ''AllocState
-
-_useALen :: Lens' Alloc MWord
-_useALen = aLen
 
 heapStart :: MWord
 heapStart = 0x10000000
 
 initAllocState :: AllocState
-initAllocState = AllocState Map.empty heapStart Seq.empty Seq.empty
+initAllocState = AllocState heapStart initValid Seq.empty Seq.empty
+  -- Initially, only the range 0 .. heapStart is valid.
+  where initValid = Map.singleton 0 heapStart
 
 redzoneSize :: MWord
 redzoneSize = 128
@@ -462,45 +472,61 @@ ceilLog2 :: MWord -> Int
 ceilLog2 0 = 1
 ceilLog2 n = wordBits - countLeadingZeros (n - 1)
 
-
--- | Compute the bounds of the usable space in the block containing `addr`.
-blockBounds :: MWord -> (MWord, MWord)
-blockBounds addr = (start, end)
+-- | Helper function for markValid and markInvalid.  Deletes all entries with
+-- key `start <= k < end` from `valid`.
+validDeleteRange :: MWord -> MWord -> Map MWord MWord -> Map MWord MWord
+validDeleteRange start end valid = go valid
   where
-    sizeClass = addr `shiftR` 58
-    size = 1 `shiftL` fromIntegral sizeClass
-    start = addr .&. complement (size - 1)
-    -- The last word of the block is reserved for metadata.
-    end = start + size - 1
+    -- Find the first entry with `start <= k`, and if `k < end`, delete it.
+    go m = case Map.lookupGE start m of
+      Just (k, _) | k < end -> go $ Map.delete k m
+      _ -> m
+
+markValid :: MWord -> MWord -> Map MWord MWord -> Map MWord MWord
+markValid start end valid | end <= start = valid
+markValid start end valid =
+    Map.insert start' end' $ validDeleteRange start' end' valid
+  where
+    -- If the range `start .. end` overlaps some ranges already in the map,
+    -- extend to cover those ranges as well.
+    start' = case Map.lookupLE start valid of
+      Just (prevStart, prevEnd) | prevStart < start && start <= prevEnd -> prevStart
+      _ -> start
+    end' = case Map.lookupLE end valid of
+      Just (nextStart, nextEnd) | nextStart <= end && end < nextEnd -> nextEnd
+      _ -> end
+
+markInvalid :: MWord -> MWord -> Map MWord MWord -> Map MWord MWord
+markInvalid start end valid | end <= start = valid
+markInvalid start end valid =
+    validDeleteRange start end $ splitAt start $ splitAt end $ valid
+  where
+    -- If an entry in the map overlaps `pos`, split the entry in two so that
+    -- `pos` falls on the boundary.
+    splitAt pos m = case Map.lookupLE pos m of
+      Just (start, end) | start < pos && pos < end ->
+        Map.union (Map.fromList [(start, pos), (pos, end)]) $ Map.delete start m
+      _ -> m
+
 
 -- | Check the allocation status of `addr`, and record a memory error if it
 -- isn't valid.
 checkAccess :: Regs r => Bool -> Lens' s AllocState -> MWord -> InterpM r s Hopefully ()
-checkAccess _ _ addr | addr < heapStart = return ()
 checkAccess verbose allocState addr = do
-  let (start, end) = blockBounds addr
-  optAlloc <- use $ sExt . allocState . asAllocs . at start
-  case optAlloc of
-    -- We check against `end` to avoid complaining about accesses of the
-    -- block's metadata word.
-    Just (Alloc len _) | start + len <= addr && addr < end -> do
-      when verbose $ traceM $ "detected out-of-bounds access at " ++ showHex addr ++
-        ", after the block at " ++ showHex start
-      sExt . allocState . asMemErrors %= (Seq.|> (OutOfBounds, addr))
-    Just (Alloc _ True) | start <= addr && addr < end -> do
-      when verbose $ traceM $ "detected use-after-free at " ++ showHex addr ++
-        ", in the block at " ++ showHex start
-      sExt . allocState . asMemErrors  %= (Seq.|> (UseAfterFree, addr))
-    Nothing -> do
-      when verbose $ traceM $ "detected bad access at " ++ showHex addr ++
-        ", in the unallocated block at " ++ showHex start
-      sExt . allocState . asMemErrors  %= (Seq.|> (Unallocated, addr))
-    _ -> return ()
+  validMap <- use $ sExt . allocState . asValid
+  let valid = case Map.lookupLE addr validMap of
+        Just (start, end) -> start <= addr && addr < end
+        Nothing -> False
+  when (not valid) $ do
+    -- TODO: update `asValid` to keep track of why a given region is invalid,
+    -- so we can produce a more precise message and MemErrorKind
+    when verbose $ traceM $ "detected bad access at " ++ showHex addr
+    sExt . allocState . asMemErrors  %= (Seq.|> (OutOfBounds, addr))
 
 allocHandler :: Regs r => Bool -> Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
-allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
+allocHandler verbose allocState _nextH (Iextadvise rd (XMalloc sizeOp)) = do
   size <- opVal sizeOp
-  let sizeClass = ceilLog2 (size + fromIntegral wordBytes)
+  let sizeClass = ceilLog2 size
   let size' = 1 `shiftL` sizeClass
 
   base <- use $ sExt . allocState . asFrontier
@@ -509,7 +535,6 @@ allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
   sExt . allocState . asFrontier .= addr + size'
 
   let ptr = addr .|. (fromIntegral sizeClass `shiftL` 58)
-  sExt . allocState . asAllocs %= Map.insert ptr (Alloc size False)
   sExt . allocState . asMallocAddrs %= (Seq.|> ptr)
 
   when verbose $ traceM $ "malloc " ++ show size ++ " bytes (extended to " ++ show size' ++
@@ -517,26 +542,19 @@ allocHandler verbose allocState _nextH (Iextval "malloc" rd [sizeOp]) = do
 
   sMach . mReg rd .= ptr
   finishInstr
-allocHandler verbose allocState _nextH (Iext "free" [ptrOp]) = do
-  ptr <- opVal ptrOp
-
-  let sizeClass = ptr `shiftR` 58
-  let size' = (1 :: MWord) `shiftL` fromIntegral sizeClass
-  when verbose $ traceM $ "free " ++ show size' ++ " words at " ++ showHex ptr
-
-  cur <- use $ sExt . allocState . asAllocs . at ptr
-  case cur of
-    Just (Alloc _ True) -> do
-      when verbose $ traceM $ "detected double free at " ++ showHex ptr
-      -- This kind of bug is detected automatically - no advice required.
-    Nothing -> do
-      when verbose $ traceM $ "detected invalid free at " ++ showHex ptr
-      -- This kind of bug is detected automatically - no advice required.
-    _ -> return ()
-
-  sExt . allocState . asAllocs . ix ptr . aFreed .= True
+allocHandler verbose allocState _nextH (Iext (XAccessValid loOp hiOp)) = do
+  lo <- opVal loOp
+  hi <- opVal hiOp
+  sExt . allocState . asValid %= markValid lo hi
+  when verbose $ traceM $ "valid: " ++ showHex lo ++ " .. " ++ showHex hi
   finishInstr
-allocHandler _verbose _allocState _nextH (Iextval "advise_poison" rd [_lo, _hi]) = do
+allocHandler verbose allocState _nextH (Iext (XAccessInvalid loOp hiOp)) = do
+  lo <- opVal loOp
+  hi <- opVal hiOp
+  sExt . allocState . asValid %= markInvalid lo hi
+  when verbose $ traceM $ "invalid: " ++ showHex lo ++ " .. " ++ showHex hi
+  finishInstr
+allocHandler _verbose _allocState _nextH (Iextadvise rd (XAdvisePoison _lo _hi)) = do
   -- Always return 0 (don't poison)
   sMach . mReg rd .= 0
   finishInstr
@@ -545,12 +563,22 @@ allocHandler verbose  allocState nextH instr@(Istore _w op2 _r1) = do
   -- TODO: this misses errors when the first byte of the access is in bounds
   -- but the later bytes are not.  However, we can't catch such errors yet,
   -- since we can't poison only part of a word.
+  -- Should be solved soon by the new malloc.
   checkAccess verbose allocState addr
   nextH instr
 allocHandler verbose allocState nextH instr@(Iload _w _rd op2) = do
   addr <- opVal op2
   checkAccess verbose allocState addr
   nextH instr
+allocHandler _ _ _ (Iextval rd (XLoadUnchecked op2)) = do
+  addr <- opVal op2
+  doLoad WWord rd addr
+  finishInstr
+allocHandler _ _ _ (Iext (XStoreUnchecked op2 op1)) = do
+  addr <- opVal op2
+  val <- opVal op1
+  doStore WWord addr val
+  finishInstr
 allocHandler _ _ nextH instr = nextH instr
 
 -- Memory handling, second pass
@@ -568,13 +596,13 @@ doAdvise advice rd val = do
 
 memErrorHandler :: Regs r => Lens' s MemInfo -> Lens' s AdviceMap ->
   InstrHandler r s -> InstrHandler r s
-memErrorHandler info advice _nextH (Iextadvise "malloc" rd [_size]) = do
+memErrorHandler info advice _nextH (Iextadvise rd (XMalloc _size)) = do
   val <- maybe (assumptError "ran out of malloc addrs") return =<<
     use (sExt . info . miMallocAddrs . to (Seq.lookup 0))
   sExt . info . miMallocAddrs %= Seq.drop 1
   doAdvise advice rd val
   finishInstr
-memErrorHandler info advice _nextH (Iextadvise "advise_poison" rd [loOp, hiOp]) = do
+memErrorHandler info advice _nextH (Iextadvise rd (XAdvisePoison loOp hiOp)) = do
   lo <- opVal loOp
   hi <- opVal hiOp
   addrs <- use $ sExt . info . miPoisonAddrs
@@ -667,6 +695,7 @@ runPass2 steps initMach' memInfo = do
       traceHandler False $
       stepInstr
 
+
 -- | Used for checking final traces after post porocessing
 runPassGeneric :: Regs r => Lens' s (Seq (ExecutionState r)) -> Lens' s (AdviceMap) -> (InstrHandler r s -> InstrHandler r s)
                 -> s -> Word -> MachineState r -> Hopefully (Trace r)
@@ -740,13 +769,15 @@ initMach prog imem = MachineState
 type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
 run_v :: Regs mreg => Bool ->  Executor mreg (Trace mreg)
-run_v verbose (CompUnit progs trLen _ _analysis initMem _) = case go of
+run_v verbose (CompUnit progs trLen _ _analysis _) = case go of
   Left e -> error $ describeError e
   Right x -> x
   where
     go = do
-      memInfo <- runPass1 verbose  (trLen - 1) (initMach (highProg progs) initMem)
-      tr <- runPass2 (trLen - 1) (initMach (lowProg progs) initMem) memInfo
+      let highState = initMach (pmProg $ highProg progs) (pmMem $ highProg progs)
+      memInfo <- runPass1 verbose  (trLen - 1) highState
+      let lowState = initMach (pmProg $ lowProg progs) (pmMem $ lowProg progs)
+      tr <- runPass2 (trLen - 1) lowState memInfo
       return tr
       
 run :: Regs mreg => Executor mreg (Trace mreg)

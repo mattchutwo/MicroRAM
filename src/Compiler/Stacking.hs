@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-|
@@ -117,16 +118,16 @@ premain :: Regs mreg => [NamedBlock Metadata mreg MWord]
 premain = return $
   NBlock Nothing $
   -- poison address 0
-  map (\x -> (x,md)) $
-  [ IpoisonW (LImm 0) sp
+  (IpoisonW (LImm 0) sp, md{mdFunctionStart = True}) : -- Premain is a 'function' add function start metadata
+  (map (\x -> (x,md)) $
   -- Set the top of the stack.
-  , Imov sp (LImm initAddr)] ++
+  Imov sp (LImm initAddr) :
   -- push return address for main 
   Imov ax (Label "_ret_") : (push ax) ++
   -- set stack frame
   IstoreW (AReg sp) bp :  -- Store "old" base pointer 
   Imov bp (AReg sp) :    -- set base pointer to the stack pointer
-  callMain              -- jump to main
+  callMain)              -- jump to main
   where callMain = return $ Ijmp $ Label $ show $ Name "main"
         md = trivialMetadata "Premain" ""
 
@@ -136,16 +137,18 @@ premain = return $
 -- | returnBlock: return lets the program output an answer (when main returns)
 returnBlock :: Regs mreg => NamedBlock Metadata mreg MWord
 returnBlock = NBlock retName [(Ianswer (AReg ax),md)]
-  where md = trivialMetadata "_ret_" (show retName) 
+  where md = (trivialMetadata "_ret_" (show retName)) {mdFunctionStart = True} 
         retName = (Just "_ret_") 
 
 
 -- ** Function Prologues and Epilogues
 
 -- | prologue: allocates the stack at the beggining of the function
-prologue :: Regs mreg => MWord -> [MAInstruction mreg MWord]
-prologue size =
-    [Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size + 1))]
+prologue :: Regs mreg => MWord -> String -> [MAInstruction mreg MWord]
+prologue size entry =
+    [ Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size + 1))
+    , Ijmp $ Label entry
+    ]
 
 
 -- | epilogue: deallocate the stack, then jump to return address
@@ -163,32 +166,35 @@ epilogue =
 -- | Instructions produced to call a function.
 -- Note that setting the stackframe is the job of the callee function.
 funCallInstructions ::
-  Regs mreg => 
-  Ty   -- ^ Function Type
+  Regs mreg =>
+  Metadata
+  -> Ty   -- ^ Function Type
   -> Maybe mreg      -- ^ Return
   -> LOperand mreg         -- ^ Function name
   -> [Ty]
   -> [LOperand mreg] -- ^ Arguments
-  -> [MAInstruction mreg MWord]
-funCallInstructions _ ret f _ args =
+  -> [(MAInstruction mreg MWord, Metadata)]
+funCallInstructions md _ ret f _ args =
   -- Push all arguments to stack
   -- We store arguments backwards
-  pushN (reverse args) ++
+  addMD md 
+  (pushN (reverse args) ++
   -- Push return addres
     [Imov ax HereLabel,
      Iadd ax ax (LImm 6) -- FIXME: The compiler should do this addition
     ] ++ push ax ++
     [IstoreW (AReg sp) bp, Imov bp (AReg sp)] ++ -- Set new stack frame (sp is increased in the function)
   -- Run function 
-    Ijmp f :
+    [Ijmp f]) ++
   -- The function should return to this next instruciton
   -- restore the base pointer (right before this is used to compute return address)
-  Imov sp (AReg bp): -- get old sp 
-  IloadW bp (AReg sp) :         -- get old bp
+  (Imov sp (AReg bp), md{mdReturnCall = True}): -- get old sp 
+  addMD md 
+  (IloadW bp (AReg sp) :         -- get old bp
   -- remove arguments and return address from the stack
   (popN (fromIntegral $ (length args) + 1)) ++
   -- move the return value (allways returns to ax)
-  setResult ret
+  setResult ret)
   
 setResult :: Regs mreg => Maybe mreg -> [MAInstruction mreg MWord]
 setResult Nothing = []
@@ -198,38 +204,37 @@ setResult (Just ret) = smartMov ret ax
 -- ** Stacking translation
 
 -- | stack only the new instructions
-stackLTLInstr :: Regs mreg => LTLInstr' mreg MWord $ MAOperand mreg MWord
-              -> Hopefully [MAInstruction mreg MWord]
-stackLTLInstr (Lgetstack Incoming offset _ reg) = return $
+stackLTLInstr :: Regs mreg => Metadata -> LTLInstr' mreg MWord $ MAOperand mreg MWord
+              -> Hopefully [(MAInstruction mreg MWord, Metadata)]
+stackLTLInstr md (Lgetstack Incoming offset _ reg) = return $ addMD md $
    [ Iadd reg bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
    , IloadW reg (AReg reg)]
-stackLTLInstr (Lsetstack reg Incoming offset _) = return $
+stackLTLInstr md (Lsetstack reg Incoming offset _) = return $ addMD md $
    [ Iadd bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
    , IstoreW (AReg bp) reg
    , Isub bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))]
-stackLTLInstr (Lgetstack Local offset _ reg) = return $
+stackLTLInstr md (Lgetstack Local offset _ reg) = return $ addMD md $
    [ Isub reg bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
    , IloadW reg (AReg reg)]  -- JP: offset+1?
-stackLTLInstr (Lsetstack reg Local offset _) = return $
+stackLTLInstr md (Lsetstack reg Local offset _) = return $ addMD md $
    [ Isub bp bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
    , IstoreW (AReg bp) reg
    , Iadd bp bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))] -- JP: offset+1?
-stackLTLInstr (LGetBP reg) = return $
+stackLTLInstr md (LGetBP reg) = return $ addMD md $
    [ Imov reg (AReg bp)
    ]
 
-stackLTLInstr (LCall typ ret f argsT args) = return $
-  funCallInstructions typ ret f argsT args
-stackLTLInstr (LRet Nothing) = return epilogue 
-stackLTLInstr (LRet (Just _retVal)) =
-  return epilogue 
+stackLTLInstr md (LCall typ ret f argsT args) = return $ 
+  funCallInstructions md typ ret f argsT args
+stackLTLInstr md (LRet Nothing) = return $ addMD md $  epilogue 
+stackLTLInstr md (LRet (Just _retVal)) = return $ addMD md $ epilogue 
   -- (Imov ax retVal) : epilogue -- Calling convention inserts the move to ax for us, so we skip it here. Can we move `restoreLTLInstruction` here?
-stackLTLInstr (LAlloc reg sz n) = do
+stackLTLInstr md (LAlloc reg sz n) = do
   -- sp = sp + n * sz
   increaseSp <- incrSP sz n
   -- Compute the base of the new allocation (one word above the current sp)
   let addSp = maybe [] (\r -> [Iadd r sp $ LImm $ fromIntegral wordBytes]) reg
-  return $ increaseSp ++ addSp
+  return $ addMD md $ increaseSp ++ addSp
   where incrSP :: (Regs mreg) => MWord -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]
         incrSP sz (AReg r) = return $
           [Imull r r (LImm $ roundUp $ fromIntegral sz),
@@ -247,10 +252,10 @@ stackLTLInstr (LAlloc reg sz n) = do
 -- | stack all instructions
 stackInstr ::
   Regs mreg => 
-  LTLInstr md mreg MWord
-  -> Hopefully [(MAInstruction mreg MWord, md)]
+  LTLInstr Metadata mreg MWord
+  -> Hopefully [(MAInstruction mreg MWord, Metadata)]
 stackInstr (MRI instr md) =  return [(instr,md)]
-stackInstr (IRI instr md) = addMD md <$> stackLTLInstr instr 
+stackInstr (IRI instr md) = stackLTLInstr md instr 
 
 -- | Add metadata to a list of instructions (or anything)
 addMD :: b -> [a] -> [(a, b)]
@@ -258,22 +263,31 @@ addMD md ls = map (\x -> (x,md)) ls
 
 stackBlock
   :: Regs mreg
-  => (BB Name $ LTLInstr md mreg MWord)
-  -> Hopefully (NamedBlock md mreg MWord)
+  => (BB Name $ LTLInstr Metadata mreg MWord)
+  -> Hopefully (NamedBlock Metadata mreg MWord)
 stackBlock (BB name body term _) = do
   body' <- mapM stackInstr (body++term)
   return $ NBlock (Just $ show name) $ concat body'
 
 -- | Translating funcitons
 stackFunction
-  :: Regs mreg =>
+  :: forall mreg.
+  Regs mreg =>
   LFunction Metadata mreg MWord
   -> Hopefully $ [NamedBlock Metadata mreg MWord]
 stackFunction (LFunction name _retT _argT size code) = do
-  prologueBlock <- return $ NBlock (Just name) $ addMD prolMD (prologue size)
   codeBlocks <- mapM stackBlock code
+  entryName <- case codeBlocks of
+    NBlock (Just name) _ : _ -> return name
+    _ -> assumptError $ "function " ++ show name ++ " entry block has no name"
+  let prologueBody = addMD prolMD (prologue size entryName)
+  let prologueBlock = NBlock (Just name) $ markFunStart prologueBody 
   return $ prologueBlock : codeBlocks
   where prolMD = trivialMetadata name (show $ Just name)
+        -- | Add metadata for the first instruction in a funciton
+        markFunStart :: [(MAInstruction mreg MWord, Metadata)] -> [(MAInstruction mreg MWord, Metadata)]
+        markFunStart ls = let firstInst = head ls in -- We know ls is not empyt because the prelude is not empyt.
+          (fst firstInst, (snd firstInst){mdFunctionStart = True}) : tail ls 
   
   
 stacking :: Regs mreg => Lprog Metadata mreg MWord -> Hopefully $ MAProgram Metadata mreg MWord

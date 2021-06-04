@@ -28,12 +28,11 @@ import Compiler.Registers
 
 
 -- | The Compilation Unit
-data CompilationUnit a prog = CompUnit
+data CompilationUnit' a prog = CompUnit
   { programCU :: prog
   , traceLen :: Word
   , regData :: RegisterData
   , aData   :: AnalysisData
-  , initM   :: InitialMem
   , intermediateInfo :: a -- Other stuff we carry during compilation, but starts and ends as `()`
   }
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
@@ -51,10 +50,15 @@ data MultiProg prog = MultiProg
   }
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
-type CompilationResult prog = CompilationUnit () (MultiProg prog)
+data ProgAndMem prog = ProgAndMem { pmProg :: prog, pmMem :: InitialMem }
+  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
+
+type CompilationUnit a prog = CompilationUnit' a (ProgAndMem prog)
+
+type CompilationResult prog = CompilationUnit' () (MultiProg (ProgAndMem prog))
 
 prog2unit :: Word -> prog -> CompilationUnit () prog
-prog2unit len p = CompUnit p len InfinityRegs def [] ()
+prog2unit len p = CompUnit (ProgAndMem p []) len InfinityRegs def ()
 
 -- * Lifting operators
 
@@ -63,7 +67,7 @@ justCompile :: Monad m =>
   (progS -> m progT)
   -> CompilationUnit a progS
   -> m $ CompilationUnit a progT
-justCompile pass p = mapM pass p
+justCompile pass p = mapM (mapM pass) p
 
 -- | Informed Compilation: passes that use analysis data but only change code
 informedCompile :: Monad m =>
@@ -71,8 +75,8 @@ informedCompile :: Monad m =>
   -> CompilationUnit a progS
   -> m $ CompilationUnit a progT
 informedCompile pass cUnit = do
-  p' <- pass (programCU cUnit) (aData cUnit)
-  return $ cUnit {programCU = p'}
+  p' <- pass (pmProg $ programCU cUnit) (aData cUnit)
+  return $ cUnit {programCU = (programCU cUnit) { pmProg = p' } }
   
 -- | Just Analyse, lift passes that don't modify the code.
 justAnalyse :: Monad m  =>
@@ -80,15 +84,13 @@ justAnalyse :: Monad m  =>
   -> CompilationUnit a prog
   -> m $ CompilationUnit a prog
 justAnalyse analysis cUnit = do
-  a' <-  analysis (programCU cUnit)
+  a' <-  analysis (pmProg $ programCU cUnit)
   return $ cUnit {aData = addAnalysisPiece a' $ aData cUnit}
-
-
--- TODO: Should we move this to a separate file (e.g. Compiler/InitMem.hs) ?
 
 data InitMemSegment = InitMemSegment
   { isSecret :: Bool
   , isReadOnly :: Bool
+  , isHeapInit :: Bool
   , location :: MWord
   , segmentLen :: MWord
   , content :: Maybe [MWord]
@@ -104,12 +106,14 @@ type LazyInitialMem = [LazyInitSegment]
 flatInitMem :: InitialMem -> Map.Map MWord MWord
 flatInitMem = foldr initSegment Map.empty
   where initSegment :: InitMemSegment -> Map.Map MWord MWord -> Map.Map MWord MWord
-        initSegment (InitMemSegment _ _ _ _ Nothing) = id
-        initSegment (InitMemSegment _ _ loc _ (Just content)) =
+        initSegment (InitMemSegment _ _ _ _ _ Nothing) = id
+        initSegment (InitMemSegment _ _ _ loc _ (Just content)) =
           Map.union $ Map.fromList $
           -- Map with the new content
           zip [loc..] content
 
 lengthInitMem :: InitialMem -> MWord
 lengthInitMem = foldl (\tip seg -> max tip (segTip seg)) 0
-  where segTip (InitMemSegment _ _ loc len _) = loc + len
+  where segTip (InitMemSegment _ _ heapInit loc len _)
+          | heapInit = 0
+          | otherwise = loc + len

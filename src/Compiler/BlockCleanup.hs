@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 {-|
 Module      : BlockCleanup
 Description : Cleanup passes for MAProgram blocks
@@ -13,6 +15,8 @@ Currently implemented:
 * Basic jump threading.  If block A contains nothing but a jump to B, we
   replace each jump to A with a jump directly to B instead.
 
+* Remove redundant moves (like `mov r1 r1`)
+
 -}
 module Compiler.BlockCleanup
     ( blockCleanup
@@ -23,6 +27,7 @@ import Control.Monad.State
 
 import MicroRAM
 import Compiler.IRs
+import Compiler.Metadata
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -31,6 +36,17 @@ import Compiler.CompilationUnit
 import Compiler.Errors
 
 import Util.Util
+
+-- | Removes redundant moves (like `mov r1 r1`).
+redundantMovs :: forall md reg wrd . Eq reg => MAProgram md reg wrd -> Hopefully (MAProgram md reg wrd)
+redundantMovs prog = return $ map updateBlock prog
+  where
+    updateBlock (NBlock name instrs) = NBlock name $ filter (not . isRedundant . fst) instrs
+
+    isRedundant :: MAInstruction reg wrd -> Bool
+    isRedundant (Imov r1 (AReg r2)) = r1 == r2
+    isRedundant _                  = False
+
 
 -- | Basic jump threading.  If block A contains nothing but a jump to B, then
 -- replace each reference to `Label "A"` with `Label "B"`.  This should
@@ -74,7 +90,7 @@ threadJumps prog = return $ map updateBlock $ filter (not . isJumpSource) $ prog
 
 -- | Eliminate any blocks that are not reachable from the first (entry point)
 -- block.
-elimDead :: (Show regT, Show wrdT) => MAProgram md regT wrdT -> Hopefully (MAProgram md regT wrdT)
+elimDead :: (Show regT, Show wrdT) => MAProgram Metadata regT wrdT -> Hopefully (MAProgram Metadata regT wrdT)
 elimDead [] = return []
 elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
   where
@@ -103,6 +119,14 @@ elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
             Ijmp _ -> mempty
             _ -> Set.singleton (i + 1)
 
+    -- | All the blocks that are at the beggining of a function.
+    functionEntries :: [Int]
+    functionEntries = do
+      (i, NBlock _ instrs) <- zip [0..] prog
+      guard $ not $ null instrs                     -- Block is not empty
+      guard $ mdFunctionStart . snd $ (instrs !! 0) -- It's a function start
+      return i
+  
     -- | Add `cur` and all blocks it references (transitively) to the state.
     gather :: Int -> State (Set.Set Int) ()
     gather cur = do
@@ -115,14 +139,15 @@ elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
 
     -- | Set of all blocks referenced transitively from `start`.
     liveBlocks :: Set.Set Int
-    liveBlocks = execState (gather 0) mempty
+    liveBlocks = execState (mapM_ gather $ 0:functionEntries) mempty
 
 
-blockCleanup :: (Show regT, Show wrdT) => (CompilationUnit mem (MAProgram md regT wrdT))
-             -> Hopefully (CompilationUnit mem (MAProgram md regT wrdT))
+blockCleanup :: (Eq regT, Show regT, Show wrdT) => (CompilationUnit mem (MAProgram Metadata regT wrdT))
+             -> Hopefully (CompilationUnit mem (MAProgram Metadata regT wrdT))
 blockCleanup cu = do
-  prog' <- return (programCU cu) >>=
+  prog' <- return (pmProg $ programCU cu) >>=
     threadJumps >>=
     elimDead >>=
+    redundantMovs >>=
     return
-  return $ cu { programCU = prog' }
+  return $ cu { programCU = (programCU cu) { pmProg = prog' } }

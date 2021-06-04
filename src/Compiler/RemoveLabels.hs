@@ -26,9 +26,6 @@ instruction number to produce well formed MicroRAM. It does so in three passes:
 
 3) Replace all labels with the location given in the label map.
 
-TODO: It can all be done in 2 passes. Optimize?
-
-
 -}
 module Compiler.RemoveLabels
     ( removeLabels,
@@ -164,11 +161,11 @@ addDefault labelMap name =
       
 
 -- ** Remove labels from the entire CompilationUnit  
-removeLabels :: (CompilationUnit LazyInitialMem $ MAProgram md regT Wrd)
+removeLabels :: (CompilationUnit LazyInitialMem (MAProgram md regT Wrd))
              -> Hopefully $ CompilationUnit () (AnnotatedProgram md regT Wrd)
 removeLabels compUnit = do
-  lMap <- return $ createMap $ programCU compUnit
-  prog' <- replaceLabels lMap $ flatten $ programCU compUnit
+  lMap <- return $ createMap $ pmProg $ programCU compUnit
+  prog' <- replaceLabels lMap $ flatten $ pmProg $ programCU compUnit
   initMem <- removeLabelsInitMem lMap $ intermediateInfo compUnit
-  return $ compUnit {programCU = prog' , initM = initMem, intermediateInfo = ()}
+  return $ compUnit {programCU = ProgAndMem prog' initMem, intermediateInfo = ()}
   

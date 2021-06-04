@@ -27,7 +27,9 @@ module Compiler.InstructionSelection
     ) where
 
 import Data.Bits
+import Data.Binary.IEEE754 (floatToWord, doubleToWord)
 import qualified Data.ByteString.Short as Short
+import Data.String (fromString)
 
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map 
@@ -38,9 +40,11 @@ import Control.Monad.State.Lazy
 
 
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 
 import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
+import qualified LLVM.AST.Float as LLVM
 import qualified LLVM.AST.IntegerPredicate as IntPred
 
 import Compiler.Errors
@@ -55,6 +59,8 @@ import Util.Util
 
 import MicroRAM (MWord, MemWidth(..), pattern WWord, widthInt, wordBytes)
 import qualified MicroRAM as MRAM
+
+import Debug.Trace
 
 {- Notes on this instruction generation :
 
@@ -95,7 +101,7 @@ freshName = do
 
 getMetadata :: Statefully Metadata
 getMetadata = do
-  Metadata <$> use currentFunction <*> use currentBlock <*> use lineNumber <*> (return False)
+  Metadata <$> use currentFunction <*> use currentBlock <*> use lineNumber <*> (return False) <*> (return False)
 
 withMeta :: (Metadata -> x) -> Statefully x
 withMeta f = do {md <- getMetadata; return $ f md}
@@ -140,15 +146,24 @@ operand2operand _ _= implError "operand, probably metadata"
 -- truncation to the appropriate width (determined by the LLVM type of `op`).
 -- | Similar to isTruncate
 operand2operandTrunc :: Env
+                     -> Bool  -- ^ Signed: if set, sign-extend after truncating
                      -> LLVM.Operand
                      -> Statefully (MAOperand VReg MWord, [MA2Instruction VReg MWord])
-operand2operandTrunc env op = do
+operand2operandTrunc env signed op = do
   op' <- lift $ operand2operand env op
   case typeOf (llvmtTypeEnv env) op of
     LLVM.IntegerType w | w < 64 -> do
+      -- TODO: special case when `op` is `LImm` (const eval)
       tmpReg <- freshName
+      tmpReg2 <- freshName
       let extra = MRAM.Iand tmpReg op' (LImm $ SConst $ (1 `shiftL` fromIntegral w) - 1)
-      return (AReg tmpReg, [extra])
+      let extra2 = [
+            MRAM.Iand tmpReg2 (AReg tmpReg) (LImm $ SConst $ 1 `shiftL` (fromIntegral w - 1)),
+            MRAM.Inot tmpReg2 (AReg tmpReg2),
+            MRAM.Iadd tmpReg2 (AReg tmpReg2) (LImm $ SConst 1),
+            MRAM.Ior tmpReg (AReg tmpReg) (AReg tmpReg2)
+            ]
+      return (AReg tmpReg, [extra] ++ (if signed then extra2 else []))
     _ -> return (op', [])
 
 
@@ -161,6 +176,7 @@ operand2operandTrunc env op = do
 type2type :: LLVMTypeEnv -> LLVM.Type -> Hopefully Ty
 type2type _ LLVM.VoidType = return TVoid -- FIXME check size!
 type2type _ (LLVM.IntegerType _n) = return Tint -- FIXME check size! 
+type2type _ (LLVM.FloatingPointType _n) = return Tint -- FIXME check size!
 type2type _tenv (LLVM.PointerType _t _) = return Tptr 
 type2type _ (LLVM.FunctionType {}) = return Tint -- FIXME enrich typed!
 type2type tenv' (LLVM.ArrayType size elemT) = do
@@ -202,6 +218,33 @@ liftToRTL ls = toRTL =<< lift ls
 
 type BinopInstruction = VReg -> MAOperand VReg MWord -> MAOperand VReg MWord ->
   MA2Instruction VReg MWord
+
+isBinopCommon
+  :: Env
+     -> Maybe Bool      -- ^ `Just signed` if operands should be truncated
+     -> Maybe VReg
+     -> LLVM.Operand
+     -> LLVM.Operand
+     -> BinopInstruction
+     -> Statefully [MIRInstr Metadata MWord]
+isBinopCommon env signed ret op1 op2 bopisBinop =
+    toRTL =<< isBinop' ret op1 op2 bopisBinop
+  where isBinop' ::
+          Maybe VReg
+          -> LLVM.Operand
+          -> LLVM.Operand
+          -> BinopInstruction
+          -> Statefully [MA2Instruction VReg MWord]
+        isBinop' Nothing _ _ _ = return [] --  without return is a noop
+        isBinop' (Just ret') op1' op2' bop = do
+          (a, aExtra) <- case signed of
+            Nothing -> lift $ operand2operand env op1' >>= \x -> return (x, [])
+            Just signed' -> operand2operandTrunc env signed' op1'
+          (b, bExtra) <- case signed of
+            Nothing -> lift $ operand2operand env op2' >>= \x -> return (x, [])
+            Just signed' -> operand2operandTrunc env signed' op2'
+          return $ aExtra ++ bExtra ++ [bop ret' a b]
+
 isBinop
   :: Env
      -> Maybe VReg
@@ -209,33 +252,33 @@ isBinop
      -> LLVM.Operand
      -> BinopInstruction
      -> Statefully [MIRInstr Metadata MWord]
-isBinop env ret op1 op2 bopisBinop = toRTL =<< lift (isBinop' ret op1 op2 bopisBinop)
-  where isBinop' ::
-          Maybe VReg
-          -> LLVM.Operand
-          -> LLVM.Operand
-          -> BinopInstruction
-          -> Hopefully $ [MA2Instruction VReg MWord]
-        isBinop' Nothing _ _ _ = Right [] --  without return is a noop
-        isBinop' (Just ret') op1' op2' bop = do
-          a <- operand2operand env op1'
-          b <- operand2operand env op2'
-          return [bop ret' a b]
-  
+isBinop env ret op1 op2 bopisBinop = isBinopCommon env Nothing ret op1 op2 bopisBinop
+
+isBinopTrunc
+  :: Env
+     -> Bool
+     -> Maybe VReg
+     -> LLVM.Operand
+     -> LLVM.Operand
+     -> BinopInstruction
+     -> Statefully [MIRInstr Metadata MWord]
+isBinopTrunc env signed ret op1 op2 bopisBinop =
+  isBinopCommon env (Just signed) ret op1 op2 bopisBinop
+
 -- ** Comparisons
 
 -- | Instruction selection for comparisons
 predicate2instructuion
   :: IntPred.IntegerPredicate
      -> regT
-     -> MAOperand regT wrdT
-     -> MAOperand regT wrdT
-     -> [MA2Instruction regT wrdT]
+     -> MAOperand regT MWord
+     -> MAOperand regT MWord
+     -> [MA2Instruction regT MWord]
 predicate2instructuion inst r op1 op2 =
   case inst of
   IntPred.EQ  -> [MRAM.Icmpe r op1 op2]
-  IntPred.NE  -> [MRAM.Icmpe r op1 op2, MRAM.Inot r (AReg r)]
--- Unsigned                                        r
+  IntPred.NE  -> [MRAM.Icmpe r op1 op2, MRAM.Ixor r (AReg r) (LImm $ SConst 1)]
+-- Unsigned
   IntPred.UGT -> [MRAM.Icmpa  r op1 op2] 
   IntPred.UGE -> [MRAM.Icmpae r op1 op2] 
   IntPred.ULT -> [MRAM.Icmpa  r op2 op1] --FLIPED
@@ -246,9 +289,14 @@ predicate2instructuion inst r op1 op2 =
   IntPred.SLT -> [MRAM.Icmpg  r op2 op1]  --FLIPED
   IntPred.SLE -> [MRAM.Icmpge r op2 op1]  --FLIPED
 
+predicateIsSigned :: IntPred.IntegerPredicate -> Bool
+predicateIsSigned pred = case pred of
+  IntPred.SGT -> True
+  IntPred.SGE -> True
+  IntPred.SLT -> True
+  IntPred.SLE -> True
+  _ -> False
 
-floatError :: MonadError CmplError m => m a
-floatError = implError "Floating point arithmetic"
 
 _constzero,constOne :: LLVM.Operand
 _constzero = LLVM.ConstantOperand (LLVM.Constant.Int (toEnum 0) 0)
@@ -265,11 +313,14 @@ function2function tenv (Right (LLVM.LocalReference ty nm)) = do
   return (AReg nm',retT',paramT')
 function2function tenv (Right (LLVM.ConstantOperand (LLVM.Constant.GlobalReference ty nm))) = do
   lbl <- name2label nm
-  (retT', paramT') <- functionPtrTypes ty
+  (retT', paramT') <- functionPtrTypes tenv ty
   return (lbl,retT',paramT')
-  where functionPtrTypes :: LLVM.Type -> Hopefully (Ty, [Ty])
-        functionPtrTypes (LLVM.PointerType funTy _) = functionTypes tenv funTy
-        functionPtrTypes ty = implError $ "Function pointer type expected found "  ++ show ty ++ " instead." 
+function2function tenv (Right (LLVM.ConstantOperand (LLVM.Constant.BitCast op ty))) = do
+  -- Use the `lbl` from evaluating `op`, but get the param/return types from
+  -- the new type `ty`.
+  (lbl, _retT, _paramT) <- function2function tenv (Right (LLVM.ConstantOperand op))
+  (retT', paramT') <- functionPtrTypes tenv ty
+  return (lbl, retT', paramT')
 function2function _tenv (Right (LLVM.ConstantOperand c)) =
   implError $ "Calling a function with a constant. You called: \n \t" ++ show c
 function2function _ (Right op) = 
@@ -281,9 +332,11 @@ functionTypes tenv' (LLVM.FunctionType retTy argTys _) = do
   retT' <- type2type  tenv' retTy
   paramT' <- mapM (type2type tenv') argTys
   return (retT',paramT')
--- functionTypes _tenv (LLVM.FunctionType  _ _ True) =
---   implError "Variable parameters (isVarArg in function call)."
 functionTypes _ ty =  assumptError $ "Function type expected found " ++ show ty ++ " instead."
+
+functionPtrTypes :: LLVMTypeEnv -> LLVM.Type -> Hopefully (Ty, [Ty])
+functionPtrTypes tenv (LLVM.PointerType funTy _) = functionTypes tenv funTy
+functionPtrTypes _tenv ty = implError $ "Function pointer type expected found "  ++ show ty ++ " instead."
 
 -- | Process parameters into RTL format
 -- WE dump the attributes
@@ -311,18 +364,20 @@ isInstruction env ret instr =
     (LLVM.Add _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Iadd
     (LLVM.Sub _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Isub
     (LLVM.Mul _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Imull
-    (LLVM.SDiv _ _ _o1 _o2 ) -> implError "Signed division is hard! SDiv"
-    (LLVM.SRem _o1 _o2 _)    -> implError "Signed division is hard! SRem"
-    (LLVM.FAdd _ _o1 _o2 _)  -> floatError
-    (LLVM.FSub _ _o1 _o2 _)  -> floatError
-    (LLVM.FMul _ _o1 _o2 _)  -> floatError
-    (LLVM.FDiv _ _o1 _o2 _)  -> floatError
-    (LLVM.FRem _ _o1 _o2 _)  -> floatError
-    (LLVM.UDiv _ o1 o2 _)    -> isBinop env ret o1 o2 MRAM.Iudiv -- this is easy
-    (LLVM.URem o1 o2 _)      -> isBinop env ret o1 o2 MRAM.Iumod -- this is eay
+    (LLVM.SDiv _ o1 o2 _)    ->
+      typedIntrinCall env "__cc_sdiv" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
+    (LLVM.SRem o1 o2 _)      ->
+      typedIntrinCall env "__cc_srem" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
+    (LLVM.FAdd _ _o1 _o2 _)  -> unsupported "FAdd"
+    (LLVM.FSub _ _o1 _o2 _)  -> unsupported "FSub"
+    (LLVM.FMul _ _o1 _o2 _)  -> unsupported "FMul"
+    (LLVM.FDiv _ _o1 _o2 _)  -> unsupported "FDiv"
+    (LLVM.FRem _ _o1 _o2 _)  -> unsupported "FRem"
+    (LLVM.UDiv _ o1 o2 _)    -> isBinopTrunc env False ret o1 o2 MRAM.Iudiv -- this is easy
+    (LLVM.URem o1 o2 _)      -> isBinopTrunc env False ret o1 o2 MRAM.Iumod -- this is eay
     -- Binary
     (LLVM.Shl _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Ishl
-    (LLVM.LShr _ o1 o2 _)    -> isBinop env ret o1 o2 MRAM.Ishr
+    (LLVM.LShr _ o1 o2 _)    -> isBinopTrunc env False ret o1 o2 MRAM.Ishr
     (LLVM.AShr _ o1 o2 _)    -> isArithShr env ret o1 o2
     (LLVM.And o1 o2 _)       -> isBinop env ret o1 o2 MRAM.Iand
     (LLVM.Or o1 o2 _)        -> isBinop env ret o1 o2 MRAM.Ior
@@ -346,18 +401,29 @@ isInstruction env ret instr =
     (LLVM.Phi _typ ins _)  ->  withReturn ret $ isPhi env ins
     (LLVM.Select cond op1 op2 _)  -> withReturn ret $ isSelect env cond op1 op2 
     (LLVM.GetElementPtr _ addr inxs _) -> withReturn ret $ isGEP env addr inxs
-    (LLVM.ExtractValue _ _ _ )   -> makeTraceInvalid <$> getMetadata
+    (LLVM.InsertValue _ _ _ _)   -> makeTraceInvalid "insertvalue" <$> getMetadata
+    (LLVM.ExtractValue _ _ _ )   -> makeTraceInvalid "extractvalue" <$> getMetadata
     -- Transformers
+    -- FIXME: SExt needs to set the high bits to match the sign bit of `op`
     (LLVM.SExt op _ _)       -> liftToRTL $ withReturn ret (isMove env op) 
+    -- FIXME: ZExt needs to set the high bits to zero
     (LLVM.ZExt op _ _)       -> liftToRTL $ withReturn ret (isMove env op)
     (LLVM.PtrToInt op _ty _) -> liftToRTL $ withReturn ret (isMove env op)
     (LLVM.IntToPtr op _ty _) -> liftToRTL $ withReturn ret (isMove env op)
     (LLVM.BitCast op _typ _) -> liftToRTL $ withReturn ret (isMove env op)
     (LLVM.Trunc op ty _ )    -> liftToRTL $ withReturn ret (isTruncate env op ty)
     -- Exceptions
-    (LLVM.LandingPad _ _ _ _ ) -> makeTraceInvalid <$> getMetadata
-    (LLVM.CatchPad _ _ _)      -> makeTraceInvalid <$> getMetadata
-    (LLVM.CleanupPad _ _ _ )   -> makeTraceInvalid <$> getMetadata
+    (LLVM.LandingPad _ _ _ _ ) -> makeTraceInvalid "landingpad" <$> getMetadata
+    (LLVM.CatchPad _ _ _)      -> makeTraceInvalid "catchpad" <$> getMetadata
+    (LLVM.CleanupPad _ _ _ )   -> makeTraceInvalid "cleanuppad" <$> getMetadata
+    -- Floating point
+    (LLVM.SIToFP _ _ _)     -> unsupported "SIToFP"
+    (LLVM.UIToFP _ _ _)     -> unsupported "UIToFP"
+    (LLVM.FPToSI _ _ _)     -> unsupported "FPToSI"
+    (LLVM.FPToUI _ _ _)     -> unsupported "FPToUI"
+    (LLVM.FCmp _ _ _ _)     -> unsupported "FCmp"
+    (LLVM.FPExt _ _ _)      -> unsupported "FPExt"
+    (LLVM.FPTrunc _ _ _)    -> unsupported "FPTrunc"
     instr ->  implError $ "Instruction: " ++ (show instr)
   where withReturn Nothing _ = return $ []
         withReturn (Just ret) f = f ret
@@ -367,6 +433,47 @@ isInstruction env ret instr =
           Nothing -> error $ "failed to resolve named type " ++ show name
         pointee (LLVM.PointerType ty _) = ty
         pointee ty = error $ "isInstruction: expected pointer, but got " ++ show ty
+
+        rejectUnsupported = False
+        unsupported desc
+          | rejectUnsupported = implError $ "unsupported instruction: " ++ desc
+          | otherwise = do
+            traceM $ "unsupported instruction: " ++ desc
+            makeTraceInvalid desc <$> getMetadata
+
+typedIntrinCall ::
+  Env ->
+  String ->
+  Maybe VReg ->
+  LLVM.Type ->
+  [LLVM.Operand] ->
+  Statefully [MIRInstr Metadata MWord]
+typedIntrinCall env baseName dest retTy ops = intrinCall env name dest retTy ops
+  where
+    opTys = map (typeOf (llvmtTypeEnv env)) ops
+    name = concat (baseName : map (\ty -> '_' : tyName ty) opTys)
+
+    tyName ty = case ty of
+      LLVM.VoidType -> "void"
+      LLVM.IntegerType bits -> "i" ++ show bits
+      _ -> "unknown"
+
+intrinCall ::
+  Env ->
+  String ->
+  Maybe VReg ->
+  LLVM.Type ->
+  [LLVM.Operand] ->
+  Statefully [MIRInstr Metadata MWord]
+intrinCall env name dest retTy ops = do
+    retTy' <- lift $ type2type (llvmtTypeEnv env) retTy
+    opTys' <- lift $ mapM (type2type tenv) $ map (typeOf tenv) ops
+    ops' <- lift $ mapM (operand2operand env) ops
+    let instr = RCall retTy' dest (Label $ show $ Name $ fromString name) opTys' ops'
+    md <- getMetadata
+    return [MirI instr md]
+  where
+    tenv = llvmtTypeEnv env
 
 {- | Implements arithmetic shift right in terms of other binary operations like so:
 @
@@ -430,12 +537,15 @@ pointerOperandWidth :: Env -> LLVM.Operand -> Hopefully MRAM.MemWidth
 pointerOperandWidth env op = case resolve (llvmtTypeEnv env) $ typeOf (llvmtTypeEnv env) op of
   LLVM.PointerType ty _ -> case resolve (llvmtTypeEnv env) ty of
     LLVM.IntegerType bits -> case bits of
+        1 -> return MRAM.W1
         8 -> return MRAM.W1
         16 -> return MRAM.W2
         32 -> return MRAM.W4
         64 -> return MRAM.W8
         _ -> progError $ "bad memory access width: " ++ show bits ++ " bits"
     LLVM.PointerType _ _ -> return MRAM.WWord
+    LLVM.FloatingPointType LLVM.FloatFP -> return MRAM.W4
+    LLVM.FloatingPointType LLVM.DoubleFP -> return MRAM.W8
     ty -> progError $ "bad pointee type in memory op: " ++ show ty
   ty -> progError $ "bad pointer type in memory op: " ++ show ty
 
@@ -595,8 +705,9 @@ isCompare
      -> VReg
      -> Statefully $ [MIRInstr Metadata MWord]
 isCompare env pred' op1 op2 ret = do
-  (lhs, lhsPre) <- operand2operandTrunc env op1
-  (rhs, rhsPre) <- operand2operandTrunc env op2
+  let signed = predicateIsSigned pred'
+  (lhs, lhsPre) <- operand2operandTrunc env signed op1
+  (rhs, rhsPre) <- operand2operandTrunc env signed op2
   comp' <- lift $ return $ predicate2instructuion pred' ret lhs rhs -- Do the comparison
   toRTL $ lhsPre ++ rhsPre ++ comp'
                         
@@ -729,6 +840,7 @@ isMove env op ret = -- lift $ toRTL <$>
      return $ smartMove ret op'
   
 -- | Optimize away the move if it's to the same register
+-- Probably never triggers is input is in SSA form
 smartMove
   :: Eq regT
   => regT
@@ -742,8 +854,7 @@ smartMove ret op = if (checkEq op ret) then [] else [MRAM.Imov ret op]
 -- ** Exeptions 
   
 -- *** Not supprted instructions (return meaningfull error)
-{-isInstruction _env _ instr =  implError $ "Instruction: " ++ (show instr)
--}
+{-isInstruction _env _ instr =  implError $ "Instruction: " ++ (show instr)-}
 
 
 ------------------------------------------------------
@@ -766,8 +877,6 @@ constantMultiplication ::
   MWord
   -> MAOperand VReg MWord
   -> Statefully $ (MAOperand VReg MWord, [MA2Instruction VReg MWord])
--- TODO switch to Statefully monad so we can generate a fresh register here
--- TODO support all operand kinds
 constantMultiplication c (LImm r) =
   return (LImm $ (SConst c)*r,[])
 constantMultiplication c x = do
@@ -836,18 +945,20 @@ isTerminator' env ret term =
     -- `Resume` and `Unreachable` still need to terminate the block after
     -- flagging the error, so we add an `answer` instruction, which is defined
     -- to stall or halt execution.
-    (LLVM.Resume _ _ ) -> withMeta $ \md -> (makeTraceInvalid md ++ halt md)
+    (LLVM.Resume _ _ ) -> withMeta $ \md -> (makeTraceInvalid "resume" md ++ halt md)
     (LLVM.Unreachable _) -> withMeta $ \md -> (triggerBug md ++ halt md)
     term ->  implError $ "Terminator not yet supported. \n \t" ++ (show term)
   where
     halt md = [MirM (MRAM.Ianswer (LImm $ SConst 0)) md]
 
-makeTraceInvalid :: Metadata -> [MIRInstruction Metadata regT MWord]
-makeTraceInvalid md = [MirI rtlCallValidIf md]
-  where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_invalid") [Tint] []
+makeTraceInvalid :: String -> Metadata -> [MIRInstruction Metadata regT MWord]
+makeTraceInvalid desc md = [MirM traceInstr md, MirI rtlCallFlagInvalid md]
+  where
+    traceInstr = MRAM.Iext (MRAM.XTrace (Text.pack $ "Invalid: " ++ desc) [])
+    rtlCallFlagInvalid = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_invalid") [Tint] []
 triggerBug :: Metadata -> [MIRInstruction Metadata regT MWord]
-triggerBug md = [MirI rtlCallValidIf md]
-  where rtlCallValidIf = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_bug") [Tint] []
+triggerBug md = [MirI rtlCallFlagBug md]
+  where rtlCallFlagBug = RCall TVoid Nothing (Label $ show $ Name "__cc_flag_bug") [Tint] []
 
 -- | Branch terminator
 isBr :: LLVM.Name -> Statefully [MIRInstr Metadata MWord]
@@ -1034,10 +1145,7 @@ isTypeDefs defs = do
   return map1
   where def2pair :: LLVM.Definition -> Hopefully $ (LLVM.Name, LLVM.Type)
         def2pair (LLVM.TypeDefinition  name (Just ty)) = return (name, ty)
-        def2pair (LLVM.TypeDefinition  name Nothing) =
-          assumptError $ "Received an empty type definition for " ++
-          show name ++
-          " what am I supposed to do with this?"
+        def2pair (LLVM.TypeDefinition  name Nothing) = return (name, LLVM.VoidType)
         def2pair other = unreachableError $ show other
         
 -- | Turns a Global variable into its descriptor.
@@ -1067,10 +1175,11 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
   byteSize <- return $ sizeOf (llvmtTypeEnv env) typ
   init' <- flatInit env init
   case init' of
-    Just initWords ->
-      when (byteSize > fromIntegral (length initWords * wordBytes)) $ assumptError $
-        "impossible: global size is " ++ show byteSize ++ " but evaluation produced only " ++
-          show (length initWords) ++ " words of initializer"
+    Just initWords -> do
+      let wordSize = (fromIntegral byteSize + wordBytes - 1) `div` wordBytes
+      when (wordSize /= length initWords) $ assumptError $
+        "impossible: global size for " ++ show name ++ " is " ++ show byteSize ++
+          " bytes but evaluation produced " ++ show (length initWords) ++ " words of initializer"
     Nothing -> return ()
   -- GlobalVariable size and align are given in words, not bytes.
   let size' = (byteSize + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
@@ -1079,7 +1188,8 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
   -- later passes that try to align to a multiple of zero, so we adjust the
   -- alignment here to avoid the problem.
   let align' = max 1 $ (fromIntegral align + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
-  return $ GlobalVariable (name2name name) const typ' init' size' align' (sectionIsSecret sectn)
+  return $ GlobalVariable (name2name name) const typ' init' size' align'
+    (sectionIsSecret sectn) (sectionIsHeapInit sectn)
   where flatInit :: Env ->
                     Maybe LLVM.Constant.Constant ->
                     Hopefully $ Maybe [LazyConst String MWord]
@@ -1090,7 +1200,13 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
 
         sectionIsSecret (Just "__DATA,__secret") = True
         sectionIsSecret (Just ".data.secret") = True
+        sectionIsSecret (Just "__TEXT,__secret") = True
+        sectionIsSecret (Just ".rodata.secret") = True
         sectionIsSecret _ = False
+
+        sectionIsHeapInit (Just "__DATA,__heapinit") = True
+        sectionIsHeapInit (Just ".data.heapinit") = True
+        sectionIsHeapInit _ = False
 isGlobVar _ other = unreachableError $ show other
 
 -- | Evaluate an LLVM constant and flatten its value into a list of (lazy)
@@ -1102,7 +1218,7 @@ flattenConstant env c = do
     chunks <- constant2typedLazyConst env c
     return $ go (SConst 0) 0 $ map unpack chunks
   where
-    unpack (TypedLazyConst lc w) = (lc, widthInt w)
+    unpack (TypedLazyConst lc w _) = (lc, widthInt w)
 
     go ::
       LazyConst String MWord -> Int -> [(LazyConst String MWord, Int)] ->
@@ -1133,7 +1249,7 @@ constant2OnelazyConst ::
 constant2OnelazyConst env c = do
   cs' <- constant2typedLazyConst env c
   case cs' of
-    [TypedLazyConst lc _w] -> return lc
+    [TypedLazyConst lc _w _a] -> return lc
     _ -> error $ "expected a single lazy constant, but got " ++ show (length cs') ++
       " (on " ++ show c ++ ")"
 
@@ -1142,22 +1258,24 @@ constant2OnelazyConst env c = do
 -- | A `LazyConst` whose value is guaranteed to fit within `width` bytes.  Do
 -- not construct directly; use `mkTypedLazyConst` instead (which enforces the
 -- invariant).
-data TypedLazyConst = TypedLazyConst (LazyConst String MWord) MemWidth
+data TypedLazyConst = TypedLazyConst (LazyConst String MWord) MemWidth Int
 
 mkTypedLazyConst :: LazyConst String MWord -> MemWidth -> TypedLazyConst
-mkTypedLazyConst lc w = TypedLazyConst (lc .&. SConst mask) w
-  where mask = (1 `shiftL` (8 * MRAM.widthInt w)) - 1
+mkTypedLazyConst lc w = TypedLazyConst (lc .&. SConst mask) w align
+  where
+    mask = (1 `shiftL` (8 * MRAM.widthInt w)) - 1
+    align = widthInt w
 
 typedLazyUop ::
   (LazyConst String MWord -> LazyConst String MWord) ->
   TypedLazyConst -> TypedLazyConst
-typedLazyUop op (TypedLazyConst lc1 w1) =
+typedLazyUop op (TypedLazyConst lc1 w1 _) =
   mkTypedLazyConst (op lc1) w1
 
 typedLazyBop ::
   (LazyConst String MWord -> LazyConst String MWord -> LazyConst String MWord) ->
   TypedLazyConst -> TypedLazyConst -> TypedLazyConst
-typedLazyBop op (TypedLazyConst lc1 w1) (TypedLazyConst lc2 w2) =
+typedLazyBop op (TypedLazyConst lc1 w1 _) (TypedLazyConst lc2 w2 _) =
   mkTypedLazyConst (op lc1 lc2) (max w1 w2)
 
 instance Num TypedLazyConst where
@@ -1205,6 +1323,10 @@ constant2typedLazyConst env c =
       32 -> return [mkTypedLazyConst (fromInteger val) W4]
       64 -> return [mkTypedLazyConst (fromInteger val) W8]
       _ -> implError $ "Constant.Int with width " ++ show bits ++ " is not supported"
+    (LLVM.Constant.Float someFloat) -> case someFloat of
+      LLVM.Single f -> return [mkTypedLazyConst (fromIntegral $ floatToWord f) W4]
+      LLVM.Double f -> return [mkTypedLazyConst (fromIntegral $ doubleToWord f) W8]
+      _ -> implError $ "Constant.Float of unsupported width: " ++ show someFloat
     (LLVM.Constant.Null _ty                         ) ->
       return [mkTypedLazyConst (fromInteger 0) WWord]
     (LLVM.Constant.AggregateZero ty                 ) ->
@@ -1222,7 +1344,7 @@ constant2typedLazyConst env c =
     (LLVM.Constant.Array _ty vals                   ) ->
       concat <$> mapM (constant2typedLazyConst env) vals
     (LLVM.Constant.Undef ty                         ) ->
-      return $ replicate (fromIntegral $ sizeOf (llvmtTypeEnv env) ty) zeroByte
+      constant2typedLazyConst env =<< defineUndefConst (llvmtTypeEnv env) ty
     (LLVM.Constant.GlobalReference _ty name         ) -> do
       _ <- checkName (globs env) name
       name' <- return $ show $ name2name name
@@ -1232,15 +1354,18 @@ constant2typedLazyConst env c =
     (LLVM.Constant.Mul  _ _ op1 op2                 ) -> bop2typedLazyConst env (*) op1 op2
     (LLVM.Constant.UDiv  _ op1 op2                  ) ->
       bop2typedLazyConst env (typedLazyBop lcQuot) op1 op2
-    (LLVM.Constant.SDiv _ _op1 _op2                 ) ->
-      implError $ "Signed division is not implemented."
+    (LLVM.Constant.SDiv _ op1 op2                   ) -> do
+      bits <- intTypeWidth $ typeOf (llvmtTypeEnv env) op1
+      bop2typedLazyConst env (typedLazyBop $ lcSDiv bits) op1 op2
     (LLVM.Constant.URem op1 op2                     ) ->
       bop2typedLazyConst env (typedLazyBop lcRem) op1 op2
-    (LLVM.Constant.SRem _op1 _op2                   ) -> 
-      implError $ "Signed reminder is not implemented."
+    (LLVM.Constant.SRem op1 op2                     ) -> do
+      bits <- intTypeWidth $ typeOf (llvmtTypeEnv env) op1
+      bop2typedLazyConst env (typedLazyBop $ lcSDiv bits) op1 op2
     (LLVM.Constant.And op1 op2                      ) -> bop2typedLazyConst env (.&.) op1 op2
     (LLVM.Constant.Or op1 op2                       ) -> bop2typedLazyConst env (.|.) op1 op2
     (LLVM.Constant.Xor op1 op2                      ) -> bop2typedLazyConst env xor op1 op2
+    (LLVM.Constant.ICmp pred op1 op2                ) -> icmpTypedLazyConst env pred op1 op2
     (LLVM.Constant.GetElementPtr _bounds addr inxs  ) -> do
       addr' <- constant2OnelazyConst env addr
       ty' <- return $ typeOf (llvmtTypeEnv env) addr
@@ -1264,6 +1389,25 @@ constant2typedLazyConst env c =
     c -> implError $ "Constant not supported yet for global initializers: " ++ show c
   where
     zeroByte = mkTypedLazyConst 0 W1
+
+-- | Generate an arbitrary non-`Undef` constant of the given type, to use as a
+-- replacement for `LLVM.Constant.Undef t`.
+defineUndefConst :: LLVMTypeEnv -> LLVM.Type -> Hopefully LLVM.Constant.Constant
+defineUndefConst _ (LLVM.IntegerType bits) = return $ LLVM.Constant.Int bits 0
+defineUndefConst _ (LLVM.FloatingPointType LLVM.FloatFP) =
+  return $ LLVM.Constant.Float $ LLVM.Single 0
+defineUndefConst _ (LLVM.FloatingPointType LLVM.DoubleFP) =
+  return $ LLVM.Constant.Float $ LLVM.Double 0
+defineUndefConst _ t@(LLVM.PointerType _ _) = return $ LLVM.Constant.Null t
+defineUndefConst _ (LLVM.VectorType len ty) =
+  return $ LLVM.Constant.Vector (replicate (fromIntegral len) $ LLVM.Constant.Undef ty)
+defineUndefConst _ (LLVM.StructureType packed tys) =
+  return $ LLVM.Constant.Struct Nothing packed (map LLVM.Constant.Undef tys)
+defineUndefConst _ (LLVM.ArrayType len ty) =
+  return $ LLVM.Constant.Array ty (replicate (fromIntegral len) $ LLVM.Constant.Undef ty)
+defineUndefConst tenv (LLVM.NamedTypeReference name) =
+  defineUndefConst tenv =<< typeDef tenv name
+defineUndefConst _ t = implError $ "Constant type not yet supported: " ++ show t
 
 constGEP :: LLVMTypeEnv
          -> LLVM.Type
@@ -1316,19 +1460,48 @@ bop2typedLazyConst env bop op1 op2 = do
   op2s <- constant2typedLazyConst env op2
   op2' <- getUniqueWord op2s
   return [bop op1' op2']
-  where getUniqueWord :: [TypedLazyConst] -> Hopefully TypedLazyConst
-        getUniqueWord [op1'] = return op1' 
-        getUniqueWord _ = assumptError "Tryed to compute a binary operation with an aggregate value." 
+
+icmpTypedLazyConst ::
+  Env ->
+  IntPred.IntegerPredicate ->
+  LLVM.Constant.Constant ->
+  LLVM.Constant.Constant ->
+  Hopefully [TypedLazyConst]
+icmpTypedLazyConst env pred op1 op2 = do
+  op1s <- constant2typedLazyConst env op1
+  op1' <- getUniqueWord op1s
+  op2s <- constant2typedLazyConst env op2
+  op2' <- getUniqueWord op2s
+  width <- intTypeWidth $ typeOf (llvmtTypeEnv env) op1
+  return [typedLazyBop (go width) op1' op2']
+  where
+    go width = case pred of
+      IntPred.EQ  -> lcCompareUnsigned (==)
+      IntPred.NE  -> lcCompareUnsigned (/=)
+      -- Unsigned
+      IntPred.UGT -> lcCompareUnsigned (>)
+      IntPred.UGE -> lcCompareUnsigned (>=)
+      IntPred.ULT -> lcCompareUnsigned (<)
+      IntPred.ULE -> lcCompareUnsigned (<=)
+      -- Signed
+      IntPred.SGT -> lcCompareSigned (>) width
+      IntPred.SGE -> lcCompareSigned (>=) width
+      IntPred.SLT -> lcCompareSigned (<) width
+      IntPred.SLE -> lcCompareSigned (<=) width
+
+intTypeWidth :: LLVM.Type -> Hopefully Int
+intTypeWidth ty = case ty of
+    LLVM.IntegerType w | w <= 64 -> return $ fromIntegral w
+    LLVM.PointerType _ _ -> return $ MRAM.wordBits
+    _ -> implError $ "Constant.ICmp on unsupported type " ++ show ty
+
+getUniqueWord :: [TypedLazyConst] -> Hopefully TypedLazyConst
+getUniqueWord [op1'] = return op1'
+getUniqueWord _ = assumptError "Tryed to compute a binary operation with an aggregate value."
 
 
 
-
-
-
-
-
-
-isFuncAttributes :: [LLVM.Definition] -> Hopefully $ () -- TODO can we use this attributes?
+isFuncAttributes :: [LLVM.Definition] -> Hopefully $ ()
 isFuncAttributes _ = return () 
 
 isDefs :: [LLVM.Definition] -> Hopefully $ MIRprog Metadata MWord
@@ -1337,7 +1510,6 @@ isDefs defs = do
   setGlobNames <- return $ nameOfGlobals defs
   env <- return $ Env typeDefs setGlobNames
   globVars <- (isGlobVars env) $ filter itIsGlobVar defs -- filtered inside the def 
-  --otherError $ "DEBUG HERE: \n" ++ show typeDefs ++ "\n" ++ show globVars ++ "\n"  
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
   funcs <- evalStateT (isFunctions env) initState
   checkDiscardedDefs defs -- Make sure we dont drop something important

@@ -143,13 +143,13 @@ type DAGinfo name = [name]
 data BB name instrT = BB name [instrT] [instrT] (DAGinfo name)
   deriving (Show,Functor, Foldable, Traversable)
 
--- | Traverse the Basic Blocks changing operands  
+-- | Traverse the Basic Blocks changing operands 
 traverseOpBB :: (Applicative f) =>
   (MAOperand regT wrdT -> f (MAOperand regT wrdT))
   -> BB name $ LTLInstr mdata regT wrdT
   -> f (BB name $ LTLInstr mdata regT wrdT)
-traverseOpBB fop = traverse (traverseOpLTLInstr fop)  
-
+traverseOpBB fop = traverse (traverseOpLTLInstr fop) 
+  
 type IRFunction mdata regT wrdT irinstr =
   Function Name Ty (BB Name $ IRInstruction mdata regT wrdT irinstr)
 

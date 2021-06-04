@@ -50,9 +50,9 @@ import Util.Util
 replaceGlobals :: Regs mreg =>
         CompilationUnit () (Lprog m mreg MWord)
         -> Hopefully $ CompilationUnit LazyInitialMem (Lprog m mreg MWord)
-replaceGlobals (CompUnit prog tr regs anData _ _) = do
-  (prog', initMem) <- globals' prog
-  return $ CompUnit prog' tr regs anData [] initMem 
+replaceGlobals (CompUnit pm tr regs anData _) = do
+  (prog', initMem) <- globals' $ pmProg pm
+  return $ CompUnit (pm { pmProg = prog' }) tr regs anData initMem 
 
 globals' :: Regs mreg => Lprog m mreg MWord
          -> Hopefully $ (Lprog m mreg MWord, LazyInitialMem)
@@ -69,34 +69,34 @@ globals' (IRprog tenv genv prog) = do
 -- * Building initial memory and the `globalMap`
 memoryFromGlobals :: GEnv MWord -> (LazyInitialMem, Map.Map String MWord)
 memoryFromGlobals ggg  = 
-  let (lazyInitMem, globs) = lazyMemoryFromGlobals ggg in
+  let (lazyInitMem, _, globs) = lazyMemoryFromGlobals ggg in
     (resolveGlobalsMem globs lazyInitMem, globs)
   where resolveGlobalsMem :: Map.Map String MWord -> LazyInitialMem -> LazyInitialMem
         resolveGlobalsMem globMap lInitMem = map (resolveGlobalsSegment globMap) lInitMem
         resolveGlobalsSegment :: Map.Map String MWord -> LazyInitSegment -> LazyInitSegment
-        resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly loc len _) =
+        resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly heapInit loc len _) =
           let concreteInit = map (applyPartialMap g) <$> lazyConst in
-          (concreteInit, InitMemSegment secr rOnly loc len Nothing)
-        
-lazyMemoryFromGlobals :: GEnv MWord -> (LazyInitialMem, Map.Map String MWord)
-lazyMemoryFromGlobals  = foldr memoryFromGlobal ([],Map.empty)  
+          (concreteInit, InitMemSegment secr rOnly heapInit loc len Nothing)
+
+lazyMemoryFromGlobals :: GEnv MWord -> (LazyInitialMem, MWord, Map.Map String MWord)
+lazyMemoryFromGlobals  = foldr memoryFromGlobal ([], 1, Map.empty)
   where memoryFromGlobal ::
           GlobalVariable MWord
-          -> (LazyInitialMem, Map.Map String MWord)
-          -> (LazyInitialMem, Map.Map String MWord)
-        memoryFromGlobal (GlobalVariable name isConst _gTy initzr size align secr) (initMem, gMap) =
-          let newLoc = alignTo align $ newLocation initMem in
+          -> (LazyInitialMem, MWord, Map.Map String MWord)
+          -> (LazyInitialMem, MWord, Map.Map String MWord)
+        memoryFromGlobal
+            (GlobalVariable name isConst _gTy initzr size align secr heapInit)
+            (initMem, nextAddr, gMap) =
+          let newLoc = if not heapInit then alignTo align nextAddr
+                else heapInitAddress `div` fromIntegral wordBytes in
           let newLazySegment =
-                (initzr, InitMemSegment secr isConst newLoc (fromIntegral size) Nothing) in -- __FIXME__
+                (initzr, InitMemSegment secr isConst heapInit newLoc (fromIntegral size) Nothing) in -- __FIXME__
           -- The addresses assigned to global variable symbols must be given in
           -- bytes, unlike all other global / init-mem related measurements,
           -- which are in words.
           let newByteLoc = newLoc * fromIntegral wordBytes in
-          (newLazySegment:initMem, Map.insert (show name) newByteLoc gMap)
-          
-        newLocation :: LazyInitialMem -> MWord
-        newLocation [] = 1 -- 0 is reserved
-        newLocation ((_,InitMemSegment _ _ loc len _):_) = loc + len
+          let nextAddr' = if not heapInit then newLoc + size else nextAddr in
+          (newLazySegment:initMem, nextAddr', Map.insert (show name) newByteLoc gMap)
 
         alignTo a x = (a + x - 1) .&. complement (a - 1)
           

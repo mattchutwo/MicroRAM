@@ -41,13 +41,14 @@ _ppList all =  putStr $ concat $ map (\st -> show st ++ "\n") all
 list2InitMem :: [MWord] -> InitialMem
 list2InitMem ls = map word2InitSeg $ zip [0..] ls 
   where word2InitSeg :: (MWord,MWord) -> InitMemSegment
-        word2InitSeg (loc,val) = InitMemSegment False False loc 1 (Just [val]) 
+        word2InitSeg (loc,val) = InitMemSegment False False False loc 1 (Just [val])
 
 
 
 trivialCU :: Prog Int -> Word -> [MWord] -> CompilationResult (Prog Int)
-trivialCU prog len input = CompUnit progs len InfinityRegs def (list2InitMem input) ()
-  where progs = MultiProg prog prog
+trivialCU prog len input = CompUnit progs len InfinityRegs def ()
+  where pm = ProgAndMem prog (list2InitMem input)
+        progs = MultiProg pm pm
 
 runProg :: Prog Int -> Word -> [MWord] -> Trace Int
 runProg prog len input = run $ trivialCU prog len input

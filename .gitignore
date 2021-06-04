@@ -23,4 +23,9 @@ test/programs/**/*.c.bc
 **/*.micro
 *.py
 *.cbor
+out.txt
 **/flycheck_*.hs
+Output/
+fulltest.sh
+rungrit.sh
+*.prof

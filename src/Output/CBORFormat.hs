@@ -196,11 +196,23 @@ encodeInstr (Iadvise r1          ) = list2CBOR $ encodeString "advise" : encode 
 -- witness checker generator doesn't support these instructions at all, so how
 -- we encode the operands doesn't really matter - it's only for human
 -- consumption.
-encodeInstr (Iext name ops       ) = list2CBOR $ encodeString "ext" : encodeString name : concatMap encodeOperand' ops
-encodeInstr (Iextval name rd ops ) = list2CBOR $ encodeString "ext" : encodeString name : encode rd : concatMap encodeOperand' ops
+encodeInstr (Iext ext) =
+  let parts = case ext of
+        XTrace desc ops -> [encodeString "Trace", encodeString desc] ++ concatMap encodeOperand' ops
+        XTraceStr ptr -> [encodeString "TraceStr"] ++ encodeOperand' ptr
+        XTraceExec name ops -> [encodeString "TraceExec"] ++ concatMap encodeOperand' (name : ops)
+        XFree ptr -> [encodeString "Free"] ++ encodeOperand' ptr
+        XAccessValid lo hi -> [encodeString "AccessValid"] ++ concatMap encodeOperand' [lo, hi]
+        XAccessInvalid lo hi -> [encodeString "AccessInvalid"] ++ concatMap encodeOperand' [lo, hi]
+        XStoreUnchecked ptr val -> [ encodeString "StoreUnchecked" ] ++ concatMap encodeOperand' [ptr, val]
+  in list2CBOR $ encodeString "ext" : parts
+encodeInstr (Iextval r1 ext) =
+  let parts = case ext of
+        XLoadUnchecked ptr -> [encodeString "LoadUnchecked"] ++ encodeOperand' ptr
+  in list2CBOR $ encodeString "extval" : encode r1 : parts
 -- `Iextadvise` is `Iadvise` plus a hint to the interpreter.  We serialize it
 -- just like a plain `Iadvise`.
-encodeInstr (Iextadvise _ r1 _   ) = encodeInstr @regT @wrdT (Iadvise r1)
+encodeInstr (Iextadvise r1 _     ) = encodeInstr @regT @wrdT (Iadvise r1)
 
 decodeOperands :: (Serialise regT, Serialise wrdT) => Int -> Decoder s ([regT], Operand regT wrdT)
 decodeOperands 0 = fail "invalid number of operands: 0"
@@ -311,10 +323,11 @@ instance Serialise CircuitParameters where
 
 
 encodeInitMemSegment :: InitMemSegment -> Encoding
-encodeInitMemSegment (InitMemSegment secret read start len datas) =
+encodeInitMemSegment (InitMemSegment secret read heapInit start len datas) =
   map2CBOR $
   [ ("secret", encodeBool secret) 
   , ("read_only", encodeBool read)
+  , ("heap_init", encodeBool heapInit)
   , ("start", encode start)
   , ("len", encode len)
   ] ++  encodeMaybeContent datas
@@ -328,10 +341,11 @@ decodeInitMemSegment :: Decoder s InitMemSegment
 decodeInitMemSegment = do
     len <- decodeMapLen
     case len of
-      4 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> (return Nothing)
-      5 -> InitMemSegment <$> tagDecode <*> tagDecode <*>
+      5 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
+           tagDecode <*> tagDecode <*> (return Nothing)
+      6 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
            tagDecode <*> tagDecode <*> do { content <- tagDecode; return $ Just content} 
-      _ -> fail $ "invalid state encoding. Length should be 4 or 5 but found " ++ show len
+      _ -> fail $ "invalid state encoding. Length should be 5 or 6 but found " ++ show len
 
 instance Serialise InitMemSegment where
   decode = decodeInitMemSegment

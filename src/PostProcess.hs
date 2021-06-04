@@ -35,10 +35,18 @@ import Segments.ChooseSegments (TraceChunk(..))
 
 import Sparsity.Sparsity (Sparsity)
 
-postProcess_v :: Regs reg => Bool -> Int -> Bool -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (Output reg)
-postProcess_v verb chunkSize private comp =
-  (segment chunkSize)
-  >=> (doIf private (buildTrace verb chunkSize spar))
+  
+postProcess_v :: (Show reg, Regs reg)
+              => Bool
+              -> Bool
+              -> Int
+              -> Bool
+              -> CompilationResult (AnnotatedProgram Metadata reg MWord)
+              -> Maybe Int
+              -> Hopefully (Output reg)
+postProcess_v verb producePublic chunkSize private comp privSegs =
+  (segment producePublic chunkSize privSegs)
+  >=> (doIf private (buildTrace producePublic verb chunkSize spar))
   >=> (doIf private recoverAdvice)
   >=> segProg2Output $
   comp
@@ -49,10 +57,10 @@ postProcess_v verb chunkSize private comp =
         doIf cond f = if cond then f else return
 
 
-buildTrace :: Regs reg => Bool -> Int -> Sparsity -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
-buildTrace verb chunkSize spar segProg = do
+buildTrace :: (Show reg, Regs reg) => Bool -> Bool -> Int -> Sparsity -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
+buildTrace producePublic verb chunkSize spar segProg = do
   flatTrace <- return $ run_v verb $ compiled segProg
-  chooseSegment' chunkSize spar flatTrace segProg
+  chooseSegment' producePublic chunkSize spar flatTrace segProg
 
 recoverAdvice :: SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
 recoverAdvice segProg = do
@@ -78,7 +86,7 @@ emptyAdvice :: AdviceState
 emptyAdvice = AdviceState Map.empty 0
   
 segProg2Output :: Regs reg => SegmentedProgram reg -> Hopefully (Output reg)
-segProg2Output (SegmentedProgram comp pubSegs privSegs _segMap segTra segAdv) =
+segProg2Output (SegmentedProgram comp pubSegs privSegs segTra segAdv) =
   case (segTra, segAdv) of
     (Nothing, Nothing) -> return publ
     (Just trace, Just adv)  -> return $ mkOutputPrivate (traceOut trace) adv publ

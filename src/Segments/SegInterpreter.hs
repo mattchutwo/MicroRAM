@@ -68,7 +68,6 @@ checkChunk segs chunk@(TraceChunkOut indx sts) = do
                        _pcSt= pcOut $ last sts,
                        _succSt = succ,
                        _toNetSt = toNet}
---    CheckSt indx (pcOut $ last sts) succ toNet
   return ()
   where checkLength len segment = check (len == length sts) $
           "Chunk length and segment length don't match. \n Segment: " ++ show segment ++ "\n Chunk: " ++ show chunk
@@ -130,7 +129,6 @@ doCheck :: IO ()
 doCheck = case checkOutput testOutput of
             Right _ -> putStrLn "Ok."
             Left msg -> putStrLn msg
--- checkOutput :: Output Int -> Result ()
 testOutput :: Output Int
 testOutput = SecretOutput prog segs parms mem tr adv
   where prog :: Program Int MWord
