@@ -16,7 +16,7 @@ module Compiler.LocalizeLabels
     ( localizeLabels
     ) where
 
-import Data.ByteString.Short
+import qualified Data.Map as Map 
 import Data.Set (Set)
 import qualified Data.Set as Set
 -- import Data.String (fromString)
@@ -24,32 +24,54 @@ import qualified Data.Set as Set
 import Compiler.Common (Name(..))
 import Compiler.Errors
 import Compiler.IRs
+import Control.Monad.State.Lazy (State, runState, get, put)
 
-localizeLabels :: Rprog mdata wrdT -> Hopefully (Rprog mdata wrdT)
-localizeLabels (IRprog te ge funcs) = return $ IRprog te ge (map (localizeFunc funcNames) funcs)
+localizeLabels :: (Rprog mdata wrdT, Word) -> Hopefully (Rprog mdata wrdT, Word)
+localizeLabels (IRprog te ge funcs, nameBound) =
+  let (funcs', RenameState nameBound' _) = runState (mapM (localizeFunc funcNames) funcs) $
+        RenameState nameBound Map.empty in
+  return $ (IRprog te ge funcs', nameBound')
   where
      funcNames = Set.fromList $ map funcName funcs
 
-localizeFunc :: Set Name -> RFunction mdata wrdT -> RFunction mdata wrdT
-localizeFunc funcNames func = func { funcBlocks = map goBB $ funcBlocks func }
+data RenameState = RenameState
+  { _newName :: Word,
+    _renameMap :: Map.Map Name Name
+  }
+
+localizeFunc :: Set Name -> RFunction mdata wrdT -> State RenameState (RFunction mdata wrdT)
+localizeFunc funcNames func = do
+  blocks' <- mapM goBB $ funcBlocks func
+  return $ func { funcBlocks = blocks' }
   where
-    goBB (BB name body term dag) =
-      BB (rename name) (map goInstr body) (map goInstr term) (map rename dag)
+    goBB (BB name body term dag) = do
+      BB <$> (rename name)
+        <*> (mapM goInstr body)
+        <*> (mapM goInstr term)
+        <*> (mapM rename dag)
 
-    goInstr (IRI i m) = IRI (goRTLInstr i) m
-    goInstr (MRI i m) = MRI (fmap goOperand i) m
+    goInstr (IRI i m) = flip IRI m <$> (goRTLInstr i)
+    goInstr (MRI i m) = flip MRI m <$> (mapM goOperand i)
 
-    goOperand (Label s) = Label $ rename s
-    goOperand o = o
+    goOperand (Label s) = Label <$> rename s
+    goOperand o = return o
 
-    goRTLInstr (RPhi ret inps) =
-      RPhi ret (map (\(op, label) -> (goOperand op, rename label)) inps)
-    goRTLInstr i = fmap goOperand i
+    goRTLInstr (RPhi ret inps) = 
+      RPhi ret <$>
+      mapM (\(op, label) -> do
+               label' <- rename label
+               op' <- goOperand op
+               return (op', label')) inps
+    goRTLInstr i = mapM goOperand  i
 
-    rename name@(Name n dbName)
-      | Set.member name funcNames = name
-      | otherwise = Name n $ nameStr (funcName func) <> "_" <> dbName
-
-nameStr :: Name -> ShortByteString
-nameStr (Name _ s) = s
--- nameStr (NewName w) = fromString $ show w
+    rename :: Name -> State RenameState Name
+    rename name
+      | Set.member name funcNames = return name
+      | otherwise = do
+          RenameState nextName renameMap <- get
+          case Map.lookup name renameMap of
+            Just name' -> return name'
+            Nothing -> do
+              let name' = Name nextName (dbName (funcName func) <> "_" <> dbName name)
+              put (RenameState (nextName + 1) (Map.insert name name' renameMap))
+              return name'
