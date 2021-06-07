@@ -1112,7 +1112,7 @@ isFunction env (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params 
   do
     name' <- name2name name
     (paramsTyp, paramNames) <- processParams params
-    nextReg .= 2 -- Functions have separatedly numbere registers
+    -- nextReg .= 2 -- Functions have separatedly numbere registers
     currentFunction .= name'
     body <- isBlocks env code -- runStateT (isBlocks env code) initState
     retT' <- lift $ type2type  (llvmtTypeEnv env) retT
