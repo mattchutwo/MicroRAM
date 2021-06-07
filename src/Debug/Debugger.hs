@@ -349,7 +349,7 @@ _jpProgComp len = do
     >>= (justCompile lowerIntrinsics)
     >>= (justCompile (catchUndefinedFunctions allowUndefFun))
     >>= (justCompile legalize)
-    >>= (justCompile localizeLabels)
+    >>= (justCompileWithNames localizeLabels)
 
     >>= (justCompileWithNames edgeSplit)
     >>= (justCompileWithNames removePhi)
