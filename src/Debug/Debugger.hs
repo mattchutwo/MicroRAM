@@ -340,7 +340,7 @@ summaryFromFile myfile myCS 300
 jpProgComp
   :: Word -> IO (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
 jpProgComp len = do
-  m <- fromLLVMFile "test/programs/varArgs2.ll"
+  m <- fromLLVMFile "test/programs/varArgs.ll"
   -- return m
   return $ either (error . show) id $
         (justCompile instrSelect) (prog2unit len m)
@@ -388,19 +388,19 @@ jpProgComp len = do
 -- let t = run p'
 -- printSummary defaultSummary t len
 
-{- SC: Broken after resgiter allocation was moved to
-   work on compilation units, not just programs.
-jpProg :: IO (Program VReg MWord)
-jpProg = do
-    m <- fromLLVMFile "test/programs/fibSlow.ll"
-    return $ either undefined id $
-      instrSelect m
-      >>= legalize
-      >>= registerAlloc def
-      >>= callingConvention
-      >>= stacking
-      >>= removeLabelsProg 
--}
+printProg :: CompilationUnit () (AnnotatedProgram Metadata AReg MWord) -> IO ()
+printProg = putStr . microPrint . pmProg . programCU
+
+jpProgComp'
+  :: Word -> IO (CompilationResult (AnnotatedProgram Metadata AReg MWord))
+jpProgComp' len = do
+  m <- fromLLVMFile "test/programs/varArgs.ll"
+  return $ either (error . show) id $
+    compile False len m Nothing
+
+-- printProg (fmap lowProg p)
+-- let t = run $ fmap (fmap $ fmap $ fmap fst) p
+-- printSummary defaultSummary t len
 
 cs :: CustomSummary mreg
 cs = defaultSummary {theseMem = [0..27]}
