@@ -32,7 +32,13 @@ data AbsValue =
   deriving (Show)
 
 data AbsMemory = AbsMemory {
+  -- | Gives the width and value of the most recent store at each address.
+  -- Entries never overlap: a `W8` write to `0x1000` will overwrite any entries
+  -- in the range `0x1000 .. 0x1008`.
   _amMem :: Map MWord (MemWidth, AbsValue),
+  -- | Default value for addresses not present in `amMem`.  Should be either
+  -- `VExact 0` or `VTop`.
+  _amDefault :: AbsValue,
   _amPoisonedZero :: Bool
 }
   deriving (Show)
@@ -41,8 +47,11 @@ makeLenses ''AbsMemory
 
 type AbsMemoryMap = Map MWord (MemWidth, AbsValue)
 
-amLoad :: MemWidth -> MWord -> AbsMemoryMap -> AbsValue
-amLoad w addr mem
+amInit :: AbsMemoryMap -> AbsMemory
+amInit m = AbsMemory m (VExact 0) False
+
+amLoad :: MemWidth -> MWord -> AbsMemory -> AbsValue
+amLoad w addr am
   -- Case 1: the load's address and width exactly matches the store.
   | Just (w', val) <- mid, w' == w = val
   -- Case 2a: the address matches but the width is larger.  We are loading a
@@ -54,11 +63,11 @@ amLoad w addr mem
     w' > w, addr' + fromIntegral (widthInt w') >= addr =
     (val `absShr` VExact (fromIntegral $ 8 * (addr - addr'))) `absAnd` VExact mask
   -- Case 3: no stores cover any part of the load.
-  | null parts = VExact 0
+  | null parts = am ^. amDefault
   -- Case 4: several smaller stores cover the load.
-  | otherwise = combine (VExact 0) 0 parts' `absAnd` VExact mask
+  | otherwise = combine (am ^. amDefault) 0 parts' `absAnd` VExact mask
   where
-    (before, mid, after) = Map.splitLookup addr mem
+    (before, mid, after) = Map.splitLookup addr $ am ^. amMem
 
     mask = (1 `shiftL` (8 * widthInt w)) - 1
 
@@ -72,9 +81,10 @@ amLoad w addr mem
     parts = maybe [] (\x -> [(addr, x)]) mid ++
       takeWhile (\(k, _) -> k < endAddr) (Map.toList after)
 
+    -- | Add padding bytes to fill any gaps between the previous stores.
     go _pos [] = []
     go pos ((a, (w, v)) : rest) =
-      replicate (fromIntegral $ a - pos) (W1, VExact 0) ++ [(w, v)] ++
+      replicate (fromIntegral $ a - pos) (W1, am ^. amDefault) ++ [(w, v)] ++
         go (a + fromIntegral (widthInt w)) rest
 
     parts' = go addr parts
@@ -140,7 +150,7 @@ amStore w addr val mem
 instance AbsDomain AbsValue where
   type Memory AbsValue = AbsMemory
 
-  absInitMem mem = AbsMemory mem' False
+  absInitMem mem = amInit mem'
     where
       mem' = Map.mapKeysMonotonic (* fromIntegral wordBytes) $
         fmap (\x -> (WWord, VExact x)) mem
@@ -243,12 +253,14 @@ instance AbsDomain AbsValue where
       return $ mem & amMem %~ amStore w addr' val
     VTop -> do
       traceM "inexact store - trashing all memory!"
-      return $ mem & amMem .~ mempty
+      return $ mem
+        & amMem .~ mempty
+        & amDefault .~ VTop
 
   absLoad w addr mem = case addr of
     VExact addr' -> do
       checkAlign w addr'
-      let val = amLoad w addr' $ mem ^. amMem
+      let val = amLoad w addr' mem
       return val
     VTop -> do
       return VTop
@@ -402,7 +414,6 @@ runPath n = do
   case optStop of
     Just sr -> return sr
     Nothing -> runPath (n - 1)
-  
 
 initState :: Regs r => ProgAndMem (AnnotatedProgram m r MWord) -> s -> InterpState' r AbsValue s
 initState (ProgAndMem prog mem) s =
@@ -423,7 +434,7 @@ initState (ProgAndMem prog mem) s =
     pubMemMap = fmap (\x -> (WWord, VExact x)) pubMem
     secMemMap = fmap (\_ -> (WWord, VTop)) secMem
     memMap = Map.mapKeysMonotonic (* fromIntegral wordBytes) $ Map.union pubMemMap secMemMap
-    amem = AbsMemory memMap False
+    amem = amInit memMap
 
 testAbsInt_v :: Regs r => CompilationResult (AnnotatedProgram m r MWord) -> Hopefully ()
 testAbsInt_v (CompUnit (MultiProg _ progMem) _ _ _ _ _) = do
