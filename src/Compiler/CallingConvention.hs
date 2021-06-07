@@ -30,7 +30,7 @@ callingConventionFunc :: (Regs reg, Ord reg) => LFunction Metadata reg MWord -> 
 callingConventionFunc lf@(LFunction _fname _typ _typs _nms _stackSize []) = lf
 callingConventionFunc (LFunction fname typ typs argNames stackSize (firstBlock:blocks)) = 
     -- Get all registers that the function writes to.
-    let isMain = dbName fname == "Main" in    -- ATTENTION: relies on debugging name!
+    let isMain = dbName fname == "main" in    -- ATTENTION: relies on debugging name!
     let registers = if isMain then
             []
           else
