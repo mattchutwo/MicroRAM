@@ -180,6 +180,7 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , ("llvm.lifetime.start.p0i8", cc_noop)
   , ("llvm.lifetime.end.p0i8", cc_noop)
 
+  -- Varargs
   , ("llvm.va_start", va_start)
   , ("llvm.va_end", cc_noop)
 
@@ -208,10 +209,6 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , mkTrap "llvm.sqrt.f64"
   , mkTrap "llvm.trunc.f64"
   , mkTrap "llvm.llrint.i64.f64"
-
-  -- Varargs
-  , mkTrap "llvm.va_start"
-  , mkTrap "llvm.va_end"
   ]
   where
     mkTrap name = (name, cc_trap $ Text.pack name)
