@@ -21,13 +21,14 @@ module Compiler.Errors
       CmplError,
       describeError,
 
-      tag, tagPass,
+      tag, tagState, tagPass,
       handleErrorWith
 
     ) where
 
 
 import Control.Monad.Except
+import Control.Monad.State (StateT(..))
 
 import System.Exit
 import System.IO
@@ -71,6 +72,9 @@ tag _ (Right a) = Right a
 -- | Tags an function with a location (in case of error)
 tagPass :: String -> (a -> Hopefully b) -> (a -> Hopefully b)
 tagPass passName pass prog = tag passName (pass prog)
+
+tagState :: String -> StateT s Hopefully a -> StateT s Hopefully a
+tagState pass (StateT f) = StateT $ tag pass . f
 
 -- | Handler for compiler errors.
 handleErrorWith :: Hopefully a -> IO a

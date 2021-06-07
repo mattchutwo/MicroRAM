@@ -208,6 +208,7 @@ data RTLInstr' operand =
     MRAM.MWord    -- ^ size of the allocated thing
     operand -- ^ number of things allocated
   | RPhi VReg [(operand,Name)] -- ^ Static Single Assignment function `phi`
+  | RGetBP VReg    -- Assign the base stack pointer to the register.
   deriving (Show, Functor, Foldable, Traversable)
     
     
@@ -270,6 +271,7 @@ data LTLInstr' mreg wrdT operand =
     (Maybe mreg) -- ^ return register (gives location)
     MRAM.MWord    -- ^ size of the allocated thing
     operand -- ^ number of things allocated
+  | LGetBP mreg    -- Assign the base stack pointer to the register.
   deriving (Show, Functor, Foldable, Traversable)
   
 type LTLInstr mdata mreg wrdT =
@@ -345,5 +347,6 @@ rtlToLtl (IRprog tenv globals code) = do
    convertInstruction (RCall t mr f ts as) = return $ LCall t mr f ts as
    convertInstruction (RRet mo) = return $ LRet mo
    convertInstruction (RAlloc mr s o) = return $ LAlloc mr s o
+   convertInstruction (RGetBP r) = return $ LGetBP r
    convertInstruction (RPhi _ _) = implError "Phi. Not implemented in the trivial Register allocation."
    

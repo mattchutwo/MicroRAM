@@ -58,8 +58,6 @@ import qualified Data.Set as Set
 
 import Debug.PrettyPrint
 
-import Data.Word
-
 import MicroRAM.MRAMInterpreter
 import MicroRAM
 import LLVMutil.LLVMIO
@@ -307,7 +305,7 @@ firstRegs bound = map fromWord $ map (2*) [0..bound]
 
 myCS :: CustomSummary AReg
 myCS = defaultCSName
-  {theseRegs = Just [] -- Just $ [0..8]
+  {theseRegs = Just [0..8]
   ,showMem = False
   ,showFlag = False
   ,theseMem = [0..15]
@@ -342,7 +340,7 @@ summaryFromFile myfile myCS 300
 jpProgComp
   :: Word -> IO (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
 jpProgComp len = do
-  m <- fromLLVMFile "test/programs/funcPointer.ll"
+  m <- fromLLVMFile "test/programs/varArgs.ll"
   -- return m
   return $ either (error . show) id $
         (justCompile instrSelect) (prog2unit len m)
@@ -362,30 +360,47 @@ jpProgComp len = do
     >>= (justAnalyse (return . SparsityData . (forceSparsity spars))) 
     >>= (blockCleanup)
     >>= (removeLabels)
+    
+    -- compile False len m Nothing
   where
     allowUndefFun = False
     spars = Nothing
 
     -- return $ either undefined id $
     --   compile False len m Nothing
+--
+-- import Compiler.CompilationUnit
+-- import Data.Text.Prettyprint.Doc
+-- import Debug.PrettyPrint
+-- import MicroRAM.MRAMInterpreter
+--
 -- p <- jpProgComp 2000
+-- putStr $ microPrint $ programCU p
+--
 -- putStr $ microPrint $ lowProg $ programCU p
 --
 -- do {p <- jpProgComp 200; print $ pretty $ map fst $ programCU p}
+--
+-- let len = 250
+-- p <- jpProgComp len
+-- let convert = map fst
+-- let p' = (\(MultiProg h l) -> MultiProg (convert h) (convert l)) <$> p
+-- let t = run p'
+-- printSummary defaultSummary t len
 
-{- SC: Broken after resgiter allocation was moved to
-   work on compilation units, not just programs.
-jpProg :: IO (Program VReg MWord)
-jpProg = do
-    m <- fromLLVMFile "test/programs/fibSlow.ll"
-    return $ either undefined id $
-      instrSelect m
-      >>= legalize
-      >>= registerAlloc def
-      >>= callingConvention
-      >>= stacking
-      >>= removeLabelsProg 
--}
+printProg :: CompilationUnit () (AnnotatedProgram Metadata AReg MWord) -> IO ()
+printProg = putStr . microPrint . pmProg . programCU
+
+jpProgComp'
+  :: Word -> IO (CompilationResult (AnnotatedProgram Metadata AReg MWord))
+jpProgComp' len = do
+  m <- fromLLVMFile "test/programs/varArgs.ll"
+  return $ either (error . show) id $
+    compile False len m Nothing
+
+-- printProg (fmap lowProg p)
+-- let t = run $ fmap (fmap $ fmap $ fmap fst) p
+-- printSummary defaultSummary t len
 
 cs :: CustomSummary mreg
 cs = defaultSummary {theseMem = [0..27]}

@@ -20,16 +20,19 @@ module Compiler.Intrinsics
     ) where
 
 
-import Control.Monad
+import           Control.Monad
+import           Control.Monad.State (evalStateT, StateT, get, modify')
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
+
+import           Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 
-import Compiler.Common (Name(Name))
+import Compiler.Common (Name(Name), Ty(..), tySize)
 import Compiler.Metadata
 import Compiler.Errors
 import Compiler.IRs
@@ -37,100 +40,125 @@ import Compiler.LazyConstants
 
 import MicroRAM
 
+-- Metadata needed to expand intrinsics for function calls.
+data CallingContextMetadata = CCM {
+    _argTys :: [Ty] -- The list of nonvariadic argument types for a function. This is needed to compute the offset for variadic arguments on the stack.
+  }
 
 expandInstrs :: forall f m w.
-  Applicative f => (MIRInstr m w -> f [MIRInstr m w]) -> MIRprog m w -> f (MIRprog m w)
+  Monad f => (CallingContextMetadata -> MIRInstr m w -> StateT IState f [MIRInstr m w]) -> MIRprog m w -> f (MIRprog m w)
 expandInstrs f = goProg
   -- TODO: this can probably be done more cleanly with traverse or lenses
   where goProg :: MIRprog m w -> f (MIRprog m w)
         goProg (IRprog te gs code) = IRprog te gs <$> traverse goFunc code
 
         goFunc :: MIRFunction m w -> f (MIRFunction m w)
-        goFunc (Function nm rty atys bbs nr) =
-          Function nm rty atys <$> traverse goBB bbs <*> pure nr
+        goFunc (Function nm rty atys bbs nr) = flip evalStateT (IState nr) $
+          Function nm rty atys <$> traverse (goBB $ CCM atys) bbs <*> fmap iNextRegister get
 
-        goBB :: BB n (MIRInstr m w) -> f (BB n (MIRInstr m w))
-        goBB (BB nm body term dag) = BB nm <$> goInstrs body <*> goInstrs term <*> pure dag
+        goBB :: CallingContextMetadata -> BB n (MIRInstr m w) -> StateT IState f (BB n (MIRInstr m w))
+        goBB ccm (BB nm body term dag) = BB nm <$> goInstrs ccm body <*> goInstrs ccm term <*> pure dag
 
-        goInstrs :: [MIRInstr m w] -> f [MIRInstr m w]
-        goInstrs is = concat <$> traverse f is
+        goInstrs :: CallingContextMetadata -> [MIRInstr m w] -> StateT IState f [MIRInstr m w]
+        goInstrs ccm is = concat <$> traverse (f ccm) is
 
-type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> m -> Hopefully [MIRInstr m w]
+data IState = IState {
+    iNextRegister :: Word
+  }
 
-expandIntrinsicCall :: forall m w. Show w => Map String (IntrinsicImpl m w) -> MIRInstr m w -> Hopefully [MIRInstr m w]
-expandIntrinsicCall intrinMap (MirI (RCall _ dest (Label name) _ args) meta)
+getNextRegister :: Monad m => StateT IState m VReg
+getNextRegister = do
+  reg <- (\i -> Name $ "_intrinsic" <> Short.toShort (BSC.pack $ show $ iNextRegister i)) <$> get
+  modify' $ \(IState c) -> IState (c+1)
+  return reg
+
+type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> m -> CallingContextMetadata -> StateT IState Hopefully [MIRInstr m w]
+
+expandIntrinsicCall :: forall m w. Show w => Map String (IntrinsicImpl m w) -> CallingContextMetadata -> MIRInstr m w -> StateT IState Hopefully [MIRInstr m w]
+expandIntrinsicCall intrinMap ccm (MirI (RCall _ dest (Label name) _ args) meta)
   | Just impl <- Map.lookup name intrinMap =
-    tag ("bad call to intrinsic " ++ name) $ impl args dest meta
-expandIntrinsicCall _ instr = return [instr]
+    tagState ("bad call to intrinsic " ++ name) $ impl args dest meta ccm
+expandIntrinsicCall _ _ instr = return [instr]
 
 
 cc_test_add :: IntrinsicImpl m w
-cc_test_add [x, y] (Just dest) md = return [MirM (Iadd dest x y) md]
-cc_test_add _ _ _ = progError "bad arguments"
+cc_test_add [x, y] (Just dest) md _ = return [MirM (Iadd dest x y) md]
+cc_test_add _ _ _ _ = progError "bad arguments"
 
 cc_noop :: IntrinsicImpl m w
-cc_noop _ _ _ = return []
+cc_noop _ _ _ _ = return []
 
 cc_trap :: Text -> IntrinsicImpl m MWord
-cc_trap desc _ _ md = return [
+cc_trap desc _ _ md _ = return [
   MirM (Iext (XTrace ("Trap: " <> desc) [])) md,
   MirM (Ianswer (LImm $ SConst 0)) md] 
 
 cc_malloc :: IntrinsicImpl m w
-cc_malloc [size] (Just dest) md = return [MirM (Iextadvise dest (XMalloc size)) md]
-cc_malloc _ _ _ = progError "bad arguments"
+cc_malloc [size] (Just dest) md _ = return [MirM (Iextadvise dest (XMalloc size)) md]
+cc_malloc _ _ _ _ = progError "bad arguments"
 
 cc_access_valid :: IntrinsicImpl m w
-cc_access_valid [lo, hi] Nothing md = return [MirM (Iext (XAccessValid lo hi)) md]
-cc_access_valid _ _ _ = progError "bad arguments"
+cc_access_valid [lo, hi] Nothing md _ = return [MirM (Iext (XAccessValid lo hi)) md]
+cc_access_valid _ _ _ _ = progError "bad arguments"
 
 cc_access_invalid :: IntrinsicImpl m w
-cc_access_invalid [lo, hi] Nothing md = return [MirM (Iext (XAccessInvalid lo hi)) md]
-cc_access_invalid _ _ _ = progError "bad arguments"
+cc_access_invalid [lo, hi] Nothing md _ = return [MirM (Iext (XAccessInvalid lo hi)) md]
+cc_access_invalid _ _ _ _ = progError "bad arguments"
 
 cc_advise_poison :: IntrinsicImpl m w
-cc_advise_poison [lo, hi] (Just dest) md =
+cc_advise_poison [lo, hi] (Just dest) md _ =
   return [MirM (Iextadvise dest (XAdvisePoison lo hi)) md]
-cc_advise_poison _ _ _ = progError "bad arguments"
+cc_advise_poison _ _ _ _ = progError "bad arguments"
 
 cc_write_and_poison :: IntrinsicImpl m w
-cc_write_and_poison [ptr, val] Nothing md =
+cc_write_and_poison [ptr, val] Nothing md _ =
   return [MirM (IpoisonW ptr val) md]
-cc_write_and_poison _ _ _ = progError "bad arguments"
+cc_write_and_poison _ _ _ _ = progError "bad arguments"
 
 cc_read_unchecked :: IntrinsicImpl m w
-cc_read_unchecked [ptr] (Just dest) md =
+cc_read_unchecked [ptr] (Just dest) md _ =
   return [MirM (Iextval dest (XLoadUnchecked ptr)) md]
-cc_read_unchecked _ _ _ = progError "bad arguments"
+cc_read_unchecked _ _ _ _ = progError "bad arguments"
 
 cc_write_unchecked :: IntrinsicImpl m w
-cc_write_unchecked [ptr, val] Nothing md =
+cc_write_unchecked [ptr, val] Nothing md _ =
   return [MirM (Iext (XStoreUnchecked ptr val)) md]
-cc_write_unchecked _ _ _ = progError "bad arguments"
+cc_write_unchecked _ _ _ _ = progError "bad arguments"
 
 cc_flag_invalid :: IntrinsicImpl m MWord
-cc_flag_invalid [] Nothing md =
+cc_flag_invalid [] Nothing md _ =
   return [
     MirM (Iext (XTrace "__cc_flag_invalid" [])) md,
     MirM (IpoisonW zero zero) md ]
   where zero = LImm $ SConst 0
-cc_flag_invalid _ _ _ = progError "bad arguments"
+cc_flag_invalid _ _ _ _ = progError "bad arguments"
 
 cc_flag_bug :: IntrinsicImpl m MWord
-cc_flag_bug [] Nothing md =
+cc_flag_bug [] Nothing md _ =
   return [MirM (IstoreW zero zero) md]
   where zero = LImm $ SConst 0
-cc_flag_bug _ _ _ = progError "bad arguments"
+cc_flag_bug _ _ _ _ = progError "bad arguments"
 
 cc_trace :: IntrinsicImpl m w
-cc_trace [msg] Nothing md = return [MirM (Iext (XTraceStr msg)) md]
-cc_trace _ _ _ = progError "bad arguments"
+cc_trace [msg] Nothing md _ = return [MirM (Iext (XTraceStr msg)) md]
+cc_trace _ _ _ _ = progError "bad arguments"
 
 cc_trace_exec :: IntrinsicImpl m w
-cc_trace_exec (name : args) Nothing md =
+cc_trace_exec (name : args) Nothing md _ =
   return [MirM (Iext (XTraceExec name args)) md]
-cc_trace_exec _ _ _ = progError "bad arguments"
+cc_trace_exec _ _ _ _ = progError "bad arguments"
 
+va_start :: IntrinsicImpl m MWord
+va_start [ptr] Nothing md (CCM argTys) = do
+  reg <- getNextRegister
+  return [
+      MirI (RGetBP reg) md
+    , MirI (RCall TVoid Nothing (Label "Name \"__cc_va_start\"") [Tptr, Tptr, Tint] [ptr, AReg reg, offset]) md
+    ]
+  where
+    -- Skip return address and nonvariadic arguments.
+    offset = LImm $ SConst $ fromIntegral wordBytes * (2 + (sum $ map tySize argTys))
+va_start _ _ _ _ = progError "bad arguments"
 
 intrinsics :: Map String (IntrinsicImpl m MWord)
 intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
@@ -151,6 +179,10 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
 
   , ("llvm.lifetime.start.p0i8", cc_noop)
   , ("llvm.lifetime.end.p0i8", cc_noop)
+
+  -- Varargs
+  , ("llvm.va_start", va_start)
+  , ("llvm.va_end", cc_noop)
 
   -- Exception handling
   , mkTrap "__gxx_personality_v0"
@@ -177,10 +209,6 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , mkTrap "llvm.sqrt.f64"
   , mkTrap "llvm.trunc.f64"
   , mkTrap "llvm.llrint.i64.f64"
-
-  -- Varargs
-  , mkTrap "llvm.va_start"
-  , mkTrap "llvm.va_end"
   ]
   where
     mkTrap name = (name, cc_trap $ Text.pack name)

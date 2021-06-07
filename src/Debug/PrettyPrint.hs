@@ -88,6 +88,7 @@ instance (Pretty (PrettyPrintWrapper op)) => Pretty (RTLInstr' op) where
   pretty (RAlloc opM s n) = maybe "" (\op -> pretty (PPW op) <> " = ") opM <> "alloc(" <> pretty (PPW n) <> " * " <> pretty s <> ")"
   pretty (RPhi reg srcs) = pretty (PPW reg) <> " = phi(" <> concatWith (surround ",") (map (pretty . first PPW) srcs) <> ")"
   pretty (RCall _retTy regM f _argTys args) = maybe "" (\r -> pretty (PPW r) <> " = ") regM <> pretty (PPW f) <> "(" <> concatWith (surround ",") (map (pretty . PPW) args) <> ")"
+  pretty (RGetBP reg) = pretty (PPW reg) <> " = %bp"
 
 instance Pretty Slot where
   pretty = viaShow
@@ -98,6 +99,7 @@ instance (Pretty (PrettyPrintWrapper reg), Pretty (PrettyPrintWrapper op)) => Pr
   pretty (LCall _retTy regM f _argTys args) = maybe "" (\r -> pretty (PPW r) <> " = ") regM <> pretty (PPW f) <> "(" <> concatWith (surround ",") (map (pretty . PPW) args) <> ")"
   pretty (LRet opM) = "ret" <> maybe "" ((" " <>) . pretty . PPW) opM
   pretty (LAlloc opM s n) = maybe "" (\op -> pretty (PPW op) <> " = ") opM <> "alloc(" <> pretty (PPW n) <> " * " <> pretty s <> ")"
+  pretty (LGetBP reg) = pretty (PPW reg) <> " = %bp"
 
 instance Pretty wrd => Pretty (LazyConst l wrd) where
   pretty (SConst s) = pretty s

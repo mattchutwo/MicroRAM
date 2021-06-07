@@ -30,6 +30,7 @@ writeRegistersLTLInstruction (Lsetstack _ _ _ _) = mempty
 writeRegistersLTLInstruction (LCall _t mr _ _ _) = maybe mempty Set.singleton mr
 writeRegistersLTLInstruction (LRet _mo) = mempty
 writeRegistersLTLInstruction (LAlloc mr _t _op) = maybe mempty Set.singleton mr
+writeRegistersLTLInstruction (LGetBP r) = Set.singleton r
 
 -- Retrieve the read registers of an instruction.
 readRegisters :: Ord reg => LTLInstr mdata reg wrdT -> Set reg
@@ -45,6 +46,7 @@ readRegistersLTLInstruction (Lsetstack r1 _ _ _) = Set.singleton r1
 readRegistersLTLInstruction (LCall _t _mr op _ts ops) = readRegistersOperand op <> mconcat (map readRegistersOperand ops)
 readRegistersLTLInstruction (LRet mo) = maybe mempty readRegistersOperand mo
 readRegistersLTLInstruction (LAlloc _mr _t op) = readRegistersOperand op
+readRegistersLTLInstruction (LGetBP _r) = mempty
 
 readRegistersOperand :: Ord reg => MAOperand reg wrdT -> Set reg
 readRegistersOperand (AReg r) = Set.singleton r
@@ -68,6 +70,7 @@ substituteLTLInstruction substs (Lsetstack r1 s w t) = Lsetstack (substituteRegi
 substituteLTLInstruction substs (LCall t mr op ts ops) = LCall t (substituteRegister substs <$> mr) (substituteOperand substs op) ts (map (substituteOperand substs) ops)
 substituteLTLInstruction substs (LRet mo) = LRet (substituteOperand substs <$> mo)
 substituteLTLInstruction substs (LAlloc mr t op) = LAlloc (substituteRegister substs <$> mr) t (substituteOperand substs op)
+substituteLTLInstruction substs (LGetBP r) = LGetBP (substituteRegister substs r)
 
 substituteRegister :: Ord reg => Map reg reg -> reg -> reg
 substituteRegister substs r | Just r' <- Map.lookup r substs = r'

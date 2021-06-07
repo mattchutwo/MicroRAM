@@ -20,7 +20,7 @@ oneTest = OneTest $ defaultTest {
 allTests = ManyTests "Program tests"
         [testCorrectness, testErrors, testBugs]
 testCorrectness = ManyTests "Compiler correctness tests"
-                  [testTrivial, testLoops, testGEP, testDatastruct, testFunctionPointer]
+                  [testTrivial, testLoops, testGEP, testDatastruct, testFunctionPointer, testVarArgs]
 
 -- Trivial test, just to see the basics are working
 testTrivial = ManyTests "Trivial programs" $ OneTest <$>
@@ -107,6 +107,27 @@ testFunctionPointer = ManyTests "Test function pointers" $ OneTest <$> [
     , fileName = "test/Programs/funcPointerArgs.ll"
     , testLen = 100
     , testResult = 15
+    }
+  ]
+
+testVarArgs = ManyTests "Test varargs" $ OneTest <$> [
+    defaultTest {
+      testName = "call function with varargs"
+    , fileName = "test/Programs/varArgs.ll"
+    , testLen = 700
+    , testResult = 15
+    }
+  , defaultTest {
+      testName = "call another function with varargs"
+    , fileName = "test/Programs/varArgs2.ll"
+    , testLen = 2000
+    , testResult = 23
+    }
+  , defaultTest {
+      testName = "call a third function with varargs"
+    , fileName = "test/Programs/varArgs3.ll"
+    , testLen = 2000
+    , testResult = 30
     }
   ]
 
