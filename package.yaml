@@ -52,6 +52,7 @@ dependencies:
 - search-algorithms 
 - vector
 - data-binary-ieee754
+- dom-lt
 
 library:
   source-dirs: src

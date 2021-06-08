@@ -25,6 +25,13 @@ packages:
       sha256: fc5a4a35b4c782a33f452c1dc66ffa8ddbf321e2db369bd8823c796f0d4d8c7f
   original:
     hackage: ref-tf-0.4.0.2
+- completed:
+    hackage: dom-lt-0.2.2.1@sha256:6b005b64f10a0f73f716898e0f4b4d93a02c31dc8abb155c14afd870e3abf9ac,1778
+    pantry-tree:
+      size: 441
+      sha256: b495c6fd847c5e10506d952a6051feb9f3ff03666aa917b04dc6bb559b83a58c
+  original:
+    hackage: dom-lt-0.2.2.1
 snapshots:
 - completed:
     size: 492027
