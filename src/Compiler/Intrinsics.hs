@@ -21,12 +21,12 @@ module Compiler.Intrinsics
 
 
 import Control.Monad
+
 import Data.ByteString.Short (ShortByteString)
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map
 import Data.Map (Map)
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -222,19 +222,32 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
       return (ss, fromText $ "llvm." <> Text.replace "__" "." name) -- ^ Doesn't change the Word
 
     renameMap = Map.fromList renameList
-    removeSet = Set.fromList $ map snd renameList
-    
 
+    -- | Remove all functions with no body and
+    -- build a map from remembering all those Names.
+    codeNoEmptyFuncs = fst noEmptyFuncs
+    mapNoEmptyFuncs = snd noEmptyFuncs
+    noEmptyFuncs :: ([MIRFunction Metadata MWord], Map.Map ShortByteString Name)
+    noEmptyFuncs = foldr go ([], Map.empty) code
+      where go (Function nm _ _ _ bbs _) (funcs, mapNE) =
+              if null bbs then (funcs, Map.insert (dbName nm) nm mapNE) else (funcs, mapNE)
 
     code' :: [MIRFunction Metadata MWord]
     code' = do
-      Function nm rty atys anms bbs nr <- code
-      guard $ not $ Set.member (dbName nm) removeSet
-      let replaceName =  Function (changeName nm) rty atys anms bbs nr
+      Function nm rty atys anms bbs nr <- codeNoEmptyFuncs
+      -- guard $ not $ Set.member (dbName nm) removeSet
+      let replaceName::MIRFunction Metadata MWord; replaceName = Function (changeName nm) rty atys anms bbs nr
       return $ mapMetadataMIRFunction changeMetadata replaceName
+    
       
     changeString name = maybe name id $ Map.lookup name renameMap
-    changeName (Name i dbnm) = Name i $ changeString dbnm
+    changeName :: Name -> Name
+    changeName (Name _ dbnm) =
+      let dbName' =  (changeString dbnm) in
+        case Map.lookup dbName'  mapNoEmptyFuncs of
+          Just name' -> name'
+          Nothing -> error $ "Trying to replace a function that doesn't exists: \n\t"
+                     <> show dbnm  <> " -> " <> show dbName'
 
     changeMetadata :: Metadata -> Metadata
     changeMetadata md = md {mdFunction = changeName $ mdFunction md}

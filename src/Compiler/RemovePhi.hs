@@ -34,7 +34,7 @@ import Compiler.RegisterAlloc.Liveness
 import MicroRAM
 
 data NameState = NameState
-  { nextName :: Word,
+  { _nextName :: Word,
     nameMap :: Map.Map (Name, Name) Name}
 
 -- Split edges to ensure the "unique successor or predecessor property" (Modern Compiler Implementation in Java, 19.6).
