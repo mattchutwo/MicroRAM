@@ -33,15 +33,22 @@ import Compiler.Metadata
 import Compiler.RegisterAlloc.Liveness
 import MicroRAM
 
+data NameState = NameState
+  { nextName :: Word,
+    nameMap :: Map.Map (Name, Name) Name}
 
 -- Split edges to ensure the "unique successor or predecessor property" (Modern Compiler Implementation in Java, 19.6).
 edgeSplit :: (Rprog Metadata wrdT, Word) -> Hopefully (Rprog Metadata wrdT, Word)
 edgeSplit (IRprog te ge funcs, nextReg) = do
-  let (funcs', nextReg') = runState (mapM edgeSplitFunc funcs) nextReg
+  let (funcs', NameState nextReg' _) = runState (mapM edgeSplitFunc funcs) initNameState
   return $ (IRprog te ge funcs', nextReg')
+  where initNameState = NameState nextReg Map.empty
 
-edgeSplitFunc :: forall wrdT . RFunction Metadata wrdT -> State Word (RFunction Metadata wrdT)
+edgeSplitFunc :: forall wrdT . RFunction Metadata wrdT -> State NameState (RFunction Metadata wrdT)
 edgeSplitFunc (Function name retTy argTys argNms blocks nextReg) = do
+  -- Function starts with empy name map
+  modify (\st -> st {nameMap = Map.empty})
+  -- create spliting blocks
   edgeBlocks <- mapM (buildEdgeBlock name) $ Map.toList edgeIndex
   -- Modify existing blocks
   blocks' <- mapM fixInstrs blocks
@@ -52,7 +59,7 @@ edgeSplitFunc (Function name retTy argTys argNms blocks nextReg) = do
 
     -- Build new blocks to place along the previous CFG edges.
 
-    buildEdgeBlock :: Name -> ((Name, Name), Int) -> State Word (BB Name (RTLInstr Metadata wrdT))
+    buildEdgeBlock :: Name -> ((Name, Name), Int) -> State NameState (BB Name (RTLInstr Metadata wrdT))
     buildEdgeBlock funcName ((pred, succ), edgeIdx) = do
       name <- makeEdgeBlockName pred succ edgeIdx
       let body = []
@@ -93,14 +100,14 @@ edgeSplitFunc (Function name retTy argTys argNms blocks nextReg) = do
       Map.fromList $ zip splitEdges [0..]
 
     
-    fixInstrs :: BB Name (RTLInstr Metadata wrdT) -> State Word (BB Name (RTLInstr Metadata wrdT))
+    fixInstrs :: BB Name (RTLInstr Metadata wrdT) -> State NameState (BB Name (RTLInstr Metadata wrdT))
     fixInstrs (BB name body term dag) = do
       dag' <- fixDag name dag
       body' <- mapM (fixInstr name) body
       term' <- mapM (fixInstr name) term
       return $ BB name body' term' dag'
 
-    fixInstr :: Name -> RTLInstr Metadata wrdT -> State Word (RTLInstr Metadata wrdT)
+    fixInstr :: Name -> RTLInstr Metadata wrdT -> State NameState (RTLInstr Metadata wrdT)
     fixInstr pred (MRI (Ijmp (Label succ)) mdata) = MRI . Ijmp <$> jumpDest pred succ <*> return mdata
     fixInstr pred (MRI (Icjmp r (Label succ)) mdata) = MRI . (Icjmp r) <$> (jumpDest pred succ) <*> return mdata
     fixInstr pred (MRI (Icnjmp r (Label succ)) mdata) = MRI . (Icnjmp r) <$> (jumpDest pred succ) <*> return mdata
@@ -110,10 +117,10 @@ edgeSplitFunc (Function name retTy argTys argNms blocks nextReg) = do
       where fixSuccs (o, pred) = do {pred' <- fixPred pred succ; return (o, pred')} 
     fixInstr _ instr = return instr
 
-    jumpDest :: Name -> Name -> State Word (MAOperand VReg wrdT)
+    jumpDest :: Name -> Name -> State NameState (MAOperand VReg wrdT)
     jumpDest pred succ = Label <$> fixSucc pred succ
 
-    fixDag :: Name -> DAGinfo Name -> State Word (DAGinfo Name) 
+    fixDag :: Name -> DAGinfo Name -> State NameState (DAGinfo Name) 
     fixDag pred succs = mapM (fixSucc pred) succs
 
     fixSucc pred succ = case Map.lookup (pred, succ) edgeIndex of
@@ -225,13 +232,16 @@ blockPhiMoves (BB name body _term _dag) acc = foldr goInstr acc body
         ) predLabel m
 
 
-makeEdgeBlockName :: Name -> Name -> Int -> State Word Name
+makeEdgeBlockName :: Name -> Name -> Int -> State NameState Name
 makeEdgeBlockName a b i = do
-  nextReg <- get
-  put $ nextReg + 1
-  return $ Name nextReg $ "phi" <> (fromString $ show i) <> "_" <> go a <> "_" <> go b
-  where go (Name _ dbName) = dbName
-  
+  NameState nextReg nMap <- get
+  case Map.lookup (a,b) nMap of
+    Just name' -> return name'
+    Nothing -> do
+      let name' = Name nextReg $ "phi" <> (fromString $ show i) <> "_" <> dbName a <> "_" <> dbName b
+      put $ NameState (nextReg + 1) (Map.insert (a,b) name' nMap)
+      return name'
+
 removePhis :: BB Name (RTLInstr Metadata wrdT) -> BB Name (RTLInstr Metadata wrdT)
 removePhis (BB name body term dag) = BB name (filter (not . isPhi) body) term dag
   where
