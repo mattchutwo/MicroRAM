@@ -100,22 +100,24 @@ _smartMovMaybe (Just r) a = smartMov r a
 -- This is a pseudofunction, that sets up return address for main.
 -- Stores the input in memory.
 -- Sends main to the returnBlock
-premain :: Regs mreg => Name -> [NamedBlock Metadata mreg MWord]
-premain returnName = return $
+premain :: Regs mreg => Name -> NamedBlock Metadata mreg MWord
+premain returnName =
   NBlock Nothing $
   -- poison address 0
   (IpoisonW (LImm 0) sp, md{mdFunctionStart = True}) : -- Premain is a 'function' add function start metadata
-  (map (\x -> (x,md)) $
-  -- Set the top of the stack.
-  Imov sp (LImm initAddr) :
-  -- push return address for main 
-  Imov ax (Label $ returnName) : (push ax) ++
-  -- set stack frame
-  (push bp) ++           -- Store "old" base pointer
-  Imov bp (AReg sp) :    -- set base pointer to the stack pointer
-  callMain)              -- jump to main
-  where callMain = return $ Ijmp $ Label mainName
-        md = trivialMetadata premainName defaultName
+  addMD md (
+      -- Set the top of the stack.
+      Imov sp (LImm initAddr) :
+      -- push return address for main 
+      Imov ax (Label $ returnName) : (push ax) ++
+      -- set stack frame
+      (push bp) ++           -- Store "old" base pointer
+      Imov bp (AReg sp) :    -- set base pointer to the stack pointer
+      []
+  ) ++
+  (Ijmp $ Label mainName, md { mdIsCall = True }) :     -- jump to main
+  []
+  where md = trivialMetadata premainName defaultName
 
         -- Start stack at 2^32.
         initAddr = 1 `shiftL` 32
@@ -123,7 +125,7 @@ premain returnName = return $
 -- | returnBlock: return lets the program output an answer (when main returns)
 returnBlock :: Regs mreg => Name -> NamedBlock Metadata mreg MWord
 returnBlock retName = NBlock (Just retName) [(Ianswer (AReg ax),md)]
-  where md = (trivialMetadata retName retName) {mdFunctionStart = True}
+  where md = (trivialMetadata retName retName) {mdIsReturn = True}
 
 
 -- ** Function Prologues and Epilogues
@@ -138,13 +140,15 @@ prologue size entry =
 
 
 -- | epilogue: deallocate the stack, then jump to return address
-epilogue :: Regs mreg => [MAInstruction mreg MWord]
-epilogue =
+epilogue :: Regs mreg => Metadata -> [(MAInstruction mreg MWord, Metadata)]
+epilogue md =
   -- Sp is uselles at this point so we use to calculate return adress
   -- remember return value is passed in ax and bp is marking the old stack 
-  Iadd sp bp (LImm $ fromIntegral wordBytes) :
-  IloadW sp (AReg sp) : 
-  [Ijmp (AReg sp)]
+  [
+    (Iadd sp bp (LImm $ fromIntegral wordBytes), md),
+    (IloadW sp (AReg sp), md),
+    (Ijmp (AReg sp), md { mdIsReturn = True })
+  ]
 
 
 -- ** Function calls:
@@ -171,9 +175,10 @@ funCallInstructions md _ ret f _typs _args =
     ] ++ push ax ++
     -- push the old base pointer, and move the base pointer to the sp
     push bp ++
-    [Imov bp (AReg sp)] ++
+    [Imov bp (AReg sp)]
+  ) ++
   -- Run function 
-    [Ijmp f]) ++
+  (Ijmp f, md { mdIsCall = True }) :
   -- The function should return to this next instruciton
   -- restore the base pointer (right before this it is used to compute return address)
   (Imov sp (AReg bp), md{mdReturnCall = True}): -- get old sp 
@@ -226,8 +231,8 @@ stackLTLInstr md (LGetBP reg) = return $ addMD md $
 
 stackLTLInstr md (LCall typ ret f argsT args) = return $ 
   funCallInstructions md typ ret f argsT args
-stackLTLInstr md (LRet Nothing) = return $ addMD md $  epilogue 
-stackLTLInstr md (LRet (Just _retVal)) = return $ addMD md $ epilogue 
+stackLTLInstr md (LRet Nothing) = return $ epilogue md
+stackLTLInstr md (LRet (Just _retVal)) = return $ epilogue md
   -- (Imov ax retVal) : epilogue -- Calling convention inserts the move to ax for us, so we skip it here. Can we move `restoreLTLInstruction` here?
 stackLTLInstr md (LAlloc reg sz n) = do
   -- sp = sp + n * sz
@@ -307,6 +312,5 @@ stacking (IRprog _ _ functions, nextName) = do
   functions' <- mapM stackFunction functions
   let returnName = Name nextName "_ret_"
   return $
-    (premain returnName ++
-    (concat functions')
-    ++ [returnBlock returnName], nextName + 1)
+    ([premain returnName, returnBlock returnName] ++ concat functions',
+      nextName + 1)

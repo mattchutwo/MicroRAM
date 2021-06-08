@@ -22,8 +22,10 @@ data Metadata = Metadata {
   , mdLine           :: Int      -- Line of source instruction
   , mdFunctionStart :: Bool      -- If instruction is at the start of a function (only added at stacking)
   , mdReturnCall :: Bool         -- If instruction happens right after a function call jump
+  , mdIsCall :: Bool        -- ^ This `Ijmp` is a function call
+  , mdIsReturn :: Bool      -- ^ This `Ijmp` is a return from the current function
   } deriving (Show, Read)
-  
+
 defaultMetadata :: Metadata
 defaultMetadata =
   Metadata {
@@ -32,6 +34,8 @@ defaultMetadata =
   , mdLine = 0
   , mdFunctionStart = False
   , mdReturnCall = False
+  , mdIsCall = False
+  , mdIsReturn = False
   }
 
 trivialMetadata :: Name -> Name -> Metadata

@@ -115,7 +115,14 @@ freshName = newName "fresh"
 
 getMetadata :: Statefully Metadata
 getMetadata = do
-  Metadata <$> use currentFunction <*> use currentBlock <*> use lineNumber <*> (return False) <*> (return False)
+  Metadata
+    <$> use currentFunction
+    <*> use currentBlock
+    <*> use lineNumber
+    <*> pure False
+    <*> pure False
+    <*> pure False
+    <*> pure False
 
 -- | Environment to keep track of global and type definitions
 data Env = Env {llvmtTypeEnv :: LLVMTypeEnv, globs :: Set.Set LLVM.Name}
