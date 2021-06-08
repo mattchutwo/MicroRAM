@@ -17,14 +17,11 @@ module Compiler.LocalizeLabels
     ) where
 
 import qualified Data.Map as Map 
-import Data.Set (Set)
-import qualified Data.Set as Set
--- import Data.String (fromString)
 
 import Compiler.Common (Name(..))
 import Compiler.Errors
 import Compiler.IRs
-import Control.Monad.State.Lazy (State, runState, get, put)
+import Control.Monad.State.Lazy (State, runState, get, put, modify)
 
 localizeLabels :: (Rprog mdata wrdT, Word) -> Hopefully (Rprog mdata wrdT, Word)
 localizeLabels (IRprog te ge funcs, nameBound) =
@@ -32,15 +29,20 @@ localizeLabels (IRprog te ge funcs, nameBound) =
         RenameState nameBound Map.empty in
   return $ (IRprog te ge funcs', nameBound')
   where
-     funcNames = Set.fromList $ map funcName funcs
-
+    -- Function names are not localized.
+    funcNames = Map.fromList $ map (dup . funcName) funcs
+    dup a = (a,a)
+     
 data RenameState = RenameState
   { _newName :: Word,
-    _renameMap :: Map.Map Name Name
+    renameMap :: Map.Map Name Name
   }
 
-localizeFunc :: Set Name -> RFunction mdata wrdT -> State RenameState (RFunction mdata wrdT)
+localizeFunc :: Map.Map Name Name -> RFunction mdata wrdT -> State RenameState (RFunction mdata wrdT)
 localizeFunc funcNames func = do
+  -- Starts by knowing only the function names
+  -- but doesn't know about blocks in other funcitons.
+  modify $ \st -> st {renameMap = funcNames }  
   blocks' <- mapM goBB $ funcBlocks func
   return $ func { funcBlocks = blocks' }
   where
@@ -65,9 +67,7 @@ localizeFunc funcNames func = do
     goRTLInstr i = mapM goOperand  i
 
     rename :: Name -> State RenameState Name
-    rename name
-      | Set.member name funcNames = return name
-      | otherwise = do
+    rename name = do
           RenameState nextName renameMap <- get
           case Map.lookup name renameMap of
             Just name' -> return name'
