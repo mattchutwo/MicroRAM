@@ -26,6 +26,7 @@ import Data.ByteString.Short (ShortByteString)
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map
+import qualified Data.Set as Set (member, fromList) 
 import Data.Map (Map)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -222,19 +223,19 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
       return (ss, fromText $ "llvm." <> Text.replace "__" "." name) -- ^ Doesn't change the Word
 
     renameMap = Map.fromList renameList
+    removeSet = Set.fromList $ map snd renameList
 
-    -- | Remove all functions with no body and
-    -- build a map from remembering all those Names.
-    codeNoEmptyFuncs = fst noEmptyFuncs
-    mapNoEmptyFuncs = snd noEmptyFuncs
-    noEmptyFuncs :: ([MIRFunction Metadata MWord], Map.Map ShortByteString Name)
-    noEmptyFuncs = foldr go ([], Map.empty) code
-      where go f@(Function nm _ _ _ bbs _) (funcs, mapNE) =
-              if null bbs then (funcs, Map.insert (dbName nm) nm mapNE) else (f:funcs, mapNE)
+    -- | Remember the name of all empty functions
+    -- mapping from their debug name.
+    emptyFuncMap :: Map.Map ShortByteString Name
+    emptyFuncMap = foldr go Map.empty code
+      where go (Function nm _ _ _ bbs _) mapNE =
+              if null bbs then Map.insert (dbName nm) nm mapNE else mapNE
 
     code' :: [MIRFunction Metadata MWord]
     code' = do
-      Function nm rty atys anms bbs nr <- codeNoEmptyFuncs
+      Function nm rty atys anms bbs nr <- code
+      guard $ not $ Set.member (dbName nm) removeSet
       let replaceName = Function (changeName nm) rty atys anms bbs nr
       return $ mapMetadataMIRFunction changeMetadata replaceName
     
@@ -244,7 +245,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
     changeName name@(Name n dbnm) =
       let dbName' =  (changeString dbnm) in
         if dbnm == dbName' then name else 
-          case Map.lookup dbName' mapNoEmptyFuncs of
+          case Map.lookup dbName' emptyFuncMap of
             Just name' -> name'
             Nothing -> Name n dbName' -- ^ This function had no implementation so it's probably not called. 
 
