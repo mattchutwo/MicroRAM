@@ -210,8 +210,7 @@ removeIntrinsics prog =
 -- The problem this solves is that we can't directly define a function with a
 -- name like `llvm.memset.p0i8.i64` in C.  Instead, we define a function name
 -- `__llvm__memset__p0i8__i64`, then this pass renames it to the dotted form.
--- (It also renames the empty definition of the dotted form to `orig.llvm.foo`,
--- to avoid conflicts later on.)
+-- It also removes the empty definition of the dotted form, to avoid conflicts later on.
 renameLLVMIntrinsicImpls :: MIRprog Metadata MWord -> Hopefully (MIRprog Metadata MWord)
 renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
   where
@@ -225,16 +224,21 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
     renameMap = Map.fromList renameList
     removeSet = Set.fromList $ map snd renameList
 
-    -- | Remember the name of all empty functions
-    -- mapping from their debug name.
+    -- | If the code calls `llvm.memset.p0i8.i64` it will use the Word id
+    -- of a dummy function that is empty. When we change `__llvm__memset__p0i8__i64`
+    -- to llvm.memset.p0i8.i64, we need to use the same id. So,
+    -- for every empty function named (Name n "emptyFoo")
+    -- we create the Map that relates "emptyFoo" -> Name n "emptyFoo". 
     emptyFuncMap :: Map.Map ShortByteString Name
     emptyFuncMap = foldr go Map.empty code
       where go (Function nm _ _ _ bbs _) mapNE =
               if null bbs then Map.insert (dbName nm) nm mapNE else mapNE
 
+    -- | 
     code' :: [MIRFunction Metadata MWord]
     code' = do
       Function nm rty atys anms bbs nr <- code
+      -- Remove functions in the remove set (i.e. dummy version of the function)
       guard $ not $ Set.member (dbName nm) removeSet
       let replaceName = Function (changeName nm) rty atys anms bbs nr
       return $ mapMetadataMIRFunction changeMetadata replaceName
