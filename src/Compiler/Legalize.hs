@@ -185,7 +185,7 @@ legalizeFunc f = do
   nextReg <- get 
   (blocks', nextReg') <- lift $ runStatefully (mapM legalizeBlock $ funcBlocks f) nextReg
   put nextReg'
-  return $ f { funcBlocks = blocks', funcNextReg = nextReg' }
+  return $ f { funcBlocks = blocks'}
 
 legalize :: (MIRprog m MWord, Word) -> Hopefully (Rprog m MWord, Word)
 legalize (p, nextReg) = do

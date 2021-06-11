@@ -119,7 +119,6 @@ data Function nameT paramT blockT = Function
   , funcArgTys :: [paramT] -- ^ Types of arguments
   , funcArgNms :: [nameT] -- ^ Arguments names
   , funcBlocks :: [blockT] -- ^ Function code as a list of blocks
-  , funcNextReg :: Word    -- ^ The index of the next unused register
   }
   deriving (Show, Functor)
 
@@ -322,7 +321,7 @@ rtlToLtl (IRprog tenv globals code) = do
   return $ IRprog tenv globals code'
   where
    convertFunc :: RFunction mdata wrdT -> Hopefully $ LFunction mdata VReg wrdT
-   convertFunc (Function name retType paramTypes paramNames body _nextReg) = do
+   convertFunc (Function name retType paramTypes paramNames body) = do
      -- JP: Where should we get the metadata and stack size from?
      let stackSize = 0 -- Since nothing is spilled 0
      body' <- mapM convertBasicBlock body

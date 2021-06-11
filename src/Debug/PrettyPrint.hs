@@ -125,7 +125,7 @@ instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pr
          ]
 
 instance (Pretty name, Pretty param, Pretty block) => Pretty (Function name param block) where
-  pretty (Function name retTy argTys argNms blocks _nextReg) =
+  pretty (Function name retTy argTys argNms blocks) =
     vsep [ "// " <> pretty name <> " " <> prettyArgs (zip argTys argNms) <> " -> " <> pretty retTy
          , vsep (map pretty blocks)
          , line

@@ -1120,8 +1120,7 @@ isFunction env (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params 
     currentFunction .= name'
     body <- isBlocks env code -- runStateT (isBlocks env code) initState
     retT' <- lift $ type2type  (llvmtTypeEnv env) retT
-    currentNextReg <- use nextReg
-    return $ Function name' retT' paramsTyp paramNames body currentNextReg
+    return $ Function name' retT' paramsTyp paramNames body
 isFunction _tenv other = lift $ unreachableError $ show other -- Shoudl be filtered out 
   
 -- | Instruction Selection for all definitions

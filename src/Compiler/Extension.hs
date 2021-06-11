@@ -47,14 +47,14 @@ lowerBlock :: BB Name (MIRInstr md MWord) -> Statefully (BB Name (MIRInstr md MW
 lowerBlock (BB name body term dag) =
   BB name <$> lowerInstrs body <*> lowerInstrs term <*> pure dag
 
-lowerFunc :: MIRFunction md MWord -> Hopefully (MIRFunction md MWord)
+lowerFunc :: MIRFunction md MWord -> Statefully (MIRFunction md MWord)
 lowerFunc f = do
-  (blocks', nextReg') <- runStateT (mapM lowerBlock $ funcBlocks f) (funcNextReg f)
-  return $ f { funcBlocks = blocks', funcNextReg = nextReg' }
+  blocks' <- mapM lowerBlock $ funcBlocks f
+  return $ f { funcBlocks = blocks'}
 
-lowerExtensionInstrs :: MIRprog md MWord -> Hopefully (MIRprog md MWord)
-lowerExtensionInstrs p = do
-  code' <- mapM lowerFunc $ code p
-  return $ p { code = code' }
+lowerExtensionInstrs :: (MIRprog md MWord, Word) -> Hopefully (MIRprog md MWord, Word)
+lowerExtensionInstrs (p, nextReg) = do
+  (code', nextReg') <- runStateT (mapM lowerFunc $ code p) nextReg  
+  return (p { code = code' }, nextReg')
 
 

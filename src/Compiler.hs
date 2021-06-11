@@ -204,7 +204,7 @@ compile allowUndefFun len llvmProg spars = do
   ir <- compile1 allowUndefFun len llvmProg
   high <- compile2 spars ir
   low <- return ir
-    >>= (tagPass "Lower Extension Instructions" $ justCompile lowerExtensionInstrs)
+    >>= (tagPass "Lower Extension Instructions" $ justCompileWithNames lowerExtensionInstrs)
     >>= compile2 spars
   -- Return both programs, using the analysis data from the final one.
   return $ low { programCU = MultiProg (programCU high) (programCU low) }
