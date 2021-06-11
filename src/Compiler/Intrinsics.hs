@@ -89,7 +89,7 @@ cc_write_unchecked _ _ _ = progError "bad arguments"
 cc_flag_invalid :: IntrinsicImpl m MWord
 cc_flag_invalid [] Nothing md =
   return [
-    MirM (Iext (XTrace "__cc_flag_invalid" [])) md,
+    MirM (Iext (XTrace "@__cc_flag_invalid" [])) md,
     MirM (IpoisonW zero zero) md ]
   where zero = LImm $ SConst 0
 cc_flag_invalid _ _ _ = progError "bad arguments"
@@ -115,53 +115,53 @@ intrinsics = Map.fromList $ map (\(x :: ShortByteString, y) -> (x, y)) $ intrins
 
 intrinsicsList :: [(ShortByteString, IntrinsicImpl m MWord)]
 intrinsicsList =
-  [ ("__cc_test_add", cc_test_add)
-  , ("__cc_flag_invalid", cc_flag_invalid)
-  , ("__cc_flag_bug", cc_flag_bug)
+  [ ("@__cc_test_add", cc_test_add)
+  , ("@__cc_flag_invalid", cc_flag_invalid)
+  , ("@__cc_flag_bug", cc_flag_bug)
 
-  , ("__cc_malloc", cc_malloc)
-  , ("__cc_access_valid", cc_access_valid)
-  , ("__cc_access_invalid", cc_access_invalid)
-  , ("__cc_advise_poison", cc_advise_poison)
-  , ("__cc_write_and_poison", cc_write_and_poison)
-  , ("__cc_read_unchecked", cc_read_unchecked)
-  , ("__cc_write_unchecked", cc_write_unchecked)
+  , ("@__cc_malloc", cc_malloc)
+  , ("@__cc_access_valid", cc_access_valid)
+  , ("@__cc_access_invalid", cc_access_invalid)
+  , ("@__cc_advise_poison", cc_advise_poison)
+  , ("@__cc_write_and_poison", cc_write_and_poison)
+  , ("@__cc_read_unchecked", cc_read_unchecked)
+  , ("@__cc_write_unchecked", cc_write_unchecked)
 
-  , ("__cc_trace", cc_trace)
-  , ("__cc_trace_exec", cc_trace_exec)
+  , ("@__cc_trace", cc_trace)
+  , ("@__cc_trace_exec", cc_trace_exec)
 
-  , ("llvm.lifetime.start.p0i8", cc_noop)
-  , ("llvm.lifetime.end.p0i8", cc_noop)
+  , ("@llvm.lifetime.start.p0i8", cc_noop)
+  , ("@llvm.lifetime.end.p0i8", cc_noop)
 
   -- Exception handling
-  , mkTrap "__gxx_personality_v0"
-  , mkTrap "__cxa_allocate_exception"
-  , mkTrap "__cxa_throw"
-  , mkTrap "__cxa_begin_catch"
-  , mkTrap "__cxa_end_catch"
-  , mkTrap "llvm.eh.typeid.for"
+  , mkTrap "@__gxx_personality_v0"
+  , mkTrap "@__cxa_allocate_exception"
+  , mkTrap "@__cxa_throw"
+  , mkTrap "@__cxa_begin_catch"
+  , mkTrap "@__cxa_end_catch"
+  , mkTrap "@llvm.eh.typeid.for"
 
   -- Explicit trap
-  , mkTrap "__cxa_pure_virtual"
-  , mkTrap "llvm.trap"
+  , mkTrap "@__cxa_pure_virtual"
+  , mkTrap "@llvm.trap"
   , mkTrap "_ZSt9terminatev"
 
   -- Floating-point ops
-  , mkTrap "llvm.ceil.f64"
-  , mkTrap "llvm.copysign.f64"
-  , mkTrap "llvm.exp2.f64"
-  , mkTrap "llvm.exp.f64"
-  , mkTrap "llvm.fabs.f64"
-  , mkTrap "llvm.floor.f64"
-  , mkTrap "llvm.log.f64"
-  , mkTrap "llvm.pow.f64"
-  , mkTrap "llvm.sqrt.f64"
-  , mkTrap "llvm.trunc.f64"
-  , mkTrap "llvm.llrint.i64.f64"
+  , mkTrap "@llvm.ceil.f64"
+  , mkTrap "@llvm.copysign.f64"
+  , mkTrap "@llvm.exp2.f64"
+  , mkTrap "@llvm.exp.f64"
+  , mkTrap "@llvm.fabs.f64"
+  , mkTrap "@llvm.floor.f64"
+  , mkTrap "@llvm.log.f64"
+  , mkTrap "@llvm.pow.f64"
+  , mkTrap "@llvm.sqrt.f64"
+  , mkTrap "@llvm.trunc.f64"
+  , mkTrap "@llvm.llrint.i64.f64"
 
   -- Varargs
-  , mkTrap "llvm.va_start"
-  , mkTrap "llvm.va_end"
+  , mkTrap "@llvm.va_start"
+  , mkTrap "@llvm.va_end"
   ]
   where
     mkTrap :: ShortByteString -> (ShortByteString, IntrinsicImpl m MWord)
@@ -208,8 +208,8 @@ removeIntrinsics prog =
 -- intrinsic name.
 --
 -- The problem this solves is that we can't directly define a function with a
--- name like `llvm.memset.p0i8.i64` in C.  Instead, we define a function name
--- `__llvm__memset__p0i8__i64`, then this pass renames it to the dotted form.
+-- name like `@llvm.memset.p0i8.i64` in C.  Instead, we define a function name
+-- `@__llvm__memset__p0i8__i64`, then this pass renames it to the dotted form.
 -- It also removes the empty definition of the dotted form, to avoid conflicts later on.
 renameLLVMIntrinsicImpls :: MIRprog Metadata MWord -> Hopefully (MIRprog Metadata MWord)
 renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
@@ -218,15 +218,15 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
     renameList = do
       Function nm _ _ _ _ _ <- code
       Name _ ss <- return nm
-      Just name <- return $ Text.stripPrefix "__llvm__" $ toText ss
-      return (ss, fromText $ "llvm." <> Text.replace "__" "." name) -- ^ Doesn't change the Word
+      Just name <- return $ Text.stripPrefix "@__llvm__" $ toText ss
+      return (ss, fromText $ "@llvm." <> Text.replace "__" "." name) -- ^ Doesn't change the Word
 
     renameMap = Map.fromList renameList
     removeSet = Set.fromList $ map snd renameList
 
-    -- | If the code calls `llvm.memset.p0i8.i64` it will actually call
-    -- a dummy, empty function called `Name n "llvm.memset.p0i8.i64"`.
-    -- When we rename `__llvm__memset__p0i8__i64` we need to know the
+    -- | If the code calls `@llvm.memset.p0i8.i64` it will actually call
+    -- a dummy, empty function called `Name n "@llvm.memset.p0i8.i64"`.
+    -- When we rename `@__llvm__memset__p0i8__i64` we need to know the
     -- right Word `n`.
     -- So, for every empty function named `Name n "emptyFoo"`
     -- we create the Map `"emptyFoo" -> Name n "emptyFoo"` 
@@ -235,7 +235,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
       where go (Function nm _ _ _ bbs _) mapNE =
               if null bbs then Map.insert (dbName nm) nm mapNE else mapNE
 
-    -- | Renames all the function of the form `__LLVM__foo`
+    -- | Renames all the function of the form `@__LLVM__foo`
     -- into the dotted form and removes the original, empty,
     -- function with the same dotted name.
     code' :: [MIRFunction Metadata MWord]
