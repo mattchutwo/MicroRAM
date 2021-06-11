@@ -162,18 +162,11 @@ short2string s = BSU.toString $ fromShort s
 string2short :: String -> ShortByteString
 string2short s = toShort $ BSU.fromString s
 
-
 instance Regs Name where
   sp = Name 0 "sp"
   bp = Name 1 "bp"
   ax = Name 2 "ax"
-  -- argc = Name "0" -- Where the first arguemtns to main is passed
-  -- argv = Name "1" -- Where the second arguemtns to main is passed
   fromWord w = Name w ""
   toWord (Name n _) = n
   
--- Produces the digits, shifted by 48 (ie. the ASCII representation)
--- digits :: Integral x => x -> [x]
--- digits 0 = []
--- digits x = digits (x `div` 10) ++ [x `mod` 10 + 48] -- ASCII 0 = 0
 
