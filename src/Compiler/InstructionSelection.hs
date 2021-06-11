@@ -896,8 +896,6 @@ constantMultiplication ::
   MWord
   -> MAOperand VReg MWord
   -> Statefully $ (MAOperand VReg MWord, [MA2Instruction VReg MWord])
--- TODO switch to Statefully monad so we can generate a fresh register here
--- TODO support all operand kinds
 constantMultiplication c (LImm r) =
   return (LImm $ (SConst c)*r,[])
 constantMultiplication c x = do
