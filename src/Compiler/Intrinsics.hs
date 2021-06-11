@@ -254,12 +254,12 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
     -- it also has to find the same Word `n` from the
     -- dummy (empty) version fo the funciton (see `emptyFuncMap`).
     changeName :: Name -> Name
-    changeName name@(Name n dbnm) =
-      let dbName' =  (changeString dbnm) in
+    changeName name@(Name _ dbnm) =
+      let dbName' =  changeString dbnm in
         if dbnm == dbName' then name else 
           case Map.lookup dbName' emptyFuncMap of
             Just name' -> name'
-            Nothing -> Name n dbName' -- ^ This function had no implementation so it's probably not called. 
+            Nothing -> name -- ^ The dotted form had no dummy definition, so it's probaly never called in the code. 
 
     changeMetadata :: Metadata -> Metadata
     changeMetadata md = md {mdFunction = changeName $ mdFunction md}
