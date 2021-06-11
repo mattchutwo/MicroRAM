@@ -59,7 +59,7 @@ data Cut md reg wrd = Cut
   deriving Show
 makeCut :: MWord -> AnnotatedProgram Metadata reg wrd -> Cut Metadata reg wrd
 makeCut pc instrs = Cut funName instrs pc (length instrs) 
-  where funName = toHead (mdFunction . snd) (Name 0 "DefaultName") instrs
+  where funName = toHead (mdFunction . snd) defaultName instrs
 
 toHead :: (a -> b) -> b -> [a] -> b
 toHead f def ls =
@@ -191,7 +191,7 @@ findAllFunctions prog = do
   return $ premainName : (Set.toList minusPM) -- Set premain to be the first function.  
   where funcSet = (foldl addFunction Set.empty prog) -- Can we make this faster with unique?
         addFunction accumulator (_instr, md) = Set.insert (mdFunction md) accumulator 
-        premainName = Name 0 "Premain" -- 0 is reserved.
+        premainName = premainName
 segmentFunction :: Show reg => [Cut Metadata reg MWord] -> Name -> Seq.Seq (Segment reg MWord)
 segmentFunction cuts funName = -- T.trace ("Segments in " ++ funName ++ ": " ++ show (length $ loopConnections functionSegs) )
   loopConnections funName functionSegs 
@@ -319,7 +319,7 @@ _testProg = map (\x -> (x, defaultMetadata))
     --
     Ijmp (Const 0)     --7
   ] ++ 
-  map (\x -> (x, trivialMetadata (Name 1 "main") (Name 1 "main") ))
+  map (\x -> (x, trivialMetadata (mainName) (mainName) ))
   [ Iand () () (Reg ()),    --8
     Isub () () (Const 0)    --9
   ]
@@ -327,7 +327,7 @@ _testProg = map (\x -> (x, defaultMetadata))
 
 _testSegments :: Hopefully $ [Segment () MWord]
 _testSegments = 
-  do (segs) <- segmentProgram (Map.fromList [((Name 1 "trivial"),3)]) _testProg
+  do (segs) <- segmentProgram (Map.fromList [((Name firstUnusedName "trivial"),3)]) _testProg
      return segs
 
 _printSegs :: (Hopefully [Segment () MWord]) -> IO ()

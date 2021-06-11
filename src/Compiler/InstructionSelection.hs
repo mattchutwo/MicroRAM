@@ -89,8 +89,8 @@ type Statefully = StateT SelectionState Hopefully
 initState :: Word -> SelectionState
 initState bound =
   SelectionState {
-  _currentFunction = Name 0 ""
-  , _currentBlock = Name 0 ""
+  _currentFunction = defaultName
+  , _currentBlock = defaultName
   , _lineNumber = 0
   , _nextReg = max bound 2 -- Leave space for ESP and EBP
   , _namesLookup = reservedNames
@@ -116,13 +116,6 @@ freshName = newName "fresh"
 getMetadata :: Statefully Metadata
 getMetadata = do
   Metadata <$> use currentFunction <*> use currentBlock <*> use lineNumber <*> (return False) <*> (return False)
-
-withMeta :: (Metadata -> x) -> Statefully x
-withMeta f = do {md <- getMetadata; return $ f md}
-
---string2short :: String -> Short.ShortByteString
---string2short = Short.toShort . BSU.fromString
-
 
 -- | Environment to keep track of global and type definitions
 data Env = Env {llvmtTypeEnv :: LLVMTypeEnv, globs :: Set.Set LLVM.Name}
@@ -423,8 +416,8 @@ isInstruction env ret instr =
     (LLVM.Phi _typ ins _)  ->  withReturn ret $ isPhi env ins
     (LLVM.Select cond op1 op2 _)  -> withReturn ret $ isSelect env cond op1 op2 
     (LLVM.GetElementPtr _ addr inxs _) -> withReturn ret $ isGEP env addr inxs
-    (LLVM.InsertValue _ _ _ _)   -> makeTraceInvalid "insertvalue" <$> getMetadata
-    (LLVM.ExtractValue _ _ _ )   -> makeTraceInvalid "extractvalue" <$> getMetadata
+    (LLVM.InsertValue _ _ _ _)   -> makeTraceInvalid "insertvalue" =<< getMetadata
+    (LLVM.ExtractValue _ _ _ )   -> makeTraceInvalid "extractvalue" =<< getMetadata
     -- Transformers
     -- FIXME: SExt needs to set the high bits to match the sign bit of `op`
     (LLVM.SExt op _ _)       -> toRTL =<< withReturn ret (isMove env op) 
@@ -435,9 +428,9 @@ isInstruction env ret instr =
     (LLVM.BitCast op _typ _) -> toRTL =<< withReturn ret (isMove env op)
     (LLVM.Trunc op ty _ )    -> toRTL =<< withReturn ret (isTruncate env op ty)
     -- Exceptions
-    (LLVM.LandingPad _ _ _ _ ) -> makeTraceInvalid "landingpad" <$> getMetadata
-    (LLVM.CatchPad _ _ _)      -> makeTraceInvalid "catchpad" <$> getMetadata
-    (LLVM.CleanupPad _ _ _ )   -> makeTraceInvalid "cleanuppad" <$> getMetadata
+    (LLVM.LandingPad _ _ _ _ ) -> makeTraceInvalid "landingpad" =<< getMetadata
+    (LLVM.CatchPad _ _ _)      -> makeTraceInvalid "catchpad" =<< getMetadata
+    (LLVM.CleanupPad _ _ _ )   -> makeTraceInvalid "cleanuppad" =<< getMetadata
     -- Floating point
     (LLVM.SIToFP _ _ _)     -> unsupported "SIToFP"
     (LLVM.UIToFP _ _ _)     -> unsupported "UIToFP"
@@ -461,7 +454,7 @@ isInstruction env ret instr =
           | rejectUnsupported = implError $ "unsupported instruction: " ++ desc
           | otherwise = do
             traceM $ "unsupported instruction: " ++ desc
-            makeTraceInvalid desc <$> getMetadata
+            makeTraceInvalid desc =<< getMetadata
 
 typedIntrinCall ::
   Env ->
@@ -975,20 +968,35 @@ isTerminator' env ret term =
     -- `Resume` and `Unreachable` still need to terminate the block after
     -- flagging the error, so we add an `answer` instruction, which is defined
     -- to stall or halt execution.
-    (LLVM.Resume _ _ ) -> withMeta $ \md -> (makeTraceInvalid "resume" md ++ halt md)
-    (LLVM.Unreachable _) -> withMeta $ \md -> (triggerBug md ++ halt md)
+    (LLVM.Resume _ _ ) -> do
+      md <- getMetadata
+      callInvalid <- makeTraceInvalid "resume" md
+      return $ callInvalid ++ halt md
+    (LLVM.Unreachable _) -> do
+      md <- getMetadata
+      callBug <- triggerBug md
+      return $ callBug ++ halt md
     term ->  implError $ "Terminator not yet supported. \n \t" ++ (show term)
   where
     halt md = [MirM (MRAM.Ianswer (LImm $ SConst 0)) md]
 
-makeTraceInvalid :: String -> Metadata -> [MIRInstruction Metadata regT MWord]
-makeTraceInvalid desc md = [MirM traceInstr md, MirI rtlCallFlagInvalid md]
+makeTraceInvalid :: String -> Metadata -> Statefully [MIRInstruction Metadata regT MWord]
+makeTraceInvalid desc md = do
+  callInvalid <- rtlCallFlagInvalid 
+  return [MirM traceInstr md, MirI callInvalid md]
   where
     traceInstr = MRAM.Iext (MRAM.XTrace (Text.pack $ "Invalid: " ++ desc) [])
-    rtlCallFlagInvalid = RCall TVoid Nothing (Label $ Name 2 "__cc_flag_invalid") [Tint] [] -- Notice the number doesn't matter
-triggerBug :: Metadata -> [MIRInstruction Metadata regT MWord]
-triggerBug md = [MirI rtlCallFlagBug md]
-  where rtlCallFlagBug = RCall TVoid Nothing (Label $ Name 2 "__cc_flag_bug") [Tint] [] -- Notice the number doesn't matter
+    rtlCallFlagInvalid = do
+      labelInvalid <- Label <$> newName "__cc_flag_invalid"
+      return $ RCall TVoid Nothing labelInvalid [Tint] []
+      
+triggerBug :: Metadata -> Statefully  [MIRInstruction Metadata regT MWord]
+triggerBug md = do
+  callBug <- rtlCallFlagBug 
+  return $ [MirI callBug md]
+  where rtlCallFlagBug = do
+          labelBug <- Label <$> newName "__cc_flag_bug"
+          return $ RCall TVoid Nothing labelBug [Tint] []
 
 -- | Branch terminator
 isBr :: LLVM.Name -> Statefully [MIRInstr Metadata MWord]

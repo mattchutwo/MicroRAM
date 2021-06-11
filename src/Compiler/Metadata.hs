@@ -14,7 +14,7 @@ module Compiler.Metadata
       trivialMetadata,
     ) where
 
-import Compiler.Common (Name(..))
+import Compiler.Common (Name(..), defaultName)
 
 data Metadata = Metadata {
     mdFunction       :: Name   -- Name of the function containing instruction
@@ -27,8 +27,8 @@ data Metadata = Metadata {
 defaultMetadata :: Metadata
 defaultMetadata =
   Metadata {
-  mdFunction = Name 0 ""
-  , mdBlock = Name 0 ""
+  mdFunction = defaultName
+  , mdBlock = defaultName
   , mdLine = 0
   , mdFunctionStart = False
   , mdReturnCall = False

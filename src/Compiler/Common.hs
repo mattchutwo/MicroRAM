@@ -27,6 +27,8 @@ module Compiler.Common (
   -- $names
   Name(..),
   short2string, string2short,
+  defaultName, premainName, mainName,
+  firstUnusedName
   )
   where
 
@@ -163,10 +165,22 @@ string2short :: String -> ShortByteString
 string2short s = toShort $ BSU.fromString s
 
 instance Regs Name where
-  sp = Name 0 "sp"
-  bp = Name 1 "bp"
-  ax = Name 2 "ax"
+  sp = spName
+  bp = bpName
+  ax = axName
   fromWord w = Name w ""
   toWord (Name n _) = n
   
+-- | Reserved names.
+spName, bpName, axName :: Name 
+spName = Name 0 "sp"
+bpName = Name 1 "bp"
+axName = Name 2 "ax"
+defaultName, premainName, mainName :: Name
+defaultName = Name 3 "DefaultName-ShouldNeverAppearOnCode"
+premainName = Name 4 "premain"
+mainName    = Name 5 "main"
 
+-- | Bound for reserved names. 
+firstUnusedName :: Word
+firstUnusedName = 6

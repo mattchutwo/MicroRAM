@@ -126,7 +126,7 @@ premain returnName = return $
   callMain)              -- jump to main
   where callMain = return $ Ijmp $ Label mainName -- ATTENTION 0 and 1 should be reserved.
         mainName = Name 1 "main"
-        md = trivialMetadata (Name 0 "Premain") (Name 0 "")
+        md = trivialMetadata premainName defaultName
 
 -- | returnBlock: return lets the program output an answer (when main returns)
 returnBlock :: Regs mreg => Name -> NamedBlock Metadata mreg MWord
