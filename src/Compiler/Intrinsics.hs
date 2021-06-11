@@ -224,17 +224,20 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
     renameMap = Map.fromList renameList
     removeSet = Set.fromList $ map snd renameList
 
-    -- | If the code calls `llvm.memset.p0i8.i64` it will use the Word id
-    -- of a dummy function that is empty. When we change `__llvm__memset__p0i8__i64`
-    -- to llvm.memset.p0i8.i64, we need to use the same id. So,
-    -- for every empty function named (Name n "emptyFoo")
-    -- we create the Map that relates "emptyFoo" -> Name n "emptyFoo". 
+    -- | If the code calls `llvm.memset.p0i8.i64` it will actually call
+    -- a dummy, empty function called `Name n "llvm.memset.p0i8.i64"`.
+    -- When we rename `__llvm__memset__p0i8__i64` we need to know the
+    -- right Word `n`.
+    -- So, for every empty function named `Name n "emptyFoo"`
+    -- we create the Map `"emptyFoo" -> Name n "emptyFoo"` 
     emptyFuncMap :: Map.Map ShortByteString Name
     emptyFuncMap = foldr go Map.empty code
       where go (Function nm _ _ _ bbs _) mapNE =
               if null bbs then Map.insert (dbName nm) nm mapNE else mapNE
 
-    -- | 
+    -- | Renames all the function of the form `__LLVM__foo`
+    -- into the dotted form and removes the original, empty,
+    -- function with the same dotted name.
     code' :: [MIRFunction Metadata MWord]
     code' = do
       Function nm rty atys anms bbs nr <- code
@@ -243,8 +246,13 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
       let replaceName = Function (changeName nm) rty atys anms bbs nr
       return $ mapMetadataMIRFunction changeMetadata replaceName
     
-      
+    -- | Changes the underscored ShortByteString for the dotted form
     changeString name = maybe name id $ Map.lookup name renameMap
+
+    -- | Replaces names with underscore string for
+    -- the version with the dotted string. Notice that,
+    -- it also has to find the same Word `n` from the
+    -- dummy (empty) version fo the funciton (see `emptyFuncMap`).
     changeName :: Name -> Name
     changeName name@(Name n dbnm) =
       let dbName' =  (changeString dbnm) in
