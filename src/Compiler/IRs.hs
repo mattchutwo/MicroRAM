@@ -325,9 +325,8 @@ rtlToLtl (IRprog tenv globals code) = do
    convertFunc (Function name retType paramTypes paramNames body _nextReg) = do
      -- JP: Where should we get the metadata and stack size from?
      let stackSize = 0 -- Since nothing is spilled 0
-     let name' = name
      body' <- mapM convertBasicBlock body
-     return $ LFunction name' retType paramTypes paramNames stackSize body' 
+     return $ LFunction name retType paramTypes paramNames stackSize body' 
 
    convertBasicBlock :: BB name (RTLInstr mdata wrdT) -> Hopefully $ BB name (LTLInstr mdata VReg wrdT)
    convertBasicBlock (BB name instrs term dag) = do
