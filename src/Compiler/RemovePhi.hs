@@ -64,7 +64,7 @@ edgeSplitFunc (Function name retTy argTys argNms blocks nextReg) = do
       name <- makeEdgeBlockName pred succ edgeIdx
       let body = []
       let md = trivialMetadata funcName name
-      let term = [MRI (Ijmp $ nameLabel succ) md] -- This will eventually be deleted
+      let term = [MRI (Ijmp $ Label succ) md] -- This will eventually be deleted
       return $ BB name body term [succ]
 
     -- | Map from (pred, succ) to a unique index.  This is mainly used to
@@ -190,10 +190,6 @@ removePhiFunc f@(Function name retTy argTys argNms blocks _ ) = do
     -- | Map `predecessor -> successor -> assignments`.
     phiMoves :: Map Name (Map Name [(VReg, MAOperand VReg wrdT, Metadata)])
     phiMoves = funcPhiMoves f
-
-nameLabel :: Name -> MAOperand VReg wrdT
-nameLabel n@(Name _ _) = Label $ n
---nameLabel (NewName w) = error $ "tried to convert NewName " ++ show w ++ " back to a label"
 
 -- | Gather all outgoing CFG edges from a block.  This considers only direct
 -- jumps to labels - indirect jumps are ignored.
