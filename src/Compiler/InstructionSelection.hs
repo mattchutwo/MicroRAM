@@ -124,8 +124,12 @@ data Env = Env {llvmtTypeEnv :: LLVMTypeEnv, globs :: Set.Set LLVM.Name}
 any2short :: Show a => a -> Short.ShortByteString
 any2short n = Short.toShort $ BSU.fromString $ show $ n
 
-name2name :: LLVM.Name -> Statefully Name
-name2name nm = do
+globalName, localName :: LLVM.Name -> Statefully Name
+globalName nm = name2name "@" nm
+localName  nm = name2name "%" nm
+
+name2name :: Short.ShortByteString -> LLVM.Name -> Statefully Name
+name2name sigil nm = do
   lkp <- use namesLookup
   case Map.lookup nm lkp of
              Just nm' -> return nm'
@@ -134,20 +138,14 @@ name2name nm = do
                namesLookup %= Map.insert nm nm'
                return nm'
     where createNewName =
-            newName $ case nm of
-                        LLVM.Name s -> s
-                        LLVM.UnName n -> any2short n
-
---name2nameM :: Monad m => LLVM.Name -> m Name
---name2nameM nm = return $ name2name nm
-
-name2label :: LLVM.Name -> Statefully $ MAOperand VReg MWord
-name2label nm = Label <$> name2name nm
+            newName $ sigil <> case nm of
+                                 LLVM.Name s -> s
+                                 LLVM.UnName n -> any2short n
 
 getConstant :: Env -> LLVM.Constant.Constant -> Statefully $ MAOperand VReg MWord
 getConstant env (LLVM.Constant.GlobalReference ty name) | itIsFunctionType ty = do
   _ <- lift $ checkName (globs env) name -- ^ check it's a global variable
-  Label <$> name2name name
+  Label <$> globalName name
 
   where
     itIsFunctionType (LLVM.PointerType (LLVM.FunctionType _ _ _) _) = True
@@ -158,7 +156,7 @@ getConstant env c = LImm <$> constant2OnelazyConst env c
 
 operand2operand :: Env -> LLVM.Operand -> Statefully $ MAOperand VReg MWord
 operand2operand env (LLVM.ConstantOperand c) = getConstant env c
-operand2operand _env (LLVM.LocalReference _ name') = AReg <$> name2name name'
+operand2operand _env (LLVM.LocalReference _ name') = AReg <$> localName name'
 operand2operand _ _= implError "operand, probably metadata"
 
 -- | Get the value of `op`, masking off high bits if necessary to emulate
@@ -320,11 +318,11 @@ function2function
   :: LLVMTypeEnv -> Either a LLVM.Operand -> Statefully (MAOperand VReg MWord, Ty, [Ty])
 function2function _ (Left _ ) = implError $ "Inlined assembly not supported"
 function2function tenv (Right (LLVM.LocalReference ty nm)) = do
-  nm' <- name2name nm
+  nm' <- localName nm
   (retT', paramT') <- lift $ functionTypes tenv ty
   return (AReg nm',retT',paramT')
 function2function tenv (Right (LLVM.ConstantOperand (LLVM.Constant.GlobalReference ty nm))) = do
-  lbl <- name2label nm
+  lbl <- Label <$> globalName nm
   (retT', paramT') <- lift $ functionPtrTypes tenv ty
   return (lbl,retT',paramT')
 function2function tenv (Right (LLVM.ConstantOperand (LLVM.Constant.BitCast op ty))) = do
@@ -883,7 +881,7 @@ smartMove ret op = if (checkEq op ret) then [] else [MRAM.Imov ret op]
 convertPhiInput :: Env -> (LLVM.Operand, LLVM.Name) -> Statefully $ (MAOperand VReg MWord, Name)
 convertPhiInput env (op, name) = do
   op' <- operand2operand env op
-  name' <- name2name name
+  name' <- localName name
   return (op', name')
 
 typeFromOperand :: Env -> LLVM.Operand -> Hopefully $ LLVM.Type
@@ -918,7 +916,7 @@ isInstrs env instrs = do
   where isNameInstruction :: Env -> LLVM.Named LLVM.Instruction -> Statefully $ [MIRInstr Metadata MWord]
         isNameInstruction env (LLVM.Do instr) = isInstruction env Nothing instr
         isNameInstruction env (name LLVM.:= instr) = do
-          name' <- Just <$> name2name name 
+          name' <- Just <$> localName name 
           isInstruction env name' instr
 
         isInstructionStep env instr = (isNameInstruction env instr) <* (lineNumber %= (+1)) 
@@ -940,7 +938,7 @@ isTerminator :: Env
              -> LLVM.Named LLVM.Terminator
              -> Statefully $ [MIRInstr Metadata MWord]
 isTerminator env (name LLVM.:= term) = do
-  ret <- name2name name
+  ret <- localName name
   termInstr <- isTerminator' env (Just ret) term
   return $ termInstr
 isTerminator env (LLVM.Do term) = do
@@ -999,7 +997,7 @@ triggerBug md = do
 -- | Branch terminator
 isBr :: LLVM.Name -> Statefully [MIRInstr Metadata MWord]
 isBr name =  do
-  name' <- name2name name
+  name' <- localName name
   toRTL $ [MRAM.Ijmp $ Label name'] 
 
 isCondBr
@@ -1010,8 +1008,8 @@ isCondBr
      -> Statefully [MIRInstr Metadata MWord]
 isCondBr env cond name1 name2 = do
   cond' <- operand2operand env cond
-  loc1 <- name2name name1
-  loc2 <- name2name name2 
+  loc1 <- localName name1
+  loc2 <- localName name2 
   toRTL $ [MRAM.Icjmp cond' $ Label loc1, 
                 MRAM.Ijmp $ Label loc2]
 
@@ -1024,7 +1022,7 @@ isSwitch
      -> Statefully [MIRInstr Metadata MWord]
 isSwitch env cond deflt dests = do
   cond' <- operand2operand env cond
-  deflt' <- name2name deflt
+  deflt' <- localName deflt
   switchInstrs <-  mapM (isDest cond') dests
   toRTL $ (concat switchInstrs) ++ [MRAM.Ijmp (Label deflt')]
     where
@@ -1032,7 +1030,7 @@ isSwitch env cond deflt dests = do
       isDest cond' (switch,dest) = do
             switch' <- getConstant env switch
             isEq <- freshName
-            dest' <- name2name dest
+            dest' <- localName dest
             return [MRAM.Icmpe isEq cond' switch', MRAM.Icjmp (AReg isEq) (Label dest')]
 
 -- Possible optimisation:
@@ -1085,13 +1083,13 @@ dumpName f (LLVM.Do a) = f a
 blockJumpsTo :: LLVM.Named LLVM.Terminator -> Statefully [Name]
 blockJumpsTo term = do
   dests <- lift $ (dumpName blockJumpsTo' term)
-  mapM name2name dests 
+  mapM localName dests 
 
 
 -- instruction selection for blocks
 isBlock:: Env -> LLVM.BasicBlock -> Statefully (BB Name $ MIRInstr Metadata MWord)
 isBlock  env (LLVM.BasicBlock name instrs term) = do
-  name' <- name2name name
+  name' <- localName name
   currentBlock .= name'
   md <- getMetadata
   body <- isInstrs env instrs
@@ -1109,14 +1107,14 @@ processParams (params, _) = do
   paramNames <- mapM paramName $ paramNumberList
   let paramTypes = map (\_ -> Tint) params
   return (paramTypes, paramNames)
-  where paramName i = name2name (LLVM.UnName i)
+  where paramName i = localName (LLVM.UnName i)
 
 -- | Instruction generation for Functions
 
 isFunction :: Env -> LLVM.Definition -> Statefully $ MIRFunction Metadata MWord
 isFunction env (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
   do
-    name' <- name2name name
+    name' <- globalName name
     (paramsTyp, paramNames) <- processParams params
     -- nextReg .= 2 -- Functions have separatedly numbere registers
     currentFunction .= name'
@@ -1231,7 +1229,7 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
   -- later passes that try to align to a multiple of zero, so we adjust the
   -- alignment here to avoid the problem.
   let align' = max 1 $ (fromIntegral align + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
-  name' <- name2name name
+  name' <- globalName name
   return $ GlobalVariable name' const typ' init' size' align'
     (sectionIsSecret sectn) (sectionIsHeapInit sectn)
   where flatInit :: Env ->
@@ -1391,7 +1389,7 @@ constant2typedLazyConst env c =
       constant2typedLazyConst env =<< (lift $ defineUndefConst (llvmtTypeEnv env) ty)
     (LLVM.Constant.GlobalReference _ty name         ) -> do
       _ <- lift $ checkName (globs env) name
-      name' <- name2name name
+      name' <- globalName name
       return [mkTypedLazyConst (LConst $ \ge -> ge name') WWord]
     (LLVM.Constant.Add _ _ op1 op2                  ) -> bop2typedLazyConst env (+) op1 op2
     (LLVM.Constant.Sub  _ _ op1 op2                 ) -> bop2typedLazyConst env (-) op1 op2

@@ -42,6 +42,8 @@ localizeFunc :: Map.Map Name Name -> RFunction mdata wrdT -> State RenameState (
 localizeFunc funcNames func = do
   -- Starts by knowing only the function names
   -- but doesn't know about blocks in other funcitons.
+  -- Functions all start with `@` and blocks with `%` so
+  -- there are no clashes.
   modify $ \st -> st {renameMap = funcNames }  
   blocks' <- mapM goBB $ funcBlocks func
   return $ func { funcBlocks = blocks' }
