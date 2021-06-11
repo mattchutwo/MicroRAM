@@ -24,8 +24,8 @@ creation and destruction on function call and return.
 
      ^                 ^
      |                 |
-     +=================+ <- SP 
-     | Local variables |
+     +=================+
+     | Local variables | <- SP
      |                 |
      |                 |
      +-----------------+
@@ -78,10 +78,10 @@ import Util.Util
 type LOperand mreg =  MAOperand mreg MWord
 
 -- ** Usefull snipets
--- sp points at the next free stack location
+-- sp points at the top of the stack
 push, _pop :: Regs mreg => mreg -> [MAInstruction mreg MWord]
-push r = [IstoreW (AReg sp) r,Isub sp sp (LImm $ fromIntegral wordBytes)]
-_pop r = [Iadd sp sp (LImm $ fromIntegral wordBytes),IloadW r (AReg sp)]
+push r = [Isub sp sp (LImm $ fromIntegral wordBytes), IstoreW (AReg sp) r]
+_pop r = [IloadW r (AReg sp), Iadd sp sp (LImm $ fromIntegral wordBytes)]
 
 -- | pushOperand sometimes we want to push a constant
 -- Notice here we use ax. This can only be done at funciton entry
@@ -125,7 +125,7 @@ premain = return $
   -- push return address for main 
   Imov ax (Label "_ret_") : (push ax) ++
   -- set stack frame
-  IstoreW (AReg sp) bp :  -- Store "old" base pointer 
+  (push bp) ++           -- Store "old" base pointer
   Imov bp (AReg sp) :    -- set base pointer to the stack pointer
   callMain)              -- jump to main
   where callMain = return $ Ijmp $ Label $ show $ Name "main"
@@ -146,7 +146,7 @@ returnBlock = NBlock retName [(Ianswer (AReg ax),md)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => MWord -> String -> [MAInstruction mreg MWord]
 prologue size entry =
-    [ Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size + 1))
+    [ Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size))
     , Ijmp $ Label entry
     ]
 
@@ -181,9 +181,9 @@ funCallInstructions md _ ret f _ args =
   (pushN (reverse args) ++
   -- Push return addres
     [Imov ax HereLabel,
-     Iadd ax ax (LImm 6) -- FIXME: The compiler should do this addition
+     Iadd ax ax (LImm 7) -- FIXME: The compiler should do this addition
     ] ++ push ax ++
-    [IstoreW (AReg sp) bp, Imov bp (AReg sp)] ++ -- Set new stack frame (sp is increased in the function)
+    push bp ++ [Imov bp (AReg sp)] ++ -- Set new stack frame (sp is increased in the function)
   -- Run function 
     [Ijmp f]) ++
   -- The function should return to this next instruciton
@@ -192,8 +192,8 @@ funCallInstructions md _ ret f _ args =
   addMD md 
   (IloadW bp (AReg sp) :         -- get old bp
   -- remove arguments and return address from the stack
-  (popN (fromIntegral $ (length args) + 1)) ++
-  -- move the return value (allways returns to ax)
+  (popN (fromIntegral $ (length args) + 2)) ++
+  -- move the return value (always returns to ax)
   setResult ret)
   
 setResult :: Regs mreg => Maybe mreg -> [MAInstruction mreg MWord]
@@ -232,8 +232,8 @@ stackLTLInstr md (LRet (Just _retVal)) = return $ addMD md $ epilogue
 stackLTLInstr md (LAlloc reg sz n) = do
   -- sp = sp + n * sz
   increaseSp <- incrSP sz n
-  -- Compute the base of the new allocation (one word above the current sp)
-  let addSp = maybe [] (\r -> [Iadd r sp $ LImm $ fromIntegral wordBytes]) reg
+  -- Compute the base of the new allocation (at the current sp)
+  let addSp = maybe [] (\r -> [Imov r (AReg sp)]) reg
   return $ addMD md $ increaseSp ++ addSp
   where incrSP :: (Regs mreg) => MWord -> MAOperand mreg MWord -> Hopefully [MAInstruction mreg MWord]
         incrSP sz (AReg r) = return $
@@ -269,7 +269,7 @@ stackBlock (BB name body term _) = do
   body' <- mapM stackInstr (body++term)
   return $ NBlock (Just $ show name) $ concat body'
 
--- | Translating funcitons
+-- | Translating functions
 stackFunction
   :: forall mreg.
   Regs mreg =>
