@@ -10,6 +10,7 @@ import Test.Tasty
 import Test.Tasty.QuickCheck
 import qualified Test.QuickCheck.Property as Prop (succeeded, failed, reason, Result)
 
+import Compiler.Common (firstUnusedName)
 import Compiler.Registers
 import Compiler.CompilationUnit
 
