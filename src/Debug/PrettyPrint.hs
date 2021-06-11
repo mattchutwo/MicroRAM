@@ -62,11 +62,6 @@ prettyAnn prog = mconcat $ evalState (mapM prettyPrintInstr (zip [0..] prog)) $ 
         lineString md md' = if (mdLine md == mdLine md') then "" else 
           "\t \t // Line " <> (viaShow $ mdLine md')
 
-_cleanName :: String -> Doc a
-_cleanName st =
-  pretty $ filter (\l -> l /= '\"') $
-  if "Name " `isPrefixOf` st then drop 5 st else st
-
 pprintInst :: (Pretty wrd, Bounded wrd, Integral wrd, Show wrd) => Instruction' Int Int (Operand Int wrd) -> String
 pprintInst = show . pretty
 
