@@ -348,7 +348,7 @@ _jpProgComp len = do
     >>= (justCompile renameLLVMIntrinsicImpls)
     >>= (justCompile lowerIntrinsics)
     >>= (justCompile (catchUndefinedFunctions allowUndefFun))
-    >>= (justCompile legalize)
+    >>= (justCompileWithNames legalize)
     >>= (justCompileWithNames localizeLabels)
 
     >>= (justCompileWithNames edgeSplit)

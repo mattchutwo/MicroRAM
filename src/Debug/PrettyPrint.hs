@@ -28,9 +28,6 @@ import Compiler.Registers
 
 import Control.Monad.State.Lazy
 import Data.Bifunctor (first)
---import Data.ByteString.Short (fromShort)
-import Data.List
---import Data.Text.Encoding (decodeUtf8)
 import Data.Text.Prettyprint.Doc -- Soon deprecated and eventually removed. Use Prettyprinter instead. ?
 import Util.Util
 

@@ -186,7 +186,7 @@ compile2
   -> CompilationUnit () (MIRprog Metadata MWord) ->
   Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
 compile2 spars prog = return prog
-  >>= (tagPass "Legalize Instructions" $ justCompile legalize)
+  >>= (tagPass "Legalize Instructions" $ justCompileWithNames legalize)
   >>= (tagPass "Localize Labels"     $ justCompileWithNames localizeLabels)
   >>= (tagPass "Edge split"          $ justCompileWithNames edgeSplit)
   >>= (tagPass "Remove Phi Nodes"    $ justCompileWithNames removePhi)
