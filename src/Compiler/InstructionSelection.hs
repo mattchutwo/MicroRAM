@@ -35,7 +35,7 @@ import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map 
 
-import Control.Lens (makeLenses, (.=), (%=), use)
+import Control.Lens (makeLenses, (.=), (%=), (^.), use)
 import Control.Monad.Except
 import Control.Monad.State.Lazy
 
@@ -1558,7 +1558,7 @@ isDefs nameBound defs = do
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
   (funcs, state'') <- runStateT (isFunctions env) state'
   checkDiscardedDefs defs -- Make sure we dont drop something important
-  return $ (IRprog Map.empty globVars funcs, _nextReg state'') 
+  return $ (IRprog Map.empty globVars funcs, state'' ^. nextReg) 
   where isFunctions env = mapM (isFunction env) $ filter itIsFunc defs
   
 -- | Instruction selection generates an RTL Program
