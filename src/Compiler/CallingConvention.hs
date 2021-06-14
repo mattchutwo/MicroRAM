@@ -5,9 +5,10 @@ module Compiler.CallingConvention where
 
 import qualified Data.Set as Set
 
-import           Compiler.Errors
 import           Compiler.Common
+import           Compiler.Errors
 import           Compiler.IRs
+import           Compiler.Metadata
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.Registers
 import           MicroRAM (MWord)
@@ -17,18 +18,18 @@ import           Util.Util
 -- | Update functions to conform to the calling convention.
 -- Currently uses callee saved registers.
 -- This should be run after register allocation.
-callingConvention :: (Regs reg, Ord reg) => Lprog () reg MWord -> Hopefully $ Lprog () reg MWord
+callingConvention :: (Regs reg, Ord reg) => Lprog Metadata reg MWord -> Hopefully $ Lprog Metadata reg MWord
 callingConvention lprog = do
     let code' = map callingConventionFunc $ code lprog
 
     return $ lprog {code = code'}
 
 
-callingConventionFunc :: (Regs reg, Ord reg) => LFunction () reg MWord -> LFunction () reg MWord
-callingConventionFunc lf@(LFunction _fname _mdata _typ _typs _stackSize []) = lf
-callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:blocks)) = 
+callingConventionFunc :: (Regs reg, Ord reg) => LFunction Metadata reg MWord -> LFunction Metadata reg MWord
+callingConventionFunc lf@(LFunction _fname _typ _typs _stackSize []) = lf
+callingConventionFunc (LFunction fname typ typs stackSize (firstBlock:blocks)) = 
     -- Get all registers that the function writes to.
-    let isMain = fname == "Name \"main\"" in    -- TODO: Improve this.
+    let isMain = fname == "Name \"main\"" in    -- TODO: Improve this. Fix when fixing Name consistency.
     let registers = if isMain then
             []
           else
@@ -36,7 +37,7 @@ callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:bloc
     in
 
     -- Prepend a push (given stack size).
-    let firstBlock' = calleeSave stackSize registers firstBlock in
+    let firstBlock' = calleeSave fname stackSize registers firstBlock in
     let blocks' = firstBlock':blocks in
 
     -- Postpend a pop (given stack size).
@@ -46,21 +47,21 @@ callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:bloc
     -- Update stack size.
     let stackSize' = stackSize + fromIntegral (length registers) in
 
-    LFunction fname mdata typ typs stackSize' blocks''
+    LFunction fname typ typs stackSize' blocks''
     
   where
-    calleeRestore stackSize registers = map (\(pos, reg) -> Lgetstack Local pos ty reg) $ zip [stackSize..] registers
+    calleeRestore stkSize registers = zipWith (\pos reg -> Lgetstack Local pos ty reg) [stkSize..] registers
 
-    calleeSave stackSize registers (BB n insts insts' dag) = 
+    calleeSave fname stackSize registers (BB n insts insts' dag) = 
       let saveInsts = map (\(pos, reg) -> 
-              IRI (Lsetstack reg Local pos ty) mempty
+              IRI (Lsetstack reg Local pos ty) (trivialMetadata fname $ show n)
             ) $ zip [stackSize..] registers
       in
       BB n (saveInsts <> insts) insts' dag
 
     ty = Tint -- TODO: How do we get the ty?
 
-    restoreBlocks restoreInsts blocks = map (restoreBlock restoreInsts) blocks
+    restoreBlocks restoreInsts = map (restoreBlock restoreInsts)
 
     restoreBlock restoreInsts (BB name insts insts' dag) = 
       BB name (concatMap (restoreInst restoreInsts) insts) (concatMap (restoreInst restoreInsts) insts') dag
@@ -69,8 +70,9 @@ callingConventionFunc (LFunction fname mdata typ typs stackSize (firstBlock:bloc
     restoreInst restoreInsts (IRI inst mdata) = restoreLTLInstruction restoreInsts inst mdata
 
     restoreLTLInstruction restoreInsts inst@(LRet Nothing) mdata = fmap (\i -> IRI i mdata) restoreInsts <> pure (IRI inst mdata)
-    restoreLTLInstruction restoreInsts inst@(LRet (Just retVal)) mdata = [MRI (MRAM.Imov ax retVal) mempty] <> fmap (\i -> IRI i mdata) restoreInsts <> pure (IRI inst mdata)
+    restoreLTLInstruction restoreInsts inst@(LRet (Just retVal)) mdata = [MRI (MRAM.Imov ax retVal) mdata] <> fmap (\i -> IRI i mdata) restoreInsts <> pure (IRI inst mdata)
     restoreLTLInstruction _restoreInsts inst@(Lgetstack _s _w _t _r1) mdata = pure (IRI inst mdata)
     restoreLTLInstruction _restoreInsts inst@(Lsetstack _r1 _s _w _t) mdata = pure (IRI inst mdata)
     restoreLTLInstruction _restoreInsts inst@(LCall _t _mr _op _ts _ops) mdata = pure (IRI inst mdata)
     restoreLTLInstruction _restoreInsts inst@(LAlloc _mr _t _op) mdata = pure (IRI inst mdata)
+    restoreLTLInstruction _restoreInsts inst@(LGetBP _r) mdata = pure (IRI inst mdata)

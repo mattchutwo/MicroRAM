@@ -26,9 +26,6 @@ instruction number to produce well formed MicroRAM. It does so in three passes:
 
 3) Replace all labels with the location given in the label map.
 
-TODO: It can all be done in 2 passes. Optimize?
-
-
 -}
 module Compiler.RemoveLabels
     ( removeLabels,
@@ -72,7 +69,7 @@ initState = State 0 Map.empty
 
 -- | createMapStep
 -- Updates the state given one block 
-createMapStep :: State -> NamedBlock regT wrdT -> State
+createMapStep :: State -> NamedBlock md regT wrdT -> State
 createMapStep st (NBlock name code) =
   State ( pc st + (fromIntegral $ length code)) (update oldMap name)
   where location = pc st
@@ -82,7 +79,7 @@ createMapStep st (NBlock name code) =
         update lm (Just nm) = Map.insert nm location lm
         update lm _ = lm
 
-createMap :: MAProgram regT wrdT -> LabelMap
+createMap :: MAProgram md regT wrdT -> LabelMap
 createMap prog = lMap $ foldl createMapStep initState prog
 
 -- ** Flaten the program
@@ -90,12 +87,12 @@ createMap prog = lMap $ foldl createMapStep initState prog
 -- to get a "flat" list of (MicroAssembly) instructions 
 
 flattenStep ::
-  [MAInstruction regT wrdT]
-  -> NamedBlock regT wrdT
-  -> [MAInstruction regT wrdT]
+  [(MAInstruction regT wrdT, md)]
+  -> NamedBlock md regT wrdT
+  -> [(MAInstruction regT wrdT, md)]
 flattenStep prog (NBlock _ code) = prog ++ code
   
-flatten :: MAProgram regT wrdT -> [MAInstruction regT wrdT]
+flatten :: MAProgram md regT wrdT -> [(MAInstruction regT wrdT,md)]
 flatten maProg = foldl flattenStep [] maProg
 
 -- ** Translate label
@@ -120,29 +117,29 @@ translateOperand _ loc (HereLabel) = return $  Const loc
 
 translatePair:: Monad m =>
   (w -> a -> m b) ->
-  (Instruction' regT regT a, w) ->
-  m (Instruction' regT regT b)
-translatePair f (inst,w) = mapM (f w) inst
+  ((Instruction' regT regT a, md), w) ->
+  m (Instruction' regT regT b, md)
+translatePair f (inst_md,w) = mapFstM (mapM $ f w) inst_md
 
 translateProgram:: Monad m =>
   (w -> a -> m b) ->
-  [(Instruction' regT regT a, w)] ->
-  m [(Instruction' regT regT b)]
+  [((Instruction' regT regT a, md), w)] ->
+  m [(Instruction' regT regT b, md)]
 translateProgram f = mapM (translatePair f)
 
 
 -- Reoplaces labels with the real value.
 -- In the future it will ALSO replace lazy constants with immediates.
 -- (Remember we stillneed "HERE LABEL", which cannot (should not) be replaced by lazy constants)
-replaceLabels:: LabelMap -> [MAInstruction regT Wrd] -> Hopefully $ Program regT Wrd
+replaceLabels:: LabelMap -> [(MAInstruction regT Wrd, md)] -> Hopefully $ AnnotatedProgram md regT Wrd
 replaceLabels lm amProg = translateProgram (translateOperand lm) numberedProg
-  where numberedProg = zip amProg naturals 
+  where numberedProg = zip amProg naturals -- naturals == [0..]?
 
 
 -- ** Assemble : put all steps together
 
 -- Old way of doing it.
-removeLabelsProg :: MAProgram regT Wrd -> Hopefully $ Program regT Wrd
+removeLabelsProg :: MAProgram md regT Wrd -> Hopefully $ AnnotatedProgram md regT Wrd
 removeLabelsProg massProg = replaceLabels lMap flatProg
   where lMap     = createMap massProg
         flatProg = flatten massProg
@@ -165,12 +162,12 @@ addDefault labelMap name =
                   -- So, here we asssume all funcitons are in the map and the default will never be returned.
       
 
--- ** Remove labels from the entire CompilationUnit
-removeLabels :: (CompilationUnit LazyInitialMem $ MAProgram regT Wrd)
-             -> Hopefully $ CompilationUnit () (Program regT Wrd)
+-- ** Remove labels from the entire CompilationUnit  
+removeLabels :: (CompilationUnit LazyInitialMem (MAProgram md regT Wrd))
+             -> Hopefully $ CompilationUnit () (AnnotatedProgram md regT Wrd)
 removeLabels compUnit = do
-  let lMap = createMap $ programCU compUnit
-  prog' <- replaceLabels lMap $ flatten $ programCU compUnit
+  let lMap = createMap $ pmProg $ programCU compUnit
+  prog' <- replaceLabels lMap $ flatten $ pmProg $ programCU compUnit
   initMem <- removeLabelsInitMem lMap $ intermediateInfo compUnit
-  return $ compUnit {programCU = prog' , initM = initMem, intermediateInfo = ()}
+  return $ compUnit {programCU = ProgAndMem prog' initMem, intermediateInfo = ()}
   

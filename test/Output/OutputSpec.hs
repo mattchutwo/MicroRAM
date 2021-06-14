@@ -16,7 +16,6 @@ import Test.Tasty.QuickCheck
 import qualified Data.Map as Map
 
 -- import Compiler.Registers
-import Compiler.Sparsity
 import Compiler.CompilationUnit
 import Output.CBORFormat()
 import Output.Output
@@ -28,6 +27,8 @@ import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm)
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
+import Segments.Segmenting
+import Sparsity.Sparsity
 
 main :: IO ()
 main = defaultMain tests
@@ -38,7 +39,8 @@ tests = testGroup "Testing serialising and deserialising roundtrip"
 
 -- * Testing Programs
 
--- instance automatically derived from generics
+instance Arbitrary MemWidth where
+  arbitrary = oneof [pure W1, pure W2, pure W4, pure W8]
 instance (Arbitrary a, Arbitrary b) => Arbitrary (Operand a b) where
   arbitrary = oneof [Reg <$> arbitrary, Const <$> arbitrary]
 instance (Arbitrary a, Arbitrary b) => Arbitrary (Instruction a b) where
@@ -66,8 +68,8 @@ instance (Arbitrary a, Arbitrary b) => Arbitrary (Instruction a b) where
     , Ijmp    <$>                             arbitrary
     , Icjmp   <$>               arbitrary <*> arbitrary
     , Icnjmp  <$>               arbitrary <*> arbitrary
-    , Istore  <$>               arbitrary <*> arbitrary
-    , Iload   <$>               arbitrary <*> arbitrary
+    , Istore  <$> arbitrary <*> arbitrary <*> arbitrary
+    , Iload   <$> arbitrary <*> arbitrary <*> arbitrary
     , Iread   <$>               arbitrary <*> arbitrary
     , Ianswer <$>                             arbitrary
     ]
@@ -116,7 +118,7 @@ instance Arbitrary InstrKind where
     ]
   
 instance Arbitrary CircuitParameters where
-  arbitrary = CircuitParameters <$> arbitrary <*> arbitrary <*> arbitrary
+  arbitrary = CircuitParameters <$> arbitrary <*> arbitrary
 
 testParams :: TestTree
 testParams = testProperty "Serialising Parameters" $
@@ -125,11 +127,11 @@ testParams = testProperty "Serialising Parameters" $
 
 -- * Testing Traces
 instance Arbitrary (StateOut) where
-  arbitrary = StateOut <$> arbitrary <*> arbitrary <*> arbitrary
+  arbitrary = StateOut <$> arbitrary <*> arbitrary
 
 testTrace :: TestTree
 testTrace = testProperty "Serialising traces" $
-        \p -> (fromFlatTerm decode $ toFlatTerm $ encode p) == Right (p:: [StateOut])
+        \p -> (fromFlatTerm decode $ toFlatTerm $ encode p) == Right (p:: [TraceChunkOut Int])
 
 
 
@@ -139,7 +141,7 @@ instance Arbitrary MemOpType where
 
 instance Arbitrary Advice where
   arbitrary = oneof $
-    [ MemOp <$> arbitrary <*> arbitrary <*> arbitrary
+    [ MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
     , return Stutter 
     ]
 
@@ -150,14 +152,25 @@ testAdvice = testProperty "Serialising advice" $
 
 -- * Testing Output
 instance Arbitrary InitMemSegment where
-  arbitrary = InitMemSegment  <$> arbitrary <*> arbitrary <*>
+  arbitrary = InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*>
               arbitrary <*> arbitrary <*> arbitrary
-    
+
+instance Arbitrary reg => Arbitrary (Segment reg MWord) where
+  arbitrary = Segment  <$> arbitrary <*> arbitrary <*> arbitrary  <*> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary SegmentOut where
+  arbitrary = SegmentOut <$> arbitrary <*> arbitrary  <*> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary reg => Arbitrary (TraceChunkOut reg) where
+  arbitrary = TraceChunkOut  <$> arbitrary <*> arbitrary
+
+instance Arbitrary Constraints where
+  arbitrary = PcConst <$> arbitrary
 
 instance Arbitrary reg => Arbitrary (Output reg) where
   arbitrary = oneof
-    [ SecretOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    , PublicOutput  <$> arbitrary <*> arbitrary <*> arbitrary
+    [ SecretOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    , PublicOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
     ]
 
 testOutput :: TestTree

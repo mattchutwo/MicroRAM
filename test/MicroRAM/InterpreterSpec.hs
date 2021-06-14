@@ -14,6 +14,7 @@ import Compiler.Registers
 import Compiler.CompilationUnit
 
 import Data.Bits
+import Data.Default
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
@@ -40,13 +41,14 @@ _ppList all =  putStr $ concat $ map (\st -> show st ++ "\n") all
 list2InitMem :: [MWord] -> InitialMem
 list2InitMem ls = map word2InitSeg $ zip [0..] ls 
   where word2InitSeg :: (MWord,MWord) -> InitMemSegment
-        word2InitSeg (loc,val) = InitMemSegment False False loc 1 (Just [val]) 
+        word2InitSeg (loc,val) = InitMemSegment False False False loc 1 (Just [val])
 
 
 
 trivialCU :: Prog Int -> Word -> [MWord] -> CompilationResult (Prog Int)
-trivialCU prog len input = CompUnit progs len InfinityRegs [] (list2InitMem input) ()
-  where progs = MultiProg prog prog
+trivialCU prog len input = CompUnit progs len InfinityRegs def ()
+  where pm = ProgAndMem prog (list2InitMem input)
+        progs = MultiProg pm pm
 
 runProg :: Prog Int -> Word -> [MWord] -> Trace Int
 runProg prog len input = run $ trivialCU prog len input
@@ -135,7 +137,7 @@ test3 = testProperty "Test fibonacci" $ \n -> (n :: Word) <= 30 ==>
 -- # Test 4: conditional + input
 
 prog4 :: Program Reg MWord
-prog4 = [Iload 1 (Const 0), --
+prog4 = [IloadW 1 (Const 0), --
          Icmpa 3 1 (Const 10), -- 1
          Icjmp 3 (Const 5),    -- 2 
          Iadd 2 2 (Const 77),-- 3
@@ -166,9 +168,9 @@ prog5 = [Iread 1 (Const 0), Iadd 0 0 (Reg 1), Icjmp (Const 4), Ijmp (Const 0), I
 -- New version with input in initial memory.
 prog5 = [Imov 0 (Const 0),
          Imov 1 (Const 0),
-         Iload 2 (Reg 1),
+         IloadW 2 (Reg 1),
          Iadd 0 0 (Reg 2),
-         Iadd 1 1 (Const 1),
+         Iadd 1 1 (Const 8),
          Ijmp (Const 2)]
         
 

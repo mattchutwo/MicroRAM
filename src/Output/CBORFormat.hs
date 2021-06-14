@@ -18,27 +18,32 @@ Format for compiler units
 -}
 
 module Output.CBORFormat where
-import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm, FlatTerm)
-import qualified Data.Map as Map
+
 import GHC.Generics
 
-import Codec.Serialise
-
+import Codec.CBOR.FlatTerm (fromFlatTerm, toFlatTerm, FlatTerm)
 import Codec.CBOR.Decoding
 import Codec.CBOR.Encoding
 import Codec.CBOR.Write
 import Codec.CBOR.Read
 import Codec.CBOR.Pretty
+import Codec.Serialise
+
 import qualified Data.ByteString.Lazy                  as L
 
-import Compiler.Sparsity
 import Compiler.CompilationUnit
+import Compiler.Common (Name)
 import Compiler.Registers
 import Compiler.Tainted
 import Compiler.IRs
+--import Compiler.Sparsity
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
+
+import Segments.Segmenting
+
+import Sparsity.Sparsity
 
 -- Get version number
 import Paths_MicroRAM (version)
@@ -53,17 +58,19 @@ import Output.Output
 -- * Full Output
 
 encodeOutput :: Serialise reg => Output reg -> Encoding
-encodeOutput (SecretOutput prog params initM trc adv) =
+encodeOutput (SecretOutput prog segs params initM trc adv) =
   map2CBOR $ 
   [ ("program", encode prog)
+  , ("segments", encode segs)
   , ("params", encode params)
   , ("init_mem", encode initM)
   , ("trace", encode trc)
   , ("advice", encode adv)
   ]
-encodeOutput (PublicOutput prog params initM) =
+encodeOutput (PublicOutput prog segs params initM ) =
   map2CBOR $ 
   [ ("program", encode prog)
+  , ("segments", encode segs)
   , ("params", encode params)
   , ("init_mem", encode initM)
   ]
@@ -72,8 +79,8 @@ decodeOutput :: Serialise reg => Decoder s (Output reg)
 decodeOutput = do
   len <- decodeMapLen
   case len of
-    5 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode
-    3 -> PublicOutput <$> tagDecode <*> tagDecode  <*> tagDecode
+    6 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode
+    4 -> PublicOutput <$> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode
     n -> fail $ "Only lengths for output are 3 and 5 (Public and Secret). Insted found: " ++ show n 
     
 instance Serialise reg => Serialise (Output reg) where 
@@ -173,11 +180,18 @@ encodeInstr (Icmov r1 r2 operand ) = list2CBOR $ encodeString "cmov"   : encode 
 encodeInstr (Ijmp operand        ) = list2CBOR $ encodeString "jmp"    : encodeNull : encodeNull : (encodeOperand' operand) 
 encodeInstr (Icjmp r2 operand    ) = list2CBOR $ encodeString "cjmp"   : encodeNull : encode r2  : (encodeOperand' operand) 
 encodeInstr (Icnjmp r2 operand   ) = list2CBOR $ encodeString "cnjmp"  : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Istore operand r2   ) = list2CBOR $ encodeString "store"  : encodeNull : encode r2  : (encodeOperand' operand) 
-encodeInstr (Iload r1 operand    ) = list2CBOR $ encodeString "load"   : encode r1  : encodeNull : (encodeOperand' operand)
+encodeInstr (Istore W1 operand r2) = list2CBOR $ encodeString "store1" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Istore W2 operand r2) = list2CBOR $ encodeString "store2" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Istore W4 operand r2) = list2CBOR $ encodeString "store4" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Istore W8 operand r2) = list2CBOR $ encodeString "store8" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Iload W1 r1 operand ) = list2CBOR $ encodeString "load1"  : encode r1  : encodeNull : (encodeOperand' operand)
+encodeInstr (Iload W2 r1 operand ) = list2CBOR $ encodeString "load2"  : encode r1  : encodeNull : (encodeOperand' operand)
+encodeInstr (Iload W4 r1 operand ) = list2CBOR $ encodeString "load4"  : encode r1  : encodeNull : (encodeOperand' operand)
+encodeInstr (Iload W8 r1 operand ) = list2CBOR $ encodeString "load8"  : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Iread r1 operand    ) = list2CBOR $ encodeString "read"   : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Ianswer operand     ) = list2CBOR $ encodeString "answer" : encodeNull : encodeNull : (encodeOperand' operand) 
-encodeInstr (Ipoison operand r2  ) = list2CBOR $ encodeString "poison" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Ipoison W8 operand r2) = list2CBOR $ encodeString "poison8" : encodeNull : encode r2  : (encodeOperand' operand) 
+encodeInstr (Ipoison w _ _       ) = error $ "bad poison width " ++ show w
 encodeInstr (Iadvise r1          ) = list2CBOR $ encodeString "advise" : encode r1  : encodeNull : [encode False, encodeNull]
 encodeInstr (Itaint r2 operand   ) = list2CBOR $ encodeString "taint"  : encodeNull : encode r2  : (encodeOperand' operand) 
 encodeInstr (Isink r2 operand    ) = list2CBOR $ encodeString "sink"   : encodeNull : encode r2  : (encodeOperand' operand) 
@@ -186,11 +200,23 @@ encodeInstr (Isink r2 operand    ) = list2CBOR $ encodeString "sink"   : encodeN
 -- witness checker generator doesn't support these instructions at all, so how
 -- we encode the operands doesn't really matter - it's only for human
 -- consumption.
-encodeInstr (Iext name ops       ) = list2CBOR $ encodeString "ext" : encodeString name : concatMap encodeOperand' ops
-encodeInstr (Iextval name rd ops ) = list2CBOR $ encodeString "ext" : encodeString name : encode rd : concatMap encodeOperand' ops
+encodeInstr (Iext ext) =
+  let parts = case ext of
+        XTrace desc ops -> [encodeString "Trace", encodeString desc] ++ concatMap encodeOperand' ops
+        XTraceStr ptr -> [encodeString "TraceStr"] ++ encodeOperand' ptr
+        XTraceExec name ops -> [encodeString "TraceExec"] ++ concatMap encodeOperand' (name : ops)
+        XFree ptr -> [encodeString "Free"] ++ encodeOperand' ptr
+        XAccessValid lo hi -> [encodeString "AccessValid"] ++ concatMap encodeOperand' [lo, hi]
+        XAccessInvalid lo hi -> [encodeString "AccessInvalid"] ++ concatMap encodeOperand' [lo, hi]
+        XStoreUnchecked ptr val -> [ encodeString "StoreUnchecked" ] ++ concatMap encodeOperand' [ptr, val]
+  in list2CBOR $ encodeString "ext" : parts
+encodeInstr (Iextval r1 ext) =
+  let parts = case ext of
+        XLoadUnchecked ptr -> [encodeString "LoadUnchecked"] ++ encodeOperand' ptr
+  in list2CBOR $ encodeString "extval" : encode r1 : parts
 -- `Iextadvise` is `Iadvise` plus a hint to the interpreter.  We serialize it
 -- just like a plain `Iadvise`.
-encodeInstr (Iextadvise _ r1 _   ) = encodeInstr @regT @wrdT (Iadvise r1)
+encodeInstr (Iextadvise r1 _     ) = encodeInstr @regT @wrdT (Iadvise r1)
 
 decodeOperands :: (Serialise regT, Serialise wrdT) => Int -> Decoder s ([regT], Operand regT wrdT)
 decodeOperands 0 = fail "invalid number of operands: 0"
@@ -231,11 +257,17 @@ decodeInstr = do
       "jmp"     -> Ijmp    <$  decodeNull <*  decodeNull <*> decodeOperand' 
       "cjmp"    -> Icjmp   <$  decodeNull <*> decode     <*> decodeOperand' 
       "cnjmp"   -> Icnjmp  <$  decodeNull <*> decode     <*> decodeOperand' 
-      "store"   -> flip Istore  <$  decodeNull <*> decode     <*> decodeOperand' 
-      "load"    -> Iload   <$> decode     <*  decodeNull <*> decodeOperand'
+      "store1"  -> flip (Istore W1) <$  decodeNull <*> decode     <*> decodeOperand' 
+      "store2"  -> flip (Istore W2) <$  decodeNull <*> decode     <*> decodeOperand' 
+      "store4"  -> flip (Istore W4) <$  decodeNull <*> decode     <*> decodeOperand' 
+      "store8"  -> flip (Istore W8) <$  decodeNull <*> decode     <*> decodeOperand' 
+      "load1"   -> Iload W1 <$> decode     <*  decodeNull <*> decodeOperand'
+      "load2"   -> Iload W2 <$> decode     <*  decodeNull <*> decodeOperand'
+      "load4"   -> Iload W4 <$> decode     <*  decodeNull <*> decodeOperand'
+      "load8"   -> Iload W8 <$> decode     <*  decodeNull <*> decodeOperand'
       "read"    -> Iread   <$> decode     <*  decodeNull <*> decodeOperand'
       "answer"  -> Ianswer <$  decodeNull <*  decodeNull <*> decodeOperand'
-      "poison"  -> flip Ipoison  <$  decodeNull <*> decode     <*> decodeOperand'  
+      "poison8" -> flip (Ipoison W8) <$  decodeNull <*> decode     <*> decodeOperand'  
       "advise"  -> Iadvise <$> decode     <*  decodeNull <*  decodeBool <* decodeNull
       _ -> fail $ "invalid instruction encoding. Tag: " ++ show tag ++ "."
 
@@ -245,12 +277,12 @@ instance (Serialise regT, Serialise ops) => Serialise (Instruction regT ops) whe
 
 {- Quick test:-}
 a :: Program Word MWord
-a = [Istore (Reg 77) 1, Ijmp (Reg 42),Iadd 2 3 (Const 4)]
+a = [Istore W4 (Reg 77) 1, Ijmp (Reg 42),Iadd 2 3 (Const 4)]
 x :: Either String (Instruction' Word Word (Operand Word MWord))
 x = fromFlatTerm decode $ toFlatTerm $ encode a
 
 b :: Instruction Word MWord
-b = Istore (Reg 0) 0
+b = Istore W4 (Reg 0) 0
 y :: L.ByteString
 y = serialise b
 
@@ -270,10 +302,9 @@ instance Serialise InstrKind where
   decode = decodeInstrKind
 
 encodeParams :: CircuitParameters -> Encoding 
-encodeParams (CircuitParameters numRegs len sparc ) = 
+encodeParams (CircuitParameters numRegs sparc ) = 
   map2CBOR $
   [ ("num_regs", encodeWord numRegs)
-  , ("trace_len", encodeWord len)
   , ("sparcity", encode sparc)
   ]
 
@@ -281,8 +312,7 @@ decodeParams :: Decoder s CircuitParameters
 decodeParams = do
   len <- decodeMapLen
   case len of
-    3 -> CircuitParameters <$ decodeString <*> decodeWord
-         <* decodeString <*> decodeWord
+    2 -> CircuitParameters <$ decodeString <*> decodeWord
          <* decodeString <*> decode
     _ -> fail $ "invalid parameters encoding. Length should be 3 but found " ++ show len
 
@@ -297,10 +327,11 @@ instance Serialise CircuitParameters where
 
 
 encodeInitMemSegment :: InitMemSegment -> Encoding
-encodeInitMemSegment (InitMemSegment secret read start len datas labels) =
+encodeInitMemSegment (InitMemSegment secret read heapInit start len datas labels) =
   map2CBOR $
   [ ("secret", encodeBool secret) 
   , ("read_only", encodeBool read)
+  , ("heap_init", encodeBool heapInit)
   , ("start", encode start)
   , ("len", encode len)
   ] ++  encodeMaybeContent "data" datas
@@ -315,10 +346,11 @@ decodeInitMemSegment :: Decoder s InitMemSegment
 decodeInitMemSegment = do
     len <- decodeMapLen
     case len of
-      4 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> pure Nothing <*> pure Nothing
-      6 -> InitMemSegment <$> tagDecode <*> tagDecode <*>
+      5 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
+           tagDecode <*> tagDecode <*> pure Nothing <*> pure Nothing
+      6 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
            tagDecode <*> tagDecode <*> fmap Just tagDecode <*> fmap Just tagDecode
-      _ -> fail $ "invalid state encoding. Length should be 4 or 5 but found " ++ show len
+      _ -> fail $ "invalid state encoding. Length should be 5 or 6 but found " ++ show len
 
 instance Serialise InitMemSegment where
   decode = decodeInitMemSegment
@@ -338,10 +370,9 @@ instance Serialise InitMemSegment where
 -- *** State Out 
 
 encodeStateOut :: StateOut -> Encoding
-encodeStateOut (StateOut flag pc regs regLabels) =
+encodeStateOut (StateOut pc regs regLabels) =
   map2CBOR $
-  [ ("flag", encodeBool flag) 
-  , ("pc", encode pc)
+  [ ("pc", encode pc)
   , ("regs", encode regs)
   , ("tainted_regs", encode regLabels)
   ]
@@ -350,8 +381,7 @@ decodeStateOut :: Decoder s StateOut
 decodeStateOut = do
     len <- decodeMapLen
     case len of
-      4 -> StateOut <$ decodeString <*> decodeBool
-                    <* decodeString <*> decode
+      3 -> StateOut <$ decodeString <*> decode
                     <* decodeString <*> decode
                     <* decodeString <*> decode
       _ -> fail $ "invalid state encoding. Length should be 3 but found " ++ show len
@@ -382,13 +412,26 @@ instance Serialise MemOpType where
   encode = encodeMemOpType
 
 
+instance Serialise MemWidth where
+  decode = do
+    w <- decode :: Decoder s Int
+    case w of
+      1 -> return W1
+      2 -> return W2
+      4 -> return W4
+      8 -> return W8
+      _ -> fail $ "bad memory op width: " ++ show w
+  encode w = encode $ widthInt w
+
+
 encodeAdvice :: Advice -> Encoding 
-encodeAdvice  (MemOp addr val opTyp label) =
+encodeAdvice  (MemOp addr val opTyp width label) =
   encodeListLen 5
   <> encodeString "MemOp"
   <> encode addr
   <> encode val
   <> encode opTyp
+  <> encode width
   <> encode label
 
 encodeAdvice (Advise w) =
@@ -405,7 +448,7 @@ decodeAdvice = do
   ln <- decodeListLen
   name <- decodeString
   case (ln,name) of
-    (5, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode
+    (5, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode <*> decode
     (1, "Stutter") -> return Stutter
     (ln,name) -> fail $ "Found bad advice of length " ++ show ln ++ " and name: " ++ show name 
 
@@ -413,8 +456,65 @@ instance Serialise Advice where
   decode = decodeAdvice
   encode = encodeAdvice
 
+encodeConstraints :: Constraints -> Encoding
+encodeConstraints (PcConst pc) =
+  encodeListLen 2 <>
+  encodeString "pc" <>
+  encode pc
+
+decodeConstraints :: Decoder s Constraints
+decodeConstraints = do
+  ln <- decodeListLen
+  name <- decodeString
+  case (ln, name) of
+    (2, "pc") -> PcConst <$> decode
+    (ln, name) -> fail $ "Invalid constraint encoding. Found length " ++ (show ln) ++ " and name: " ++ show name  
 
 
+instance Serialise Constraints where
+  decode = decodeConstraints
+  encode = encodeConstraints
+
+encodeSegmentOut :: SegmentOut -> Encoding
+encodeSegmentOut (SegmentOut constr segLen segSuc fromNet toNet) =
+  encodeListLen 5 <>
+  encode constr <>
+  encode segLen <>
+  encode segSuc <>
+  encode fromNet <>
+  encode toNet
+
+decodeSegmentOut :: Decoder s SegmentOut
+decodeSegmentOut = do
+  ln <- decodeListLen
+  case ln of
+    5 -> SegmentOut <$> decode <*> decode <*> decode <*> decode  <*> decode
+    ln -> fail $ "Invalid segment encoding. Expected length is 5 but found" ++ show ln 
+
+instance Serialise SegmentOut where
+  decode = decodeSegmentOut
+  encode = encodeSegmentOut
+
+encodeTraceChunkOut :: Serialise reg => (TraceChunkOut reg) -> Encoding
+encodeTraceChunkOut (TraceChunkOut location states) =
+  encodeListLen 2 <>
+  encode location <>
+  encode states
+
+
+decodeTraceChunkOut :: Serialise reg => Decoder s (TraceChunkOut reg)
+decodeTraceChunkOut = do
+  ln <- decodeListLen
+  case ln of
+    2 -> TraceChunkOut <$> decode <*> decode
+    ln -> fail $ "Invalid TraceChunkOut encoding. Expected length is 2 but found" ++ show ln 
+
+
+instance (Serialise reg) => Serialise (TraceChunkOut reg) where
+  decode = decodeTraceChunkOut
+  encode = encodeTraceChunkOut
+
+  
 -- ** Initial memory
 
 -- Serialise is derived from lists and Words.
@@ -439,17 +539,20 @@ instance Serialise Name where
 
 -- * Serialisations and other pretty printing formats
 
+versionedOutput :: Output reg -> [String] -> ([Int], [String], Output reg)
+versionedOutput out features = (versionBranch version, features, out)
+
 serialOutput :: Serialise reg => Output reg -> [String] -> L.ByteString
-serialOutput out features = toLazyByteString $ (encode $ (versionBranch version, features, out))
+serialOutput out features = toLazyByteString $ (encode $ versionedOutput out features)
 
 serialInput :: Serialise reg => L.ByteString -> Either DeserialiseFailure (L.ByteString, Output reg)
 serialInput string = deserialiseFromBytes (decodeOutput) string 
 
-ppHexOutput :: Serialise reg => Output reg -> String
-ppHexOutput out = prettyHexEnc $ encode out
+ppHexOutput :: Serialise reg => Output reg -> [String] -> String
+ppHexOutput out features = prettyHexEnc $ encode $ versionedOutput out features
 
-flatOutput :: Serialise reg => Output reg -> FlatTerm
-flatOutput out = toFlatTerm $ encode out
+flatOutput :: Serialise reg => Output reg  -> [String] -> FlatTerm
+flatOutput out features = toFlatTerm $ encode $ versionedOutput out features
 
 data OutFormat =
     StdHex
@@ -458,11 +561,10 @@ data OutFormat =
   deriving (Eq, Ord, Show)
 
 
--- NOTE: ONLY StdHEX records version number. The others are for debugging only
 printOutputWithFormat :: Serialise reg => OutFormat -> Output reg -> [String] -> String
 printOutputWithFormat StdHex out features = show $ (serialOutput out features) 
-printOutputWithFormat PHex out _ = ppHexOutput out
-printOutputWithFormat Flat out _ = show . flatOutput $ out
+printOutputWithFormat PHex out features = ppHexOutput out features
+printOutputWithFormat Flat out  features = show $ flatOutput out features
 
 
 c :: Output Word

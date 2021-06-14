@@ -19,7 +19,6 @@ module Output.Output where
 import qualified Data.Map as Map
 import GHC.Generics
 
-import Compiler.Sparsity
 import Compiler.CompilationUnit
 import Compiler.Registers
 import Compiler.Tainted
@@ -27,6 +26,12 @@ import Compiler.Analysis
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
+
+import Segments.Segmenting
+import Segments.ChooseSegments
+
+import Sparsity.Sparsity
+
 import Util.Util
 
 
@@ -42,7 +47,6 @@ import Util.Util
 -- 1. Program
 -- 2. Parameters
 --    * Number of registers
---    * Trace length
 --    * Sparcity
 --
 -- Secret Output
@@ -53,26 +57,45 @@ import Util.Util
 -- 3. Initial Memory
 --   
 -- Notice `trace`, `advice` and `initMem` throw execptions (when called on PublicOutput)
-
+data TraceChunkOut reg = TraceChunkOut {
+  chunkSegOut :: Int
+  , chunkStatesOut :: [StateOut]}
+  deriving (Eq, Show, Generic)
+  
 data Output reg  =
   SecretOutput
   { program :: Program reg MWord
+  , segmentsOut :: [SegmentOut]
   , params :: CircuitParameters
   , initMem :: InitialMem
-  , trace :: [StateOut]
+  , traceOut :: [TraceChunkOut reg]
   , adviceOut :: Map.Map MWord [Advice]
   }
   | PublicOutput
   { program :: Program reg MWord
+  , segmentsOut :: [SegmentOut]
   , params :: CircuitParameters
   , initMem :: InitialMem
   } deriving (Eq, Show, Generic)
 
+data SegmentOut
+  = SegmentOut {constraintsOut :: [Constraints],
+                segLenOut :: Int,
+                segSucOut :: [Int],
+                fromNetworkOut :: Bool,
+                toNetworkOut :: Bool}
+  deriving (Eq, Show, Generic)
+mkSegmentOut :: Segment reg MWord -> SegmentOut
+mkSegmentOut (Segment _ constr len suc fromNet toNet) = SegmentOut constr len suc fromNet toNet
+
 -- | Convert between the two outputs
 mkOutputPublic :: Output reg -> Output reg
-mkOutputPublic (SecretOutput a b c _ _) = PublicOutput a b c
-mkOutputPublic (PublicOutput a b c) = PublicOutput a b c
+mkOutputPublic (SecretOutput a b c d _ _) = PublicOutput a b c d
+mkOutputPublic (PublicOutput a b c d) = PublicOutput a b c d
 
+mkOutputPrivate :: [TraceChunkOut reg] -> Map.Map MWord [Advice] -> Output reg -> Output reg
+mkOutputPrivate trace adv (PublicOutput a b c d ) = SecretOutput a b c d trace adv
+mkOutputPrivate trace adv (SecretOutput a b c d _ _) = SecretOutput a b c d trace adv
 
 
 
@@ -85,7 +108,6 @@ type SparcityInfo = Word
 
 data CircuitParameters = CircuitParameters
   { numRegs :: Word
-  , traceLength :: Word
   , sparcity :: Map.Map InstrKind SparcityInfo
   } deriving (Eq, Show, Generic)
   
@@ -97,10 +119,10 @@ data CircuitParameters = CircuitParameters
 -- | State with only the parts passed to the output.
 
 data StateOut = StateOut
-  { flagOut :: Bool
-  , pcOut   :: MWord
+  { pcOut   :: MWord
   , regsOut :: [MWord]
   , regLabelsOut :: [Label] -- TODO: Type level stuff to enable tainted things.
+--  , adviceOut :: [Advice]
   } deriving (Eq, Show, Generic)
 
 -- | Compiler is allowed to concretise.
@@ -111,9 +133,8 @@ concretize (Just w) = w
 concretize Nothing = 0
 
 state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
-state2out bound (ExecutionState pc regs regLabels _ _ _ flag _ _ _) =
-  StateOut flag pc (map concretize $ regToList bound regs) (map concretizeLabel $ regToList bound regLabels)
-
+state2out bound (ExecutionState pc regs regLabels _ _ _advice _ _ _) =
+  StateOut pc (map concretize $ regToList bound regs) (map concretizeLabel $ regToList bound regLabels) -- Advice is ignored
 
 
 
@@ -122,60 +143,40 @@ state2out bound (ExecutionState pc regs regLabels _ _ _ flag _ _ _) =
 
 -- | Convert the output of the compiler (Compilation Unit) into Output
 buildCircuitParameters
-  :: Foldable t =>
-     Word
-  -> RegisterData
-  -> t AnalysisPiece
+  :: RegisterData
+  -> AnalysisData
   -> Word
   -> CircuitParameters
-buildCircuitParameters trLen regData aData regNum = -- Ok regNum can be removed if InfinityRegs doesn't show up here. 
-  CircuitParameters (regData2output regData) trLen (analyData2sparc aData)
+buildCircuitParameters regData aData regNum = -- Ok regNum can be removed if InfinityRegs doesn't show up here. 
+  CircuitParameters (regData2output regData) (sparcInWords $ sparsityData aData)
   where regData2output (NumRegisters n) = fromIntegral n
         regData2output InfinityRegs = regNum -- FIX ME: Throw exception?
 
-        analyData2sparc = foldr joinSparcData Map.empty  
-        joinSparcData (SparsityData sparc2) spar1 =
-          let sparc2' = Map.map fromIntegral sparc2 in  -- Make into Words
-            Map.unionWith min sparc2' spar1
+        sparcInWords spar = Map.map fromIntegral spar
 
-compUnit2Output :: Regs reg => CompilationResult (Program reg MWord) -> Output reg
-compUnit2Output (CompUnit p trLen regData aData initMem _) =
-  let regNum = getRegNum regData in
-  let circParams = buildCircuitParameters trLen regData aData regNum in
-  PublicOutput (lowProg p) circParams initMem
+compUnit2Output :: Regs reg => [Segment reg MWord] -> CompilationResult (Program reg MWord) -> Output reg
+compUnit2Output segs (CompUnit p _trLen regData aData _) =
+  let regNum = getRegNum regData
+      circParams = buildCircuitParameters regData aData regNum
+      segsOut = map mkSegmentOut segs in
+  PublicOutput (pmProg $ lowProg p) segsOut circParams (pmMem $ lowProg p)
 
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).
 -- The input Trace should be an infinite stream which we truncate by the given length.
-secretOutput :: Regs reg => Trace reg -> CompilationResult (Program reg MWord) -> Output reg
-secretOutput tr (CompUnit p trLen regData aData initM _) =
-  let regNum = getRegNum regData in
-  let circParams = buildCircuitParameters trLen regData aData regNum in
-    SecretOutput (lowProg p) circParams
-    -- initMem
-    initM
-    -- Trace (trace should be trimmed already)
-    (outputTrace trLen tr (numRegs circParams))
-    -- Advice
-    (outputAdvice trLen tr)
 
-  where outputAdvice len tr = foldr joinAdvice Map.empty (takeEnum len $ zip [0..] tr)
-        joinAdvice (i,state) adviceMap = case advice state of
-                                       [] -> adviceMap
-                                       ls -> Map.insert i ls adviceMap
+outputStates
+  :: (Enum a1, Regs mreg) => a1 -> Word -> [ExecutionState mreg] -> [StateOut]
+outputStates len regBound tr = takeEnum len $ map (state2out regBound) tr
 
-outputTrace
-  :: (Enum a1, Regs mreg) => a1 -> [ExecutionState mreg] -> Word -> [StateOut]
-outputTrace len tr regBound = takeEnum len $ map (state2out regBound) tr
+outputTraceChunk :: (Regs reg) => Word -> TraceChunk reg -> TraceChunkOut reg
+outputTraceChunk regBound (TraceChunk location trace) = 
+  TraceChunkOut location (map (state2out regBound) trace)
+outputTrace :: (Regs reg) => Word -> [TraceChunk reg] -> [TraceChunkOut reg]
+outputTrace regBound tr = map (outputTraceChunk regBound) tr 
 
-fullOutput :: Regs reg => CompilationResult (Program reg MWord) -> Output reg
-fullOutput compUnit = fullOutput_v False compUnit
 
-fullOutput_v :: Regs reg => Bool -> CompilationResult (Program reg MWord) -> Output reg
-fullOutput_v verbose compUnit =
-  let _mem = flatInitMem $ initM compUnit in
-  secretOutput (run_v verbose compUnit) compUnit
-
+  
 getRegNum :: RegisterData -> Word
 getRegNum InfinityRegs = 0
 getRegNum (NumRegisters n) = toEnum n 
@@ -183,7 +184,9 @@ getRegNum (NumRegisters n) = toEnum n
 -- | We only look at what registers are assigned too
 
 countRegs :: Regs regT => Program regT MWord -> Word
-countRegs p = maximum $ map getRegAssign p
+countRegs p =
+  --(Trace.trace $ "lenght of list is: " ++ show (map getRegAssign p))
+  maximum $ map getRegAssign p
   where getRegAssign (Iand reg1 _reg2 _  ) =  toWord reg1  
         getRegAssign (Ior reg1 _reg2 _   ) =  toWord reg1 
         getRegAssign (Ixor reg1 _reg2 _  ) =  toWord reg1 
@@ -204,8 +207,8 @@ countRegs p = maximum $ map getRegAssign p
         getRegAssign (Icmpge reg1 _ _     ) =  toWord reg1 
         getRegAssign (Imov reg1 _       ) =  toWord reg1 
         getRegAssign (Icmov reg1 _ _      ) =  toWord reg1 
-        getRegAssign (Istore _ reg1     ) =  toWord reg1 
-        getRegAssign (Iload reg1 _      ) =  toWord reg1 
+        getRegAssign (Istore _ _ reg1   ) =  toWord reg1 
+        getRegAssign (Iload _ reg1 _    ) =  toWord reg1 
         getRegAssign (Iread reg1 _      ) =  toWord reg1 
         getRegAssign _ =  0 
 

@@ -23,7 +23,7 @@ module Compiler.Common (
   Ty(..), tySize, TypeEnv,
   -- * Global variables
   -- $globs
-  GlobalVariable(..), GEnv,
+  GlobalVariable(..), GEnv, heapInitAddress,
   -- * Identifiers
   -- $names
   Name(..),
@@ -100,14 +100,26 @@ type TypeEnv = Map.Map Name Ty
 -- | This is the representation of global variables until they are
 -- set in memory and translated to constant pointers. 
 data GlobalVariable wrdT = GlobalVariable
-  { name :: Name -- Optimize?
+  { globName :: Name -- Optimize?
   , isConstant :: Bool
   , gType :: Ty
   , initializer :: Maybe [LazyConst String wrdT]
-  , gSize :: MWord
+    -- ^ A list of machine words to initialize this global
+  , gSize :: MWord    -- ^ Size of this global in words
+  , gAlign :: MWord
+    -- ^ Alignment of this global in words.  This will be 1 for most globals,
+    -- since primitives generally have alignment no greater than the word size,
+    -- but the programmer can explicitly set a higher alignment with the right
+    -- attributes.
   , secret :: Bool
+  , gvHeapInit :: Bool
+    -- | If set, this is a heap-init global variable, which is placed at a
+    -- special address and doesn't influence the initial stack pointer.
   } deriving (Show)
 type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"
+
+heapInitAddress :: MWord
+heapInitAddress = 0x100000000   -- 2^32
 
 
 -- * Name identifiers

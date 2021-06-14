@@ -1,5 +1,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
 Module      : Lazy Constants
@@ -14,6 +15,7 @@ module Compiler.LazyConstants where
 
 
 
+import Data.Bits
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
@@ -64,6 +66,83 @@ instance Num wrdT => Num (LazyConst name wrdT) where
   abs    = lazyUop abs   
   signum = lazyUop signum
   fromInteger n = SConst $ fromInteger n  
+
+instance Eq (LazyConst name wrdT) where
+  _ == _ = error "(==) not supported for LazyConst"
+
+instance Bits wrdT => Bits (LazyConst name wrdT) where
+  (.&.) = lazyBop (.&.)
+  (.|.) = lazyBop (.|.)
+  xor = lazyBop xor
+  complement = lazyUop complement
+  shift x b = lazyUop (`shift` b) x
+  rotate x b = lazyUop (`rotate` b) x
+  bitSize _ = case bitSizeMaybe (zeroBits :: wrdT) of
+                Just x -> x
+                _ -> 0 
+  bitSizeMaybe _ = bitSizeMaybe (zeroBits :: wrdT)
+  isSigned _ = isSigned (zeroBits :: wrdT)
+  testBit _ _ = error "testBit not supported for LazyConst"
+  bit i = SConst (bit i)
+  popCount _ = error "popCount not supported for LazyConst"
+
+lcQuot :: Integral wrdT => LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+lcQuot = lazyBop quot
+
+lcRem :: Integral wrdT => LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+lcRem = lazyBop rem
+
+lcCompare ::
+  Num wrdT =>
+  (Integer -> Integer -> Bool) ->
+  (wrdT -> Integer) ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT
+lcCompare cmp convert lc1 lc2 = lazyBop go lc1 lc2
+  where go x y = if cmp (convert x) (convert y) then 1 else 0
+
+lcCompareUnsigned ::
+  Integral wrdT =>
+  (Integer -> Integer -> Bool) ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT
+lcCompareUnsigned cmp lc1 lc2 = lcCompare cmp toInteger lc1 lc2
+
+lcCompareSigned ::
+  (Integral wrdT, Bits wrdT) =>
+  (Integer -> Integer -> Bool) ->
+  Int ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT
+lcCompareSigned cmp bits lc1 lc2 = lcCompare cmp convert lc1 lc2
+  where convert x = toInteger x - 2 * toInteger (x .&. (1 `shiftL` bits - 1))
+
+lazySignedBop ::
+  (Integral wrdT, Bits wrdT) =>
+  (Integer -> Integer -> Integer) ->
+  Int ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT ->
+  LazyConst name wrdT
+lazySignedBop bop bits lc1 lc2 =
+    lazyBop (\x y -> unconvert $ bop (convert x) (convert y)) lc1 lc2
+  where
+    convert x = toInteger x - 2 * toInteger (x .&. (1 `shiftL` bits - 1))
+    unconvert x = fromInteger x
+
+lcSDiv ::
+  (Integral wrdT, Bits wrdT) =>
+  Int -> LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+lcSDiv = lazySignedBop quot
+
+lcSRem ::
+  (Integral wrdT, Bits wrdT) =>
+  Int -> LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+lcSRem = lazySignedBop rem
+
 
 -- | Quick shorthand to return lists of one element
 returnL :: Monad m => a -> m [a]

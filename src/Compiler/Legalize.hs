@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 {-|
 Module      : Legalize
 Description : Simplifies instructions where the first operand is not a register. 
@@ -19,9 +20,10 @@ import Control.Monad.State
 
 
 import Compiler.Errors
+import Compiler.Common(Name(..))
 import Compiler.IRs
 
-import MicroRAM (mapInstrM)
+import MicroRAM (mapInstrM, Instruction'(..), pattern WWord)
 import           MicroRAM (MWord)
 import qualified MicroRAM as MRAM
 
@@ -111,6 +113,8 @@ legalizeInstr i = withMetadata m $ do
 -- possibly adding other instructions with `emitInstr`.
 legalizeInstr' :: MIRInstr m w -> Statefully m w (RTLInstr m w)
 legalizeInstr' (MirI i m) = return $ IRI i m
+legalizeInstr' (MirM (Ipoison w _ _) _) | w /= WWord =
+  implError $ "non-word-sized Ipoison " ++ show w
 legalizeInstr' (MirM i m) = do
   i' <- mapInstrM return op2reg return i
   return $ MRI i' m
@@ -153,13 +157,14 @@ legalizeInstr' (MirM i m) = do
     Icjmp o2 -> return $ Icjmp o2
     Icnjmp o2 -> return $ Icnjmp o2
 
-    Istore o2 o1 -> Istore <$> pure o2 <*> op2reg o1
-    Iload rd o2 -> return $ Iload rd o2
+    Istore w o2 o1 -> Istore w <$> pure o2 <*> op2reg o1
+    Iload w rd o2 -> return $ Iload w rd o2
 
     Iread rd o2 -> return $ Iread rd o2
     Ianswer o2 -> return $ Ianswer o2
 
-    Ipoison o2 o1 -> Ipoison <$> pure o2 <*> op2reg o1
+    Ipoison WWord o2 o1 -> Ipoison WWord <$> pure o2 <*> op2reg o1
+    Ipoison w _ _ -> implError $ "non-word-sized Ipoison " ++ show w
     Iadvise rd -> return $ Iadvise rd
 
     Itaint o1 o2 -> Itaint <$> op2reg o1 <*> pure o2
@@ -177,12 +182,12 @@ legalizeBlock :: BB Name (MIRInstr m w) -> Statefully m w (BB Name (RTLInstr m w
 legalizeBlock (BB name body term dag) =
   BB name <$> legalizeInstrs body <*> legalizeInstrs term <*> pure dag
 
-legalizeFunc :: MIRFunction () MWord -> Hopefully (RFunction () MWord)
+legalizeFunc :: MIRFunction m MWord -> Hopefully (RFunction m MWord)
 legalizeFunc f = do
   (blocks', nextReg') <- runStatefully (mapM legalizeBlock $ funcBlocks f) (funcNextReg f)
   return $ f { funcBlocks = blocks', funcNextReg = nextReg' }
 
-legalize :: MIRprog () MWord -> Hopefully (Rprog () MWord)
+legalize :: MIRprog m MWord -> Hopefully (Rprog m MWord)
 legalize p = do
   code' <- mapM legalizeFunc $ code p
   return $ p { code = code' }

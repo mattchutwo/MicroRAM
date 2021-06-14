@@ -42,6 +42,7 @@ import           Compiler.Errors
 import           Compiler.Common
 import           Compiler.CompilationUnit
 import           Compiler.IRs
+import           Compiler.Metadata
 import           Compiler.RegisterAlloc.Internal
 import           Compiler.RegisterAlloc.Liveness
 import           Compiler.Registers
@@ -59,18 +60,16 @@ instance Default RegisterAllocOptions where
 type AReg = Int
 type Registers = [AReg]
 
-registerAlloc :: (Monoid mdata)
-              => RegisterAllocOptions
-              -> CompilationUnit a (Rprog mdata MWord)
-              -> Hopefully $ CompilationUnit a (Lprog mdata AReg MWord)
+registerAlloc :: RegisterAllocOptions
+              -> CompilationUnit a (Rprog Metadata MWord)
+              -> Hopefully $ CompilationUnit a (Lprog Metadata AReg MWord)
 registerAlloc opt comp = do
-  regData <- return $ NumRegisters $ fromEnum $ numRegisters
-  lprog   <- registerAllocProg (programCU comp)
-  return $ comp {programCU = lprog, regData = regData}
+  let regData = NumRegisters $ fromEnum numRegisters
+  lprog   <- registerAllocProg (pmProg $ programCU comp)
+  return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData}
   where
-    registerAllocProg :: (Monoid mdata)
-                  => Rprog mdata MWord
-                  -> Hopefully $ Lprog mdata AReg MWord
+    registerAllocProg :: Rprog Metadata MWord
+                  -> Hopefully $ Lprog Metadata AReg MWord
     registerAllocProg rprog = do
       -- Convert to ltl.
       lprog <- rtlToLtl rprog
@@ -91,7 +90,7 @@ registerAlloc opt comp = do
     registers :: Registers
     registers = [3..(fromIntegral numRegisters)-1]
 
-    setCode :: Lprog mdata reg0 MWord -> [LFunction mdata reg MWord] -> Lprog mdata reg MWord
+    setCode :: Lprog Metadata reg0 MWord -> [LFunction Metadata reg MWord] -> Lprog Metadata reg MWord
     setCode (IRprog tenv globals _) code = IRprog tenv globals code
 
 -- Register allocator state.
@@ -104,14 +103,15 @@ data RAState = RAState {
 
 -- Initialize function arguments according to the calling convention.
 -- Currently, this loads arguments from the stack with `Lgetstack Incoming 0 _ (Name "0")`.
-initializeFunctionArgs :: Monoid mdata => LFunction mdata VReg MWord -> LFunction mdata VReg MWord
-initializeFunctionArgs (LFunction fname mdata typ typs stackSize blocks) = 
+initializeFunctionArgs :: LFunction Metadata VReg MWord -> LFunction Metadata VReg MWord
+initializeFunctionArgs (LFunction fname typ typs stackSize blocks) = 
     let b = BB bname insts [] daginfo in
-    LFunction fname mdata typ typs stackSize $ b:blocks
+    LFunction fname typ typs stackSize $ b:blocks
   where
     insts = map (\(typ, i) -> 
-        let inst = Lgetstack Incoming i typ (Name $ wordToBSS i) in
-        IRI inst mempty
+        let inst = Lgetstack Incoming i typ (Name $ wordToBSS i)
+            md = trivialMetadata fname (show bname) in
+        IRI inst md 
       ) $ zip typs [0..]
 
     bname = Name $ BSS.toShort $ BSC.pack (fname <> "_args")
@@ -124,20 +124,20 @@ initializeFunctionArgs (LFunction fname mdata typ typs stackSize blocks) =
     wordToBSS = BSS.toShort . BSC.pack . show -- TODO: Double check this.
 
 
-registerAllocFunc :: forall mdata wrd . (Monoid mdata) => Registers -> LFunction mdata VReg wrd -> Hopefully $ LFunction mdata AReg wrd
-registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') = do
+registerAllocFunc :: forall wrd . Registers -> LFunction Metadata VReg wrd -> Hopefully $ LFunction Metadata AReg wrd
+registerAllocFunc registers (LFunction name typ typs stackSize' blocks') = do
 
   (rtlBlocks, rast) <- flip runStateT (RAState 0 0 mempty) $ do
     blocks <- mapM flattenBasicBlock blocks'
 
-    registerAllocFunc' $ concat blocks
+    registerAllocFunc' name $ concat blocks
   
   let stackSize = stackSize' + raNextStackPosition rast
 
   -- Unflatten basic block
   let blocks = unflattenBasicBlock rtlBlocks
       
-  return $ LFunction name mdata typ typs stackSize blocks
+  return $ LFunction name typ typs stackSize blocks
 
   where
     -- -- These are for arguments that are passed through registers.
@@ -146,12 +146,12 @@ registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') =
     --     let numArgs = length typs in
     --     Set.fromList $ map (Name . BSS.pack . pure . c2w . intToDigit) [0..(numArgs-1)]
 
-    extractRegisters :: Ord reg => BB name (LTLInstr mdata reg wrdT) -> Set reg
+    extractRegisters :: Ord reg => BB name (LTLInstr Metadata reg wrdT) -> Set reg
     extractRegisters (BB _ insts insts' _) = Set.unions $ map (\i -> readRegisters i <> writeRegisters i) (insts' ++ insts)
 
 
-    registerAllocFunc' :: [BB (Name, Int) (LTLInstr mdata VReg wrdT)] -> StateT RAState Hopefully [BB (Name, Int) (LTLInstr mdata AReg wrdT)]
-    registerAllocFunc' blocks = do -- _spilled = do
+    registerAllocFunc' :: String -> [BB (Name, Int) (LTLInstr Metadata VReg wrdT)] -> StateT RAState Hopefully [BB (Name, Int) (LTLInstr Metadata AReg wrdT)]
+    registerAllocFunc' fName blocks = do -- _spilled = do
       let allRegisters = Set.toList $ Set.unions $ map extractRegisters blocks
 
       liveness <- lift $ livenessAnalysis blocks
@@ -168,7 +168,7 @@ registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') =
             let weightMap = foldr (\s m -> foldr (\r m -> Map.insertWith (+) r 1 m) m s) mempty liveness in
             Map.findWithDefault 0 n weightMap
 
-      let registerMappingOrSpilled = Graph.color registers weightFunc (not . isSpillReg) interferenceGraph
+      let registerMappingOrSpilled = Graph.color registers weightFunc canSpill interferenceGraph
 
       case registerMappingOrSpilled of
         Left spillReg -> do
@@ -178,13 +178,15 @@ registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') =
 
           -- Spill register.
           let isArg = False -- Set.member spillReg argRegisters
-          blocks' <- spillRegister spillReg isArg pos blocks
+          blocks' <- spillRegister fName spillReg isArg pos blocks
 
           -- Try again after spilling.
-          registerAllocFunc' blocks'
+          registerAllocFunc' fName blocks'
 
         Right coloring ->
           lift $ applyColoring coloring blocks
+
+    canSpill = not . isSpillReg
 
     isSpillReg (Name n) = "_reg_alloc" `BSC.isPrefixOf` BSS.fromShort n
     isSpillReg _ = False
@@ -201,26 +203,27 @@ registerAllocFunc registers (LFunction name mdata typ typs stackSize' blocks') =
 
 
 
-spillRegister :: forall name mdata wrdT . (Monoid mdata, name ~ (Name, Int)) => VReg -> Bool -> MWord -> [BB name (LTLInstr mdata VReg wrdT)] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
-spillRegister spillReg isArg pos blocks = do
-  blocks' <- mapM spillBlock blocks
+spillRegister :: forall name wrdT . (name ~ (Name, Int)) => String -> VReg -> Bool -> MWord -> [BB name (LTLInstr Metadata VReg wrdT)] -> StateT RAState Hopefully [BB name (LTLInstr Metadata VReg wrdT)]
+spillRegister fName spillReg isArg pos blocks = do
+  blocks' <- mapM (spillBlock fName)  blocks
   return $ concat blocks'
   where
-    spillBlock :: BB name (LTLInstr mdata VReg wrdT) -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
-    spillBlock (BB (name, iid) insts tInsts dag) = do
-      insts' <- concat <$> mapM spillIRInstruction insts
-      tInsts' <- concat <$> mapM spillIRInstruction tInsts
+    spillBlock :: String -> BB name (LTLInstr Metadata VReg wrdT) -> StateT RAState Hopefully [BB name (LTLInstr Metadata VReg wrdT)]
+    spillBlock fName (BB (name, iid) insts tInsts dag) = do
+      let md = trivialMetadata fName (show name) 
+      insts' <- concat <$> mapM (spillIRInstruction md) insts
+      tInsts' <- concat <$> mapM (spillIRInstruction md) tInsts
 
       -- If the spilled register is an argument, prepend a push to the stack.
       let insts'' = if isArg then  
               let ty = getTyForRegister spillReg Nothing in
-              let push = IRI (Lsetstack spillReg Local pos ty) mempty in
+              let push = IRI (Lsetstack spillReg Local pos ty) md in
               push:insts'
             else
               insts'
       flatten name iid dag insts'' tInsts'
 
-    flatten :: Name -> Int -> DAGinfo name -> [LTLInstr mdata VReg wrdT] -> [LTLInstr mdata VReg wrdT] -> StateT RAState Hopefully [BB name (LTLInstr mdata VReg wrdT)]
+    flatten :: Name -> Int -> DAGinfo name -> [LTLInstr Metadata VReg wrdT] -> [LTLInstr Metadata VReg wrdT] -> StateT RAState Hopefully [BB name (LTLInstr Metadata VReg wrdT)]
     flatten _name _iid _dag [] [] = return []
     flatten name iid dag [] [inst] = do
       return [BB (name, iid) [] [inst] dag]
@@ -232,7 +235,7 @@ spillRegister spillReg isArg pos blocks = do
       iid' <- getNextInstructionId name
       ((BB (name, iid) [inst] [] [(name, iid')]):) <$> flatten name iid' dag insts insts'
 
-    spillIRInstruction instr
+    spillIRInstruction md instr
       | containsReadRegs || containsWriteRegs = do
         -- Create a new temporary register to store the value stored/loaded from
         -- the stack.
@@ -245,8 +248,8 @@ spillRegister spillReg isArg pos blocks = do
         let instr' = substituteRegisters (Map.singleton spillReg reg) instr
         -- Add stack access before/after if needed.
         let ty = getTyForRegister spillReg $ Just instr
-        let load = IRI (Lgetstack Local pos ty reg) mempty
-        let store = IRI (Lsetstack reg Local pos ty) mempty
+        let load = IRI (Lgetstack Local pos ty reg) md
+        let store = IRI (Lsetstack reg Local pos ty) md
         return $
           (if containsReadRegs then [load] else []) ++
           [instr'] ++
@@ -265,17 +268,17 @@ spillRegister spillReg isArg pos blocks = do
       modify' $ \(RAState c s m) -> RAState (c+1) s m
       return reg
 
-    getTyForRegister _reg _instr = Tint -- TODO: How do we get the Ty?
+    getTyForRegister _reg _instr = Tint
 
 
 -- JP: lens/uniplate would make this easier.
-applyColoring :: forall reg0 reg name mdata wrdT . (Ord reg0, Show reg0) => Map reg0 reg -> [BB name (LTLInstr mdata reg0 wrdT)] -> Hopefully [BB name (LTLInstr mdata reg wrdT)]
+applyColoring :: forall reg0 reg name wrdT . (Ord reg0, Show reg0) => Map reg0 reg -> [BB name (LTLInstr Metadata reg0 wrdT)] -> Hopefully [BB name (LTLInstr Metadata reg wrdT)]
 applyColoring coloring = mapM applyBasicBlock
   where
-    applyBasicBlock :: BB name (LTLInstr mdata reg0 wrdT) -> Hopefully (BB name (LTLInstr mdata reg wrdT))
+    applyBasicBlock :: BB name (LTLInstr Metadata reg0 wrdT) -> Hopefully (BB name (LTLInstr Metadata reg wrdT))
     applyBasicBlock (BB name insts insts' dag) = BB name <$> mapM applyIRInstruction insts <*> mapM applyIRInstruction insts' <*> pure dag
 
-    applyIRInstruction :: LTLInstr mdata reg0 wrdT -> Hopefully (LTLInstr mdata reg wrdT)
+    applyIRInstruction :: LTLInstr Metadata reg0 wrdT -> Hopefully (LTLInstr Metadata reg wrdT)
     applyIRInstruction (MRI inst mdata) = MRI <$> applyMRIInstruction inst <*> pure mdata
     applyIRInstruction (IRI inst mdata) = IRI <$> applyLTLInstruction inst <*> pure mdata
 
@@ -287,6 +290,7 @@ applyColoring coloring = mapM applyBasicBlock
     applyLTLInstruction (LRet mo) = LRet <$> maybe (pure Nothing) (\o -> Just <$> applyOperand o) mo
     applyLTLInstruction (LAlloc mr t op) = LAlloc <$> mr' <*> pure t <*> applyOperand op
       where mr' = maybe (pure Nothing) (\r -> Just <$> applyReg r) mr
+    applyLTLInstruction (LGetBP r) = LGetBP <$> applyReg r
 
     applyMRIInstruction :: MAInstruction reg0 wrdT -> Hopefully (MAInstruction reg wrdT)
     applyMRIInstruction instr = MRAM.mapInstrM applyReg applyReg applyOperand instr
@@ -313,11 +317,11 @@ applyColoring coloring = mapM applyBasicBlock
     applyMRIInstruction (MRAM.Ijmp op) = MRAM.Ijmp <$> applyOperand op
     applyMRIInstruction (MRAM.Icjmp op) = MRAM.Icjmp <$> applyOperand op
     applyMRIInstruction (MRAM.Icnjmp op) = MRAM.Icnjmp <$> applyOperand op
-    applyMRIInstruction (MRAM.Istore op r1) = MRAM.Istore <$> applyOperand op <*> applyReg r1
-    applyMRIInstruction (MRAM.Iload r1 op) = MRAM.Iload <$> applyReg r1 <*> applyOperand op
+    applyMRIInstruction (MRAM.Istore w op r1) = MRAM.Istore w <$> applyOperand op <*> applyReg r1
+    applyMRIInstruction (MRAM.Iload w r1 op) = MRAM.Iload w <$> applyReg r1 <*> applyOperand op
     applyMRIInstruction (MRAM.Iread r1 op) = MRAM.Iread <$> applyReg r1 <*> applyOperand op
     applyMRIInstruction (MRAM.Ianswer op) = MRAM.Ianswer <$> applyOperand op
-    applyMRIInstruction (MRAM.Ipoison op r1) = MRAM.Ipoison <$> applyOperand op <*> applyReg r1
+    applyMRIInstruction (MRAM.Ipoison w op r1) = MRAM.Ipoison w <$> applyOperand op <*> applyReg r1
     applyMRIInstruction (MRAM.Iadvise r1) = MRAM.Iadvise <$> applyReg r1
     applyMRIInstruction (MRAM.Itaint r2 op) = MRAM.Itaint <$> applyReg r2 <*> applyOperand op
     applyMRIInstruction (MRAM.Isink r2 op) = MRAM.Isink <$> applyReg r2 <*> applyOperand op

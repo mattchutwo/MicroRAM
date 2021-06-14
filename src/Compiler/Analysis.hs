@@ -14,16 +14,31 @@ Metadata is produced by the compiler and passed down to the witness generator.
 module Compiler.Analysis where
 
 import qualified Data.Map as Map
-import Compiler.Sparsity
+import Data.Default
+import Sparsity.Sparsity
 
 data AnalysisPiece =
   SparsityData Sparsity
+  | FunctionUsage (Map.Map String Int)
   deriving (Eq, Ord, Read, Show)
 
-type AnalysisData = [AnalysisPiece]
+data AnalysisData =
+  AnalysisData {
+  -- | sparsity of different instruction kinds
+  sparsityData :: Sparsity
+  -- | Estimate the number of times each function is called 
+  , functionUsage :: Map.Map String Int
+  } deriving (Eq, Ord, Read, Show)
 
--- Onl;y the first entry of sparsity will be considered. 
-getSparsity :: AnalysisData -> Sparsity 
-getSparsity [] = Map.empty
-getSparsity (SparsityData sparc: _) = sparc
---getSparsity (_: datas) = getSparsity datas
+instance Default AnalysisData where
+  def = AnalysisData {
+    sparsityData = mempty
+    , functionUsage = mempty
+    }
+
+    
+addAnalysisPiece :: AnalysisPiece -> AnalysisData -> AnalysisData
+addAnalysisPiece piece adata =
+ case piece of
+   SparsityData spar -> adata {sparsityData = spar}
+   FunctionUsage fusage -> adata {functionUsage =fusage}

@@ -15,8 +15,6 @@ import           Compiler.Errors
 import           Compiler.IRs
 import           Compiler.RegisterAlloc.Internal
 
--- import Debug.Trace
-
 -- If the target instruction is Nothing, it's a return edge.
 type LivenessResult instname reg = Map (instname, instname) (Set reg) -- Could make this a Graph
 

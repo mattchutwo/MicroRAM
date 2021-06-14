@@ -6,6 +6,10 @@ Module      : LocalizeLabels
 Description : Rename "local" block labels to avoid conflicts between functions
 Maintainer  : santiago@galois.com
 Stability   : Prototype
+
+Basically adds the name of the function to each block so two functions can't have
+overlapping names.
+
 -}
 
 module Compiler.LocalizeLabels
@@ -17,8 +21,9 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.String (fromString)
 
-import Compiler.IRs
+import Compiler.Common (Name(..))
 import Compiler.Errors
+import Compiler.IRs
 
 localizeLabels :: Rprog mdata wrdT -> Hopefully (Rprog mdata wrdT)
 localizeLabels (IRprog te ge funcs) = return $ IRprog te ge (map (localizeFunc funcNames) funcs)

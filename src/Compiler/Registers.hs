@@ -22,7 +22,7 @@ module Compiler.Registers
     ) where
 
 import qualified Data.Map as Map
-
+-- import Data.Word
 
 -- | Class about data structers that can be registers.
 class Ord a => Regs a where
@@ -51,7 +51,7 @@ updateBank = Map.insert
 -- | Flattens a register bank to a list. Takes a bound
 -- in case the register type or the bank is infinite.
 regToList :: Regs mreg => Word -> RegBank mreg b -> [Maybe b]
-regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound] 
+regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound - 1]
 
 
 
@@ -66,7 +66,7 @@ instance Regs Int where
   -- argv = 4
   fromWord = fromIntegral . toInteger
   toWord = fromIntegral
-  
+
 -- | Machine registers based on X86
 
 data MReg =

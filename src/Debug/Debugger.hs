@@ -35,21 +35,34 @@ import qualified LLVM.AST as LLVM
 
 -- Local 
 import Compiler
---import Compiler.CallingConvention
+import Compiler.Analysis
+import Compiler.BlockCleanup
+import Compiler.CallingConvention
 import Compiler.CompilationUnit
---import Compiler.InstructionSelection
---import Compiler.IRs
---import Compiler.Legalize
---import Compiler.RegisterAlloc
+import Compiler.Globals
+import Compiler.InstructionSelection
+import Compiler.Intrinsics
+import Compiler.Legalize
+import Compiler.LocalizeLabels
+import Compiler.Metadata
+import Compiler.IRs
+import Compiler.RegisterAlloc
 import Compiler.Registers
---import Compiler.RemoveLabels
---import Compiler.Stacking
+import Compiler.RemoveLabels
+import Compiler.RemovePhi
+import Compiler.Stacking
+import Compiler.UndefinedFunctions
 
+import Data.Default
 import qualified Data.Set as Set
+
+import Debug.PrettyPrint
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
 import LLVMutil.LLVMIO
+import Sparsity.Sparsity
+
 
 
 -- * Summary: Pretty prints summary of an execution.
@@ -122,7 +135,6 @@ instance CellValueFormatter ResRegs
 
 data SummaryState = SState {
   pc_ :: MWord
-  , flag_ :: MWord
   , bug_ :: MWord
   , answer_ :: MWord
   , regs_ :: ResRegs
@@ -164,7 +176,6 @@ toSummary theseRegs theseMems st  =
   , registers_ = toSummaryRegsCustom (regs st) theseRegs
   , mem_ = map PW $ toSummaryMem theseMems (mem st) 
   , psn_ = map PW $ Set.toList (psn st) 
-  , flag_ = bool2word $ flag st
   , bug_ = bool2word $ bug_flag st
   , answer_ = answer st
   , advc_ = renderAdvc $ advice st
@@ -177,14 +188,13 @@ summary theseRegs theseMems t =  map customSummary t
 
 renderSummary
   :: Regs mreg => CustomSummary mreg -> Trace mreg -> Int -> Box
-renderSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer sBug sPoison sAdvice) t n =
+renderSummary (CS sPC sRegs custRegs sMem theseMem _sFlag sAnswer sBug sPoison sAdvice) t n =
   renderTableWithFlds flds $ take n $ summary custRegs theseMem t
   -- fldDepends checks the customSummary record, and returns the fields that should be shown
   where flds = fldDepends sPC pc_ ++
                (fldDepends (sRegs && sCustRegs) registers_) ++
                (fldDepends (sRegs && not sCustRegs) regs_) ++  -- Shows default regs or custom ones. if sCustRegs then registers_ else regs_)
                (fldDepends sMem mem_) ++ 
-               (fldDepends sFlag flag_)  ++ 
                (fldDepends sAnswer answer_) ++
                (fldDepends sBug bug_) ++ 
                (fldDepends sPoison psn_) ++ 
@@ -202,8 +212,7 @@ printSummary (CS sPC sRegs custRegs sMem theseMem sFlag sAnswer sBug sPoison sAd
   printTableWithFlds flds $ take n $ theSummary
   where theSummary = summary custRegs theseMem t
   -- fldDepends checks the customSummary record, and returns the fields that should be shown
-        flds = fldDepends sPC [DFld pc_]
-               ++ (fldDepends sFlag [DFld flag_]) 
+        flds = fldDepends sPC [DFld pc_] 
                ++ (fldDepends sBug [DFld bug_]) 
                ++ (fldDepends sAnswer [DFld answer_])
                ++ (fldDepends sPoison [DFld psn_])
@@ -278,55 +287,10 @@ summaryFromFile file cs length = do
 
 pprint :: CompilationResult (Program Int MWord) -> String
 pprint compUnit =
-  let prog = lowProg $ programCU compUnit in
+  let prog = pmProg $ lowProg $ programCU compUnit in
     concat $ map (\(n,inst) -> show (n::Integer) ++ ". " ++ pprintInst inst ++ "\n") $ enumerate prog
 
-pprintInst :: Instruction' AReg AReg (Operand AReg MWord) -> String
-pprintInst (Iand r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" && "<> (pprintOp op)
-pprintInst (Ior r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" || "<> (pprintOp op)
-pprintInst (Ixor r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" ^ "<> (pprintOp op)
-pprintInst (Inot r1 op) = (pprintReg r1) <>" = ! "<> (pprintOp op)
-pprintInst (Iadd r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" + "<> (pprintOp op)
-pprintInst (Isub r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" - "<> (pprintOp op)
-pprintInst (Imull r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" * "<> (pprintOp op)
-pprintInst (Iumulh r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" * "<> (pprintOp op)
-pprintInst (Ismulh r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" * "<> (pprintOp op)
-pprintInst (Iudiv r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" / "<> (pprintOp op)
-pprintInst (Iumod r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <>" % "<> (pprintOp op)
--- pprintInst (Ishl r1 r2 op) = (pprintReg r1) (pprintReg r2) (pprintOp op)
--- pprintInst (Ishr r1 r2 op) = (pprintReg r1) (pprintReg r2) (pprintOp op)
--- pprintInst (Icmpe r1 op) = (pprintReg r1) (pprintOp op)
--- pprintInst (Icmpa r1 op) = (pprintReg r1) (pprintOp op)
--- pprintInst (Icmpae r1 op) = (pprintReg r1) (pprintOp op)
--- pprintInst (Icmpg r1 op) = (pprintReg r1) (pprintOp op)
--- pprintInst (Icmpge r1 op) = (pprintReg r1) (pprintOp op)
-pprintInst (Imov r1 op) = (pprintReg r1) <>" = "<> (pprintOp op)
-pprintInst (Icmov r1 r2 op) = (pprintReg r1) <>" = "<> (pprintReg r2) <> "  ? "<> (pprintOp op) <>" : "<> (pprintReg r1) 
-pprintInst (Ijmp op) = "jmp "<> (pprintOp op)
-pprintInst (Icjmp r2 op) = "if " <> (pprintReg r2) <> "jmp "<> (pprintOp op)
-pprintInst (Icnjmp r2 op) = "if not" <> (pprintReg r2) <> "jmp "<> (pprintOp op)
-pprintInst (Istore op r1) = "*("<> (pprintOp op) <>") = "<> (pprintReg r1)
-pprintInst (Iload r1 op) = (pprintReg r1) <>" = *("<> (pprintOp op) <> ")"
--- pprintInst (Iread r1 op) = (pprintReg r1) (pprintOp op)
-pprintInst (Ianswer op) = "ans "<> (pprintOp op)
-pprintInst i = show i -- TODO
-
-pprintReg :: AReg -> String
-pprintReg r | r == ax = "%ax"
-pprintReg r | r == bp = "%bp"
-pprintReg r | r == sp = "%sp"
-pprintReg r = "%" <> show r
---pprintReg r = show r
-
-pprintOp  :: (Bounded a, Show a, Integral a) => Operand AReg a -> String
-pprintOp (Reg r) = pprintReg r
-pprintOp (Const c) = pprintConst c
-
 -- | Large numbers are shown in hex 
-pprintConst :: (Bounded a, Show a, Integral a) => a -> String
-pprintConst c | c > (maxBound - 100) = "-" ++ show (maxBound - c +1)
-pprintConst c | c < 100 = show c
-pprintConst c = showHex c
 
 pprintFromFile :: FilePath -> IO ()
 pprintFromFile file = do
@@ -341,7 +305,7 @@ firstRegs bound = map fromWord $ map (2*) [0..bound]
 
 myCS :: CustomSummary AReg
 myCS = defaultCSName
-  {theseRegs = Just [] -- Just $ [0..8]
+  {theseRegs = Just [0..8]
   ,showMem = False
   ,showFlag = False
   ,theseMem = [0..15]
@@ -373,26 +337,70 @@ summaryFromFile myfile myCS 300
 *******************************
 -}
 
--- jpProgComp :: Word -> IO (Program VReg MWord)
-jpProgComp :: Word -> IO (CompilationResult (Program AReg MWord))
+jpProgComp
+  :: Word -> IO (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
 jpProgComp len = do
-    m <- fromLLVMFile "programs/driver-link.ll"
-    return $ either undefined id $
-      compile len m Nothing
+  m <- fromLLVMFile "test/programs/varArgs.ll"
+  -- return m
+  return $ either (error . show) id $
+        (justCompile instrSelect) (prog2unit len m)
+    >>= (justCompile renameLLVMIntrinsicImpls)
+    >>= (justCompile lowerIntrinsics)
+    >>= (justCompile (catchUndefinedFunctions allowUndefFun))
+    >>= (justCompile legalize)
+    >>= (justCompile localizeLabels)
+    >>= (justCompile edgeSplit)
 
-{- SC: Broken after resgiter allocation was moved to
-   work on compilation units, not just programs.
-jpProg :: IO (Program VReg MWord)
-jpProg = do
-    m <- fromLLVMFile "test/programs/fibSlow.ll"
-    return $ either undefined id $
-      instrSelect m
-      >>= legalize
-      >>= registerAlloc def
-      >>= callingConvention
-      >>= stacking
-      >>= removeLabelsProg 
--}
+    >>= (justCompile edgeSplit)
+    >>= (justCompile removePhi)
+    >>= (registerAlloc def)
+    >>= (justCompile callingConvention)
+    >>= (replaceGlobals)
+    >>= (justCompile stacking)
+    >>= (justAnalyse (return . SparsityData . (forceSparsity spars))) 
+    >>= (blockCleanup)
+    >>= (removeLabels)
+    
+    -- compile False len m Nothing
+  where
+    allowUndefFun = False
+    spars = Nothing
+
+    -- return $ either undefined id $
+    --   compile False len m Nothing
+--
+-- import Compiler.CompilationUnit
+-- import Data.Text.Prettyprint.Doc
+-- import Debug.PrettyPrint
+-- import MicroRAM.MRAMInterpreter
+--
+-- p <- jpProgComp 2000
+-- putStr $ microPrint $ programCU p
+--
+-- putStr $ microPrint $ lowProg $ programCU p
+--
+-- do {p <- jpProgComp 200; print $ pretty $ map fst $ programCU p}
+--
+-- let len = 250
+-- p <- jpProgComp len
+-- let convert = map fst
+-- let p' = (\(MultiProg h l) -> MultiProg (convert h) (convert l)) <$> p
+-- let t = run p'
+-- printSummary defaultSummary t len
+
+printProg :: CompilationUnit () (AnnotatedProgram Metadata AReg MWord) -> IO ()
+printProg = putStr . microPrint . pmProg . programCU
+
+jpProgComp'
+  :: Word -> IO (CompilationResult (AnnotatedProgram Metadata AReg MWord))
+jpProgComp' len = do
+  m <- fromLLVMFile "test/programs/varArgs.ll"
+  return $ either (error . show) id $
+    compile False len m Nothing
+
+-- printProg (fmap lowProg p)
+-- let t = run $ fmap (fmap $ fmap $ fmap fst) p
+-- printSummary defaultSummary t len
 
 cs :: CustomSummary mreg
 cs = defaultSummary {theseMem = [0..27]}

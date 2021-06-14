@@ -7,6 +7,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 {-|
 Module      : MicroRAM
@@ -17,7 +18,7 @@ Stability   : experimental
 This module describe two (closely related) languages designed for zero knowledge
 execution of programs: MicroRAM and MicroASM. These languages are part of the
 cheescloth compiler.
-
+ 
 = MicroRAM
 A simple machine language designed for zero knowledge
 execution of programs. The instructions (inspired by the TinyRAM language
@@ -72,15 +73,15 @@ execution of programs. The instructions (inspired by the TinyRAM language
 +--------+---------+----------------------------------------------+
 | cnjmp  | ri A    | if ri = 0, set pc to [A] (else pc++)         |
 +--------+---------+----------------------------------------------+
-| store  | A ri    | store [ri] at memory address [A]u            |
+| storeN | A ri    | store N bytes of [ri] at memory address [A]u |
 +--------+---------+----------------------------------------------+
-| load   | ri A    | store content of mem address [A]u in ri      |
+| loadN  | ri A    | store N bytes of mem address [A]u in ri      |
 +--------+---------+----------------------------------------------+
 | answer | A       | stall or halt (ret. value is [A]u)           |
 +-----------------------------------------------------------------+
 | New instructions not present in TinyRAM:                        |
 +-----------------------------------------------------------------+
-| poison | ri A    | store [ri] at address [A]u and poison it     |
+| poisonN | ri A   | store N bytes of [ri] at address [A]u and poison them |
 +-----------------------------------------------------------------+
 | advice | ri      | Receive advice to ri                         |
 +------------------------------------------------------------------
@@ -106,6 +107,18 @@ module MicroRAM
   Program,
   Operand(..),
 
+  MemWidth(..),
+  pattern WWord,
+  widthInt,
+
+  ExtInstr(..),
+  ExtValInstr(..),
+  ExtAdviseInstr(..),
+
+  pattern IstoreW,
+  pattern IloadW,
+  pattern IpoisonW,
+
   -- * MicroASM
   {-MAInstruction,
   MAProgram,
@@ -116,12 +129,19 @@ module MicroRAM
 
   -- * Words
   MWord,
+  logWordBytes,
+  wordBytes,
+  wordBits,
 
   -- * Mappiung and Folding
-  mapInstr, mapInstrM,
+  mapInstr, mapProg, mapInstrM,
   foldInstr,
   ) where
+
 import Control.Monad.Identity
+import Data.Bifunctor
+import Data.Bits
+import Data.Foldable
 import Data.Text (Text)
 import Data.Word (Word64)
 import GHC.Generics -- Helps testing
@@ -144,10 +164,55 @@ data Phase = Pre | Post
 
 
 
+data MemWidth = W1 | W2 | W4 | W8
+    deriving (Eq, Ord, Read, Show)
+
+widthInt :: MemWidth -> Int
+widthInt w = case w of
+    W1 -> 1
+    W2 -> 2
+    W4 -> 4
+    W8 -> 8
+
 data Operand regT wrdT where
   Reg :: regT -> Operand regT wrdT
   Const :: wrdT -> Operand regT wrdT
   deriving (Eq,Ord,Read,Show)
+
+instance Bifunctor Operand where
+  bimap regF _ (Reg r) = Reg $ regF r
+  bimap _ conF (Const c) = Const $ conF c
+
+data ExtInstr operand2 =
+    XTrace Text [operand2]
+  -- ^ Print the `Text` and all operand values.
+  | XTraceStr operand2
+  -- ^ Read a string from the pointer operand and print it.
+  | XTraceExec operand2 [operand2]
+  -- ^ Read a string from the first pointer operand, and print it along with
+  -- the values of the remaining operands.
+  | XFree operand2
+  -- ^ Free the memory at the pointer operand.
+  | XAccessValid operand2 operand2
+  -- ^ Mark memory between the two operands as valid to access.
+  | XAccessInvalid operand2 operand2
+  -- ^ Mark memory between the two operands as invalid to access.
+  | XStoreUnchecked operand2 operand2
+  -- ^ Store the second operand at the address given by the first operand,
+  -- bypassing memory safety checks.
+  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
+
+data ExtValInstr operand2 =
+    XLoadUnchecked operand2
+  -- ^ Load a word from the pointer operand, bypassing memory safety checks.
+  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
+
+data ExtAdviseInstr operand2 =
+    XMalloc operand2
+  -- ^ Allocate N bytes, returning the address of the new allocation.
+  | XAdvisePoison operand2 operand2
+  -- ^ Choose an address to poison between the two operands.
+  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
 -- | TinyRAM Instructions
 data Instruction' regT operand1 operand2 =
@@ -181,8 +246,8 @@ data Instruction' regT operand1 operand2 =
   | Icjmp operand1 operand2            -- ^  if rj<>0, set pc to [A] (else increment pc as usual)
   | Icnjmp operand1 operand2           -- ^  if rj = 0, set pc to [A] (else increment pc as usual)
   -- Memory operations           
-  | Istore operand2 operand1      -- ^  store [ri] at memory address [A]u
-  | Iload regT operand2       -- ^  store the content of memory address [A]u into ri 
+  | Istore MemWidth operand2 operand1 -- ^  store [ri] at memory address [A]u
+  | Iload MemWidth regT operand2 -- ^  store the content of memory address [A]u into ri 
   | Iread regT operand2       -- ^  if the [A]u-th tape has remaining words then consume the next word,
                               --  store it in ri, and set flag = 0; otherwise store 0W in ri and set flag = 1.
                               --  __To be removed__
@@ -190,15 +255,22 @@ data Instruction' regT operand1 operand2 =
   -- Advice
   | Iadvise regT              -- ^ load nondeterministic advice into ri
   -- Poison
-  | Ipoison operand2 operand1
+  | Ipoison MemWidth operand2 operand1
   -- Dynamic taint tracking operations
   | Isink operand1 operand2
   | Itaint regT operand2
   -- Extensions
-  | Iext Text [operand2]      -- ^ Custom instruction with no return value
-  | Iextval Text regT [operand2] -- ^ Custom instruction, returning a value
-  | Iextadvise Text regT [operand2] -- ^ Like `Iextval`, but gets serialized as `Iadvise`
+  | Iext (ExtInstr operand2)                -- ^ Custom instruction with no return value
+  | Iextval regT (ExtValInstr operand2)     -- ^ Custom instruction, returning a value
+  | Iextadvise regT (ExtAdviseInstr operand2)   -- ^ Like `Iextval`, but gets serialized as `Iadvise`
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
+
+pattern IstoreW :: operand2 -> operand1 -> Instruction' regT operand1 operand2
+pattern IstoreW a b = Istore WWord a b
+pattern IloadW :: regT -> operand2 -> Instruction' regT operand1 operand2
+pattern IloadW a b = Iload WWord a b
+pattern IpoisonW :: operand2 -> operand1 -> Instruction' regT operand1 operand2
+pattern IpoisonW a b = Ipoison WWord a b
 
   
 -- ** MicroRAM
@@ -270,6 +342,15 @@ instance Generic (Operand regT wrdT) where
 -- `MWord` should not be used here.
 type MWord = Word64
 
+pattern WWord :: MemWidth
+pattern WWord = W8
+
+logWordBytes :: Int
+logWordBytes = 3
+wordBytes :: Int
+wordBytes = 1 `shiftL` logWordBytes
+wordBits :: Int
+wordBits = wordBytes * 8
 
 
 -- Mapping and traversing instructions
@@ -282,6 +363,15 @@ mapInstr ::
 mapInstr regF opF1 opF2 instr =
   runIdentity $ mapInstrM (lift regF) (lift opF1) (lift opF2) instr
   where lift f x = return $ f x
+
+mapProg ::  
+  (r1 -> r2)
+  -> (w1 -> w2)
+  -> Program r1 w1
+  -> Program r2 w2
+mapProg regF wF prog =
+  (mapInstr regF regF opF) <$> prog
+  where opF = bimap regF wF
 
 mapInstrM :: Monad m =>  
   (regT -> m regT')
@@ -321,8 +411,8 @@ mapInstrM regF opF1 opF2 instr =
   Icjmp op1 op2          -> Icjmp <$>  (opF1 op1) <*> (opF2 op2)          
   Icnjmp op1 op2         -> Icnjmp <$> (opF1 op1) <*> (opF2 op2)         
   -- Memory operations             -> -- Memory operations            
-  Istore op2 op1         -> Istore <$>  (opF2 op2) <*> (opF1 op1)         
-  Iload r1 op2           -> Iload <$>  (regF r1) <*> (opF2 op2)              
+  Istore w op2 op1       -> Istore w <$>  (opF2 op2) <*> (opF1 op1)         
+  Iload w r1 op2         -> Iload w <$>  (regF r1) <*> (opF2 op2)              
   Iread r1 op2           -> Iread <$>  (regF r1) <*> (opF2 op2)              
   Ianswer op2            -> Ianswer <$>  (opF2 op2)                 
   -- Taint operations
@@ -331,11 +421,11 @@ mapInstrM regF opF1 opF2 instr =
   -- Advice                                    
   Iadvise r1             -> Iadvise <$>  (regF r1)                     
   -- Poison                                    
-  Ipoison op2 op1        -> Ipoison <$>  (opF2 op2) <*> (opF1 op1)      
+  Ipoison w op2 op1      -> Ipoison w <$>  (opF2 op2) <*> (opF1 op1)      
   -- Extensions                            
-  Iext txt ops2          -> Iext txt <$> (mapM opF2 ops2)             
-  Iextval txt r1 ops2    -> Iextval txt <$> (regF r1) <*> (mapM opF2 ops2)     
-  Iextadvise txt r1 ops2 -> Iextadvise txt <$> (regF r1) <*> (mapM opF2 ops2)
+  Iext ext               -> Iext <$> (mapM opF2 ext)
+  Iextval dest ext       -> Iextval <$> (regF dest) <*> (mapM opF2 ext)
+  Iextadvise dest ext    -> Iextadvise <$> (regF dest) <*> (mapM opF2 ext)
 
 
 foldInstr :: Monoid a =>
@@ -372,14 +462,14 @@ aggregateOps instr =
     Ijmp op2               ->              op2
     Icjmp op1 op2          ->       op1 <> op2
     Icnjmp op1 op2         ->       op1 <> op2
-    Istore op2 op1         ->       op1 <> op2
-    Iload r1 op2           -> r1        <> op2
+    Istore _ op2 op1       ->       op1 <> op2
+    Iload _ r1 op2         -> r1        <> op2
     Iread r1 op2           -> r1        <> op2
     Ianswer op2            ->              op2
     Isink r2 l             -> r2 <> l
     Itaint r2 l            -> r2 <> l
     Iadvise r1             -> r1
-    Ipoison op2 op1        ->       op1 <> op2
-    Iext _txt ops2          -> mconcat ops2
-    Iextval _txt r1 ops2    -> mconcat $ r1 : ops2
-    Iextadvise _txt r1 ops2 -> mconcat $ r1 : ops2
+    Ipoison _ op2 op1      ->       op1 <> op2
+    Iext ext               -> fold ext
+    Iextval dest ext       -> dest <> fold ext
+    Iextadvise dest ext    -> dest <> fold ext

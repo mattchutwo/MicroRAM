@@ -25,6 +25,7 @@ module Compiler.IRs(
   -- $MA
   MAOperand(..),
   MAProgram,
+  AnnotatedProgram,
   MA2Instruction,
   MAInstruction,
   NamedBlock(..),
@@ -34,8 +35,7 @@ module Compiler.IRs(
   IRprog(..), Function(..), IRFunction, BB(..),
   IRInstruction(..),
   
-  GlobalVariable(..), GEnv,
-  Name(..), VReg, DAGinfo,
+  VReg, DAGinfo,
   -- Utilities
   traverseOpBB, traverseOpIRInstr,  
 
@@ -67,9 +67,8 @@ import qualified MicroRAM as MRAM
 import Compiler.LazyConstants
 
 import Compiler.Errors
-import Compiler.Common
+import Compiler.Common (Name, Ty, TypeEnv, GEnv)
 import Util.Util
-
 
 -- ** Operands
 
@@ -100,10 +99,10 @@ type MA2Instruction regT wrdT = MRAM.Instruction' regT (MAOperand regT wrdT) (MA
 -- | One oprand MicroAssembly
 type MAInstruction regT wrdT = MRAM.Instruction' regT regT (MAOperand regT wrdT)
 
-data NamedBlock r w = NBlock (Maybe String) [MAInstruction r w]
+data NamedBlock md r w = NBlock (Maybe String) [(MAInstruction r w, md)]
   deriving (Show)
-type MAProgram r w = [NamedBlock r w] -- These are MicroASM programs
-
+type MAProgram md r w = [NamedBlock md r w] -- These are MicroASM programs
+type AnnotatedProgram md r w = [(MRAM.Instruction r w, md)]
 
 
 -- ** Generic low-level IR (Transfer languages)
@@ -144,13 +143,13 @@ type DAGinfo name = [name]
 data BB name instrT = BB name [instrT] [instrT] (DAGinfo name)
   deriving (Show,Functor, Foldable, Traversable)
 
--- | Traverse the Basic Blocks changing operands  
+-- | Traverse the Basic Blocks changing operands 
 traverseOpBB :: (Applicative f) =>
   (MAOperand regT wrdT -> f (MAOperand regT wrdT))
   -> BB name $ LTLInstr mdata regT wrdT
   -> f (BB name $ LTLInstr mdata regT wrdT)
-traverseOpBB fop = traverse (traverseOpLTLInstr fop)  
-
+traverseOpBB fop = traverse (traverseOpLTLInstr fop) 
+  
 type IRFunction mdata regT wrdT irinstr =
   Function Name Ty (BB Name $ IRInstruction mdata regT wrdT irinstr)
 
@@ -209,6 +208,7 @@ data RTLInstr' operand =
     MRAM.MWord    -- ^ size of the allocated thing
     operand -- ^ number of things allocated
   | RPhi VReg [(operand,Name)] -- ^ Static Single Assignment function `phi`
+  | RGetBP VReg    -- Assign the base stack pointer to the register.
   deriving (Show, Functor, Foldable, Traversable)
     
     
@@ -271,6 +271,7 @@ data LTLInstr' mreg wrdT operand =
     (Maybe mreg) -- ^ return register (gives location)
     MRAM.MWord    -- ^ size of the allocated thing
     operand -- ^ number of things allocated
+  | LGetBP mreg    -- Assign the base stack pointer to the register.
   deriving (Show, Functor, Foldable, Traversable)
   
 type LTLInstr mdata mreg wrdT =
@@ -288,7 +289,6 @@ traverseOpLTLInstr = traverseOpIRInstr
 
 data LFunction mdata mreg wrdT = LFunction {
     funName :: String -- should this be a special label?
-  , funMetadata :: mdata
   , retType :: Ty
   , paramTypes :: [Ty]
   , stackSize :: MRAM.MWord
@@ -316,7 +316,7 @@ traverseOpLprog fop = traverse (traverseOpLFun fop)
 
 
 -- Converts a RTL program to a LTL program.
-rtlToLtl :: forall mdata wrdT . Monoid mdata => Rprog mdata wrdT -> Hopefully $ Lprog mdata VReg wrdT
+rtlToLtl :: forall mdata wrdT . Rprog mdata wrdT -> Hopefully $ Lprog mdata VReg wrdT
 rtlToLtl (IRprog tenv globals code) = do
   code' <- mapM convertFunc code
   return $ IRprog tenv globals code'
@@ -324,11 +324,10 @@ rtlToLtl (IRprog tenv globals code) = do
    convertFunc :: RFunction mdata wrdT -> Hopefully $ LFunction mdata VReg wrdT
    convertFunc (Function name retType paramTypes body _nextReg) = do
      -- JP: Where should we get the metadata and stack size from?
-     let mdata = mempty
      let stackSize = 0 -- Since nothing is spilled 0
      let name' = show name
      body' <- mapM convertBasicBlock body
-     return $ LFunction name' mdata retType paramTypes stackSize body' 
+     return $ LFunction name' retType paramTypes stackSize body' 
 
    convertBasicBlock :: BB name (RTLInstr mdata wrdT) -> Hopefully $ BB name (LTLInstr mdata VReg wrdT)
    convertBasicBlock (BB name instrs term dag) = do
@@ -348,5 +347,6 @@ rtlToLtl (IRprog tenv globals code) = do
    convertInstruction (RCall t mr f ts as) = return $ LCall t mr f ts as
    convertInstruction (RRet mo) = return $ LRet mo
    convertInstruction (RAlloc mr s o) = return $ LAlloc mr s o
+   convertInstruction (RGetBP r) = return $ LGetBP r
    convertInstruction (RPhi _ _) = implError "Phi. Not implemented in the trivial Register allocation."
    
