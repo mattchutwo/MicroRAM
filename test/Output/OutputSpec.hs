@@ -152,8 +152,15 @@ testAdvice = testProperty "Serialising advice" $
 
 -- * Testing Output
 instance Arbitrary InitMemSegment where
-  arbitrary = InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*>
-              arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+  arbitrary = do
+    content <- arbitrary
+    labels <- case content of
+      Nothing ->
+        return Nothing
+      Just c ->
+        Just <$> (vector $ length c)
+    InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*>
+              arbitrary <*> arbitrary <*> pure content <*> pure labels
 
 instance Arbitrary reg => Arbitrary (Segment reg MWord) where
   arbitrary = Segment  <$> arbitrary <*> arbitrary <*> arbitrary  <*> arbitrary <*> arbitrary <*> arbitrary

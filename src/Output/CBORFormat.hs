@@ -348,9 +348,9 @@ decodeInitMemSegment = do
     case len of
       5 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
            tagDecode <*> tagDecode <*> pure Nothing <*> pure Nothing
-      6 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
+      7 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
            tagDecode <*> tagDecode <*> fmap Just tagDecode <*> fmap Just tagDecode
-      _ -> fail $ "invalid state encoding. Length should be 5 or 6 but found " ++ show len
+      _ -> fail $ "invalid state encoding. Length should be 5 or 7 but found " ++ show len
 
 instance Serialise InitMemSegment where
   decode = decodeInitMemSegment
