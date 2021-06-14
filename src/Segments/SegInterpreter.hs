@@ -15,6 +15,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Compiler.Errors 
 import Compiler.CompilationUnit
+import Compiler.Tainted (untainted)
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
@@ -143,7 +144,8 @@ testOutput = SecretOutput prog segs parms mem tr adv
         mem :: Compiler.CompilationUnit.InitialMem
         mem  = []
         tr :: [TraceChunkOut Int]
-        tr  = TraceChunkOut 0 [StateOut 1 [42,0,0,0], StateOut 2 [84,0,0,0]] :
-          TraceChunkOut 1 [StateOut 3 [42,0,0,0], StateOut 4 [0,0,0,0]] : []
+        tr  = TraceChunkOut 0 [StateOut 1 [42,0,0,0] untainteds, StateOut 2 [84,0,0,0] untainteds] :
+          TraceChunkOut 1 [StateOut 3 [42,0,0,0] untainteds, StateOut 4 [0,0,0,0] untainteds] : []
         adv :: Map.Map MWord [Advice]
         adv  = Map.empty
+        untainteds = replicate 4 untainted

@@ -22,7 +22,7 @@ module Compiler.Intrinsics
 
 
 import           Control.Monad
-import           Control.Monad.State.Strict (evalStateT, StateT, put, get, mapStateT, runStateT, modify')
+import           Control.Monad.State.Strict (StateT, get, runStateT, modify')
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
@@ -55,8 +55,8 @@ expandInstrs f = goProg
 
         goFunc :: MIRFunction m w -> f (MIRFunction m w)
         goFunc (Function nm rty atys bbs nr) = do
-          (bbs', nr') <- runStateT (traverse goBB bbs) (IState nr)
-          return $ Function nm rty atys bbs' nr'
+          (bbs', nr') <- runStateT (traverse (goBB $ CCM atys) bbs) (IState nr)
+          return $ Function nm rty atys bbs' $ iNextRegister nr'
 
         goBB :: CallingContextMetadata -> BB n (MIRInstr m w) -> StateT IState f (BB n (MIRInstr m w))
         goBB ccm (BB nm body term dag) = BB nm <$> goInstrs ccm body <*> goInstrs ccm term <*> pure dag
@@ -143,26 +143,26 @@ cc_flag_bug [] Nothing md _ =
   where zero = LImm $ SConst 0
 cc_flag_bug _ _ _ _ = progError "bad arguments"
 
-noniSetLabel :: IntrinsicImpl () MWord
-noniSetLabel [ptr, label] Nothing = do
+noniSetLabel :: IntrinsicImpl m MWord
+noniSetLabel [ptr, label] Nothing md _ = do
   r <- getNextRegister
-  return $ map (\i -> MirM i ()) [
-      Iload r ptr
+  return $ map (\i -> MirM i md) [
+      Iload W1 r ptr
     , Itaint r label
-    , Istore ptr (AReg r)
+    , Istore W1 ptr (AReg r)
     ]
-noniSetLabel _ _ = progError "bad arguments"
+noniSetLabel _ _ _ _ = progError "bad arguments"
 
-noniSink :: IntrinsicImpl () MWord
-noniSink [ptr, label] Nothing = do
+noniSink :: IntrinsicImpl m MWord
+noniSink [ptr, label] Nothing md _ = do
   r <- getNextRegister
-  return $ map (\i -> MirM i ()) [
-      Iload r ptr
+  return $ map (\i -> MirM i md) [
+      Iload W1 r ptr
     , Isink (AReg r) label
     ]
   -- return $ [MirM (Isink ptr label) ()]
   -- error $ show ptr <> " " <> show label
-noniSink _ _ = progError "bad arguments"
+noniSink _ _ _ _ = progError "bad arguments"
 
 cc_trace :: IntrinsicImpl m w
 cc_trace [msg] Nothing md _ = return [MirM (Iext (XTraceStr msg)) md]

@@ -34,8 +34,8 @@ import qualified Data.ByteString.Lazy                  as L
 import Compiler.CompilationUnit
 import Compiler.Common (Name)
 import Compiler.Registers
-import Compiler.Tainted
-import Compiler.IRs
+-- import Compiler.Tainted
+-- import Compiler.IRs
 --import Compiler.Sparsity
 
 import MicroRAM.MRAMInterpreter
@@ -567,12 +567,12 @@ printOutputWithFormat PHex out features = ppHexOutput out features
 printOutputWithFormat Flat out  features = show $ flatOutput out features
 
 
-c :: Output Word
-c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
-                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1], labels = Just [untainted]}]}
-
-d :: Output Word
-d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
-                     CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1], labels = Just [untainted]}],
-                   trace = [], adviceOut = Map.empty}
+-- c :: Output Word
+-- c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
+--                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1], labels = Just [untainted]}]}
+-- 
+-- d :: Output Word
+-- d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
+--                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1], labels = Just [untainted]}],
+--                    trace = [], adviceOut = Map.empty}
  

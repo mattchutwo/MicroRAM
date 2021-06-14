@@ -127,7 +127,7 @@ testParams = testProperty "Serialising Parameters" $
 
 -- * Testing Traces
 instance Arbitrary (StateOut) where
-  arbitrary = StateOut <$> arbitrary <*> arbitrary
+  arbitrary = StateOut <$> arbitrary <*> arbitrary <*> arbitrary
 
 testTrace :: TestTree
 testTrace = testProperty "Serialising traces" $
@@ -141,7 +141,7 @@ instance Arbitrary MemOpType where
 
 instance Arbitrary Advice where
   arbitrary = oneof $
-    [ MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    [ MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
     , return Stutter 
     ]
 
@@ -153,7 +153,7 @@ testAdvice = testProperty "Serialising advice" $
 -- * Testing Output
 instance Arbitrary InitMemSegment where
   arbitrary = InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*>
-              arbitrary <*> arbitrary <*> arbitrary
+              arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
 
 instance Arbitrary reg => Arbitrary (Segment reg MWord) where
   arbitrary = Segment  <$> arbitrary <*> arbitrary <*> arbitrary  <*> arbitrary <*> arbitrary <*> arbitrary

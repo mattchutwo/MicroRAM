@@ -208,15 +208,15 @@ stepInstrTainted (Itaint rj op2) = do
   l <- toLabel <$> opVal op2 -- Taint register rj with label value op2.
   sMach . mRegLabel rj .= l
 
-stepInstrTainted (Iload rd op2) = do
+stepInstrTainted (Iload wd rd op2) = do -- TODO: use width
   addr <- opVal op2
   l <- use $ sMach . mMemLabel addr
   sMach . mRegLabel rd .= l
-stepInstrTainted (Istore op2 r1) = do
+stepInstrTainted (Istore wd op2 r1) = do -- TODO: use width
   addr <- opVal op2
   l <- regLabel r1
   sMach . mMemLabel addr .= l
-stepInstrTainted (Ipoison op2 r1) = do
+stepInstrTainted (Ipoison wd op2 r1) = do -- TODO: use width
   addr <- opVal op2
   l <- regLabel r1
   sMach . mMemLabel addr .= l
@@ -253,9 +253,15 @@ stepInstrTainted (Ianswer op2) = return ()
 
 stepInstrTainted (Iadvise _) = assumptError $ "unhandled advice request"
 
-stepInstrTainted (Iext name _) = assumptError $ "unhandled extension instruction " ++ show name
-stepInstrTainted (Iextval name _ _) = assumptError $ "unhandled extension instruction " ++ show name
-stepInstrTainted (Iextadvise name _ _) = assumptError $ "unhandled extension instruction " ++ show name
+stepInstrTainted i@(Iext _) = do
+      i' <- mapInstrM (return . toWord) regVal opVal i
+      assumptError $ "unhandled extension instruction: " ++ show i'
+stepInstrTainted i@(Iextval _ _) = do
+      i' <- mapInstrM (return . toWord) regVal opVal i
+      assumptError $ "unhandled extension instruction: " ++ show i'
+stepInstrTainted i@(Iextadvise _ _) = do
+      i' <- mapInstrM (return . toWord) regVal opVal i
+      assumptError $ "unhandled extension instruction: " ++ show i'
 
 stepUntaintReg :: Regs r => r -> InterpM r s Hopefully ()
 stepUntaintReg rd = sMach . mRegLabel rd .= untainted
@@ -473,7 +479,7 @@ recordAdvice adviceMap adv = do
   sExt . adviceMap . at cycle %= Just . (adv:) . maybe [] id
 
 adviceHandler :: Regs r => Lens' s AdviceMap -> InstrHandler r s
-adviceHandler advice (Istore w op2 r1) = do
+adviceHandler advice (Istore w op2 r1) = do -- TODO: Use width
   addr <- opVal op2
   (waddr, offset) <- splitAlignedAddr w addr
   storeVal <- regVal r1
@@ -481,12 +487,13 @@ adviceHandler advice (Istore w op2 r1) = do
   let memVal' = memVal & subBytes w offset .~ storeVal
   taint <- regLabel r1
   recordAdvice advice (MemOp addr memVal' MOStore w taint)
-adviceHandler advice (Iload w _rd op2) = do
+adviceHandler advice (Iload w _rd op2) = do -- TODO: Use width
   addr <- opVal op2
   (waddr, _offset) <- splitAlignedAddr w addr
   val <- use $ sMach . mMemWord waddr
+  taint <- use $ sMach . mMemLabel addr
   recordAdvice advice (MemOp addr val MOLoad w taint)
-adviceHandler advice (Ipoison w op2 r1) = do
+adviceHandler advice (Ipoison w op2 r1) = do -- TODO: Use width
   addr <- opVal op2
   val <- regVal r1
   taint <- regLabel r1
@@ -499,7 +506,7 @@ adviceHandler _ _ = return ()
 readStr :: Monad m => MWord -> InterpM r s m Text
 readStr ptr = do
   let (waddr, offset) = splitAddr ptr
-  Mem _ mem <- use $ sMach . mMem
+  Mem _ mem _ <- use $ sMach . mMem
   let firstWord = maybe 0 id $ mem ^? ix waddr
       firstBytes = drop offset $ splitWord firstWord
       restWords = [maybe 0 id $ mem ^? ix waddr' | waddr' <- [waddr + 1 ..]]

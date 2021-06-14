@@ -12,6 +12,7 @@ import qualified Test.QuickCheck.Property as Prop (succeeded, failed, reason, Re
 
 import Compiler.Registers
 import Compiler.CompilationUnit
+import Compiler.Tainted
 
 import Data.Bits
 import Data.Default
@@ -41,7 +42,7 @@ _ppList all =  putStr $ concat $ map (\st -> show st ++ "\n") all
 list2InitMem :: [MWord] -> InitialMem
 list2InitMem ls = map word2InitSeg $ zip [0..] ls 
   where word2InitSeg :: (MWord,MWord) -> InitMemSegment
-        word2InitSeg (loc,val) = InitMemSegment False False False loc 1 (Just [val])
+        word2InitSeg (loc,val) = InitMemSegment False False False loc 1 (Just [val]) (Just [untainted])
 
 
 

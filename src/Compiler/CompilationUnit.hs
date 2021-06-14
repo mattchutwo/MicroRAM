@@ -117,8 +117,8 @@ flatInitMem = foldr initSegment Map.empty
 flatInitTaintedMem :: InitialMem -> Map.Map MWord Label
 flatInitTaintedMem = foldr initSegment Map.empty
   where initSegment :: InitMemSegment -> Map.Map MWord Label -> Map.Map MWord Label
-        initSegment (InitMemSegment _ _ _ _ _ Nothing) = id
-        initSegment (InitMemSegment _ _ loc _ _ (Just labels)) =
+        initSegment (InitMemSegment _ _ _ _ _ _ Nothing) = id
+        initSegment (InitMemSegment _ _ _ loc _ _ (Just labels)) =
           Map.union $ Map.fromList $
           -- Map with the new content
           zip [loc..] labels
