@@ -50,6 +50,8 @@ import Data.Map.Strict (Map)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
+import Data.Vector (Vector)
+import qualified Data.Vector as Vec
 import Data.Word
 
 import GHC.Generics (Generic)
@@ -66,7 +68,10 @@ import Util.Util
 import Debug.Trace
 
 type Poison = Set MWord
-data Mem = Mem MWord (Map MWord MWord) (Map MWord Label)
+data Mem = Mem
+  MWord
+  (Map MWord MWord)
+  (Map MWord (Vector Label)) -- ^ Vector of 8 (2 bit) labels for the word.
 
 
 data MachineState r = MachineState
@@ -116,15 +121,25 @@ mMemWord addr = mMem . memWord addr
 
 -- | Lens for accessing a particular label of memory.  Produces the 
 -- untainted when reading an uninitialized location.
-memLabel :: Functor f => MWord -> (Label -> f Label) -> (Mem -> f Mem)
+memLabel :: Functor f => MWord -> (Vector Label -> f (Vector Label)) -> (Mem -> f Mem)
 memLabel addr = lens (get addr) (set addr)
   where
-    get addr (Mem d m l) = maybe untainted id $ Map.lookup addr l
+    get addr (Mem d m l) = maybe (Vec.replicate wordBytes untainted) id $ Map.lookup addr l
     set addr (Mem d m l) val = Mem d m (Map.insert addr val l)
 
-mMemLabel :: Functor f => MWord -> (Label -> f Label) -> (MachineState r -> f (MachineState r))
+mMemLabel :: Functor f => MWord -> (Vector Label -> f (Vector Label)) -> (MachineState r -> f (MachineState r))
 mMemLabel addr = mMem . memLabel addr
 
+subLabels :: Functor f => MemWidth -> Int -> (Vector Label -> f (Vector Label)) -> Vector Label -> f (Vector Label)
+subLabels wd offset f ls = put <$> f ls'
+  where
+    w = widthInt wd
+    ls' = Vec.slice offset w ls
+    -- Assumes that the provided vector matches the expected width.
+    put v =
+      let (ls1, lsr) = Vec.splitAt offset ls in
+      let (_ls2, ls3) = Vec.splitAt w lsr in
+      Vec.concat [ls1, v, ls3]
 
 -- | Fetch the instruction at `addr`.  Typically, `addr` will be the current
 -- program counter (`sMach . mPc`).
@@ -203,23 +218,45 @@ stepInstrTainted (Icmov rd cond op2) = do
     sMach . mRegLabel rd .= l
 
 stepInstrTainted (Isink rj op2) = do
-  return () -- No-op. Bug here if label of rj /= op2.
+  -- Write of value in `rj` to label `op2`.
+  -- Bug here if label of rj cannot flow into op2.
+  lj <- regLabel rj
+  checkLabel lj
+  l2 <- opVal op2 >>= toLabel
+  when (not $ lj `canFlowTo` l2) $
+    sMach . mBug .= True
 stepInstrTainted (Itaint rj op2) = do
-  l <- toLabel <$> opVal op2 -- Taint register rj with label value op2.
+  l <- opVal op2 >>= toLabel -- Taint register rj with label value op2.
   sMach . mRegLabel rj .= l
 
-stepInstrTainted (Iload wd rd op2) = do -- TODO: use width
+stepInstrTainted (Iload wd rd op2) = do
   addr <- opVal op2
-  l <- use $ sMach . mMemLabel addr
+
+  -- Get word address and offset.
+  (waddr, offset) <- splitAlignedAddr wd addr
+
+  -- Get labels for the address and offset.
+  ls <- use $ sMach . mMemLabel waddr . subLabels wd offset
+
+  -- Meet the labels.
+  let l = Vec.foldr1 meet ls
+
+  -- Set the register label.
   sMach . mRegLabel rd .= l
-stepInstrTainted (Istore wd op2 r1) = do -- TODO: use width
+stepInstrTainted (Istore wd op2 r1) = do
   addr <- opVal op2
+  (waddr, offset) <- splitAlignedAddr wd addr
   l <- regLabel r1
-  sMach . mMemLabel addr .= l
-stepInstrTainted (Ipoison wd op2 r1) = do -- TODO: use width
+  checkLabel l
+  sMach . mMemLabel waddr . subLabels wd offset .= (Vec.replicate (widthInt wd) l)
+stepInstrTainted (Ipoison wd op2 r1) = do
+  -- Poison must be a full word.
+  requireWWord wd
   addr <- opVal op2
+  (waddr, _offset) <- splitAlignedAddr wd addr
   l <- regLabel r1
-  sMach . mMemLabel addr .= l
+  checkLabel l
+  sMach . mMemLabel waddr .= Vec.replicate (widthInt wd) l
 
 -- Currently, we untaint the written to register for the following instructions.
 stepInstrTainted (Iand rd r1 op2) = stepUntaintReg rd
@@ -311,6 +348,7 @@ checkPoison addr = do
   when (addr `member` psn) setBug
   where setBug = sMach . mBug .= True
 
+-- | Takes a byte memory address and returns the corresponding a word memory address and byte offset.
 splitAddr :: MWord -> (MWord, Int)
 splitAddr a = (waddr, offset)
   where
@@ -362,11 +400,15 @@ doLoad w rd addr = do
   checkPoison waddr
   sMach . mReg rd .= val
 
-poison :: Regs r => MemWidth -> Operand r MWord -> InterpM r s Hopefully ()
-poison w op2 = do
-  when (w /= WWord) $ do
+-- Enforces the invariant that poisons require WWord widths.
+requireWWord :: MemWidth -> InterpM r s Hopefully ()
+requireWWord w = when (w /= WWord) $ do
     pc <- use $ sMach . mPc
     otherError $ "bad poison width " ++ show w ++ " at pc = " ++ showHex pc
+
+poison :: Regs r => MemWidth -> Operand r MWord -> InterpM r s Hopefully ()
+poison w op2 = do
+  requireWWord w
   (waddr, _offset) <- splitAlignedAddr w =<< opVal op2
   sMach . mPsn %= (Set.insert waddr)
   -- don't modify pc. This is not a full step!
@@ -449,11 +491,11 @@ data MemOpType = MOStore | MOLoad | MOPoison
 -- advice. Currently we only advice about memory operations and steps that stutter.
 data Advice =
     MemOp
-      MWord      -- ^ address
-      MWord      -- ^ value
-      MemOpType  -- ^ read or write
-      MemWidth   -- ^ width of the access
-      Label      -- TODO: Type level stuff to enable tainted things.
+      MWord          -- ^ address
+      MWord          -- ^ value
+      MemOpType      -- ^ read or write
+      MemWidth       -- ^ width of the access
+      (Vector Label) -- ^ Labels for each byte      -- TODO: Type level stuff to enable tainted things.
   | Advise MWord
   | Stutter
   deriving (Eq, Read, Show, Generic)
@@ -479,25 +521,29 @@ recordAdvice adviceMap adv = do
   sExt . adviceMap . at cycle %= Just . (adv:) . maybe [] id
 
 adviceHandler :: Regs r => Lens' s AdviceMap -> InstrHandler r s
-adviceHandler advice (Istore w op2 r1) = do -- TODO: Use width
+adviceHandler advice (Istore w op2 r1) = do
   addr <- opVal op2
   (waddr, offset) <- splitAlignedAddr w addr
   storeVal <- regVal r1
   memVal <- use $ sMach . mMemWord waddr
   let memVal' = memVal & subBytes w offset .~ storeVal
-  taint <- regLabel r1
-  recordAdvice advice (MemOp addr memVal' MOStore w taint)
-adviceHandler advice (Iload w _rd op2) = do -- TODO: Use width
+  storeTaint <- Vec.replicate (widthInt w) <$> regLabel r1
+  memTaint <- use $ sMach . mMemLabel waddr
+  let memTaint' = memTaint & subLabels w offset .~ storeTaint
+  recordAdvice advice (MemOp addr memVal' MOStore w memTaint')
+adviceHandler advice (Iload w _rd op2) = do
   addr <- opVal op2
   (waddr, _offset) <- splitAlignedAddr w addr
   val <- use $ sMach . mMemWord waddr
   taint <- use $ sMach . mMemLabel addr
   recordAdvice advice (MemOp addr val MOLoad w taint)
-adviceHandler advice (Ipoison w op2 r1) = do -- TODO: Use width
+adviceHandler advice (Ipoison w op2 r1) = do
+  -- Poison must be a full word.
+  requireWWord w
   addr <- opVal op2
   val <- regVal r1
   taint <- regLabel r1
-  recordAdvice advice (MemOp addr val MOPoison w taint)
+  recordAdvice advice (MemOp addr val MOPoison w (Vec.replicate (widthInt w) taint))
 adviceHandler _ _ = return ()
 
 
@@ -824,7 +870,7 @@ runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
 
 -- Old public definitions
 
-type Mem' = (MWord, Map MWord MWord, Map MWord Label) -- TODO: Type level stuff to enable tainted things.
+type Mem' = (MWord, Map MWord MWord, Map MWord (Vector Label)) -- TODO: Type level stuff to enable tainted things.
 
 -- | The program state 
 data ExecutionState mreg = ExecutionState {

@@ -37,6 +37,7 @@ module Compiler.RemoveLabels
 import MicroRAM
 import Compiler.IRs
 import qualified Data.Map.Strict as Map
+import qualified Data.Vector as Vec
 
 import Util.Util
 
@@ -151,7 +152,7 @@ removeLabelsInitMem lmap lInitMem =
   where removeLabelsSegment :: (String -> Wrd) -> LazyInitSegment -> Hopefully $ InitMemSegment
         removeLabelsSegment labelMap (lMem, initSegment) =
           let vals = removeLabelInitialValues labelMap lMem in
-          return $ initSegment {content = vals, labels = fmap (const $ replicate (fromIntegral $ segmentLen initSegment) untainted) vals}
+          return $ initSegment {content = vals, labels = fmap (const $ replicate (fromIntegral $ segmentLen initSegment) $ Vec.replicate wordBytes untainted) vals}
         removeLabelInitialValues :: (String -> Wrd) -> Maybe [LazyConst String Wrd] -> Maybe [Wrd]
         removeLabelInitialValues labelMap lMem =  map (makeConcreteConst labelMap) <$> lMem
 addDefault :: LabelMap -> String -> Wrd

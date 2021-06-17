@@ -14,6 +14,7 @@ import Test.Tasty.QuickCheck
 -- import Test.SmallCheck.Series
 
 import qualified Data.Map as Map
+import qualified Data.Vector as Vec
 
 -- import Compiler.Registers
 import Compiler.CompilationUnit
@@ -141,7 +142,9 @@ instance Arbitrary MemOpType where
 
 instance Arbitrary Advice where
   arbitrary = oneof $
-    [ MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    [ do
+      wd <- arbitrary
+      MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> pure wd <*> fmap Vec.fromList (vector (widthInt wd))
     , return Stutter 
     ]
 
@@ -154,11 +157,7 @@ testAdvice = testProperty "Serialising advice" $
 instance Arbitrary InitMemSegment where
   arbitrary = do
     content <- arbitrary
-    labels <- case content of
-      Nothing ->
-        return Nothing
-      Just c ->
-        Just <$> (vector $ length c)
+    labels <- mapM (\c -> vectorOf (length c) (Vec.fromList <$> vector wordBytes)) content
     InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*>
               arbitrary <*> arbitrary <*> pure content <*> pure labels
 

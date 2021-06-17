@@ -16,6 +16,7 @@ import Compiler.Tainted
 
 import Data.Bits
 import Data.Default
+import qualified Data.Vector as Vec
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
@@ -42,7 +43,7 @@ _ppList all =  putStr $ concat $ map (\st -> show st ++ "\n") all
 list2InitMem :: [MWord] -> InitialMem
 list2InitMem ls = map word2InitSeg $ zip [0..] ls 
   where word2InitSeg :: (MWord,MWord) -> InitMemSegment
-        word2InitSeg (loc,val) = InitMemSegment False False False loc 1 (Just [val]) (Just [untainted])
+        word2InitSeg (loc,val) = InitMemSegment False False False loc 1 (Just [val]) (Just [Vec.replicate wordBytes untainted])
 
 
 

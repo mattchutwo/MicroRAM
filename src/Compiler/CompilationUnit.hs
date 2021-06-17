@@ -26,6 +26,7 @@ import Compiler.Analysis
 import Compiler.LazyConstants
 import Compiler.Registers
 import Compiler.Tainted
+import Data.Vector (Vector)
 
 
 -- | The Compilation Unit
@@ -95,7 +96,7 @@ data InitMemSegment = InitMemSegment
   , location :: MWord
   , segmentLen :: MWord
   , content :: Maybe [MWord]
-  , labels :: Maybe [Label] -- TODO: Type level stuff to enable tainted things.
+  , labels :: Maybe [Vector Label] -- [Word16] -- TODO: Type level stuff to enable tainted things.
   } deriving (Eq, Ord, Read, Show)
 
 type InitialMem = [InitMemSegment]
@@ -114,10 +115,9 @@ flatInitMem = foldr initSegment Map.empty
           -- Map with the new content
           zip [loc..] content
 
-flatInitTaintedMem :: InitialMem -> Map.Map MWord Label
+flatInitTaintedMem :: InitialMem -> Map.Map MWord (Vector Label)
 flatInitTaintedMem = foldr initSegment Map.empty
-  where initSegment :: InitMemSegment -> Map.Map MWord Label -> Map.Map MWord Label
-        initSegment (InitMemSegment _ _ _ _ _ _ Nothing) = id
+  where initSegment (InitMemSegment _ _ _ _ _ _ Nothing) = id
         initSegment (InitMemSegment _ _ _ loc _ _ (Just labels)) =
           Map.union $ Map.fromList $
           -- Map with the new content
