@@ -19,7 +19,7 @@ oneTest = OneTest $ defaultTest {
 
 allTests = ManyTests "Program tests"
         [testCorrectness, testErrors, testBugs]
-testCorrectness = ManyTests "Compiler correctness tests"
+testCorrectness = ManyTests "Correctness tests"
                   [testTrivial, testLoops, testGEP, testDatastruct, testFunctionPointer]
 
 -- Trivial test, just to see the basics are working
