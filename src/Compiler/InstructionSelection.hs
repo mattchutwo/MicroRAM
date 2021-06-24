@@ -1553,13 +1553,9 @@ isDefs nameBound defs = do
   let globalEvaluation = isGlobVars env $ filter itIsGlobVar defs  -- filtered inside the def 
   (globVars, state') <- runStateT globalEvaluation (initState nameBound) 
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
-  -- First record all function names
-  -- Note: I'm not sure this following line is needed.
-  -- TODO: TEST ffmpeg without the following line and remove it if possible.  
-  state'' <- execStateT (mapM_ rememberFunctionNames $ filter itIsFunc defs) state'
-  (funcs, state''') <- runStateT (isFunctions env) state''
+  (funcs, state'') <- runStateT (isFunctions env) state'
   checkDiscardedDefs defs -- Make sure we dont drop something important
-  return $ (IRprog Map.empty globVars funcs, state''' ^. nextReg) 
+  return $ (IRprog Map.empty globVars funcs, state'' ^. nextReg) 
   where isFunctions env = mapM (isFunction env) $ filter itIsFunc defs
         rememberFunctionNames (LLVM.GlobalDefinition glob) = do
           let name = LLVM.Global.name glob
