@@ -377,9 +377,9 @@ isInstruction env ret instr =
     (LLVM.Sub _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Isub
     (LLVM.Mul _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Imull
     (LLVM.SDiv _ o1 o2 _)    ->
-      typedIntrinCall env "__cc_sdiv" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
+      typedIntrinCall env "@__cc_sdiv" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
     (LLVM.SRem o1 o2 _)      ->
-      typedIntrinCall env "__cc_srem" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
+      typedIntrinCall env "@__cc_srem" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
     (LLVM.FAdd _ _o1 _o2 _)  -> unsupported "FAdd"
     (LLVM.FSub _ _o1 _o2 _)  -> unsupported "FSub"
     (LLVM.FMul _ _o1 _o2 _)  -> unsupported "FMul"
@@ -982,7 +982,7 @@ makeTraceInvalid desc md = do
   where
     traceInstr = MRAM.Iext (MRAM.XTrace (Text.pack $ "Invalid: " ++ desc) [])
     rtlCallFlagInvalid = do
-      labelInvalid <- Label <$> newName "__cc_flag_invalid"
+      labelInvalid <- Label <$> newName "@__cc_flag_invalid"
       return $ RCall TVoid Nothing labelInvalid [Tint] []
       
 triggerBug :: Metadata -> Statefully  [MIRInstruction Metadata regT MWord]
@@ -990,7 +990,7 @@ triggerBug md = do
   callBug <- rtlCallFlagBug 
   return $ [MirI callBug md]
   where rtlCallFlagBug = do
-          labelBug <- Label <$> newName "__cc_flag_bug"
+          labelBug <- Label <$> newName "@__cc_flag_bug"
           return $ RCall TVoid Nothing labelBug [Tint] []
 
 -- | Branch terminator
