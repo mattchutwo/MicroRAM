@@ -93,7 +93,12 @@ initState bound =
   , _currentBlock = defaultName
   , _lineNumber = 0
   , _nextReg = max bound 2 -- Leave space for ESP and EBP
+  , _namesLookup = reservedNames
   }
+  where reservedNames :: Map.Map LLVM.Name Name
+        reservedNames = Map.fromList $ [
+          (LLVM.Name "main", mainName)
+          ]
         
 useReg :: Statefully Word
 useReg = do
