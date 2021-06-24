@@ -47,6 +47,7 @@ import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.Float as LLVM
 import qualified LLVM.AST.IntegerPredicate as IntPred
+import qualified LLVM.AST.Global as LLVM.Global(name)
 
 import Compiler.Errors
 import Compiler.Common
@@ -377,9 +378,9 @@ isInstruction env ret instr =
     (LLVM.Sub _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Isub
     (LLVM.Mul _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Imull
     (LLVM.SDiv _ o1 o2 _)    ->
-      typedIntrinCall env "@__cc_sdiv" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
+      typedIntrinCall env "__cc_sdiv" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
     (LLVM.SRem o1 o2 _)      ->
-      typedIntrinCall env "@__cc_srem" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
+      typedIntrinCall env "__cc_srem" ret (typeOf (llvmtTypeEnv env) o1) [o1, o2]
     (LLVM.FAdd _ _o1 _o2 _)  -> unsupported "FAdd"
     (LLVM.FSub _ _o1 _o2 _)  -> unsupported "FSub"
     (LLVM.FMul _ _o1 _o2 _)  -> unsupported "FMul"
@@ -482,7 +483,7 @@ intrinCall env name dest retTy ops = do
     retTy' <- lift $ type2type (llvmtTypeEnv env) retTy
     opTys' <- lift $ mapM (type2type tenv) $ map (typeOf tenv) ops
     ops' <- mapM (operand2operand env) ops
-    labelName <- Label <$> newName name 
+    labelName <- Label <$> globalName (LLVM.Name name) 
     let instr = RCall retTy' dest labelName opTys' ops'
     md <- getMetadata
     return [MirI instr md]
@@ -1552,11 +1553,17 @@ isDefs nameBound defs = do
   let globalEvaluation = isGlobVars env $ filter itIsGlobVar defs  -- filtered inside the def 
   (globVars, state') <- runStateT globalEvaluation (initState nameBound) 
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
-  (funcs, state'') <- runStateT (isFunctions env) state'
+  -- First record all function names
+  state'' <- execStateT (mapM_ rememberFunctionNames $ filter itIsFunc defs) state'
+  (funcs, state''') <- runStateT (isFunctions env) state''
   checkDiscardedDefs defs -- Make sure we dont drop something important
-  return $ (IRprog Map.empty globVars funcs, state'' ^. nextReg) 
+  return $ (IRprog Map.empty globVars funcs, state''' ^. nextReg) 
   where isFunctions env = mapM (isFunction env) $ filter itIsFunc defs
-  
+        rememberFunctionNames (LLVM.GlobalDefinition glob) = do
+          let name = LLVM.Global.name glob
+          _ <- globalName name
+          return ()
+          
 -- | Instruction selection generates an RTL Program
 instrSelect :: (LLVM.Module, Word) -> Hopefully $ (MIRprog Metadata MWord, Word)
 instrSelect (LLVM.Module _ _ _ _ defs, bound) = isDefs bound defs
