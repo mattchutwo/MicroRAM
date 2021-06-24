@@ -144,7 +144,7 @@ intrinsicsList =
   -- Explicit trap
   , mkTrap "@__cxa_pure_virtual"
   , mkTrap "@llvm.trap"
-  , mkTrap "_ZSt9terminatev"
+  , mkTrap "@_ZSt9terminatev"
 
   -- Floating-point ops
   , mkTrap "@llvm.ceil.f64"
