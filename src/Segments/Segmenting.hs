@@ -190,8 +190,8 @@ findAllFunctions prog = do
   let minusPM = Set.delete  premainName funcSet
   return $ premainName : (Set.toList minusPM) -- Set premain to be the first function.  
   where funcSet = (foldl addFunction Set.empty prog) -- Can we make this faster with unique?
-        addFunction accumulator (_instr, md) = Set.insert (mdFunction md) accumulator 
-        premainName = premainName
+        addFunction accumulator (_instr, md) = Set.insert (mdFunction md) accumulator
+        
 segmentFunction :: Show reg => [Cut Metadata reg MWord] -> Name -> Seq.Seq (Segment reg MWord)
 segmentFunction cuts funName = -- T.trace ("Segments in " ++ funName ++ ": " ++ show (length $ loopConnections functionSegs) )
   loopConnections funName functionSegs 
