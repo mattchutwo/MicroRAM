@@ -1554,6 +1554,8 @@ isDefs nameBound defs = do
   (globVars, state') <- runStateT globalEvaluation (initState nameBound) 
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
   -- First record all function names
+  -- Note: I'm not sure this following line is needed.
+  -- TODO: TEST ffmpeg without the following line and remove it if possible.  
   state'' <- execStateT (mapM_ rememberFunctionNames $ filter itIsFunc defs) state'
   (funcs, state''') <- runStateT (isFunctions env) state''
   checkDiscardedDefs defs -- Make sure we dont drop something important
