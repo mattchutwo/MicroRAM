@@ -202,8 +202,8 @@ lowerIntrinsics = expandInstrs (expandIntrinsicCall intrinsics)
 removeIntrinsics :: MIRprog m MWord -> Hopefully (MIRprog m MWord)
 removeIntrinsics prog = 
   return $ prog {code = filter (not . isIntrinsic) $ code prog}
-  where isIntrinsic f = debugName (funcName f) `Map.member` intrinsics
-        debugName (Name _ dName) = dName
+  where isIntrinsic f = dbName (funcName f) `Map.member` intrinsics
+        
 -- | Rename C/LLVM implementations of LLVM intrinsics to line up with their
 -- intrinsic name.
 --
