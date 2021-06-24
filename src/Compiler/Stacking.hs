@@ -125,7 +125,6 @@ premain returnName = return $
   Imov bp (AReg sp) :    -- set base pointer to the stack pointer
   callMain)              -- jump to main
   where callMain = return $ Ijmp $ Label mainName -- ATTENTION 0 and 1 should be reserved.
-        mainName = Name 1 "main"
         md = trivialMetadata premainName defaultName
 
 -- | returnBlock: return lets the program output an answer (when main returns)
