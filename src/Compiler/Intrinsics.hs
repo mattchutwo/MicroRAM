@@ -211,10 +211,6 @@ intrinsicsList =
   , mkTrap "@llvm.sqrt.f64"
   , mkTrap "@llvm.trunc.f64"
   , mkTrap "@llvm.llrint.i64.f64"
-
-  -- Varargs
-  , mkTrap "@llvm.va_start"
-  , mkTrap "@llvm.va_end"
   ]
   where
     mkTrap :: ShortByteString -> (ShortByteString, IntrinsicImpl m MWord)

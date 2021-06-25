@@ -186,7 +186,7 @@ defaultName, premainName, mainName, va_startName :: Name
 defaultName  = Name 3 "DefaultName-ShouldNeverAppearOnCode"
 premainName  = Name 4 "premain"
 mainName     = Name 5 "main"
-va_startName = Name 6 "@__cc_va_start"
+va_startName = Name 6 "__cc_va_start"
 
 -- | Bound for reserved names. 
 firstUnusedName :: Word
