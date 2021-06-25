@@ -22,9 +22,10 @@ import Util.Util
 import MicroRAM (MWord)
 
 import Compiler.Analysis
---import Compiler.Common
+import Compiler.Common
 import Compiler.LazyConstants
 import Compiler.Registers
+import Control.Monad.State (runStateT)
 
 
 -- | The Compilation Unit
@@ -33,7 +34,8 @@ data CompilationUnit' a prog = CompUnit
   , traceLen :: Word
   , regData :: RegisterData
   , aData   :: AnalysisData
-  , intermediateInfo :: a -- Other stuff we carry during compilation, but starts and ends as `()`
+  , nameBound :: Word -- ^ All names are bounded by this 
+  , intermediateInfo :: a -- ^ Other stuff we carry during compilation, but starts and ends as `()`
   }
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
@@ -58,7 +60,7 @@ type CompilationUnit a prog = CompilationUnit' a (ProgAndMem prog)
 type CompilationResult prog = CompilationUnit' () (MultiProg (ProgAndMem prog))
 
 prog2unit :: Word -> prog -> CompilationUnit () prog
-prog2unit len p = CompUnit (ProgAndMem p []) len InfinityRegs def ()
+prog2unit len p = CompUnit (ProgAndMem p []) len InfinityRegs def firstUnusedName () -- ^ 2 reserves `0` and `1` for premain and main 
 
 -- * Lifting operators
 
@@ -68,6 +70,27 @@ justCompile :: Monad m =>
   -> CompilationUnit a progS
   -> m $ CompilationUnit a progT
 justCompile pass p = mapM (mapM pass) p
+
+-- | Just compile with fresh names, lift passes that only deal with code and create fresh names
+justCompileWithNames :: Monad m =>
+  ((progS, Word) -> m (progT, Word))
+  -> CompilationUnit a progS
+  -> m $ CompilationUnit a progT
+justCompileWithNames pass p = do
+  let ProgAndMem sProg mem = programCU p
+  let nBound = nameBound p
+  (tProg, nBound') <- pass (sProg, nBound)   
+  return $ p {programCU = ProgAndMem tProg mem, nameBound = nBound'}
+justCompileWithNamesSt :: Monad m =>
+  ((progS) -> WithNextReg m (progT))
+  -> CompilationUnit a progS
+  -> m $ CompilationUnit a progT
+justCompileWithNamesSt pass p = do
+  let ProgAndMem sProg mem = programCU p
+  let nBound = nameBound p
+  (tProg, nBound') <- runStateT (pass sProg) nBound   
+  return $ p {programCU = ProgAndMem tProg mem, nameBound = nBound'}
+
 
 -- | Informed Compilation: passes that use analysis data but only change code
 informedCompile :: Monad m =>
@@ -87,6 +110,9 @@ justAnalyse analysis cUnit = do
   a' <-  analysis (pmProg $ programCU cUnit)
   return $ cUnit {aData = addAnalysisPiece a' $ aData cUnit}
 
+
+-- TODO: Should we move this to a separate file (e.g. Compiler/InitMem.hs) ?
+
 data InitMemSegment = InitMemSegment
   { isSecret :: Bool
   , isReadOnly :: Bool
@@ -99,7 +125,7 @@ data InitMemSegment = InitMemSegment
 type InitialMem = [InitMemSegment]
 
 -- | For creating an initial memory befor code labels and globals have been resolved.
-type LazyInitSegment = (Maybe [LazyConst String MWord], InitMemSegment)
+type LazyInitSegment = (Maybe [LazyConst Name MWord], InitMemSegment)
 type LazyInitialMem = [LazyInitSegment] 
 
 

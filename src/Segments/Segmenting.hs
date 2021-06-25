@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -11,6 +12,9 @@ Stability   : experimental
 
 module Segments.Segmenting (segmentProgram, Segment(..), Constraints(..)) where
 
+--import qualified Debug.Trace as T
+
+import Compiler.Common
 import Compiler.Errors
 import Compiler.Metadata
 import Compiler.IRs
@@ -34,7 +38,7 @@ import GHC.Generics
 -- The map relates the beggining of each segment, in the original program, with the segment in the cut program
 data Segment reg wrd = Segment
   { segIntrs :: [Instruction reg wrd]
-    , segConstraints :: [Constraints]
+    , constraints :: [Constraints]
     , segLen :: Int
     , segSuc :: [Int]
     , fromNetwork :: Bool
@@ -48,14 +52,14 @@ data Constraints =
 -- | Cutting just splits a program after each jump instruction
 --   and creates a map relating instructions and cuts starting there.
 data Cut md reg wrd = Cut
-  { cutFunction :: String -- ^ Name of the function that contains this cut
+  { cutFunction :: Name -- ^ Name of the function that contains this cut
   , cutIntrs :: AnnotatedProgram md reg wrd
   , cutPc :: MWord  -- ^ Pc of the first instruction
   , cutLen :: Int }
   deriving Show
 makeCut :: MWord -> AnnotatedProgram Metadata reg wrd -> Cut Metadata reg wrd
 makeCut pc instrs = Cut funName instrs pc (length instrs) 
-  where funName = toHead (mdFunction . snd) "" instrs
+  where funName = toHead (mdFunction . snd) defaultName instrs
 
 toHead :: (a -> b) -> b -> [a] -> b
 toHead f def ls =
@@ -71,7 +75,7 @@ expandList :: [a] -> [Int] -> [a]
 expandList ls factors = concat $ map (\(x,factor) -> replicate factor x) $ zip ls factors
 
 
-segmentProgram :: Show reg => (Map.Map String Int)
+segmentProgram :: Show reg => (Map.Map Name Int)
         -> AnnotatedProgram Metadata reg MWord -> Hopefully $ [Segment reg MWord]
 segmentProgram funCount prog = do
   funNames <- findAllFunctions prog      -- names all all functions in the program
@@ -123,6 +127,7 @@ cutSuccessors cutMap (Cut _ instrs pc len)
   | otherwise =
     let (pcSuccs, toNet) = pcSuccessors (pc + toEnum len - 1) $ fst term -- Should use Seq?
         cutSuccs = mapMaybe (\pc -> Map.lookup pc cutMap) pcSuccs in
+      --T.trace ("Function: "++ show (mdFunction $ snd term)++ "@ PC:" ++ show pc ++ "\n\tProposed: \t" ++ show pcSuccs ++ "\n\tFiltered:\t" ++ show cutSuccs)
       (cutSuccs, toNet || length cutSuccs /= length pcSuccs)
       where term = last instrs
 
@@ -139,6 +144,25 @@ pcSuccessors pc instr =
         isReg :: Operand regT MWord -> Bool
         isReg (Reg   _) = True  -- By default it goes to network.
         isReg (Const _) = False
+
+-- instrSuccessor :: Map.Map MWord [Int] -> MWord -> Instruction reg MWord -> Hopefully $ [Int]
+-- instrSuccessor blockMap pc instr =
+--   case instr of
+--     Ijmp op       -> ifConst op
+--     Icjmp  _ op2  -> (++) <$> (getBlock (pc + 1)) <*> ifConst op2
+--     Icnjmp _ op2  -> (++) <$> (getBlock (pc + 1)) <*> ifConst op2
+--     _             -> return $ []
+
+--   where ifConst :: Operand regT MWord -> Hopefully $ [Int]
+--         ifConst (Reg   _) = return $ []  -- By default it goes to network.
+--         ifConst (Const c) = do { block <- getBlock c; return block }
+          
+--         getBlock :: MWord -> Hopefully [Int] 
+--         getBlock pc = 
+--           case Map.lookup pc blockMap of
+--             Just blocks -> return blocks
+--             Nothing  -> otherError $ "Cutting segments: found jump to an instruction not at the beggining of a block. PC: "
+--                         ++ show pc
   
 
 -- | Cut to segment
@@ -147,12 +171,12 @@ cut2segment (Cut _funName instrs pc len) succs toNet =
   let ret =  
         Segment
         { segIntrs = (map fst instrs) 
-        , segConstraints = [PcConst pc]
+        , constraints = [PcConst pc]
         , segLen = len
         , segSuc = succs
         , fromNetwork = fromNet  -- ^ From network can change later.
         , toNetwork = toNet } in
-    ret
+    ret --if fromNet then T.trace ("Segmetn to net: " <> (show $ constraints ret)) ret else ret
   where fromNet = case instrs of
                     [] -> False
                     (_i,md):_ -> mdReturnCall md || mdFunctionStart md
@@ -160,17 +184,17 @@ cut2segment (Cut _funName instrs pc len) succs toNet =
 
 
 -- | Per function analysis
-findAllFunctions :: AnnotatedProgram Metadata reg wrd -> Hopefully [String]
+findAllFunctions :: AnnotatedProgram Metadata reg wrd -> Hopefully [Name]
 findAllFunctions prog = do
-  when (not $ "Premain" `Set.member` funcSet) $ assumptError "Program doesn't have a Premain."  
-  let minusPM = Set.delete  "Premain" funcSet
-  return $ "Premain" : (Set.toList minusPM) 
+  when (not $ premainName `Set.member` funcSet) $ assumptError "Program doesn't have a Premain."  
+  let minusPM = Set.delete  premainName funcSet
+  return $ premainName : (Set.toList minusPM) -- Set premain to be the first function.  
   where funcSet = (foldl addFunction Set.empty prog) -- Can we make this faster with unique?
-        addFunction accumulator (_instr, md) = Set.insert (mdFunction md) accumulator 
-
-segmentFunction :: Show reg => [Cut Metadata reg MWord] -> String -> Seq.Seq (Segment reg MWord)
-segmentFunction cuts funName = 
-  loopConnections functionSegs 
+        addFunction accumulator (_instr, md) = Set.insert (mdFunction md) accumulator
+        
+segmentFunction :: Show reg => [Cut Metadata reg MWord] -> Name -> Seq.Seq (Segment reg MWord)
+segmentFunction cuts funName = -- T.trace ("Segments in " ++ funName ++ ": " ++ show (length $ loopConnections functionSegs) )
+  loopConnections funName functionSegs 
   where functionSegs = map toSegment functionCuts 
         functionCuts = filter (\cut -> cutFunction cut == funName) cuts 
 
@@ -181,13 +205,18 @@ segmentFunction cuts funName =
 
 -- | Loop operations
 -- We define loops as Strongly Connected Component
-loopConnections :: [Segment reg wrd] -> Seq.Seq (Segment reg wrd)
-loopConnections segs = go
+loopConnections :: Name -> [Segment reg wrd] -> Seq.Seq (Segment reg wrd)
+loopConnections _fName segs = go --T.trace ("Cycles in" ++ fName ++" : " ++ show (countSCCs sccs)) go
   where go = (replicateLoops sccs) . (backEdgesToNet sccs) . (connectLoopExits sccs) $
              Seq.fromList segs   
         cfg = makeCFG segs
         sccs = G.stronglyConnComp cfg
-  
+
+        _countSCCs :: [G.SCC node] -> Int
+        _countSCCs ls = length $ filter isCycle ls
+        isCycle (G.CyclicSCC _) = True
+        isCycle (G.AcyclicSCC _) = False
+          
 replicateLoops :: [G.SCC Int]               -- Connected components
                  -> Seq.Seq (Segment reg wrd) -- Segments
                  -> Seq.Seq (Segment reg wrd)
@@ -290,7 +319,7 @@ _testProg = map (\x -> (x, defaultMetadata))
     --
     Ijmp (Const 0)     --7
   ] ++ 
-  map (\x -> (x, trivialMetadata "main" ""))
+  map (\x -> (x, trivialMetadata (mainName) (mainName) ))
   [ Iand () () (Reg ()),    --8
     Isub () () (Const 0)    --9
   ]
@@ -298,7 +327,7 @@ _testProg = map (\x -> (x, defaultMetadata))
 
 _testSegments :: Hopefully $ [Segment () MWord]
 _testSegments = 
-  do (segs) <- segmentProgram (Map.fromList [("",3)]) _testProg
+  do (segs) <- segmentProgram (Map.fromList [((Name firstUnusedName "trivial"),3)]) _testProg
      return segs
 
 _printSegs :: (Hopefully [Segment () MWord]) -> IO ()

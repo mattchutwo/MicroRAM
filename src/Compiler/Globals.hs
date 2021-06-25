@@ -50,9 +50,9 @@ import Util.Util
 replaceGlobals :: Regs mreg =>
         CompilationUnit () (Lprog m mreg MWord)
         -> Hopefully $ CompilationUnit LazyInitialMem (Lprog m mreg MWord)
-replaceGlobals (CompUnit pm tr regs anData _) = do
+replaceGlobals (CompUnit pm tr regs anData nmBound _) = do
   (prog', initMem) <- globals' $ pmProg pm
-  return $ CompUnit (pm { pmProg = prog' }) tr regs anData initMem 
+  return $ CompUnit (pm { pmProg = prog' }) tr regs anData nmBound initMem 
 
 globals' :: Regs mreg => Lprog m mreg MWord
          -> Hopefully $ (Lprog m mreg MWord, LazyInitialMem)
@@ -67,23 +67,23 @@ globals' (IRprog tenv genv prog) = do
 -- After constructing the globals map, these lazy segments are converted to real ones.
 
 -- * Building initial memory and the `globalMap`
-memoryFromGlobals :: GEnv MWord -> (LazyInitialMem, Map.Map String MWord)
+memoryFromGlobals :: GEnv MWord -> (LazyInitialMem, Map.Map Name MWord)
 memoryFromGlobals ggg  = 
   let (lazyInitMem, _, globs) = lazyMemoryFromGlobals ggg in
     (resolveGlobalsMem globs lazyInitMem, globs)
-  where resolveGlobalsMem :: Map.Map String MWord -> LazyInitialMem -> LazyInitialMem
+  where resolveGlobalsMem :: Map.Map Name MWord -> LazyInitialMem -> LazyInitialMem
         resolveGlobalsMem globMap lInitMem = map (resolveGlobalsSegment globMap) lInitMem
-        resolveGlobalsSegment :: Map.Map String MWord -> LazyInitSegment -> LazyInitSegment
+        resolveGlobalsSegment :: Map.Map Name MWord -> LazyInitSegment -> LazyInitSegment
         resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly heapInit loc len _) =
           let concreteInit = map (applyPartialMap g) <$> lazyConst in
           (concreteInit, InitMemSegment secr rOnly heapInit loc len Nothing)
 
-lazyMemoryFromGlobals :: GEnv MWord -> (LazyInitialMem, MWord, Map.Map String MWord)
+lazyMemoryFromGlobals :: GEnv MWord -> (LazyInitialMem, MWord, Map.Map Name MWord)
 lazyMemoryFromGlobals  = foldr memoryFromGlobal ([], 1, Map.empty)
   where memoryFromGlobal ::
           GlobalVariable MWord
-          -> (LazyInitialMem, MWord, Map.Map String MWord)
-          -> (LazyInitialMem, MWord, Map.Map String MWord)
+          -> (LazyInitialMem, MWord, Map.Map Name MWord)
+          -> (LazyInitialMem, MWord, Map.Map Name MWord)
         memoryFromGlobal
             (GlobalVariable name isConst _gTy initzr size align secr heapInit)
             (initMem, nextAddr, gMap) =
@@ -96,7 +96,7 @@ lazyMemoryFromGlobals  = foldr memoryFromGlobal ([], 1, Map.empty)
           -- which are in words.
           let newByteLoc = newLoc * fromIntegral wordBytes in
           let nextAddr' = if not heapInit then newLoc + size else nextAddr in
-          (newLazySegment:initMem, nextAddr', Map.insert (show name) newByteLoc gMap)
+          (newLazySegment:initMem, nextAddr', Map.insert name newByteLoc gMap)
 
         alignTo a x = (a + x - 1) .&. complement (a - 1)
           
@@ -104,17 +104,17 @@ lazyMemoryFromGlobals  = foldr memoryFromGlobal ([], 1, Map.empty)
 -- * Replace global variables with pointers to the initial memeory
 raplaceGlobals ::
   Regs mreg =>
-  Map.Map String MWord
+  Map.Map Name MWord
   -> [LFunction mdata mreg MWord]
   -> Hopefully $ [LFunction mdata mreg MWord] 
 raplaceGlobals gmap = mapM $ traverseOpLFun $ raplaceGlobalsOperands gmap
   where raplaceGlobalsOperands :: 
           Regs mreg =>
-          Map.Map String MWord
+          Map.Map Name MWord
           -> MAOperand mreg MWord
           -> Hopefully $ MAOperand mreg MWord
         raplaceGlobalsOperands gmap' (Glob name) =  -- FIXME : SC I think we can remove Glob as it is covered by lazy constants 
-          case Map.lookup (show name) gmap' of
+          case Map.lookup name gmap' of
             Just gptr -> return $ LImm $ SConst gptr
             _ -> assumptError $ "Global not found in the environment: " ++ show name
         raplaceGlobalsOperands gmap' (LImm lc) =

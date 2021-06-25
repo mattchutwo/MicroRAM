@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -26,10 +27,10 @@ callingConvention lprog = do
 
 
 callingConventionFunc :: (Regs reg, Ord reg) => LFunction Metadata reg MWord -> LFunction Metadata reg MWord
-callingConventionFunc lf@(LFunction _fname _typ _typs _stackSize []) = lf
-callingConventionFunc (LFunction fname typ typs stackSize (firstBlock:blocks)) = 
+callingConventionFunc lf@(LFunction _fname _typ _typs _nms _stackSize []) = lf
+callingConventionFunc (LFunction fname typ typs argNames stackSize (firstBlock:blocks)) = 
     -- Get all registers that the function writes to.
-    let isMain = fname == "Name \"main\"" in    -- TODO: Improve this. Fix when fixing Name consistency.
+    let isMain = dbName fname == "main" in    -- ATTENTION: relies on debugging name!
     let registers = if isMain then
             []
           else
@@ -47,14 +48,14 @@ callingConventionFunc (LFunction fname typ typs stackSize (firstBlock:blocks)) =
     -- Update stack size.
     let stackSize' = stackSize + fromIntegral (length registers) in
 
-    LFunction fname typ typs stackSize' blocks''
+    LFunction fname typ typs argNames stackSize' blocks''
     
   where
     calleeRestore stkSize registers = zipWith (\pos reg -> Lgetstack Local pos ty reg) [stkSize..] registers
 
     calleeSave fname stackSize registers (BB n insts insts' dag) = 
       let saveInsts = map (\(pos, reg) -> 
-              IRI (Lsetstack reg Local pos ty) (trivialMetadata fname $ show n)
+              IRI (Lsetstack reg Local pos ty) (trivialMetadata fname n) 
             ) $ zip [stackSize..] registers
       in
       BB n (saveInsts <> insts) insts' dag

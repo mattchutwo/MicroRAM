@@ -1,7 +1,7 @@
 import cbor
 from pprint import pprint
 
-file = 'Output/out_ffmpeg.cbor'
+file = 'Output/out_test.cbor'
 
 allCBOR = cbor.load(open(file, 'rb'))
 version = allCBOR[0]
@@ -95,7 +95,12 @@ def trace_printer(trace = trace, bound = -1):
         if cycle > bound and bound > 0:
             return
     
-
+def simpl_trace():
+    for chnk in trace:
+        print ("Segment ", chnk[0], " :     // Has", len(chnk[1]))
+        for l in chnk[1]:
+            print (l)
+        print("")
 
 def countNetwork():
     countTo = 0

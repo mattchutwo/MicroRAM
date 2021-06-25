@@ -26,6 +26,9 @@ instruction number to produce well formed MicroRAM. It does so in three passes:
 
 3) Replace all labels with the location given in the label map.
 
+TODO: It can all be done in 2 passes. Optimize?
+
+
 -}
 module Compiler.RemoveLabels
     ( removeLabels,
@@ -40,6 +43,7 @@ import qualified Data.Map.Strict as Map
 
 import Util.Util
 
+import Compiler.Common
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.LazyConstants
@@ -54,8 +58,8 @@ naturals = iterate (1 +) 1
 
 -- ** Create a label map
 
-type LabelMap = Map.Map String Wrd
-getLabel :: LabelMap -> String -> Hopefully Wrd
+type LabelMap = Map.Map Name Wrd
+getLabel :: LabelMap -> Name -> Hopefully Wrd
 getLabel lmap lbl =
   case Map.lookup lbl lmap of
     Just w -> Right w
@@ -147,12 +151,12 @@ removeLabelsInitMem :: LabelMap -> LazyInitialMem -> Hopefully $ InitialMem
 removeLabelsInitMem lmap lInitMem =
   let fullMap = addDefault lmap in
     mapM (removeLabelsSegment fullMap) lInitMem
-  where removeLabelsSegment :: (String -> Wrd) -> LazyInitSegment -> Hopefully $ InitMemSegment
+  where removeLabelsSegment :: (Name -> Wrd) -> LazyInitSegment -> Hopefully $ InitMemSegment
         removeLabelsSegment labelMap (lMem, initSegment) =
           return $ initSegment {content =  removeLabelInitialValues labelMap lMem}
-        removeLabelInitialValues :: (String -> Wrd) -> Maybe [LazyConst String Wrd] -> Maybe [Wrd]
+        removeLabelInitialValues :: (Name -> Wrd) -> Maybe [LazyConst Name Wrd] -> Maybe [Wrd]
         removeLabelInitialValues labelMap lMem =  map (makeConcreteConst labelMap) <$> lMem
-addDefault :: LabelMap -> String -> Wrd
+addDefault :: LabelMap -> Name -> Wrd
 addDefault labelMap name =
   case Map.lookup name labelMap of
     Just x -> x
