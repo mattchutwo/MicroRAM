@@ -18,6 +18,7 @@ import qualified Data.Vector as Vec
 
 -- import Compiler.Registers
 import Compiler.CompilationUnit
+import Compiler.Tainted
 import Output.CBORFormat()
 import Output.Output
 
@@ -144,7 +145,7 @@ instance Arbitrary Advice where
   arbitrary = oneof $
     [ do
       wd <- arbitrary
-      MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> pure wd <*> fmap Vec.fromList (vector (widthInt wd))
+      MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> pure wd <*> fmap Vec.fromList (vectorOf wordBytes $ choose (0,untainted))
     , return Stutter 
     ]
 
@@ -157,7 +158,7 @@ testAdvice = testProperty "Serialising advice" $
 instance Arbitrary InitMemSegment where
   arbitrary = do
     content <- arbitrary
-    labels <- mapM (\c -> vectorOf (length c) (Vec.fromList <$> vector wordBytes)) content
+    labels <- mapM (\c -> vectorOf (length c) (Vec.fromList <$> vectorOf wordBytes (choose (0,untainted)))) content
     InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*>
               arbitrary <*> arbitrary <*> pure content <*> pure labels
 
