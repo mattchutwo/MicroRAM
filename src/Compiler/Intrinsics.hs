@@ -183,8 +183,8 @@ intrinsicsList =
   , ("@llvm.lifetime.end.p0i8", cc_noop)
 
   -- Varargs
-  , ("llvm.va_start", va_start)
-  , ("llvm.va_end", cc_noop)
+  , ("@llvm.va_start", va_start)
+  , ("@llvm.va_end", cc_noop)
 
   -- Exception handling
   , mkTrap "@__gxx_personality_v0"
