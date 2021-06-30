@@ -151,7 +151,6 @@ import           Compiler.Globals
 import           Compiler.IRs
 import           Compiler.InstructionSelection
 import           Compiler.Intrinsics
-import           Compiler.LayArgs
 import           Compiler.Legalize
 import           Compiler.LocalizeLabels
 import           Compiler.Metadata
@@ -191,7 +190,6 @@ compile2 spars prog = return prog
   >>= (tagPass "Localize Labels"     $ justCompileWithNames localizeLabels)
   >>= (tagPass "Edge split"          $ justCompileWithNames edgeSplit)
   >>= (tagPass "Remove Phi Nodes"    $ justCompileWithNames removePhi)
-  >>= (tagPass "Remove Phi Nodes"    $ justCompileWithNamesSt layArgs)
   >>= (tagPass "Register Allocation" $ registerAlloc def)
   >>= (tagPass "Calling Convention"  $ justCompile callingConvention)
   >>= (tagPass "Remove Globals"      $ replaceGlobals)

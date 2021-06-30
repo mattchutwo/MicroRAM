@@ -61,26 +61,32 @@ type AReg = Int
 type Registers = [AReg]
 
 registerAlloc :: RegisterAllocOptions
-              -> CompilationUnit a (Lprog Metadata VReg MWord)
+              -> CompilationUnit a (Rprog Metadata MWord)
               -> Hopefully $ CompilationUnit a (Lprog Metadata AReg MWord)
 registerAlloc opt comp = do
   let regData = NumRegisters $ fromEnum numRegisters
-  lprog   <- registerAllocProg (pmProg $ programCU comp)
-  return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData} 
+  (lprog, nextName')   <- registerAllocProg (pmProg $ programCU comp)
+  return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData, nameBound = nextName'} 
   where
     -- Spill registers will be created after this bound
     -- and thats how we recognise them. 
     spillBound = nameBound comp
     
-    registerAllocProg :: Lprog Metadata VReg MWord
-                  -> Hopefully $ (Lprog Metadata AReg MWord)
-    registerAllocProg lprog = do
-      let code' = code lprog
+    registerAllocProg :: Rprog Metadata MWord
+                  -> Hopefully $ (Lprog Metadata AReg MWord, Word)
+    registerAllocProg rprog = do
+      -- Convert to ltl.
+      lprog <- rtlToLtl rprog
+
+      -- JP: Load arguments from stack? 
+      -- Replace `Name "0"` with `Lgetstack Incoming 0 _ _`, ...
+      let codeM = mapM initializeFunctionArgs $ code lprog
+      let (code', nextName') = runState codeM (nameBound comp)
       
       -- Run register allocation.
       code <- mapM (registerAllocFunc spillBound registers) code'
 
-      return $ setCode lprog code
+      return $ (setCode lprog code, nextName')
 
       
     -- Available registers.
@@ -100,6 +106,30 @@ data RAState = RAState {
   -- , raRegisterStackPosition :: Map VReg Word
   }
 
+-- Initialize function arguments according to the calling convention.
+-- Currently, this loads arguments from the stack with `Lgetstack Incoming 0 _ (Name "0")`.
+initializeFunctionArgs :: LFunction Metadata VReg MWord -> State Word (LFunction Metadata VReg MWord)
+initializeFunctionArgs (LFunction fname typ typs argNms stackSize blocks) = do
+  nextName <- get
+  put (nextName + 1)
+  let bname = bname' nextName 
+  let instrs = getStackInstrs bname
+  let b = BB bname instrs [] daginfo
+  return $ LFunction fname typ typs argNms stackSize $ b : blocks
+  where
+    getStackInstrs :: Name ->  [LTLInstr Metadata VReg MWord]
+    getStackInstrs bname = map (\(typ, (argNm, i)) -> 
+                                let inst = Lgetstack Incoming i typ argNm
+                                    md = trivialMetadata fname bname in
+                                  IRI inst md 
+                            ) $ zip typs $ zip argNms [0..]
+
+    bname' id = Name id $ ((dbName fname) <> "_args")
+
+    daginfo :: [Name]
+    daginfo = case blocks of
+      ((BB name _ _ _):_) -> [name]
+      _ -> []
 
 registerAllocFunc :: forall wrd . Word -> Registers -> LFunction Metadata VReg wrd -> Hopefully $ LFunction Metadata AReg wrd
 registerAllocFunc spillBound registers (LFunction name typ typs argNms stackSize' blocks') = do
