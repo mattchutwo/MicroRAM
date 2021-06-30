@@ -21,6 +21,7 @@ module Compiler.LayArgs
 
 import           Control.Monad.State (get, put) -- runState, runStateT, modify', State, StateT)
 import           Control.Monad.Trans.Class (lift)
+import           Control.Monad ((>=>))
 
 import           Compiler.Errors
 
@@ -29,8 +30,8 @@ import           Compiler.Common
 import           Compiler.IRs
 import           Compiler.Metadata
 --import           Compiler.Registers
-import           MicroRAM (MWord)
---import           Util.Util
+import           MicroRAM (MWord, Instruction'(..))
+import           Util.Util
 
 
 layArgs :: Rprog Metadata MWord -> WithNextReg Hopefully (Lprog Metadata Name MWord)
@@ -42,7 +43,33 @@ layArgs rtlProg = modifyCode (mapM layArgsFun) =<< ltlProg
 
 -- | 
 layArgsFun :: LFunction Metadata Name MWord -> WithNextReg Hopefully (LFunction Metadata Name MWord)
-layArgsFun fun = initializeFunctionArgs fun
+layArgsFun = setCalleeArgsFun >=> initializeFunctionArgs
+
+setCalleeArgsFun :: LFunction Metadata Name MWord -> WithNextReg Hopefully (LFunction Metadata Name MWord)
+setCalleeArgsFun fun = do 
+  funBody' <- mapM setCalleeArgsBlock $ funBody fun
+  return $ fun {funBody = funBody' } 
+  where
+    setCalleeArgsBlock :: BB Name (LTLInstr Metadata Name MWord) -> WithNextReg Hopefully $ BB Name (LTLInstr Metadata Name MWord)
+    setCalleeArgsBlock (BB nm insts tinsts dag) = do
+      insts'  <- concat <$> mapM setCalleeArgsInstr insts
+      tinsts' <- concat <$> mapM setCalleeArgsInstr tinsts  
+      return $ BB nm insts' tinsts' dag
+    setCalleeArgsInstr :: LTLInstr Metadata Name MWord -> WithNextReg Hopefully [LTLInstr Metadata Name MWord]
+    setCalleeArgsInstr instr@(MRI _ _) = return [instr]
+    setCalleeArgsInstr (IRI (LCall ty mreg op typs args) md) = do
+      settingInstructions <- (setArgs md args)
+      return $ settingInstructions ++ [IRI (LCall ty mreg op typs args) md]
+    setCalleeArgsInstr instr@(IRI _ _) = return [instr]
+
+    setArgs :: md -> [MAOperand Name MWord] -> WithNextReg Hopefully [LTLInstr md Name MWord]
+    setArgs md args = concat <$> mapM (setArg md) (zip (reverse args) [0..]) -- Arguments are set backwards  
+
+    setArg :: md -> (MAOperand Name MWord, MWord) -> WithNextReg Hopefully [LTLInstr md Name MWord]
+    setArg md (AReg r, i) = return [IRI (Lsetstack r Outgoing i Tint) md]
+    setArg md (notReg, i) = do
+      fresh <- newLocalName "fresh"
+      return [MRI (MicroRAM.Imov fresh notReg) md, IRI (Lsetstack fresh Outgoing i Tint) md]
 
 
 -- Initialize function arguments according to the calling convention.

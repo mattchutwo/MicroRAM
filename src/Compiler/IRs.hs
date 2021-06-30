@@ -251,7 +251,7 @@ type Rprog mdata wrdT = IRprog mdata wrdT $ RFunction mdata wrdT
 data Slot =
     Local     -- ^ Used by register allocation to spill pseudo-registers to the stack
   | Incoming  -- ^ Stores parameters of the current function
---  | Outgoing  -- ^ Stores arguments to the called function that cannot be in registers.
+  | Outgoing  -- ^ Stores arguments to the called function that cannot be in registers.
   deriving (Eq, Read, Show)
 
 -- | Locations are the disjoint union of machine registers and stack loctions
