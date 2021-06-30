@@ -49,6 +49,12 @@ testTrivial = ManyTests "Trivial programs" $ OneTest <$>
     ,testResult = 123
     } :
   defaultTest {
+    testName = "Function call with 10 args"
+    ,fileName ="test/Programs/manyArgs.ll"
+    ,testLen = 200
+    ,testResult = 45
+    } :
+  defaultTest {
     testName = "arithmetic shift right"
     ,fileName ="test/Programs/arithShr.ll"
     ,testLen = 600
