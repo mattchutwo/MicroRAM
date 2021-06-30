@@ -34,6 +34,7 @@ module Compiler.IRs(
   -- $GIR
   IRprog(..), Function(..), IRFunction, BB(..),
   IRInstruction(..),
+  modifyCode,
   
   VReg, DAGinfo,
   -- Utilities
@@ -164,6 +165,11 @@ data IRprog mdata wrdT funcT = IRprog
   } deriving (Show, Functor, Foldable, Traversable)
 
 
+-- | When you want to just change the code (like a light lense)
+modifyCode :: Monad m => ([funcT] -> m [funcT']) -> IRprog mdata wrdT funcT -> m (IRprog mdata wrdT funcT')
+modifyCode f prog = do
+  code' <- f $ code prog
+  return $ prog {code = code'}
 
 
 -- ** MicroIR
