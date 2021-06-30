@@ -19,18 +19,18 @@ module Compiler.LayArgs
     ( layArgs
     ) where
 
-import           Control.Monad.State (runState, State, runStateT, StateT, get, put, modify')
+import           Control.Monad.State (get, put) -- runState, runStateT, modify', State, StateT)
 import           Control.Monad.Trans.Class (lift)
 
 import           Compiler.Errors
 
 import           Compiler.Common
-import           Compiler.CompilationUnit
+--import           Compiler.CompilationUnit
 import           Compiler.IRs
 import           Compiler.Metadata
-import           Compiler.Registers
+--import           Compiler.Registers
 import           MicroRAM (MWord)
-import           Util.Util
+--import           Util.Util
 
 
 layArgs :: Rprog Metadata MWord -> WithNextReg Hopefully (Lprog Metadata Name MWord)
