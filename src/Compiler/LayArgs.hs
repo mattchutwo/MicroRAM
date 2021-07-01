@@ -13,6 +13,14 @@ Stability   :
 Lays argument sin the activation stack. This
 pass goes from RTL -> LTL
 
+After this pass, function arguments are passed in an abstract
+stack slots. For this pass there are two types of slots:
+
+- Outgoing: where the caller saves the arguments.
+- Incoming: where the callee finds the arguments.
+
+There is third slot, Local, where registers can be spilled.
+Those are introduced during register allocation.
 
 -}
 module Compiler.LayArgs
@@ -34,6 +42,8 @@ import           MicroRAM (MWord, Instruction'(..))
 import           Util.Util
 
 
+-- | translates the program from RTL to LTL and
+-- sets function arguments in an abstract stack slots
 layArgs :: Rprog Metadata MWord -> WithNextReg Hopefully (Lprog Metadata Name MWord)
 layArgs rtlProg = modifyCode (mapM layArgsFun) =<< ltlProg 
   where
@@ -41,10 +51,14 @@ layArgs rtlProg = modifyCode (mapM layArgsFun) =<< ltlProg
     ltlProg :: WithNextReg Hopefully (Lprog Metadata Name MWord)
     ltlProg = lift $ rtlToLtl rtlProg
 
--- | 
+-- | Sets function arguments in an abstract stack slots in two steps:
+-- 1. setCalleeArgsFun: lays Outgoing arguments on the stack
+-- 2. initializeFunctionArgs: retrieves Incoming arguments from the stack
 layArgsFun :: LFunction Metadata Name MWord -> WithNextReg Hopefully (LFunction Metadata Name MWord)
 layArgsFun = setCalleeArgsFun >=> initializeFunctionArgs
 
+
+-- | lays Outgoing arguments on the stack
 setCalleeArgsFun :: LFunction Metadata Name MWord -> WithNextReg Hopefully (LFunction Metadata Name MWord)
 setCalleeArgsFun fun = do 
   funBody' <- mapM setCalleeArgsBlock $ funBody fun
@@ -72,8 +86,7 @@ setCalleeArgsFun fun = do
       return [MRI (MicroRAM.Imov fresh notReg) md, IRI (Lsetstack fresh Outgoing i Tint) md]
 
 
--- Initialize function arguments according to the calling convention.
--- Currently, this loads arguments from the stack with `Lgetstack Incoming 0 _ (Name "0")`.
+-- | Retrieves Incoming arguments from the stack
 initializeFunctionArgs :: LFunction Metadata VReg MWord -> WithNextReg Hopefully (LFunction Metadata Name MWord)
 initializeFunctionArgs (LFunction fname typ typs argNms stackSize blocks) = do
   nextName <- get
