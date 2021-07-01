@@ -73,7 +73,7 @@ setCalleeArgsFun fun = do
     setCalleeArgsInstr instr@(MRI _ _) = return [instr]
     setCalleeArgsInstr (IRI (LCall ty mreg op typs args) md) = do
       settingInstructions <- (setArgs md args)
-      return $ settingInstructions ++ [IRI (LCall ty mreg op typs args) md]
+      return $ settingInstructions ++ [IRI (LCall ty mreg op [] []) md]
     setCalleeArgsInstr instr@(IRI _ _) = return [instr]
 
     setArgs :: md -> [MAOperand Name MWord] -> WithNextReg Hopefully [LTLInstr md Name MWord]
