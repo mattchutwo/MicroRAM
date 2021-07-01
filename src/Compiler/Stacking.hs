@@ -212,6 +212,13 @@ stackLTLInstr md (Lsetstack reg Incoming offset _) = return $ addMD md $
    [ Iadd bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
    , IstoreW (AReg bp) reg
    , Isub bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))]
+stackLTLInstr md (Lgetstack Outgoing offset _ reg) = return $ addMD md $
+   [ Isub reg sp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
+   , IloadW reg (AReg reg)]
+stackLTLInstr md (Lsetstack reg Outgoing offset _) = return $ addMD md $
+   [ Isub sp sp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
+   , IstoreW (AReg sp) reg
+   , Isub sp sp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))]
 stackLTLInstr md (Lgetstack Local offset _ reg) = return $ addMD md $
    [ Isub reg bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
    , IloadW reg (AReg reg)]  -- JP: offset+1?
