@@ -458,7 +458,7 @@ data AllocState = AllocState
 makeLenses ''AllocState
 
 heapStart :: MWord
-heapStart = 0x10000000
+heapStart = 1 `shiftL` 32
 
 initAllocState :: AllocState
 initAllocState = AllocState heapStart initValid Seq.empty Seq.empty
