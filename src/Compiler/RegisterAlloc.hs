@@ -22,7 +22,7 @@ module Compiler.RegisterAlloc
     ) where
 
 import           Control.Applicative (liftA2)
-import           Control.Monad.State (runState, State, runStateT, StateT, get, put, modify')
+import           Control.Monad.State (runStateT, StateT, get, modify')
 import           Control.Monad.Trans.Class (lift)
 import qualified Data.ByteString.Char8 as BSC
 

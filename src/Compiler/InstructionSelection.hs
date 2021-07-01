@@ -47,7 +47,6 @@ import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.Float as LLVM
 import qualified LLVM.AST.IntegerPredicate as IntPred
-import qualified LLVM.AST.Global as LLVM.Global(name)
 
 import Compiler.Errors
 import Compiler.Common
@@ -1558,10 +1557,6 @@ isDefs nameBound defs = do
   checkDiscardedDefs defs -- Make sure we dont drop something important
   return $ (IRprog Map.empty globVars funcs, state'' ^. nextReg) 
   where isFunctions env = mapM (isFunction env) $ filter itIsFunc defs
-        rememberFunctionNames (LLVM.GlobalDefinition glob) = do
-          let name = LLVM.Global.name glob
-          _ <- globalName name
-          return ()
           
 -- | Instruction selection generates an RTL Program
 instrSelect :: (LLVM.Module, Word) -> Hopefully $ (MIRprog Metadata MWord, Word)
