@@ -229,7 +229,7 @@ testDatastruct = ManyTests "Test data structures" $ OneTest <$>
   defaultTest {
   testName = "Binary search tree"
   ,fileName ="test/Programs/binaryTree/binaryTree.c.ll"
-  ,testLen = 2400
+  ,testLen = 3000
   ,testResult = 30
     } :
   []
