@@ -55,7 +55,7 @@ data RegisterAllocOptions = RegisterAllocOptions {
   }
 
 instance Default RegisterAllocOptions where
-  def = RegisterAllocOptions 13
+  def = RegisterAllocOptions 9
 
 type AReg = Int
 type Registers = [AReg]
