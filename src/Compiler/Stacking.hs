@@ -192,7 +192,7 @@ funCallInstructions md _ ret f _ args =
   addMD md 
   (IloadW bp (AReg sp) :         -- get old bp
   -- remove arguments and return address from the stack
-  (popN (fromIntegral $ (length args) + 1)) ++
+  (popN (fromIntegral $ (length args))) ++ -- TODO: Is this needed? 
   -- move the return value (always returns to ax)
   setResult ret)
   
