@@ -145,9 +145,10 @@ returnBlock retName = NBlock (Just retName) [(Ianswer (AReg ax),md)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => MWord -> Name -> [MAInstruction mreg MWord]
 prologue size entry =
-  case size of
+  (case size of
     0 -> []
-    _ -> [Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size))]
+    _ -> [Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size))])
+  ++ [Ijmp (Label entry)]
 
 
 -- | epilogue: deallocate the stack, then jump to return address
