@@ -74,7 +74,6 @@ import MicroRAM
 
 import Util.Util
 
-
 type LOperand mreg =  MAOperand mreg MWord
 
 -- ** Usefull snipets
@@ -177,21 +176,23 @@ funCallInstructions md _ ret f _ args =
   -- Push all arguments to stack
   -- We store arguments backwards
   addMD md 
-  (pushN (reverse args) ++
+  (
   -- Push return addres
     [Imov ax HereLabel,
      Iadd ax ax (LImm 7) -- FIXME: The compiler should do this addition
     ] ++ push ax ++
-    push bp ++ [Imov bp (AReg sp)] ++ -- Set new stack frame (sp is increased in the function)
+    -- push the old base pointer, and move the base pointer to the sp
+    push bp ++
+    [Imov bp (AReg sp)] ++
   -- Run function 
     [Ijmp f]) ++
   -- The function should return to this next instruciton
-  -- restore the base pointer (right before this is used to compute return address)
+  -- restore the base pointer (right before this it is used to compute return address)
   (Imov sp (AReg bp), md{mdReturnCall = True}): -- get old sp 
   addMD md 
   (IloadW bp (AReg sp) :         -- get old bp
   -- remove arguments and return address from the stack
-  (popN (fromIntegral $ (length args) + 2)) ++
+  (popN (fromIntegral $ (length args) + 1)) ++
   -- move the return value (always returns to ax)
   setResult ret)
   
@@ -213,12 +214,11 @@ stackLTLInstr md (Lsetstack reg Incoming offset _) = return $ addMD md $
    , IstoreW (AReg bp) reg
    , Isub bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))]
 stackLTLInstr md (Lgetstack Outgoing offset _ reg) = return $ addMD md $
-   [ Isub reg sp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
+   [ Isub reg sp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
    , IloadW reg (AReg reg)]
-stackLTLInstr md (Lsetstack reg Outgoing offset _) = return $ addMD md $
-   [ Isub sp sp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
-   , IstoreW (AReg sp) reg
-   , Isub sp sp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))]
+stackLTLInstr md (Lsetstack reg Outgoing _offset _) = return $ addMD md $
+   [ Isub sp sp (LImm $ fromIntegral $ wordBytes * 1) -- Offset is ignored,calculate it by bumping sp
+   , IstoreW (AReg sp) reg]
 stackLTLInstr md (Lgetstack Local offset _ reg) = return $ addMD md $
    [ Isub reg bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
    , IloadW reg (AReg reg)]  -- JP: offset+1?
