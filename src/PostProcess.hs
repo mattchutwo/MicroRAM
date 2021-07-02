@@ -27,14 +27,16 @@ import qualified Data.Map as Map
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
-import MicroRAM.MRAMInterpreter.AbsInt
 
 import Output.Output
 
 import Segments
+import Segments.AbsInt (testAbsInt_v)
 import Segments.ChooseSegments (TraceChunk(..))
+import Segments.ControlFlow (buildProgramCFG)
 
 import Sparsity.Sparsity (Sparsity)
+
 
   
 postProcess_v :: (Show reg, Regs reg)
@@ -46,7 +48,8 @@ postProcess_v :: (Show reg, Regs reg)
               -> Maybe Int
               -> Hopefully (Output reg)
 postProcess_v verb producePublic chunkSize private comp privSegs = do
-  () <- testAbsInt_v comp
+  let cfg = buildProgramCFG (pmProg $ lowProg $ programCU comp)
+  () <- testAbsInt_v (lowProg $ programCU comp) cfg
   (segment producePublic chunkSize privSegs)
     >=> (doIf private (buildTrace producePublic verb chunkSize spar))
     >=> (doIf private recoverAdvice)

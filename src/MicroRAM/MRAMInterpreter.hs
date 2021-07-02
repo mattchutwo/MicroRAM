@@ -26,7 +26,8 @@ module MicroRAM.MRAMInterpreter
     Executor,
     run, run_v, execAnswer, execBug,
     -- For post processing check (e.g. segment checking)
-    runWith, initMach, InstrHandler, runPassGeneric, InterpState, sMach, sExt, mCycle,
+    runWith, initMach, InstrHandler, runPassGeneric, InterpState,
+    sMach, sExt, mCycle, mPc,
     InstrHandler', InterpState',
     -- * Trace
     ExecutionState(..),

@@ -24,7 +24,7 @@ data Metadata = Metadata {
   , mdReturnCall :: Bool         -- If instruction happens right after a function call jump
   , mdIsCall :: Bool        -- ^ This `Ijmp` is a function call
   , mdIsReturn :: Bool      -- ^ This `Ijmp` is a return from the current function
-  } deriving (Show, Read)
+  } deriving (Eq, Show, Read)
 
 defaultMetadata :: Metadata
 defaultMetadata =

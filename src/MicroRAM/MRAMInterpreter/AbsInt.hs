@@ -12,10 +12,13 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.IRs
+import Compiler.Metadata (Metadata(..))
 import Compiler.Registers
 import MicroRAM
 import MicroRAM.MRAMInterpreter.Generic
@@ -49,6 +52,9 @@ type AbsMemoryMap = Map MWord (MemWidth, AbsValue)
 
 amInit :: AbsMemoryMap -> AbsMemory
 amInit m = AbsMemory m (VExact 0) False
+
+amHavoc :: AbsMemory
+amHavoc = AbsMemory mempty VTop True
 
 amLoad :: MemWidth -> MWord -> AbsMemory -> AbsValue
 amLoad w addr am
@@ -244,7 +250,7 @@ instance AbsDomain AbsValue where
     VExact c'
       | c' == 0 -> e
       | otherwise -> t
-    _ -> VTop
+    _ -> absMerge t e
     
 
   absStore w addr val mem = case addr of
@@ -275,6 +281,11 @@ instance AbsDomain AbsValue where
     VExact x -> return x
     _ -> otherError $ "can't concretize abstract value " ++ show v
 
+
+-- | Produce a value representing the union of `x` and `y`.
+absMerge :: AbsValue -> AbsValue -> AbsValue
+absMerge (VExact x) (VExact y) | x == y = VExact x
+absMerge _ _ = VTop
 
 
 
@@ -331,6 +342,12 @@ toSignedInteger :: MWord -> Integer
 toSignedInteger = toInteger . toMInt
 
 
+data ExtraState = ExtraState {
+  _eMetadata :: Seq Metadata
+}
+makeLenses ''ExtraState
+
+type AbsIntState r = InterpState' r AbsValue ExtraState
 
 data BranchCond =
   -- | The branch is always taken.
@@ -342,19 +359,49 @@ data BranchCond =
   deriving (Show)
 
 data StopReason =
-  -- | `SrSymBranch cond dest`: the next instruction is a symbolic branch.  If
-  -- `cond` holds, then control should transfer to `dest`; otherwise, it should
-  -- fall through.
-    SrSymBranch BranchCond AbsValue
-  -- | `SrAnswer val`: the next instruction is an answer instruction, which
-  -- terminates the program with code `val`.
+  -- | Stopped at a jump to a concrete destination.  If the instruction that
+  -- caused the stop is a conditional branch, then this result indicates that
+  -- the branch was taken (the condition holds).
+    SrJump MWord
+  -- | Stopped at a conditional jump whose condition doesn't hold, so execution
+  -- falls through to the next instruction.
+  | SrFallThrough
+  -- | Stopped at a symbolic branch.  If the branch condition holds,
+  -- then the PC is updated to the given value.
+  | SrBranch BranchCond AbsValue
+  -- | Stopped at an `Ianswer` instruction that terminates the program with the
+  -- given value.
   | SrAnswer AbsValue
-  -- | `SrInvalid`: the next instruction invalidates the trace.
+  -- | Stopped at an instruction that invalidates the trace.
   | SrInvalid
-  -- | `SrFuel`: not enough fuel to keep executing.
-  | SrFuel
+  -- | Stopped because the caller requested a stop at this PC.
+  | SrRequested
   deriving (Show)
 
+data Stop r = Stop {
+  -- | The instruction that execution stopped on.
+  _stInstr :: Instruction r MWord,
+  -- | The metadata of the instruction.
+  _stMetadata :: Metadata,
+  -- | The program state prior to executing the instruction.
+  _stState :: AbsIntState r,
+  -- | The reason why execution stopped.
+  _stReason :: StopReason
+}
+makeLenses ''Stop
+
+-- | Apply the effect of a branch instruction to state `s`.  Useful for
+-- creating the next state when execution stops with reason `SrJump` or
+-- `SrBranch`.
+takeBranch :: MWord -> AbsIntState r -> AbsIntState r
+takeBranch dest s = s
+  & sMach . mPc .~ dest
+  & sMach . mCycle %~ absAdd (VExact 1)
+
+takeFallThrough :: AbsIntState r -> AbsIntState r
+takeFallThrough s = s
+  & sMach . mPc %~ (+ 1)
+  & sMach . mCycle %~ absAdd (VExact 1)
 
 maybeStepInstr :: (Regs r) =>
   Instruction r MWord -> InterpM' r AbsValue s Hopefully (Maybe StopReason)
@@ -363,22 +410,26 @@ maybeStepInstr i = case i of
   Ijmp op2 -> do
     dest <- opVal op2
     case dest of
-      VExact _ -> stepInstr i >> return Nothing
-      _ -> return $ Just $ SrSymBranch BcAlways dest
+      VExact dest' -> return $ Just $ SrJump dest'
+      _ -> return $ Just $ SrBranch BcAlways dest
 
   Icjmp r2 op2 -> do
     flag <- regVal r2
     dest <- opVal op2
     case (flag, dest) of
-      (VExact _, VExact _) -> stepInstr i >> return Nothing
-      _ -> return $ Just $ SrSymBranch (BcNonZero flag) dest
+      (VExact flag', VExact dest')
+        | flag' /= 0 -> return $ Just $ SrJump dest'
+        | otherwise -> return $ Just SrFallThrough
+      _ -> return $ Just $ SrBranch (BcNonZero flag) dest
 
   Icnjmp r2 op2 -> do
     flag <- regVal r2
     dest <- opVal op2
     case (flag, dest) of
-      (VExact _, VExact _) -> stepInstr i >> return Nothing
-      _ -> return $ Just $ SrSymBranch (BcZero flag) dest
+      (VExact flag', VExact dest')
+        | flag' == 0 -> return $ Just $ SrJump dest'
+        | otherwise -> return $ Just SrFallThrough
+      _ -> return $ Just $ SrBranch (BcZero flag) dest
 
   Ipoison _ op2 _ -> do
     addr <- opVal op2
@@ -403,6 +454,65 @@ maybeStepInstr i = case i of
 
   _ -> stepInstr i >> return Nothing
 
+fetchMetadata :: MWord -> StateT (AbsIntState r) Hopefully Metadata
+fetchMetadata pc = do
+  metas <- use $ sExt . eMetadata
+  case Seq.lookup (fromIntegral pc) metas of
+    Just m -> return m
+    Nothing -> assumptError $ "missing metadata for instruction: " ++ show pc
+
+-- | Run a single basic block.
+runBlock :: (Regs r) => AbsIntState r -> Hopefully (Stop r)
+runBlock s = evalStateT go s
+  where
+    go = do
+      pc <- use $ sMach . mPc
+      regs <- use $ sMach . mRegs
+      i <- fetchInstr pc
+      optReason <- maybeStepInstr i
+      case optReason of
+        Just reason -> do
+          meta <- fetchMetadata pc
+          s' <- get
+          return $ Stop i meta s' reason
+        Nothing -> go
+
+-- | Run a section of straight-line code.  Continues through any concrete
+-- control flow (`SrJump` / `SrFallThrough`) except for function calls and
+-- returns.
+runStraightLine :: (Regs r) => AbsIntState r -> Hopefully (Stop r, [MWord])
+runStraightLine s = runStraightLine' s Nothing
+
+mkRequestedStop :: StateT (AbsIntState r) Hopefully (Stop r)
+mkRequestedStop = do
+  pc <- use $ sMach . mPc
+  i <- fetchInstr pc
+  meta <- fetchMetadata pc
+  s' <- get
+  return $ Stop i meta s' SrRequested
+
+runStraightLine' :: (Regs r) => AbsIntState r -> Maybe MWord -> Hopefully (Stop r, [MWord])
+runStraightLine' s optStopPc = go [] s
+  where
+    go blks s
+      | Just stopPc <- optStopPc, s ^. sMach . mPc == stopPc = do
+        stop <- evalStateT mkRequestedStop s
+        return (stop, reverse blks)
+      | otherwise = do
+        let pc = s ^. sMach . mPc
+        let blks' = pc : blks
+        stop <- runBlock s
+        let concreteJumpDest = case stop ^. stReason of
+              SrJump dest -> Just dest
+              SrFallThrough -> Just $ (stop ^. stState . sMach . mPc) + 1
+              _ -> Nothing
+            md = stop ^. stMetadata
+            isCallOrReturn = mdIsCall md || mdIsReturn md
+        case concreteJumpDest of
+          Just dest | not isCallOrReturn -> go blks' (takeBranch dest $ stop ^. stState)
+          _ -> return (stop, reverse blks')
+
+{-
 -- | Run a single path of execution.  Stops upon reaching a symbolic branch or
 -- upon termination.
 runPath :: (Regs r) => Int -> InterpM' r AbsValue s Hopefully StopReason
@@ -414,11 +524,11 @@ runPath n = do
   case optStop of
     Just sr -> return sr
     Nothing -> runPath (n - 1)
+-}
 
-initState :: Regs r => ProgAndMem (AnnotatedProgram m r MWord) -> s -> InterpState' r AbsValue s
-initState (ProgAndMem prog mem) s =
+initState :: Regs r => ProgAndMem (AnnotatedProgram Metadata r MWord) -> AbsIntState r
+initState (ProgAndMem prog mem) =
   InterpState {
-    _sExt = s,
     _sMach = MachineState {
       _mCycle = VExact 0,
       _mPc = 0,
@@ -427,6 +537,9 @@ initState (ProgAndMem prog mem) s =
       _mMem = amem,
       _mBug = False,
       _mAnswer = Nothing
+    },
+    _sExt = ExtraState {
+      _eMetadata = Seq.fromList $ map snd prog
     }
   }
   where
@@ -436,6 +549,27 @@ initState (ProgAndMem prog mem) s =
     memMap = Map.mapKeysMonotonic (* fromIntegral wordBytes) $ Map.union pubMemMap secMemMap
     amem = amInit memMap
 
+havocState :: Regs r => AbsIntState r -> AbsIntState r
+havocState s =
+  InterpState {
+    _sMach = MachineState {
+      _mCycle = VTop,
+      _mPc = s ^. sMach . mPc,
+      -- FIXME: this only sets registers that have been written to VTop, when
+      -- really we need to set all registers.  But we don't have an easy way to
+      -- get the total number of registers at this point.
+      _mRegs = fmap (const VTop) (s ^. sMach . mRegs),
+      _mProg = s ^. sMach . mProg,
+      _mMem = amHavoc,
+      _mBug = False,
+      _mAnswer = Nothing
+    },
+    _sExt = ExtraState {
+      _eMetadata = s ^. sExt . eMetadata
+    }
+  }
+
+{-
 testAbsInt_v :: Regs r => CompilationResult (AnnotatedProgram m r MWord) -> Hopefully ()
 testAbsInt_v (CompUnit (MultiProg _ progMem) _ _ _ _ _) = do
   let st = initState progMem ()
@@ -444,3 +578,4 @@ testAbsInt_v (CompUnit (MultiProg _ progMem) _ _ _ _ _) = do
     show (st' ^. sMach . mCycle) ++ " cycles"
   traceM $ "reason = " ++ show sr
   return ()
+  -}

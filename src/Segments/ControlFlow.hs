@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-
 Module      : Control flow analysis
 Description : 
@@ -11,10 +12,12 @@ postdominator trees.
 Relies on metadata for precise handling of indirect jumps.
 -}
 module Segments.ControlFlow (
-  ProgramCFG(..),
+  ProgramCFG,
+  pBlockStarts, pBlockFuncs, pSuccs, pPreds, pIdom, pIpdom,
   buildProgramCFG
 ) where
 
+import Control.Lens (makeLenses)
 import qualified Data.Graph.Dom as Dom
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -33,7 +36,7 @@ import MicroRAM
 -- counter values, so that we can use `IntMap` and `IntSet` for representing
 -- the graphs.  The special value `returnNode` (a.k.a `-1 :: Int`) is used to
 -- indicate function returns.
-data ProgramCFG r = ProgramCFG {
+data ProgramCFG = ProgramCFG {
   -- | Program counter values for the starts of all basic blocks.
   _pBlockStarts :: IntSet,
   -- | Maps each basic block to the entry point of its containing function.
@@ -43,11 +46,12 @@ data ProgramCFG r = ProgramCFG {
   -- | Predecessors of each block.
   _pPreds :: IntMap IntSet,
   -- | Immediate dominator of each block.
-  _pIdoms :: IntMap Int,
+  _pIdom :: IntMap Int,
   -- | Immediate postdominator of each block.
   _pIpdom :: IntMap Int
 }
   deriving (Show)
+makeLenses ''ProgramCFG
 
 -- | Special program counter value indicating the return address of the current
 -- function.  Indirect jumps that are used to return are treated as jumps to
@@ -91,7 +95,7 @@ gatherJumps prog = concatMap go $ zip [0..] prog
         _ -> []
 
       | mdIsReturn meta = case i of
-        Ijmp (Reg _) -> [(pc, -1)]
+        Ijmp (Reg _) -> [(pc, returnNode)]
         Ijmp (Const _) -> error $
           "impossible: direct jump at " ++ show pc ++ " is marked with return metadata"
         _ | isCondJump i -> error $
@@ -231,7 +235,7 @@ calcDominators g entry blks = (idom, ipdom)
     ipdom = IntMap.delete returnNode $
       IntMap.fromList $ map (\(a, b) -> (fromCompact a, fromCompact b)) ipdomRaw
 
-buildProgramCFG :: AnnotatedProgram Metadata r MWord -> ProgramCFG r
+buildProgramCFG :: AnnotatedProgram Metadata r MWord -> ProgramCFG
 buildProgramCFG prog = ProgramCFG blockStarts blockFuncs succs preds idoms ipdoms
   where
     jumps = gatherJumps prog
