@@ -172,7 +172,7 @@ funCallInstructions ::
   -> [Ty]
   -> [LOperand mreg] -- ^ Arguments
   -> [(MAInstruction mreg MWord, Metadata)]
-funCallInstructions md _ ret f _ args =
+funCallInstructions md _ ret f typs _args =
   -- Push all arguments to stack
   -- We store arguments backwards
   addMD md 
@@ -191,8 +191,13 @@ funCallInstructions md _ ret f _ args =
   (Imov sp (AReg bp), md{mdReturnCall = True}): -- get old sp 
   addMD md 
   (IloadW bp (AReg sp) :         -- get old bp
-  -- remove arguments and return address from the stack
-  (popN (fromIntegral $ (length args))) ++ -- TODO: Is this needed? 
+  -- NOTE: Decided not to remove arguments from the stack
+  --       they will be removed once the caller returns and we don't
+  --       we have plenty of space in the stack, so this should save
+  --       an instruction. Notice we use `typs`, because `args` is empty
+  --       by now. To remove them uncomment the following line:
+  -- (popN (fromIntegral $ (length typs))) ++
+  
   -- move the return value (always returns to ax)
   setResult ret)
   
