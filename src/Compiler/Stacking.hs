@@ -82,23 +82,10 @@ push, _pop :: Regs mreg => mreg -> [MAInstruction mreg MWord]
 push r = [Isub sp sp (LImm $ fromIntegral wordBytes), IstoreW (AReg sp) r]
 _pop r = [IloadW r (AReg sp), Iadd sp sp (LImm $ fromIntegral wordBytes)]
 
--- | pushOperand sometimes we want to push a constant
--- Notice here we use ax. This can only be done at funciton entry
--- where ax is callee-saved.
-pushOperand :: Regs mreg => LOperand mreg -> [MAInstruction mreg MWord]
-pushOperand (AReg r) = push r
-pushOperand op = Imov ax op :  push ax
-
-
-
-pushN :: Regs mreg => [LOperand mreg] -> [MAInstruction mreg MWord]
-pushN [] = []
-pushN (r:rs) = pushOperand r ++ pushN rs 
-
 -- PopN doesn't return, just drops the top n things in the stack
-popN :: Regs mreg => Word -> [MAInstruction mreg MWord]
-popN 0 = []
-popN n = [Iadd sp sp (LImm $ fromIntegral $ wordBytes * fromIntegral n) ]
+_popN :: Regs mreg => Word -> [MAInstruction mreg MWord]
+_popN 0 = []
+_popN n = [Iadd sp sp (LImm $ fromIntegral $ wordBytes * fromIntegral n) ]
 
 
 -- | smartMov is like Imov, but does nothing if the registers are the same
@@ -172,7 +159,7 @@ funCallInstructions ::
   -> [Ty]
   -> [LOperand mreg] -- ^ Arguments
   -> [(MAInstruction mreg MWord, Metadata)]
-funCallInstructions md _ ret f typs _args =
+funCallInstructions md _ ret f _typs _args =
   -- Push all arguments to stack
   -- We store arguments backwards
   addMD md 
@@ -196,7 +183,8 @@ funCallInstructions md _ ret f typs _args =
   --       we have plenty of space in the stack, so this should save
   --       an instruction. Notice we use `typs`, because `args` is empty
   --       by now. To remove them uncomment the following line:
-  -- (popN (fromIntegral $ (length typs))) ++
+  -- (Also recomended to rename _popN and _typs to remove the underscore) 
+  -- (_popN (fromIntegral $ (length _typs))) ++
   
   -- move the return value (always returns to ax)
   setResult ret)
