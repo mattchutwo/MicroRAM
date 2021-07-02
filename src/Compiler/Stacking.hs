@@ -280,6 +280,8 @@ stackFunction (LFunction name _retT _argT _argN size code) = do
     NBlock (Just name) _ : _ -> return name
     _ -> assumptError $ "function " ++ show name ++ " entry block has no name"
   let prologueBody = addMD prolMD (prologue size entryName)
+  -- Prologue has the same name of the function and the removeLabels pass will look for
+  -- this prologue (not the function) when jumping. That's why we need a prologue even if it's empty
   let prologueBlock = NBlock (Just name) $ prologueBody
   return $ markFunStart $ prologueBlock : codeBlocks
     
