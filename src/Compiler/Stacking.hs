@@ -145,9 +145,9 @@ returnBlock retName = NBlock (Just retName) [(Ianswer (AReg ax),md)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => MWord -> Name -> [MAInstruction mreg MWord]
 prologue size entry =
-    [ Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size))
-    , Ijmp $ Label entry
-    ]
+  case size of
+    0 -> []
+    _ -> [Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size))]
 
 
 -- | epilogue: deallocate the stack, then jump to return address
@@ -280,15 +280,25 @@ stackFunction (LFunction name _retT _argT _argN size code) = do
     NBlock (Just name) _ : _ -> return name
     _ -> assumptError $ "function " ++ show name ++ " entry block has no name"
   let prologueBody = addMD prolMD (prologue size entryName)
-  let prologueBlock = NBlock (Just name) $ markFunStart prologueBody 
-  return $ prologueBlock : codeBlocks
+  let prologueBlock = NBlock (Just name) $ prologueBody
+  return $ markFunStart $ prologueBlock : codeBlocks
+    
   where prolMD = trivialMetadata name name
         -- | Add metadata for the first instruction in a funciton
-        markFunStart :: [(MAInstruction mreg MWord, Metadata)] -> [(MAInstruction mreg MWord, Metadata)]
-        markFunStart ls = let firstInst = head ls in -- We know ls is not empyt because the prelude is not empyt.
-          (fst firstInst, (snd firstInst){mdFunctionStart = True}) : tail ls 
-  
-  
+        markFunStart :: [NamedBlock Metadata mreg MWord] -> [NamedBlock Metadata mreg MWord]
+        markFunStart blocks =
+          -- Find the first instruction and add 'mdFunctionStart = True'
+          case blocks of
+            [] -> [] -- ^ If the funciton is empty, it has no start
+            NBlock (Just name) [] : bbs -> NBlock (Just name) [] : markFunStart bbs
+            bb : bbs -> (markFunStartBlock bb) : bbs -- ^ guarantees that bb is not empty
+        -- Assumes the block is not empty
+        markFunStartBlock :: NamedBlock Metadata mreg MWord -> NamedBlock Metadata mreg MWord
+        markFunStartBlock  (NBlock (Just name) (firstInst : insts)) =
+          NBlock (Just name) $ (fst firstInst, (snd firstInst){mdFunctionStart = True}) : insts
+        markFunStartBlock (NBlock name []) = error $
+          "Block is expected to be non-empty, but found empty block: \n\t" <> show name
+          
 stacking :: Regs mreg => (Lprog Metadata mreg MWord, Word) -> Hopefully $ (MAProgram Metadata mreg MWord, Word)
 stacking (IRprog _ _ functions, nextName) = do
   functions' <- mapM stackFunction functions
