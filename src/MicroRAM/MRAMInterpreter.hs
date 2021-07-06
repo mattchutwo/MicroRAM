@@ -535,7 +535,7 @@ adviceHandler advice (Iload w _rd op2) = do
   addr <- opVal op2
   (waddr, _offset) <- splitAlignedAddr w addr
   val <- use $ sMach . mMemWord waddr
-  taint <- use $ sMach . mMemLabel addr
+  taint <- use $ sMach . mMemLabel waddr
   recordAdvice advice (MemOp addr val MOLoad w taint)
 adviceHandler advice (Ipoison w op2 r1) = do
   -- Poison must be a full word.
