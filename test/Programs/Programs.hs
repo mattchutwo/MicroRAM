@@ -257,10 +257,16 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
   , bug = True }  :
   defaultTest {
     testName = "Information leakage"
-  , fileName = "test/Programs/noni/heartbleed.ll"
-  , testLen = 5000
+  , fileName = "test/Programs/noni/explicit0.ll"
+  , testLen = 200
   , testResult = 0
   , bug = True }  :
+  -- defaultTest {
+  --   testName = "Information leakage"
+  -- , fileName = "test/Programs/noni/heartbleed.ll"
+  -- , testLen = 5000
+  -- , testResult = 0
+  -- , bug = True }  :
   []
 
 
