@@ -43,7 +43,7 @@ livenessAnalysis blocks = do -- trace (show blocks) $ do
 
   where
     -- Build CFG (Edges of instruction names?)
-    cfg = buildCFG blocks
+    (cfg, predecessorMap) = buildCFG blocks
 
     -- Compute use and define set for each block.
     (useM, defM) = foldr (\(BB name insts insts' _) (useM, defM) ->
@@ -56,6 +56,8 @@ livenessAnalysis blocks = do -- trace (show blocks) $ do
 
     lookupSet k = maybe mempty id . Map.lookup k
 
+    getPredecessors v = maybe [] id $ Map.lookup v predecessorMap
+
     go ins outs q = case Queue.pop q of
       Nothing -> (ins, outs)
       Just (q, v) -> 
@@ -67,18 +69,26 @@ livenessAnalysis blocks = do -- trace (show blocks) $ do
         let newIn = lookupSet v useM `Set.union` (newOut `Set.difference` lookupSet v defM) in
         let ins' = Map.insert v newIn ins in
 
-        let q' = if oldIn /= newIn then foldr Queue.push q (DiGraph.predecessors cfg v) else q in
+        let q' = if oldIn /= newIn then foldr Queue.push q (getPredecessors v) else q in
 
         go ins' outs' q'
-    
 
-buildCFG :: Ord name => [BB name inst] -> DiGraph name ([inst], [inst]) ()
-buildCFG blocks = DiGraph.setNodeLabels nodeLabels $ DiGraph.fromEdges edges
+     
+    
+type PredecessorMap name = Map.Map name [name]
+  
+buildCFG :: Ord name => [BB name inst] -> (DiGraph name ([inst], [inst]) (), PredecessorMap name)
+buildCFG blocks = (DiGraph.setNodeLabels nodeLabels $ DiGraph.fromEdges edges, predecessors)
   where
     edges = concatMap (\(BB name _insts _insts' names) -> 
         map (name,) names
       ) blocks
 
+    -- Compute predecessors
+    predecessors = foldl (\predMap (source,target) -> addPredecessor target source predMap)  Map.empty edges 
+      where addPredecessor :: Ord name => name -> name -> PredecessorMap name -> PredecessorMap name
+            addPredecessor key val pmap = let preds = maybe mempty id $ Map.lookup key pmap in
+              Map.insert key (val:preds) pmap 
     -- JP: We have the invariant that each block has one instruction, so we could return `DiGraph name inst ()` instead.
     nodeLabels = map (\(BB name insts insts' _names) -> (name, (insts, insts'))) blocks
 
