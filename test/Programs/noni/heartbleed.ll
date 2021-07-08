@@ -93,7 +93,7 @@ define void @write_response_to_network(i32, i8*, i32) #0 {
   %15 = sext i32 %14 to i64
   %16 = getelementptr inbounds i8, i8* %13, i64 %15
   %17 = load i32, i32* %4, align 4
-  call void @noniSink(i8* %16, i32 %17)
+  call void @noniSinkU8(i8* %16, i32 %17)
   %18 = load i8*, i8** %5, align 8
   %19 = load i32, i32* %7, align 4
   %20 = sext i32 %19 to i64
@@ -114,7 +114,7 @@ define void @write_response_to_network(i32, i8*, i32) #0 {
   ret void
 }
 
-declare void @noniSink(i8*, i32) #1
+declare void @noniSinkU8(i8*, i32) #1
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable
 define i32 @putchar(i32) #0 {
@@ -150,7 +150,7 @@ define void @run_login(i32, i8*) #0 {
   %16 = sext i32 %15 to i64
   %17 = getelementptr inbounds i8, i8* %14, i64 %16
   %18 = load i32, i32* %3, align 4
-  call void @noniSetLabel(i8* %17, i32 %18)
+  call void @noniSetLabelU8(i8* %17, i32 %18)
   br label %19
 
 ; <label>:19:                                     ; preds = %13
@@ -183,7 +183,7 @@ define void @run_login(i32, i8*) #0 {
   ret void
 }
 
-declare void @noniSetLabel(i8*, i32) #1
+declare void @noniSetLabelU8(i8*, i32) #1
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable
 define i32 @strcmp(i8*, i8*) #0 {
