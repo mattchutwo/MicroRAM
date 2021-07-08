@@ -121,6 +121,14 @@ handleErrors hx = case hx of
   Right x -> return x
 
        
+data Mode = LeakTaintedMode
+  deriving (Eq, Ord)
+
+instance Read Mode where
+    readsPrec _ input = maybe
+        []
+        (\rest -> [(LeakTaintedMode, rest)])
+        $ stripPrefix "leak-tainted" input
 
 data Flag
  = -- General flags
@@ -139,6 +147,7 @@ data Flag
    | AllowUndefFun
    | PrettyPrint
    | ProduceSegs
+   | ModeFlag Mode
    -- Interpreter flags
    | FromMRAM
    | Output String
@@ -171,6 +180,7 @@ data FlagRecord = FlagRecord
   , allowUndefFun:: Bool
   , ppMRAM :: Bool
   , produceSegs :: Bool
+  , modeLeakTainted :: Bool
   -- Interpreter
   , fileOut :: Maybe String
   , end :: Stages
@@ -199,6 +209,7 @@ defaultFlags name len =
   , allowUndefFun = False
   , ppMRAM = False
   , produceSegs = True
+  , modeLeakTainted = False
   -- Interpreter
   , fileOut   = Nothing
   , end       = FullOutput
@@ -210,29 +221,30 @@ defaultFlags name len =
 parseFlag :: Flag -> FlagRecord -> FlagRecord
 parseFlag flag fr =
   case flag of
-    Verbose ->                 fr {verbose = True}
+    Verbose ->                  fr {verbose = True}
     -- Front end flags
-    Optimisation n ->          fr {optim = n}
+    Optimisation n ->           fr {optim = n}
     -- Back end flags 
-    LLVMout (Just llvmOut) ->  fr {llvmFile = llvmOut}
-    LLVMout Nothing ->         fr {llvmFile = replaceExtension (fileIn fr) ".ll"}
-    FromLLVM ->                fr {beginning = LLVMLang, llvmFile = fileIn fr} -- In this case we are reading the fileIn
-    PrivSegs numSegs ->        fr {privSegs = Just numSegs}
-    JustLLVM ->                fr {end = max LLVMLang $ end fr}
-    JustMRAM ->                fr {end = max MRAMLang $ end fr}
-    MemSparsity s ->           fr {spars = Just s}
-    AllowUndefFun ->           fr {allowUndefFun = True}
-    PrettyPrint ->             fr {ppMRAM = True}
+    LLVMout (Just llvmOut) ->   fr {llvmFile = llvmOut}
+    LLVMout Nothing ->          fr {llvmFile = replaceExtension (fileIn fr) ".ll"}
+    FromLLVM ->                 fr {beginning = LLVMLang, llvmFile = fileIn fr} -- In this case we are reading the fileIn
+    PrivSegs numSegs ->         fr {privSegs = Just numSegs}
+    JustLLVM ->                 fr {end = max LLVMLang $ end fr}
+    JustMRAM ->                 fr {end = max MRAMLang $ end fr}
+    MemSparsity s ->            fr {spars = Just s}
+    AllowUndefFun ->            fr {allowUndefFun = True}
+    PrettyPrint ->              fr {ppMRAM = True}
     ProduceSegs ->              fr {produceSegs = False}
+    ModeFlag LeakTaintedMode -> fr {modeLeakTainted = True}
     -- Interpreter flags
-    FromMRAM ->                fr {beginning = MRAMLang} -- In this case we are reading the fileIn
-    MRAMout (Just outFile) ->  fr {mramFile = Just outFile}
-    MRAMout Nothing ->         fr {mramFile = Just $ replaceExtension (fileIn fr) ".micro"}
-    Output outFile ->          fr {fileOut = Just outFile}
-    DoubleCheck ->             fr {doubleCheck = True}
-    FlatFormat ->              fr {outFormat = max Flat $ outFormat fr}
-    PrettyHex ->               fr {outFormat = max PHex $ outFormat fr}
-    _ ->                       fr
+    FromMRAM ->                 fr {beginning = MRAMLang} -- In this case we are reading the fileIn
+    MRAMout (Just outFile) ->   fr {mramFile = Just outFile}
+    MRAMout Nothing ->          fr {mramFile = Just $ replaceExtension (fileIn fr) ".micro"}
+    Output outFile ->           fr {fileOut = Just outFile}
+    DoubleCheck ->              fr {doubleCheck = True}
+    FlatFormat ->               fr {outFormat = max Flat $ outFormat fr}
+    PrettyHex ->                fr {outFormat = max PHex $ outFormat fr}
+    _ ->                        fr
 
 parseOptions :: String -> Maybe Word -> [Flag] -> IO FlagRecord
 parseOptions filein len flags = do
@@ -260,6 +272,7 @@ options =
   , Option []    ["allow-undef"] (NoArg AllowUndefFun)          "Allow declared functions with no body."
   , Option []    ["pretty-print"] (NoArg PrettyPrint)          "Pretty print the MicroRAM program with metadata."
   , Option []    ["no-segs"] (NoArg ProduceSegs)              "Don't use segments (old version)."
+  , Option []    ["mode"] (ReqArg (ModeFlag . read) "MODE")              "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)

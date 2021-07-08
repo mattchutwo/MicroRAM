@@ -45,18 +45,19 @@ canFlowTo l1 l2 | l1 == l2        = True
 canFlowTo _  _                    = False
 
 -- | Checks that a label is in bounds or throws an exception.
-checkLabel :: MonadError CmplError m => Label -> m ()
-checkLabel l | l <= untainted = return ()
-checkLabel l                  = assumptError ("Invalid label: " <> show l)
+checkLabel :: MonadError CmplError m => Maybe Label -> m ()
+checkLabel (Just l) | l <= untainted = return ()
+checkLabel (Just l)                  = assumptError ("Invalid label: " <> show l)
+checkLabel Nothing                   = return ()
 
 
 concretizeLabel :: Maybe Label -> Label
 concretizeLabel (Just w) = w
 concretizeLabel Nothing = untainted
 
-toLabel :: MonadError CmplError m => MWord -> m Label
+toLabel :: MonadError CmplError m => MWord -> m (Maybe Label)
 toLabel w = do
-  let l = fromIntegral w
+  let l = Just $ fromIntegral w
   checkLabel l
   return l
 

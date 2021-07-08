@@ -34,6 +34,7 @@ module MicroRAM.MRAMInterpreter
     Prog
     ) where
 
+import Control.Applicative (liftA2)
 import Control.Monad
 import Control.Monad.State
 import Control.Lens (makeLenses, ix, at, to, lens, (^.), (^?), (&), (.~), (.=), (%=), use, Lens', _1, _2, _3)
@@ -41,6 +42,7 @@ import Data.Bits
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.List (intercalate)
+import Data.Maybe (isJust, fromMaybe)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import qualified Data.Set as Set
@@ -71,14 +73,14 @@ type Poison = Set MWord
 data Mem = Mem
   MWord
   (Map MWord MWord)
-  (Map MWord (Vector Label)) -- ^ Vector of 8 (2 bit) labels for the word.
+  (Maybe (Map MWord (Vector Label))) -- ^ Vector of 8 (2 bit) labels for the word.
 
 
 data MachineState r = MachineState
   { _mCycle :: MWord
   , _mPc :: MWord
   , _mRegs :: RegBank r MWord
-  , _mRegLabels :: RegBank r Label -- TODO: Type level stuff to enable tainted things.
+  , _mRegLabels :: Maybe (RegBank r Label) -- TODO: Type level stuff to enable tainted things.
   , _mProg :: Seq (Instruction r MWord)
   , _mMem :: Mem
   , _mPsn :: Poison
@@ -99,14 +101,18 @@ type InterpM r s m a = StateT (InterpState r s) m a
 
 type InstrHandler r s = Instruction r MWord -> InterpM r s Hopefully ()
 
+checkLeakTainted :: Monad m => InterpM r s m Bool
+checkLeakTainted = do
+  ls <- use $ sMach . mRegLabels
+  return $ isJust ls
 
 -- | Lens for accessing a particular register in `mRegs`.  Returns the default
 -- value 0 when the register is uninitialized.
 mReg :: (Functor f, Regs r) => r -> (MWord -> f MWord) -> (MachineState r -> f (MachineState r))
 mReg r = mRegs . lens (maybe 0 id . lookupReg r) (flip $ updateBank r)
 
-mRegLabel :: (Functor f, Regs r) => r -> (Label -> f Label) -> (MachineState r -> f (MachineState r))
-mRegLabel r = mRegLabels . lens (maybe untainted id . lookupReg r) (flip $ updateBank r)
+mRegLabel :: (Functor f, Regs r) => r -> (Maybe Label -> f (Maybe Label)) -> (MachineState r -> f (MachineState r))
+mRegLabel r = mRegLabels . lens (fmap (maybe untainted id . lookupReg r)) (liftA2 (flip $ updateBank r))
 
 -- | Lens for accessing a particular word of memory.  Produces the `Mem`'s
 -- default value when reading an uninitialized location.
@@ -121,25 +127,26 @@ mMemWord addr = mMem . memWord addr
 
 -- | Lens for accessing a particular label of memory.  Produces the 
 -- untainted when reading an uninitialized location.
-memLabel :: Functor f => MWord -> (Vector Label -> f (Vector Label)) -> (Mem -> f Mem)
+memLabel :: Functor f => MWord -> (Maybe (Vector Label) -> f (Maybe (Vector Label))) -> (Mem -> f Mem)
 memLabel addr = lens (get addr) (set addr)
   where
-    get addr (Mem d m l) = maybe (Vec.replicate wordBytes untainted) id $ Map.lookup addr l
-    set addr (Mem d m l) val = Mem d m (Map.insert addr val l)
+    get addr (Mem d m l) = (maybe (Vec.replicate wordBytes untainted) id . Map.lookup addr) <$> l
+    set addr (Mem d m l) val = Mem d m (Map.insert addr <$> val <*> l)
 
-mMemLabel :: Functor f => MWord -> (Vector Label -> f (Vector Label)) -> (MachineState r -> f (MachineState r))
+mMemLabel :: Functor f => MWord -> (Maybe (Vector Label) -> f (Maybe (Vector Label))) -> (MachineState r -> f (MachineState r))
 mMemLabel addr = mMem . memLabel addr
 
-subLabels :: Functor f => MemWidth -> Int -> (Vector Label -> f (Vector Label)) -> Vector Label -> f (Vector Label)
+subLabels :: Functor f => MemWidth -> Int -> (Maybe (Vector Label) -> f (Maybe (Vector Label))) -> Maybe (Vector Label) -> f (Maybe (Vector Label))
 subLabels wd offset f ls = put <$> f ls'
   where
     w = widthInt wd
-    ls' = Vec.slice offset w ls
+    ls' = Vec.slice offset w <$> ls
     -- Assumes that the provided vector matches the expected width.
-    put v =
-      let (ls1, lsr) = Vec.splitAt offset ls in
-      let (_ls2, ls3) = Vec.splitAt w lsr in
-      Vec.concat [ls1, v, ls3]
+    put v' = do
+      (ls1, lsr) <- Vec.splitAt offset <$> ls
+      let (_ls2, ls3) = Vec.splitAt w lsr
+      v <- v'
+      return $ Vec.concat [ls1, v, ls3]
 
 -- | Fetch the instruction at `addr`.  Typically, `addr` will be the current
 -- program counter (`sMach . mPc`).
@@ -223,7 +230,11 @@ stepInstrTainted (Isink rj op2) = do
   lj <- regLabel rj
   checkLabel lj
   l2 <- opVal op2 >>= toLabel
-  when (not $ lj `canFlowTo` l2) $
+  let isBug = fromMaybe False $ do
+        lj <- lj
+        l2 <- l2
+        return $ not $ lj `canFlowTo` l2
+  when isBug $
     sMach . mBug .= True
 stepInstrTainted (Itaint rj op2) = do
   l <- opVal op2 >>= toLabel -- Taint register rj with label value op2.
@@ -239,7 +250,7 @@ stepInstrTainted (Iload wd rd op2) = do
   ls <- use $ sMach . mMemLabel waddr . subLabels wd offset
 
   -- Meet the labels.
-  let l = Vec.foldr1 meet ls
+  let l = Vec.foldr1 meet <$> ls
 
   -- Set the register label.
   sMach . mRegLabel rd .= l
@@ -248,7 +259,7 @@ stepInstrTainted (Istore wd op2 r1) = do
   (waddr, offset) <- splitAlignedAddr wd addr
   l <- regLabel r1
   checkLabel l
-  sMach . mMemLabel waddr . subLabels wd offset .= (Vec.replicate (widthInt wd) l)
+  sMach . mMemLabel waddr . subLabels wd offset .= fmap (Vec.replicate $ widthInt wd) l
 stepInstrTainted (Ipoison wd op2 r1) = do
   -- Poison must be a full word.
   requireWWord wd
@@ -256,7 +267,7 @@ stepInstrTainted (Ipoison wd op2 r1) = do
   (waddr, _offset) <- splitAlignedAddr wd addr
   l <- regLabel r1
   checkLabel l
-  sMach . mMemLabel waddr .= Vec.replicate (widthInt wd) l
+  sMach . mMemLabel waddr .= fmap (Vec.replicate $ widthInt wd) l
 
 -- Currently, we untaint the written to register for the following instructions.
 stepInstrTainted (Iand rd r1 op2) = stepUntaintReg rd
@@ -300,9 +311,14 @@ stepInstrTainted i@(Iextadvise _ _) = do
       i' <- mapInstrM (return . toWord) regVal opVal i
       assumptError $ "unhandled extension instruction: " ++ show i'
 
-stepUntaintReg :: Regs r => r -> InterpM r s Hopefully ()
-stepUntaintReg rd = sMach . mRegLabel rd .= untainted
+-- whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
+-- whenJust = for_
 
+stepUntaintReg :: Regs r => r -> InterpM r s Hopefully ()
+stepUntaintReg rd = do
+  check <- checkLeakTainted
+  when check $
+    sMach . mRegLabel rd .= Just untainted
 
 stepUnary :: Regs r => (MWord -> MWord) ->
   r -> Operand r MWord -> InterpM r s Hopefully ()
@@ -467,7 +483,7 @@ signedGe x y = toSignedInteger x >= toSignedInteger y
 regVal :: Regs r => r -> InterpM r s Hopefully MWord
 regVal r = use $ sMach . mReg r
 
-regLabel :: Regs r => r -> InterpM r s Hopefully Label
+regLabel :: Regs r => r -> InterpM r s Hopefully (Maybe Label)
 regLabel r = use $ sMach . mRegLabel r
 
 opVal ::  Regs r => Operand r MWord -> InterpM r s Hopefully MWord
@@ -475,9 +491,14 @@ opVal (Reg r) = regVal r
 opVal (Const w) = return w
 
 -- Returns the label of an operand.
-opLabel ::  Regs r => Operand r MWord -> InterpM r s Hopefully Label
+opLabel ::  Regs r => Operand r MWord -> InterpM r s Hopefully (Maybe Label)
 opLabel (Reg r) = regLabel r
-opLabel (Const _w) = return untainted
+opLabel (Const _w) = do
+  check <- checkLeakTainted
+  if check then
+    return $ Just untainted
+  else
+    return Nothing
 
 
 -- Advice-generating extension
@@ -495,7 +516,7 @@ data Advice =
       MWord          -- ^ value
       MemOpType      -- ^ read or write
       MemWidth       -- ^ width of the access
-      (Vector Label) -- ^ Labels for each byte      -- TODO: Type level stuff to enable tainted things.
+      (Maybe (Vector Label)) -- ^ Labels for each byte      -- TODO: Type level stuff to enable tainted things.
   | Advise MWord
   | Stutter
   deriving (Eq, Read, Show, Generic)
@@ -527,7 +548,7 @@ adviceHandler advice (Istore w op2 r1) = do
   storeVal <- regVal r1
   memVal <- use $ sMach . mMemWord waddr
   let memVal' = memVal & subBytes w offset .~ storeVal
-  storeTaint <- Vec.replicate (widthInt w) <$> regLabel r1
+  storeTaint <- fmap (Vec.replicate (widthInt w)) <$> regLabel r1
   memTaint <- use $ sMach . mMemLabel waddr
   let memTaint' = memTaint & subLabels w offset .~ storeTaint
   recordAdvice advice (MemOp addr memVal' MOStore w memTaint')
@@ -543,7 +564,7 @@ adviceHandler advice (Ipoison w op2 r1) = do
   addr <- opVal op2
   val <- regVal r1
   taint <- regLabel r1
-  recordAdvice advice (MemOp addr val MOPoison w (Vec.replicate (widthInt w) taint))
+  recordAdvice advice (MemOp addr val MOPoison w (Vec.replicate (widthInt w) <$> taint))
 adviceHandler _ _ = return ()
 
 
@@ -870,7 +891,7 @@ runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
 
 -- Old public definitions
 
-type Mem' = (MWord, Map MWord MWord, Map MWord (Vector Label)) -- TODO: Type level stuff to enable tainted things.
+type Mem' = (MWord, Map MWord MWord, Maybe (Map MWord (Vector Label))) -- TODO: Type level stuff to enable tainted things.
 
 -- | The program state 
 data ExecutionState mreg = ExecutionState {
@@ -879,7 +900,7 @@ data ExecutionState mreg = ExecutionState {
   -- | Register bank
   , regs :: RegBank mreg MWord
   -- | Register label bank
-  , regLabels :: RegBank mreg Label -- TODO: Type level stuff to enable tainted things.
+  , regLabels :: Maybe (RegBank mreg Label) -- TODO: Type level stuff to enable tainted things.
   -- | Memory state
   , mem :: Mem'
   -- | Locations that have been poisoned
@@ -913,14 +934,14 @@ getStateWithAdvice advice = do
 type Prog mreg = Program mreg MWord
 type Trace mreg = [ExecutionState mreg]
 
-initMach :: Regs r => Program r MWord -> InitialMem -> MachineState r
-initMach prog imem = MachineState
+initMach :: Regs r => Bool -> Program r MWord -> InitialMem -> MachineState r
+initMach leakTainted prog imem = MachineState
   { _mCycle = 0
   , _mPc = 0
   , _mRegs = initBank (lengthInitMem imem)
-  , _mRegLabels = initBank untainted
+  , _mRegLabels = if leakTainted then Just $ initBank untainted else Nothing
   , _mProg = Seq.fromList prog
-  , _mMem = Mem 0 (flatInitMem imem) $ flatInitTaintedMem imem
+  , _mMem = Mem 0 (flatInitMem imem) $ if leakTainted then Just $ flatInitTaintedMem imem else Nothing
   , _mPsn = Set.empty
   , _mBug = False
   , _mAnswer = Nothing
@@ -928,28 +949,28 @@ initMach prog imem = MachineState
 
 type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
-run_v :: Regs mreg => Bool ->  Executor mreg (Trace mreg)
-run_v verbose (CompUnit progs trLen _ _analysis _) = case go of
+run_v :: Regs mreg => Bool -> Bool -> Executor mreg (Trace mreg)
+run_v verbose leakTainted (CompUnit progs trLen _ _analysis _) = case go of
   Left e -> error $ describeError e
   Right x -> x
   where
     go = do
-      let highState = initMach (pmProg $ highProg progs) (pmMem $ highProg progs)
+      let highState = initMach leakTainted (pmProg $ highProg progs) (pmMem $ highProg progs)
       memInfo <- runPass1 verbose  (trLen - 1) highState
-      let lowState = initMach (pmProg $ lowProg progs) (pmMem $ lowProg progs)
+      let lowState = initMach leakTainted (pmProg $ lowProg progs) (pmMem $ lowProg progs)
       tr <- runPass2 (trLen - 1) lowState memInfo
       return tr
       
-run :: Regs mreg => Executor mreg (Trace mreg)
-run = run_v False
+run :: Regs mreg => Bool -> Executor mreg (Trace mreg)
+run leakTainted = run_v False leakTainted
       
 -- | Execute the program and return the result.
-execAnswer :: Regs mreg => Bool -> Executor mreg MWord
-execAnswer verb compUnit = answer $ last $ run_v verb compUnit
+execAnswer :: Regs mreg => Bool -> Bool -> Executor mreg MWord
+execAnswer verb leakTainted compUnit = answer $ last $ run_v verb leakTainted compUnit
 
 -- | Execute the program and tells if there was a bug.
-execBug :: Regs mreg => Bool -> Executor mreg Bool
-execBug verb compUnit = bug_flag $ last $ run_v verb compUnit
+execBug :: Regs mreg => Bool -> Bool -> Executor mreg Bool
+execBug verb leakTainted compUnit = bug_flag $ last $ run_v verb leakTainted compUnit
 
 -- | Read from a location in memory
 load ::  MWord -> Mem' -> MWord
