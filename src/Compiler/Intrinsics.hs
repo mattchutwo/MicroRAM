@@ -143,26 +143,26 @@ cc_flag_bug [] Nothing md _ =
   where zero = LImm $ SConst 0
 cc_flag_bug _ _ _ _ = progError "bad arguments"
 
-noniSetLabel :: IntrinsicImpl m MWord
-noniSetLabel [ptr, label] Nothing md _ = do
+noniSetLabel :: MemWidth -> IntrinsicImpl m MWord
+noniSetLabel wd [ptr, label] Nothing md _ = do
   r <- getNextRegister
   return $ map (\i -> MirM i md) [
-      Iload W1 r ptr
+      Iload wd r ptr
     , Itaint r label
-    , Istore W1 ptr (AReg r)
+    , Istore wd ptr (AReg r)
     ]
-noniSetLabel _ _ _ _ = progError "bad arguments"
+noniSetLabel _ _ _ _ _ = progError "bad arguments"
 
-noniSink :: IntrinsicImpl m MWord
-noniSink [ptr, label] Nothing md _ = do
+noniSink :: MemWidth -> IntrinsicImpl m MWord
+noniSink wd [ptr, label] Nothing md _ = do
   r <- getNextRegister
   return $ map (\i -> MirM i md) [
-      Iload W1 r ptr
+      Iload wd r ptr
     , Isink (AReg r) label
     ]
   -- return $ [MirM (Isink ptr label) ()]
   -- error $ show ptr <> " " <> show label
-noniSink _ _ _ _ = progError "bad arguments"
+noniSink _ _ _ _ _ = progError "bad arguments"
 
 cc_trace :: IntrinsicImpl m w
 cc_trace [msg] Nothing md _ = return [MirM (Iext (XTraceStr msg)) md]
@@ -218,8 +218,22 @@ intrinsics = Map.fromList $ map (\(x :: String, y) -> ("Name " ++ show x, y)) $
   , mkTrap "llvm.eh.typeid.for"
 
   -- Dynamic taint tracking
-  , ("noniSetLabel", noniSetLabel)
-  , ("noniSink", noniSink)
+  , ("noniSetLabelU8", noniSetLabel W1) -- TODO: Is there a better way to get the width?
+  , ("noniSetLabelI8", noniSetLabel W1)
+  , ("noniSinkU8", noniSink W1)
+  , ("noniSinkI8", noniSink W1)
+  , ("noniSetLabelU16", noniSetLabel W2)
+  , ("noniSetLabelI16", noniSetLabel W2)
+  , ("noniSinkU16", noniSink W2)
+  , ("noniSinkI16", noniSink W2)
+  , ("noniSetLabelU32", noniSetLabel W4)
+  , ("noniSetLabelI32", noniSetLabel W4)
+  , ("noniSinkU32", noniSink W4)
+  , ("noniSinkI32", noniSink W4)
+  , ("noniSetLabelU64", noniSetLabel W8)
+  , ("noniSetLabelI64", noniSetLabel W8)
+  , ("noniSinkU64", noniSink W8)
+  , ("noniSinkI64", noniSink W8)
 
   -- Explicit trap
   , mkTrap "__cxa_pure_virtual"
