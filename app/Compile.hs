@@ -126,11 +126,9 @@ handleErrors hx = case hx of
 data Mode = LeakTaintedMode
   deriving (Eq, Ord)
 
-instance Read Mode where
-    readsPrec _ input = maybe
-        []
-        (\rest -> [(LeakTaintedMode, rest)])
-        $ stripPrefix "leak-tainted" input
+readMode :: String -> Mode
+readMode "leak-tainted" = LeakTaintedMode
+readMode m = error $ "Unknown --mode `" <> m <> "`. See --help for valid modes." -- TODO: Better error handling.
 
 data Flag
  = -- General flags
@@ -274,7 +272,7 @@ options =
   , Option []    ["allow-undef"] (NoArg AllowUndefFun)          "Allow declared functions with no body."
   , Option []    ["pretty-print"] (NoArg PrettyPrint)          "Pretty print the MicroRAM program with metadata."
   , Option []    ["no-segs"] (NoArg ProduceSegs)              "Don't use segments (old version)."
-  , Option []    ["mode"] (ReqArg (ModeFlag . read) "MODE")              "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
+  , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")              "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)
