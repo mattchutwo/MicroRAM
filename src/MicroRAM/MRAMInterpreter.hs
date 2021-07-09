@@ -119,7 +119,7 @@ mRegLabel r = mRegLabels . lens (fmap (maybe untainted id . lookupReg r)) (liftA
 memWord :: Functor f => MWord -> (MWord -> f MWord) -> (Mem -> f Mem)
 memWord addr = lens (get addr) (set addr)
   where
-    get addr (Mem d m l) = maybe d id $ Map.lookup addr m
+    get addr (Mem d m _l) = maybe d id $ Map.lookup addr m
     set addr (Mem d m l) val = Mem d (Map.insert addr val m) l
 
 mMemWord :: Functor f => MWord -> (MWord -> f MWord) -> (MachineState r -> f (MachineState r))
@@ -130,7 +130,7 @@ mMemWord addr = mMem . memWord addr
 memLabel :: Functor f => MWord -> (Maybe (Vector Label) -> f (Maybe (Vector Label))) -> (Mem -> f Mem)
 memLabel addr = lens (get addr) (set addr)
   where
-    get addr (Mem d m l) = (maybe (Vec.replicate wordBytes untainted) id . Map.lookup addr) <$> l
+    get addr (Mem _d _m l) = (maybe (Vec.replicate wordBytes untainted) id . Map.lookup addr) <$> l
     set addr (Mem d m l) val = Mem d m (Map.insert addr <$> val <*> l)
 
 mMemLabel :: Functor f => MWord -> (Maybe (Vector Label) -> f (Maybe (Vector Label))) -> (MachineState r -> f (MachineState r))
@@ -200,8 +200,8 @@ stepInstr i = do
 
     Ipoison w op2 r1 -> stepStore w op2 r1 >> poison w op2
 
-    Isink rj op2 -> nextPc
-    Itaint rj op2 -> nextPc
+    Isink _rj _op2 -> nextPc
+    Itaint _rj _op2 -> nextPc
 
     Iadvise _ -> assumptError $ "unhandled advice request"
 
@@ -270,34 +270,34 @@ stepInstrTainted (Ipoison wd op2 r1) = do
   sMach . mMemLabel waddr .= fmap (Vec.replicate $ widthInt wd) l
 
 -- Currently, we untaint the written to register for the following instructions.
-stepInstrTainted (Iand rd r1 op2) = stepUntaintReg rd
-stepInstrTainted (Ior rd r1 op2) = stepUntaintReg rd
-stepInstrTainted (Ixor rd r1 op2) = stepUntaintReg rd
-stepInstrTainted (Inot rd op2) = stepUntaintReg rd
+stepInstrTainted (Iand rd _r1 _op2) = stepUntaintReg rd
+stepInstrTainted (Ior rd _r1 _op2) = stepUntaintReg rd
+stepInstrTainted (Ixor rd _r1 _op2) = stepUntaintReg rd
+stepInstrTainted (Inot rd _op2) = stepUntaintReg rd
 
-stepInstrTainted (Iadd rd r1 op2) = stepUntaintReg rd
-stepInstrTainted (Isub rd r1 op2) = stepUntaintReg rd
-stepInstrTainted (Imull rd r1 op2) = stepUntaintReg rd
-stepInstrTainted (Iumulh rd r1 op2) = stepUntaintReg rd
-stepInstrTainted (Ismulh rd r1 op2) = stepUntaintReg rd
-stepInstrTainted (Iudiv rd r1 op2) = stepUntaintReg rd
-stepInstrTainted (Iumod rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Iadd rd _r1 _op2) = stepUntaintReg rd
+stepInstrTainted (Isub rd _r1 _op2) = stepUntaintReg rd
+stepInstrTainted (Imull rd _r1 _op2) = stepUntaintReg rd
+stepInstrTainted (Iumulh rd _r1 _op2) = stepUntaintReg rd
+stepInstrTainted (Ismulh rd _r1 _op2) = stepUntaintReg rd
+stepInstrTainted (Iudiv rd _r1 _op2) = stepUntaintReg rd
+stepInstrTainted (Iumod rd _r1 _op2) = stepUntaintReg rd
 
-stepInstrTainted (Ishl rd r1 op2) = stepUntaintReg rd
-stepInstrTainted (Ishr rd r1 op2) = stepUntaintReg rd
+stepInstrTainted (Ishl rd _r1 _op2) = stepUntaintReg rd
+stepInstrTainted (Ishr rd _r1 _op2) = stepUntaintReg rd
 
-stepInstrTainted (Icmpe r1 op1 op2) = return ()
-stepInstrTainted (Icmpa r1 op1 op2) = return ()
-stepInstrTainted (Icmpae r1 op1 op2) = return ()
-stepInstrTainted (Icmpg r1 op1 op2) = return ()
-stepInstrTainted (Icmpge r1 op1 op2) = return ()
+stepInstrTainted (Icmpe r1 _op1 _op2) = stepUntaintReg r1
+stepInstrTainted (Icmpa r1 _op1 _op2) = stepUntaintReg r1
+stepInstrTainted (Icmpae r1 _op1 _op2) = stepUntaintReg r1
+stepInstrTainted (Icmpg r1 _op1 _op2) = stepUntaintReg r1
+stepInstrTainted (Icmpge r1 _op1 _op2) = stepUntaintReg r1
 
-stepInstrTainted (Ijmp op2) = return ()
-stepInstrTainted (Icjmp op1 op2) = return ()
-stepInstrTainted (Icnjmp op1 op2) = return ()
+stepInstrTainted (Ijmp _op2) = return ()
+stepInstrTainted (Icjmp _op1 _op2) = return ()
+stepInstrTainted (Icnjmp _op1 _op2) = return ()
 
-stepInstrTainted (Iread rd op2) = stepUntaintReg rd
-stepInstrTainted (Ianswer op2) = return ()
+stepInstrTainted (Iread rd _op2) = stepUntaintReg rd
+stepInstrTainted (Ianswer _op2) = return ()
 
 stepInstrTainted (Iadvise _) = assumptError $ "unhandled advice request"
 
@@ -974,7 +974,7 @@ execBug verb leakTainted compUnit = bug_flag $ last $ run_v verb leakTainted com
 
 -- | Read from a location in memory
 load ::  MWord -> Mem' -> MWord
-load x (d,m,l)=  case Map.lookup x m of
+load x (d,m,_l)=  case Map.lookup x m of
                  Just y -> y
                  Nothing -> d
 

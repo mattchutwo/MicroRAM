@@ -106,9 +106,9 @@ popN n = [Iadd sp sp (LImm $ fromIntegral $ wordBytes * fromIntegral n) ]
 smartMov :: Regs mreg => mreg -> mreg -> [MAInstruction mreg MWord]
 smartMov r1 r2 = if r1 == r2 then [] else [Imov r1 (AReg r2)]
 
-smartMovMaybe :: Regs mreg => Maybe mreg -> mreg -> [MAInstruction mreg MWord]
-smartMovMaybe Nothing _ = []
-smartMovMaybe (Just r) a = smartMov r a
+-- smartMovMaybe :: Regs mreg => Maybe mreg -> mreg -> [MAInstruction mreg MWord]
+-- smartMovMaybe Nothing _ = []
+-- smartMovMaybe (Just r) a = smartMov r a
 
 -- | Premain: no arguments to main!
 -- This is a pseudofunction, that sets up return address for main.
