@@ -148,6 +148,7 @@ lcSRem = lazySignedBop rem
 returnL :: Monad m => a -> m [a]
 returnL x = return $ return $ x
 
+-- | Check the name is a gobal variable.
 checkName :: Set.Set LLVM.Name -> LLVM.Name -> Hopefully $ ()
 checkName globs name =
   if Set.member name globs

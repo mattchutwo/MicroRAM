@@ -114,8 +114,8 @@ smartMov r1 r2 = if r1 == r2 then [] else [Imov r1 (AReg r2)]
 -- This is a pseudofunction, that sets up return address for main.
 -- Stores the input in memory.
 -- Sends main to the returnBlock
-premain :: Regs mreg => [NamedBlock Metadata mreg MWord]
-premain = return $
+premain :: Regs mreg => Name -> [NamedBlock Metadata mreg MWord]
+premain returnName = return $
   NBlock Nothing $
   -- poison address 0
   (IpoisonW (LImm 0) sp, md{mdFunctionStart = True}) : -- Premain is a 'function' add function start metadata
@@ -123,28 +123,27 @@ premain = return $
   -- Set the top of the stack.
   Imov sp (LImm initAddr) :
   -- push return address for main 
-  Imov ax (Label "_ret_") : (push ax) ++
+  Imov ax (Label $ returnName) : (push ax) ++
   -- set stack frame
   (push bp) ++           -- Store "old" base pointer
   Imov bp (AReg sp) :    -- set base pointer to the stack pointer
   callMain)              -- jump to main
-  where callMain = return $ Ijmp $ Label $ show $ Name "main"
-        md = trivialMetadata "Premain" ""
+  where callMain = return $ Ijmp $ Label mainName
+        md = trivialMetadata premainName defaultName
 
         -- Start stack at 2^32.
         initAddr = 1 `shiftL` 32
 
 -- | returnBlock: return lets the program output an answer (when main returns)
-returnBlock :: Regs mreg => NamedBlock Metadata mreg MWord
-returnBlock = NBlock retName [(Ianswer (AReg ax),md)]
-  where md = (trivialMetadata "_ret_" (show retName)) {mdFunctionStart = True} 
-        retName = (Just "_ret_") 
+returnBlock :: Regs mreg => Name -> NamedBlock Metadata mreg MWord
+returnBlock retName = NBlock (Just retName) [(Ianswer (AReg ax),md)]
+  where md = (trivialMetadata retName retName) {mdFunctionStart = True}
 
 
 -- ** Function Prologues and Epilogues
 
 -- | prologue: allocates the stack at the beggining of the function
-prologue :: Regs mreg => MWord -> String -> [MAInstruction mreg MWord]
+prologue :: Regs mreg => MWord -> Name -> [MAInstruction mreg MWord]
 prologue size entry =
     [ Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size))
     , Ijmp $ Label entry
@@ -267,7 +266,7 @@ stackBlock
   -> Hopefully (NamedBlock Metadata mreg MWord)
 stackBlock (BB name body term _) = do
   body' <- mapM stackInstr (body++term)
-  return $ NBlock (Just $ show name) $ concat body'
+  return $ NBlock (Just name) $ concat body'
 
 -- | Translating functions
 stackFunction
@@ -275,7 +274,7 @@ stackFunction
   Regs mreg =>
   LFunction Metadata mreg MWord
   -> Hopefully $ [NamedBlock Metadata mreg MWord]
-stackFunction (LFunction name _retT _argT size code) = do
+stackFunction (LFunction name _retT _argT _argN size code) = do
   codeBlocks <- mapM stackBlock code
   entryName <- case codeBlocks of
     NBlock (Just name) _ : _ -> return name
@@ -283,17 +282,18 @@ stackFunction (LFunction name _retT _argT size code) = do
   let prologueBody = addMD prolMD (prologue size entryName)
   let prologueBlock = NBlock (Just name) $ markFunStart prologueBody 
   return $ prologueBlock : codeBlocks
-  where prolMD = trivialMetadata name (show $ Just name)
+  where prolMD = trivialMetadata name name
         -- | Add metadata for the first instruction in a funciton
         markFunStart :: [(MAInstruction mreg MWord, Metadata)] -> [(MAInstruction mreg MWord, Metadata)]
         markFunStart ls = let firstInst = head ls in -- We know ls is not empyt because the prelude is not empyt.
           (fst firstInst, (snd firstInst){mdFunctionStart = True}) : tail ls 
   
   
-stacking :: Regs mreg => Lprog Metadata mreg MWord -> Hopefully $ MAProgram Metadata mreg MWord
-stacking (IRprog _ _ functions) = do
+stacking :: Regs mreg => (Lprog Metadata mreg MWord, Word) -> Hopefully $ (MAProgram Metadata mreg MWord, Word)
+stacking (IRprog _ _ functions, nextName) = do
   functions' <- mapM stackFunction functions
+  let returnName = Name nextName "_ret_"
   return $
-    premain ++
+    (premain returnName ++
     (concat functions')
-    ++ [returnBlock]
+    ++ [returnBlock returnName], nextName + 1)

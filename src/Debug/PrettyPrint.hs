@@ -28,10 +28,7 @@ import Compiler.Registers
 
 import Control.Monad.State.Lazy
 import Data.Bifunctor (first)
-import Data.ByteString.Short (fromShort)
-import Data.List
-import Data.Text.Encoding (decodeUtf8)
-import Data.Text.Prettyprint.Doc
+import Data.Text.Prettyprint.Doc -- Soon deprecated and eventually removed. Use Prettyprinter instead. ?
 import Util.Util
 
 type MetaState = State Metadata
@@ -55,17 +52,12 @@ prettyAnn prog = mconcat $ evalState (mapM prettyPrintInstr (zip [0..] prog)) $ 
           return outString
 
         functionString md md' = if (mdFunction md == mdFunction md') then "" else
-          "\n\n// Define " <> (cleanName $ mdFunction md') <> ": \n"
+          "\n\n// Define " <> (pretty $ mdFunction md') <> ": \n"
         blockString md md'    = if (mdBlock md == mdBlock md') then "" else 
-          "\n// " <> (cleanName $ mdBlock md') <> ": \n"
+          "\n// " <> (pretty $ mdBlock md') <> ": \n"
         microLine n = pretty n <> ".\t"
         lineString md md' = if (mdLine md == mdLine md') then "" else 
           "\t \t // Line " <> (viaShow $ mdLine md')
-
-cleanName :: String -> Doc a
-cleanName st =
-  pretty $ filter (\l -> l /= '\"') $
-  if "Name " `isPrefixOf` st then drop 5 st else st
 
 pprintInst :: (Pretty wrd, Bounded wrd, Integral wrd, Show wrd) => Instruction' Int Int (Operand Int wrd) -> String
 pprintInst = show . pretty
@@ -76,8 +68,7 @@ instance Pretty func => Pretty (IRprog mdata wrd func) where
     vsep $ map pretty code
 
 instance Pretty Name where
-  pretty (Name s) = pretty (decodeUtf8 $ fromShort s) <> "_"
-  pretty (NewName n) = pretty n
+  pretty name = pretty $ show name
   
 instance Pretty Ty where
   pretty = viaShow -- TODO: improve this
@@ -108,7 +99,7 @@ instance Pretty wrd => Pretty (LazyConst l wrd) where
 instance (Pretty (PrettyPrintWrapper reg), Pretty wrd) => Pretty (PrettyPrintWrapper (MAOperand reg wrd)) where
   pretty (PPW (AReg reg)) = pretty $ PPW reg
   pretty (PPW (LImm lc)) = pretty lc
-  pretty (PPW (Label l)) = "@" <> cleanName l
+  pretty (PPW (Label l)) = "@" <> pretty l
   pretty (PPW (Glob n)) = pretty n
   pretty (PPW (HereLabel)) = "@here"
 
@@ -130,31 +121,31 @@ instance (Pretty name, Pretty inst) => Pretty (BB name inst) where
 
 instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (NamedBlock meta reg wrd) where
   pretty (NBlock nameM insts) = 
-    vsep [ "/// Block " <> maybe "" cleanName nameM
+    vsep [ "/// Block " <> pretty nameM
          , vsep (map (pretty . fst) insts)
          , line
          ]
 
 instance (Pretty name, Pretty param, Pretty block) => Pretty (Function name param block) where
-  pretty (Function name retTy argTys blocks _nextReg) =
-    vsep [ "// " <> pretty name <> " :: " <> prettyArgs argTys <> " -> " <> pretty retTy
+  pretty (Function name retTy argTys argNms blocks) =
+    vsep [ "// " <> pretty name <> " " <> prettyArgs (zip argTys argNms) <> " -> " <> pretty retTy
          , vsep (map pretty blocks)
          , line
          ]
     where
       prettyArgs []     = "()"
-      prettyArgs argTys = concatWith (surround " -> ") (map pretty argTys)
+      prettyArgs args = "("<> concatWith (surround ", ") (map (\(typ,nm) -> pretty typ <> " " <> pretty nm) args) <> ")"
 
 instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (LFunction mdata reg wrd) where
-  pretty (LFunction name retTy argTys _stackSize blocks) =
-    vsep [ "// " <> cleanName name <> " :: " <> prettyArgs argTys <> " -> " <> pretty retTy
+  pretty (LFunction name retTy argTys argNms _stackSize blocks) =
+    vsep [ "// " <> pretty name <> " :: " <> prettyArgs (zip argTys argNms) <> " -> " <> pretty retTy
          , vsep (map pretty blocks)
          , line
          ]
     where
       prettyArgs []     = "()"
-      prettyArgs argTys = concatWith (surround " -> ") (map pretty argTys)
-
+      prettyArgs args = "("<> concatWith (surround ", ") (map (\(typ,nm) -> pretty typ <> " " <> pretty nm) args) <> ")"
+      
 instance (Show reg, Show op1, Show op2, Pretty (PrettyPrintWrapper reg), Pretty (PrettyPrintWrapper op1), Pretty (PrettyPrintWrapper op2)) => Pretty (Instruction' reg op1 op2) where
   pretty (Iand r1 r2 op) = pretty (PPW r1) <>" = "<> pretty (PPW r2) <> " && "<> pretty (PPW op)
   pretty (Ior r1 r2 op) = pretty (PPW r1) <>" = "<>  pretty (PPW r2) <>" || "<> pretty (PPW op)

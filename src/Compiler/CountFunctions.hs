@@ -13,6 +13,7 @@ Stability   : experimental
 module Compiler.CountFunctions (countFunctions, countFunctionsEmpty) where
 
 import Compiler.Analysis
+import Compiler.Common
 import Compiler.Errors
 import Compiler.IRs
 
@@ -20,13 +21,13 @@ import Control.Monad.State.Lazy (State, get, modify, execState)
 
 import qualified Data.Map as Map
 
-type FunctionCount = Map.Map String Int
+type FunctionCount = Map.Map Name Int
 
 countFunctionsEmpty :: Lprog mdata mreg wrdT -> Hopefully (AnalysisPiece)
 countFunctionsEmpty _ = return $ FunctionUsage Map.empty
 
 countFunctions :: Lprog mdata mreg wrdT -> Hopefully (AnalysisPiece)
-countFunctions prog = 
+countFunctions prog = -- T.trace ("Function name count: " ++ show doFCount) $
   return $ FunctionUsage doFCount
     
   where doFCount :: FunctionCount
@@ -44,7 +45,7 @@ countFunctions prog =
                     addCount lbl
                   _ -> return ()
 
-        addCount :: String -> State FunctionCount ()
+        addCount :: Name -> State FunctionCount ()
         addCount lbl = do
           fCount <- get
           let n = fromMaybe $ Map.lookup lbl fCount

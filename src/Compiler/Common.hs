@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TypeOperators #-}
@@ -27,19 +26,30 @@ module Compiler.Common (
   -- * Identifiers
   -- $names
   Name(..),
+  short2string, string2short,
+  defaultName, premainName, mainName,
+  va_startName,
+  firstUnusedName,
+
+  WithNextReg,
+  newGlobalName,
+  newLocalName
   )
   where
 
 
 
-import Data.ByteString.Short
+import Data.ByteString.Short (ShortByteString, fromShort, toShort) 
+import qualified Data.ByteString.UTF8 as BSU
 
 import qualified Data.Map as Map
 
 import Compiler.Registers
 import Compiler.LazyConstants
 
+
 import MicroRAM(MWord)
+import Control.Monad.State (StateT, get, modify)
 
 
 
@@ -103,7 +113,7 @@ data GlobalVariable wrdT = GlobalVariable
   { globName :: Name -- Optimize?
   , isConstant :: Bool
   , gType :: Ty
-  , initializer :: Maybe [LazyConst String wrdT]
+  , initializer :: Maybe [LazyConst Name wrdT]
     -- ^ A list of machine words to initialize this global
   , gSize :: MWord    -- ^ Size of this global in words
   , gAlign :: MWord
@@ -131,24 +141,73 @@ heapInitAddress = 0x100000000   -- 2^32
 -- It includes a `NewName` to produce temporary registers that
 -- don't intefere with existing ones. 
 data Name =
-  Name ShortByteString   -- ^ we keep the LLVM names
-  | NewName Word         -- ^ and add some new ones
-  deriving (Eq, Ord, Read, Show)
+  Name {nameID:: Word,
+        dbName :: ShortByteString}   -- ^ Global identifier and a human readable name for debugging.
+
+instance Eq Name where
+  (Name n _) == (Name m _) = n == m
+
+instance Ord Name where
+  compare (Name n _ ) (Name m _) = compare n m
+
+instance Show Name where
+  show (Name n dbgName) = (short2string dbgName) <> "#" <> (show n)
+
+instance Read Name where
+  readsPrec _ txt = case splitLast '#' txt of
+                      Right (dbgName, nTxt) -> [(Name (read nTxt) (string2short dbgName), "")]
+                      Left _ -> error $  "Malformed variable name: " <> txt 
+    where splitLast :: Eq a => a -> [a] -> Either [a] ([a],[a])
+          splitLast c' = foldr go (Left [])
+            where
+              go c (Right (f,b)) = Right (c:f,b)
+              go c (Left s) | c' == c = Right ([],s)
+                            | otherwise = Left (c:s)
+
+short2string :: ShortByteString -> String
+short2string s = BSU.toString $ fromShort s
+
+string2short :: String -> ShortByteString
+string2short s = toShort $ BSU.fromString s
 
 instance Regs Name where
-  sp = NewName 0
-  bp = NewName 1
-  ax = NewName 2
-  -- argc = Name "0" -- Where the first arguemtns to main is passed
-  -- argv = Name "1" -- Where the second arguemtns to main is passed
-  fromWord w      -- FIXME this is terribled: depends on read and show! Ugh!
-    | w == 1 = Name "0"
-    | even w = NewName $ w `div` 2
-    | otherwise = Name $ pack $ read $ show $ digits ((w-1) `div` 2)
-  toWord (NewName x) = 2*x
-  toWord (Name sh) = 1 + (2 * (read $ read $ show sh))
+  sp = spName
+  bp = bpName
+  ax = axName
+  fromWord w = Name w ""
+  toWord (Name n _) = n
   
--- Produces the digits, shifted by 48 (ie. the ASCII representation)
-digits :: Integral x => x -> [x]
-digits 0 = []
-digits x = digits (x `div` 10) ++ [x `mod` 10 + 48] -- ASCII 0 = 0
+-- | Reserved names.
+spName, bpName, axName :: Name 
+spName = Name 0 "sp"
+bpName = Name 1 "bp"
+axName = Name 2 "ax"
+defaultName, premainName, mainName, va_startName :: Name
+defaultName  = Name 3 "DefaultName-ShouldNeverAppearOnCode"
+premainName  = Name 4 "premain"
+mainName     = Name 5 "main"
+va_startName = Name 6 "__cc_va_start"
+
+-- | Bound for reserved names. 
+firstUnusedName :: Word
+firstUnusedName = 7
+-- ^ TODO: ad the number of reserved names grows,
+-- one might easily forget to update `firstUnusedName`.
+-- We should create a set or a map with all the reserved names
+-- and have `firstUnusedName` computed automatically.
+
+
+-- | For compiler passes that need fresh registers:
+type WithNextReg = StateT Word
+
+-- | Make new names
+newGlobalName, newLocalName :: forall m. Monad m => ShortByteString -> WithNextReg m Name
+newGlobalName nm = makeNewName $ "@" <> nm
+newLocalName  nm = makeNewName $ "%" <> nm
+
+makeNewName :: forall m. Monad m => ShortByteString -> WithNextReg m Name
+makeNewName nm = Name <$> useReg <*> pure nm
+  where useReg = do
+          nextID <- get
+          modify $ (1 +)
+          return nextID

@@ -42,27 +42,25 @@ import Compiler.CompilationUnit
 import Compiler.Globals
 import Compiler.InstructionSelection
 import Compiler.Intrinsics
+import Compiler.IRs
 import Compiler.Legalize
 import Compiler.LocalizeLabels
 import Compiler.Metadata
-import Compiler.IRs
 import Compiler.RegisterAlloc
 import Compiler.Registers
 import Compiler.RemoveLabels
 import Compiler.RemovePhi
 import Compiler.Stacking
 import Compiler.UndefinedFunctions
+import Sparsity.Sparsity
 
 import Data.Default
 import qualified Data.Set as Set
 
 import Debug.PrettyPrint
-
 import MicroRAM.MRAMInterpreter
 import MicroRAM
 import LLVMutil.LLVMIO
-import Sparsity.Sparsity
-
 
 
 -- * Summary: Pretty prints summary of an execution.
@@ -344,20 +342,19 @@ jpProgComp len = do
   m <- fromLLVMFile "test/programs/varArgs.ll"
   -- return m
   return $ either (error . show) id $
-        (justCompile instrSelect) (prog2unit len m)
+        (justCompileWithNames instrSelect) (prog2unit len m)
     >>= (justCompile renameLLVMIntrinsicImpls)
-    >>= (justCompile lowerIntrinsics)
+    >>= (justCompileWithNamesSt lowerIntrinsics)
     >>= (justCompile (catchUndefinedFunctions allowUndefFun))
-    >>= (justCompile legalize)
-    >>= (justCompile localizeLabels)
-    >>= (justCompile edgeSplit)
+    >>= (justCompileWithNames legalize)
+    >>= (justCompileWithNames localizeLabels)
 
-    >>= (justCompile edgeSplit)
-    >>= (justCompile removePhi)
+    >>= (justCompileWithNames edgeSplit)
+    >>= (justCompileWithNames removePhi)
     >>= (registerAlloc def)
     >>= (justCompile callingConvention)
     >>= (replaceGlobals)
-    >>= (justCompile stacking)
+    >>= (justCompileWithNames stacking)
     >>= (justAnalyse (return . SparsityData . (forceSparsity spars))) 
     >>= (blockCleanup)
     >>= (removeLabels)

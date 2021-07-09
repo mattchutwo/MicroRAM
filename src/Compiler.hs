@@ -140,35 +140,35 @@ module Compiler
     , module Export
     ) where
 
+import           Compiler.Analysis
+import           Compiler.BlockCleanup
+import           Compiler.CallingConvention
+import           Compiler.CompilationUnit
+import           Compiler.CountFunctions
+import           Compiler.Errors
+import           Compiler.Extension
+import           Compiler.Globals
+import           Compiler.IRs
+import           Compiler.InstructionSelection
+import           Compiler.Intrinsics
+import           Compiler.Legalize
+import           Compiler.LocalizeLabels
+import           Compiler.Metadata
+import           Compiler.RegisterAlloc
+import           Compiler.RegisterAlloc as Export (AReg)
+import           Compiler.RemoveLabels
+import           Compiler.RemovePhi
+import           Compiler.Stacking
+import           Compiler.UndefinedFunctions
+
+import           MicroRAM (MWord)
+import           Sparsity.Sparsity
+import           Util.Util
+
 import           Data.Default
 
-import Compiler.Analysis
-import Compiler.BlockCleanup
-import Compiler.CallingConvention
-import Compiler.CompilationUnit
-import Compiler.CountFunctions
-import Compiler.Globals
-import Compiler.Errors
-import Compiler.Extension
-import Compiler.InstructionSelection
-import Compiler.Intrinsics
-import Compiler.IRs
-import Compiler.LocalizeLabels
-import Compiler.Legalize
-import Compiler.Metadata
-import Compiler.RegisterAlloc
-import Compiler.RegisterAlloc as Export (AReg)
-import Compiler.RemoveLabels
-import Compiler.RemovePhi
-import Compiler.Stacking
-import Compiler.UndefinedFunctions
-
-import MicroRAM (MWord)
-
-import Sparsity.Sparsity
-
 import qualified LLVM.AST as LLVM
-import Util.Util
+
 
 compile1
   :: Bool
@@ -176,9 +176,9 @@ compile1
   -> LLVM.Module
   -> Hopefully (CompilationUnit () (MIRprog Metadata MWord))
 compile1 allowUndefFun len llvmProg = (return $ prog2unit len llvmProg)
-  >>= (tagPass "Instruction Selection" $ justCompile instrSelect)
+  >>= (tagPass "Instruction Selection" $ justCompileWithNames instrSelect)
   >>= (tagPass "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
-  >>= (tagPass "Lower Intrinsics" $ justCompile lowerIntrinsics)
+  >>= (tagPass "Lower Intrinsics" $ justCompileWithNamesSt lowerIntrinsics)
   >>= (tagPass "Catch undefined Functions" $ justCompile (catchUndefinedFunctions allowUndefFun))
 
 compile2
@@ -186,15 +186,15 @@ compile2
   -> CompilationUnit () (MIRprog Metadata MWord) ->
   Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
 compile2 spars prog = return prog
-  >>= (tagPass "Legalize Instructions" $ justCompile legalize)
-  >>= (tagPass "Localize Labels" $ justCompile localizeLabels)
-  >>= (tagPass "Edge split"          $ justCompile edgeSplit)
-  >>= (tagPass "Remove Phi Nodes"    $ justCompile removePhi)
+  >>= (tagPass "Legalize Instructions" $ justCompileWithNames legalize)
+  >>= (tagPass "Localize Labels"     $ justCompileWithNames localizeLabels)
+  >>= (tagPass "Edge split"          $ justCompileWithNames edgeSplit)
+  >>= (tagPass "Remove Phi Nodes"    $ justCompileWithNames removePhi)
   >>= (tagPass "Register Allocation" $ registerAlloc def)
   >>= (tagPass "Calling Convention"  $ justCompile callingConvention)
   >>= (tagPass "Remove Globals"      $ replaceGlobals)
   >>= (tagPass "Count Funcitons"     $ justAnalyse countFunctions)
-  >>= (tagPass "Stacking"            $ justCompile stacking)
+  >>= (tagPass "Stacking"            $ justCompileWithNames stacking)
   >>= (tagPass "Computing Sparsity"  $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
   >>= (tagPass "Block cleanup"       $ blockCleanup)
   >>= (tagPass "Removing labels"     $ removeLabels)
@@ -204,7 +204,7 @@ compile allowUndefFun len llvmProg spars = do
   ir <- compile1 allowUndefFun len llvmProg
   high <- compile2 spars ir
   low <- return ir
-    >>= (tagPass "Lower Extension Instructions" $ justCompile lowerExtensionInstrs)
+    >>= (tagPass "Lower Extension Instructions" $ justCompileWithNames lowerExtensionInstrs)
     >>= compile2 spars
   -- Return both programs, using the analysis data from the final one.
   return $ low { programCU = MultiProg (programCU high) (programCU low) }

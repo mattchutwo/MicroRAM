@@ -22,7 +22,7 @@ module Compiler.RegisterAlloc
     ) where
 
 import           Control.Applicative (liftA2)
-import           Control.Monad.State (runStateT, StateT, get, modify')
+import           Control.Monad.State (runState, State, runStateT, StateT, get, put, modify')
 import           Control.Monad.Trans.Class (lift)
 import qualified Data.ByteString.Char8 as BSC
 
@@ -65,23 +65,28 @@ registerAlloc :: RegisterAllocOptions
               -> Hopefully $ CompilationUnit a (Lprog Metadata AReg MWord)
 registerAlloc opt comp = do
   let regData = NumRegisters $ fromEnum numRegisters
-  lprog   <- registerAllocProg (pmProg $ programCU comp)
-  return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData}
+  (lprog, nextName')   <- registerAllocProg (pmProg $ programCU comp)
+  return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData, nameBound = nextName'} 
   where
+    -- Spill registers will be created after this bound
+    -- and thats how we recognise them. 
+    spillBound = nameBound comp
+    
     registerAllocProg :: Rprog Metadata MWord
-                  -> Hopefully $ Lprog Metadata AReg MWord
+                  -> Hopefully $ (Lprog Metadata AReg MWord, Word)
     registerAllocProg rprog = do
       -- Convert to ltl.
       lprog <- rtlToLtl rprog
 
       -- JP: Load arguments from stack? 
       -- Replace `Name "0"` with `Lgetstack Incoming 0 _ _`, ...
-      let code' = map initializeFunctionArgs $ code lprog
-
+      let codeM = mapM initializeFunctionArgs $ code lprog
+      let (code', nextName') = runState codeM (nameBound comp)
+      
       -- Run register allocation.
-      code <- mapM (registerAllocFunc registers) code'
+      code <- mapM (registerAllocFunc spillBound registers) code'
 
-      return $ setCode lprog code
+      return $ (setCode lprog code, nextName')
 
       
     -- Available registers.
@@ -103,31 +108,33 @@ data RAState = RAState {
 
 -- Initialize function arguments according to the calling convention.
 -- Currently, this loads arguments from the stack with `Lgetstack Incoming 0 _ (Name "0")`.
-initializeFunctionArgs :: LFunction Metadata VReg MWord -> LFunction Metadata VReg MWord
-initializeFunctionArgs (LFunction fname typ typs stackSize blocks) = 
-    let b = BB bname insts [] daginfo in
-    LFunction fname typ typs stackSize $ b:blocks
+initializeFunctionArgs :: LFunction Metadata VReg MWord -> State Word (LFunction Metadata VReg MWord)
+initializeFunctionArgs (LFunction fname typ typs argNms stackSize blocks) = do
+  nextName <- get
+  put (nextName + 1)
+  let bname = bname' nextName 
+  let instrs = getStackInstrs bname
+  let b = BB bname instrs [] daginfo
+  return $ LFunction fname typ typs argNms stackSize $ b : blocks
   where
-    insts = map (\(typ, i) -> 
-        let inst = Lgetstack Incoming i typ (Name $ wordToBSS i)
-            md = trivialMetadata fname (show bname) in
-        IRI inst md 
-      ) $ zip typs [0..]
+    getStackInstrs :: Name ->  [LTLInstr Metadata VReg MWord]
+    getStackInstrs bname = map (\(typ, (argNm, i)) -> 
+                                let inst = Lgetstack Incoming i typ argNm
+                                    md = trivialMetadata fname bname in
+                                  IRI inst md 
+                            ) $ zip typs $ zip argNms [0..]
 
-    bname = Name $ BSS.toShort $ BSC.pack (fname <> "_args")
+    bname' id = Name id $ ((dbName fname) <> "_args")
 
+    daginfo :: [Name]
     daginfo = case blocks of
       ((BB name _ _ _):_) -> [name]
       _ -> []
 
-    -- wordToBSS = BSS.pack . pure . (+48) -- c2w . intToDigit
-    wordToBSS = BSS.toShort . BSC.pack . show -- TODO: Double check this.
+registerAllocFunc :: forall wrd . Word -> Registers -> LFunction Metadata VReg wrd -> Hopefully $ LFunction Metadata AReg wrd
+registerAllocFunc spillBound registers (LFunction name typ typs argNms stackSize' blocks') = do
 
-
-registerAllocFunc :: forall wrd . Registers -> LFunction Metadata VReg wrd -> Hopefully $ LFunction Metadata AReg wrd
-registerAllocFunc registers (LFunction name typ typs stackSize' blocks') = do
-
-  (rtlBlocks, rast) <- flip runStateT (RAState 0 0 mempty) $ do
+  (rtlBlocks, rast) <- flip runStateT (RAState spillBound 0 mempty) $ do
     blocks <- mapM flattenBasicBlock blocks'
 
     registerAllocFunc' name $ concat blocks
@@ -137,7 +144,7 @@ registerAllocFunc registers (LFunction name typ typs stackSize' blocks') = do
   -- Unflatten basic block
   let blocks = unflattenBasicBlock rtlBlocks
       
-  return $ LFunction name typ typs stackSize blocks
+  return $ LFunction name typ typs argNms stackSize blocks
 
   where
     -- -- These are for arguments that are passed through registers.
@@ -150,7 +157,7 @@ registerAllocFunc registers (LFunction name typ typs stackSize' blocks') = do
     extractRegisters (BB _ insts insts' _) = Set.unions $ map (\i -> readRegisters i <> writeRegisters i) (insts' ++ insts)
 
 
-    registerAllocFunc' :: String -> [BB (Name, Int) (LTLInstr Metadata VReg wrdT)] -> StateT RAState Hopefully [BB (Name, Int) (LTLInstr Metadata AReg wrdT)]
+    registerAllocFunc' :: Name -> [BB (Name, Int) (LTLInstr Metadata VReg wrdT)] -> StateT RAState Hopefully [BB (Name, Int) (LTLInstr Metadata AReg wrdT)]
     registerAllocFunc' fName blocks = do -- _spilled = do
       let allRegisters = Set.toList $ Set.unions $ map extractRegisters blocks
 
@@ -186,11 +193,15 @@ registerAllocFunc registers (LFunction name typ typs stackSize' blocks') = do
         Right coloring ->
           lift $ applyColoring coloring blocks
 
+
+    -- | Checks if the register was temporarily created for a spill
+    -- All old registers are bounded by `spillbound`. Anything above that is
+    -- a spill.
+    -- TODO: Is there a better way to mark new regs? The old way was marking the
+    -- name of the register with: "_reg_alloc" 
+    -- ``` "_reg_alloc" `BSC.isPrefixOf` BSS.fromShort n ``` 
     canSpill = not . isSpillReg
-
-    isSpillReg (Name n) = "_reg_alloc" `BSC.isPrefixOf` BSS.fromShort n
-    isSpillReg _ = False
-
+    isSpillReg (Name n _) = n >= spillBound 
 
     -- -- Sort registers by spill cost (highest cost first).
     -- -- sortTemporaries :: LivenessResult instname -> [block] -> [VReg]
@@ -203,14 +214,14 @@ registerAllocFunc registers (LFunction name typ typs stackSize' blocks') = do
 
 
 
-spillRegister :: forall name wrdT . (name ~ (Name, Int)) => String -> VReg -> Bool -> MWord -> [BB name (LTLInstr Metadata VReg wrdT)] -> StateT RAState Hopefully [BB name (LTLInstr Metadata VReg wrdT)]
+spillRegister :: forall name wrdT . (name ~ (Name, Int)) => Name -> VReg -> Bool -> MWord -> [BB name (LTLInstr Metadata VReg wrdT)] -> StateT RAState Hopefully [BB name (LTLInstr Metadata VReg wrdT)]
 spillRegister fName spillReg isArg pos blocks = do
   blocks' <- mapM (spillBlock fName)  blocks
   return $ concat blocks'
   where
-    spillBlock :: String -> BB name (LTLInstr Metadata VReg wrdT) -> StateT RAState Hopefully [BB name (LTLInstr Metadata VReg wrdT)]
+    spillBlock :: Name -> BB name (LTLInstr Metadata VReg wrdT) -> StateT RAState Hopefully [BB name (LTLInstr Metadata VReg wrdT)]
     spillBlock fName (BB (name, iid) insts tInsts dag) = do
-      let md = trivialMetadata fName (show name) 
+      let md = trivialMetadata fName name 
       insts' <- concat <$> mapM (spillIRInstruction md) insts
       tInsts' <- concat <$> mapM (spillIRInstruction md) tInsts
 
@@ -264,11 +275,11 @@ spillRegister fName spillReg isArg pos blocks = do
 
 
     generateNewRegister = do
-      reg <- (\i -> Name $ "_reg_alloc" <> BSS.toShort (BSC.pack $ show $ raNextRegister i)) <$> get
+      newName <- raNextRegister <$> get
       modify' $ \(RAState c s m) -> RAState (c+1) s m
-      return reg
-
-    getTyForRegister _reg _instr = Tint
+      return $ Name newName $ "_reg_alloc" <> BSS.toShort (BSC.pack $ show $ newName)
+      
+    getTyForRegister _reg _instr = Tint -- TODO: How do we get the Ty?
 
 
 -- JP: lens/uniplate would make this easier.
