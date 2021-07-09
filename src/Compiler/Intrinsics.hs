@@ -22,20 +22,13 @@ module Compiler.Intrinsics
 
 
 import           Control.Monad
-import           Control.Monad.State.Strict (StateT, get, runStateT, modify')
-import qualified Data.ByteString.Char8 as BSC
-
-import Data.ByteString.Short (ShortByteString)
-
+import           Data.ByteString.Short (ShortByteString)
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
-
 import           Data.Map (Map)
 import qualified Data.Map as Map
-
 import qualified Data.Set as Set (member, fromList) 
-import Data.Map (Map)
-import Data.Text (Text)
+import           Data.Text (Text)
 import qualified Data.Text as Text
 
 
@@ -59,16 +52,9 @@ expandInstrs f = goProg
   where goProg :: MIRprog m w -> WithNextReg f (MIRprog m w)
         goProg (IRprog te gs code) = IRprog te gs <$> traverse goFunc code
 
--- <<<<<<< HEAD
---         goFunc :: MIRFunction m w -> f (MIRFunction m w)
---         goFunc (Function nm rty atys bbs nr) = do
---           (bbs', nr') <- runStateT (traverse (goBB $ CCM atys) bbs) (IState nr)
---           return $ Function nm rty atys bbs' $ iNextRegister nr'
--- =======
         goFunc :: MIRFunction m w -> WithNextReg f (MIRFunction m w)
         goFunc (Function nm rty atys anms bbs) =
           Function nm rty atys anms <$> traverse (goBB $ CCM atys) bbs
--- >>>>>>> master
 
         goBB :: CallingContextMetadata -> BB n (MIRInstr m w) -> WithNextReg f (BB n (MIRInstr m w))
         goBB ccm (BB nm body term dag) = BB nm <$> goInstrs ccm body <*> goInstrs ccm term <*> pure dag
@@ -80,23 +66,12 @@ expandInstrs f = goProg
 getNextRegister :: Monad m => WithNextReg m VReg
 getNextRegister = newLocalName "_intrinsic"
 
--- <<<<<<< HEAD
--- type IntrinsicM = StateT IState Hopefully
--- type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> m -> CallingContextMetadata -> IntrinsicM [MIRInstr m w]
--- 
--- expandIntrinsicCall :: forall m w. Show w => Map String (IntrinsicImpl m w) -> CallingContextMetadata -> MIRInstr m w -> IntrinsicM [MIRInstr m w]
--- expandIntrinsicCall intrinMap ccm (MirI (RCall _ dest (Label name) _ args) meta)
---   | Just impl <- Map.lookup name intrinMap =
---     -- mapStateT (tag ("bad call to intrinsic " ++ name)) $
---     tagState ("bad call to intrinsic " ++ name) $ impl args dest meta ccm
--- =======
 type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> m -> CallingContextMetadata -> WithNextReg Hopefully [MIRInstr m w]
 
 expandIntrinsicCall :: forall m w. Show w => Map ShortByteString (IntrinsicImpl m w) -> CallingContextMetadata -> MIRInstr m w -> WithNextReg Hopefully [MIRInstr m w]
 expandIntrinsicCall intrinMap ccm (MirI (RCall _ dest (Label (Name _ debugName)) _ args) meta)
   | Just impl <- Map.lookup debugName intrinMap = -- ^ uses the debugName 
     tagState ("bad call to intrinsic " ++ show debugName) $ impl args dest meta ccm
--- >>>>>>> master
 expandIntrinsicCall _ _ instr = return [instr]
 
 cc_test_add :: IntrinsicImpl m w
@@ -235,22 +210,22 @@ intrinsicsList =
   , mkTrap "@llvm.eh.typeid.for"
 
   -- Dynamic taint tracking
-  , ("noniSetLabelU8", noniSetLabel W1) -- TODO: Is there a better way to get the width?
-  , ("noniSetLabelI8", noniSetLabel W1)
-  , ("noniSinkU8", noniSink W1)
-  , ("noniSinkI8", noniSink W1)
-  , ("noniSetLabelU16", noniSetLabel W2)
-  , ("noniSetLabelI16", noniSetLabel W2)
-  , ("noniSinkU16", noniSink W2)
-  , ("noniSinkI16", noniSink W2)
-  , ("noniSetLabelU32", noniSetLabel W4)
-  , ("noniSetLabelI32", noniSetLabel W4)
-  , ("noniSinkU32", noniSink W4)
-  , ("noniSinkI32", noniSink W4)
-  , ("noniSetLabelU64", noniSetLabel W8)
-  , ("noniSetLabelI64", noniSetLabel W8)
-  , ("noniSinkU64", noniSink W8)
-  , ("noniSinkI64", noniSink W8)
+  , ("@noniSetLabelU8", noniSetLabel W1) -- TODO: Is there a better way to get the width?
+  , ("@noniSetLabelI8", noniSetLabel W1)
+  , ("@noniSinkU8", noniSink W1)
+  , ("@noniSinkI8", noniSink W1)
+  , ("@noniSetLabelU16", noniSetLabel W2)
+  , ("@noniSetLabelI16", noniSetLabel W2)
+  , ("@noniSinkU16", noniSink W2)
+  , ("@noniSinkI16", noniSink W2)
+  , ("@noniSetLabelU32", noniSetLabel W4)
+  , ("@noniSetLabelI32", noniSetLabel W4)
+  , ("@noniSinkU32", noniSink W4)
+  , ("@noniSinkI32", noniSink W4)
+  , ("@noniSetLabelU64", noniSetLabel W8)
+  , ("@noniSetLabelI64", noniSetLabel W8)
+  , ("@noniSinkU64", noniSink W8)
+  , ("@noniSinkI64", noniSink W8)
 
   -- Explicit trap
   , mkTrap "@__cxa_pure_virtual"

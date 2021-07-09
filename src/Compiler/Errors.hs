@@ -28,7 +28,7 @@ module Compiler.Errors
 
 
 import Control.Monad.Except
-import Control.Monad.State.Strict (StateT(..))
+import Control.Monad.State (StateT(..))
 
 import System.Exit
 import System.IO
