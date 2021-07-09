@@ -96,7 +96,7 @@ data InitMemSegment = InitMemSegment
   , location :: MWord
   , segmentLen :: MWord
   , content :: Maybe [MWord]
-  , labels :: Maybe [Vector Label] -- [Word16] -- TODO: Type level stuff to enable tainted things.
+  , labels :: Maybe [Vector Label] -- This is Just when content is Just and mode is leak-tainted. -- TODO: Type level stuff to enable tainted things.
   } deriving (Eq, Ord, Read, Show)
 
 type InitialMem = [InitMemSegment]

@@ -260,12 +260,14 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
   , fileName = "test/Programs/noni/explicit0.ll"
   , testLen = 200
   , testResult = 0
+  , leakTainted = True
   , bug = True }  :
   defaultTest {
     testName = "Information leakage"
   , fileName = "test/Programs/noni/heartbleed.ll"
   , testLen = 5000
   , testResult = 0
+  , leakTainted = True
   , bug = True }  :
   []
 
@@ -277,12 +279,13 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
 
 data TestProgram =
   TestProgram {
-  testName :: String
+    testName :: String
   , fileName :: FilePath
   , testLen :: Word         -- ^ How long to run it
   , compError :: Bool            -- ^ if compilation should throw an error
   , testResult :: MWord    -- ^ what it should return if it does (meaningless if bug)
   , bug :: Bool            -- ^ if the program has a bug we should find
+  , leakTainted :: Bool    -- ^ Whether to run the program in "leak-tainted" mode
   } deriving (Eq, Show)
 
 defaultTest :: TestProgram
@@ -292,7 +295,8 @@ defaultTest =  TestProgram {
   , testLen = 100
   , compError = False
   , testResult = 0
-  , bug = False   
+  , bug = False
+  , leakTainted = False
   }
 
 -- | the abstract version of a TestTree

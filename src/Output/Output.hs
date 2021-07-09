@@ -121,7 +121,7 @@ data CircuitParameters = CircuitParameters
 data StateOut = StateOut
   { pcOut   :: MWord
   , regsOut :: [MWord]
-  , regLabelsOut :: [Label] -- TODO: Type level stuff to enable tainted things.
+  , regLabelsOut :: Maybe [Label] -- TODO: Type level stuff to enable tainted things.
 --  , adviceOut :: [Advice]
   } deriving (Eq, Show, Generic)
 
@@ -134,7 +134,7 @@ concretize Nothing = 0
 
 state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
 state2out bound (ExecutionState pc regs regLabels _ _ _advice _ _ _) =
-  StateOut pc (map concretize $ regToList bound regs) (map concretizeLabel $ regToList bound regLabels) -- Advice is ignored
+  StateOut pc (map concretize $ regToList bound regs) (map concretizeLabel . regToList bound <$> regLabels) -- Advice is ignored
 
 
 

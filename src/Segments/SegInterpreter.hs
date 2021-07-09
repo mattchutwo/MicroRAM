@@ -15,7 +15,6 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Compiler.Errors 
 import Compiler.CompilationUnit
-import Compiler.Tainted (untainted)
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM
@@ -40,13 +39,13 @@ data CheckSt = CheckSt {
 makeLenses ''CheckSt
   
 
-checkOutput :: Output Int -> Result ()
-checkOutput (PublicOutput _ _ _ _) = Left "Found Public Output with no trace to check."
-checkOutput (SecretOutput prog segs params initMem tr _adv) = do
+checkOutput :: Bool -> Output Int -> Result ()
+checkOutput _leakTainted (PublicOutput _ _ _ _) = Left "Found Public Output with no trace to check."
+checkOutput leakTainted (SecretOutput prog segs params initMem tr _adv) = do
   let traceA = concat $ map chunkStatesOut tr
   let len = length traceA
   -- Produce a new trace
-  traceB <- compilerErrorResolve $ runPassCheck (toEnum len) (initMach prog initMem)
+  traceB <- compilerErrorResolve $ runPassCheck (toEnum len) (initMach leakTainted prog initMem)
   -- Check states give are equal to those produced
   _ <- zipWithM_ checkStEq traceA (tail $ outputStates len regNum traceB) -- drop first state.
   let initCheck = CheckSt {_indxSt = 0, _pcSt= 0, _succSt = [0], _toNetSt = False, _usedSegsSt = Set.empty}
@@ -126,8 +125,8 @@ compilerErrorResolve (Right x) = Right x
 
 
 --- Testing:
-doCheck :: IO ()
-doCheck = case checkOutput testOutput of
+doCheck :: Bool -> IO ()
+doCheck leakTainted = case checkOutput leakTainted testOutput of
             Right _ -> putStrLn "Ok."
             Left msg -> putStrLn msg
 testOutput :: Output Int
@@ -148,4 +147,4 @@ testOutput = SecretOutput prog segs parms mem tr adv
           TraceChunkOut 1 [StateOut 3 [42,0,0,0] untainteds, StateOut 4 [0,0,0,0] untainteds] : []
         adv :: Map.Map MWord [Advice]
         adv  = Map.empty
-        untainteds = replicate 4 untainted
+        untainteds = Nothing -- replicate 4 untainted

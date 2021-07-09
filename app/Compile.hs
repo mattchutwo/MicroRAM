@@ -96,12 +96,14 @@ main = do
                     -> Maybe Int
                     -> IO (Output Int)
         postProcess fr mramProg privSegsNum = handleErrors $
-          postProcess_v (verbose fr) (produceSegs fr) chunkSize (end fr == FullOutput) mramProg privSegsNum
+          postProcess_v (verbose fr) (modeLeakTainted fr) (produceSegs fr) chunkSize (end fr == FullOutput) mramProg privSegsNum
         outputTheResult :: FlagRecord -> Output AReg -> IO ()
-        outputTheResult fr out =
+        outputTheResult fr out = do
+          let features = (if modeLeakTainted fr then "leak-tainted" else "")
+                       : [] -- Replace list with features
           case fileOut fr of
-            Just file -> L.writeFile file $ serialOutput out [] -- Replace list with features
-            Nothing   -> putStrLn $ printOutputWithFormat (outFormat fr) out [] -- Replace list with features  
+            Just file -> L.writeFile file $ serialOutput out features
+            Nothing   -> putStrLn $ printOutputWithFormat (outFormat fr) out features
         chunkSize = 10
 
         

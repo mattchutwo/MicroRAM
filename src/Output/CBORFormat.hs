@@ -31,6 +31,7 @@ import Codec.Serialise
 
 import           Data.Bits ((.&.), (.|.), shiftL, shiftR)
 import qualified Data.ByteString.Lazy                  as L
+import           Data.Maybe (isJust)
 import           Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import           Data.Word (Word16)
@@ -371,9 +372,11 @@ decodeInitMemSegment = do
     case len of
       5 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
            tagDecode <*> tagDecode <*> pure Nothing <*> pure Nothing
+      6 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
+           tagDecode <*> tagDecode <*> fmap Just tagDecode <*> pure Nothing
       7 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
            tagDecode <*> tagDecode <*> fmap Just tagDecode <*> fmap (Just . fmap unpackLabels) tagDecode
-      _ -> fail $ "invalid state encoding. Length should be 5 or 7 but found " ++ show len
+      _ -> fail $ "invalid state encoding. Length should be 5-7 but found " ++ show len
 
 instance Serialise InitMemSegment where
   decode = decodeInitMemSegment
@@ -397,17 +400,20 @@ encodeStateOut (StateOut pc regs regLabels) =
   map2CBOR $
   [ ("pc", encode pc)
   , ("regs", encode regs)
-  , ("tainted_regs", encode regLabels)
   ]
+  ++ encodeMaybeContent "tainted_regs" regLabels
 
 decodeStateOut :: Decoder s StateOut
 decodeStateOut = do
     len <- decodeMapLen
     case len of
+      2 -> StateOut <$ decodeString <*> decode
+                    <* decodeString <*> decode
+                    <*> pure Nothing
       3 -> StateOut <$ decodeString <*> decode
                     <* decodeString <*> decode
-                    <* decodeString <*> decode
-      _ -> fail $ "invalid state encoding. Length should be 3 but found " ++ show len
+                    <* decodeString <*> (fmap Just decode)
+      _ -> fail $ "invalid state encoding. Length should be 2 or 3 but found " ++ show len
 
 instance Serialise StateOut where
   decode = decodeStateOut
@@ -449,13 +455,14 @@ instance Serialise MemWidth where
 
 encodeAdvice :: Advice -> Encoding 
 encodeAdvice  (MemOp addr val opTyp width label) =
-  encodeListLen 6
+  let taintLen = if isJust label then 1 else 0 in
+  encodeListLen (5 + taintLen)
   <> encodeString "MemOp"
   <> encode addr
   <> encode val
   <> encode opTyp
   <> encode width
-  <> encode (packLabels label)
+  <> maybe mempty (encode . packLabels) label
 
 encodeAdvice (Advise w) =
   encodeListLen 2
@@ -471,7 +478,8 @@ decodeAdvice = do
   ln <- decodeListLen
   name <- decodeString
   case (ln,name) of
-    (6, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode <*> (unpackLabels <$> decode)
+    (5, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode <*> pure Nothing
+    (6, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode <*> (Just . unpackLabels <$> decode)
     (1, "Stutter") -> return Stutter
     (ln,name) -> fail $ "Found bad advice of length " ++ show ln ++ " and name: " ++ show name 
 

@@ -383,7 +383,7 @@ splitEvery n list = first : (splitEvery n rest)
 -- TESTING
 
 fakeState :: MWord -> ExecutionState ()
-fakeState n = ExecutionState n Map.empty Map.empty (0, Map.empty, Map.empty) Set.empty [] False False 0
+fakeState n = ExecutionState n Map.empty Nothing (0, Map.empty, Nothing) Set.empty [] False False 0
 
 testTrace :: Trace ()
 testTrace =

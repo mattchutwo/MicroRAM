@@ -129,7 +129,12 @@ testParams = testProperty "Serialising Parameters" $
 
 -- * Testing Traces
 instance Arbitrary (StateOut) where
-  arbitrary = StateOut <$> arbitrary <*> arbitrary <*> arbitrary
+  arbitrary = do
+    pc <- arbitrary
+    regs <- arbitrary
+    leakTainted <- arbitrary
+    labels <- if leakTainted then pure Nothing else fmap Just (vectorOf (length regs) $ choose (0,untainted))
+    return $ StateOut pc regs labels
 
 testTrace :: TestTree
 testTrace = testProperty "Serialising traces" $
@@ -145,7 +150,9 @@ instance Arbitrary Advice where
   arbitrary = oneof $
     [ do
       wd <- arbitrary
-      MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> pure wd <*> fmap Vec.fromList (vectorOf wordBytes $ choose (0,untainted))
+      leakTainted <- arbitrary
+      let labels = if leakTainted then pure Nothing else fmap (Just . Vec.fromList) (vectorOf wordBytes $ choose (0,untainted))
+      MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> pure wd <*> labels
     , return Stutter 
     ]
 
