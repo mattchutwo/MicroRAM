@@ -55,7 +55,7 @@ edgeSplitFunc (Function name retTy argTys argNms blocks) = do
   return $ Function name retTy argTys argNms (blocks' ++ edgeBlocks)
 
   where
-    cfg = buildCFG blocks
+    (cfg, predecessorMap, successorMap) = buildCFG blocks
 
     -- Build new blocks to place along the previous CFG edges.
 
@@ -78,7 +78,7 @@ edgeSplitFunc (Function name retTy argTys argNms blocks) = do
 
             map (\nid ->
                 -- Get successors.
-                let succs = Digraph.successors cfg nid in
+                let succs = getSuccessors nid in
 
                 -- Skip if less than 2 successors.
                 if List.length succs < 2 then
@@ -86,7 +86,7 @@ edgeSplitFunc (Function name retTy argTys argNms blocks) = do
                 else
                   Set.unions $ map (\succId -> 
                       -- Get predecessors of each successor.
-                      let succPreds = Digraph.predecessors cfg succId in
+                      let succPreds = getPredecessors succId in
 
                       -- Include if more than one predecessor.
                       if List.length succPreds > 1 then
@@ -99,6 +99,8 @@ edgeSplitFunc (Function name retTy argTys argNms blocks) = do
 
       Map.fromList $ zip splitEdges [0..]
 
+    getSuccessors v = maybe [] id $ Map.lookup v successorMap
+    getPredecessors v = maybe [] id $ Map.lookup v predecessorMap
     
     fixInstrs :: BB Name (RTLInstr Metadata wrdT) -> State NameState (BB Name (RTLInstr Metadata wrdT))
     fixInstrs (BB name body term dag) = do
