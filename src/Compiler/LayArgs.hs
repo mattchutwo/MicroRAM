@@ -91,9 +91,7 @@ setCalleeArgsFun fun = do
 -- | Retrieves Incoming arguments from the stack
 initializeFunctionArgs :: LFunction Metadata VReg MWord -> WithNextReg Hopefully (LFunction Metadata Name MWord)
 initializeFunctionArgs (LFunction fname typ typs argNms stackSize blocks) = do
-  nextName <- get
-  put (nextName + 1)
-  let bname = bname' nextName 
+  bname <- newLocalName (dbName <> "_args")
   let instrs = getStackInstrs bname
   let b = BB bname instrs [] daginfo
   return $ LFunction fname typ typs argNms stackSize $ b : blocks
@@ -104,8 +102,6 @@ initializeFunctionArgs (LFunction fname typ typs argNms stackSize blocks) = do
                                     md = trivialMetadata fname bname in
                                   IRI inst md 
                             ) $ zip typs $ zip argNms [0..]
-
-    bname' id = Name id $ ((dbName fname) <> "_args")
 
     daginfo :: [Name]
     daginfo = case blocks of
