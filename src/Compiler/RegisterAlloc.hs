@@ -94,7 +94,7 @@ registerAlloc opt comp = do
 
 -- Register allocator state.
 data RAState = RAState {
-    raNextRegister :: Word
+    raNextRegister :: Word -- To be used only for registers (not for blocks or functions)
   , raNextStackPosition :: MWord
   , raNextInstructionForBlock :: Map Name Int
   -- , raRegisterStackPosition :: Map VReg Word
