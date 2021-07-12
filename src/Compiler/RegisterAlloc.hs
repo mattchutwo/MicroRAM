@@ -66,7 +66,10 @@ registerAlloc :: RegisterAllocOptions
 registerAlloc opt comp = do
   let regData = NumRegisters $ fromEnum numRegisters
   lprog   <- registerAllocProg (pmProg $ programCU comp)
-  return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData} 
+  return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData}
+  -- ^ This pass creates *temporary* new names for registers and then colors them over.
+  -- no new names persists after the pass. Otherwise, we would have to update
+  -- `nameBound` in the compilation unit
   where
     -- Spill registers will be created after this bound
     -- and thats how we recognise them. 
