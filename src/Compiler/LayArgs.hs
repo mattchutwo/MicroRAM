@@ -27,7 +27,6 @@ module Compiler.LayArgs
     ( layArgs
     ) where
 
-import           Control.Monad.State (get, put) -- runState, runStateT, modify', State, StateT)
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad ((>=>))
 
@@ -91,7 +90,7 @@ setCalleeArgsFun fun = do
 -- | Retrieves Incoming arguments from the stack
 initializeFunctionArgs :: LFunction Metadata VReg MWord -> WithNextReg Hopefully (LFunction Metadata Name MWord)
 initializeFunctionArgs (LFunction fname typ typs argNms stackSize blocks) = do
-  bname <- newLocalName (dbName <> "_args")
+  bname <- newLocalName (dbName fname <> "_Args")
   let instrs = getStackInstrs bname
   let b = BB bname instrs [] daginfo
   return $ LFunction fname typ typs argNms stackSize $ b : blocks
