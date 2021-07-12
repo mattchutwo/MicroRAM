@@ -21,8 +21,6 @@ module Compiler.Intrinsics
 
 
 import           Control.Monad
-import           Control.Monad.State (evalStateT, StateT, get, modify')
-import qualified Data.ByteString.Char8 as BSC
 
 import Data.ByteString.Short (ShortByteString)
 
@@ -33,7 +31,6 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 
 import qualified Data.Set as Set (member, fromList) 
-import Data.Map (Map)
 import Data.Text (Text)
 import qualified Data.Text as Text
 
