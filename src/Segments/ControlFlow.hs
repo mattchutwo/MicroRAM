@@ -123,10 +123,12 @@ findBlockStarts :: IntSet -> [(Int, Int)] -> IntSet
 findBlockStarts funcStarts jumps =
   IntSet.unions [funcStarts, jumpTargets, IntSet.singleton 0]
   where
-    -- The jump origins aren't the starts of blocks, and the following
-    -- instruction might not be either (we allow for some instructions to be
-    -- dead code, not included in the CFG).
-    jumpTargets = IntSet.fromList $ filter (/= exitNode) $ map snd jumps
+    -- Every jump target is a block start, and the instruction after a jump is
+    -- also a block start (though that block might be dead code, if the jump is
+    -- unconditional).
+    jumpTargets = IntSet.fromList $
+      filter (/= exitNode) (map snd jumps) ++
+      map ((+1) . fst) jumps
 
 -- | Build the complete control-flow graph.  
 buildGraph :: IntSet -> [(Int, Int)] -> IntMap IntSet

@@ -3,13 +3,19 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Segments.AbsInt where
 
-import Control.Lens (makeLenses, (^.), (&), (.~), (%~), use, (%=))
+import Control.Lens (makeLenses, (^.), (&), (.~), (%~), use, (.=), (%=), ix)
 import Control.Monad.State
 import Data.Bits
+import Data.Foldable (toList)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
+import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import Data.Set (Set)
+import qualified Data.Set as Set
 
 import Compiler.CompilationUnit
 import Compiler.Errors
@@ -21,6 +27,7 @@ import MicroRAM.MRAMInterpreter
 import MicroRAM.MRAMInterpreter.AbsInt
 import MicroRAM.MRAMInterpreter.Generic (InterpState'(..), MachineState'(..), AbsDomain(..))
 import Segments.ControlFlow
+import Segments.Segmenting
 import Util.Util (showHex)
 
 import Debug.Trace
@@ -40,6 +47,24 @@ data HistoryGraph r = HistoryGraph {
   _hsCFG :: ProgramCFG
 }
 makeLenses ''HistoryGraph
+
+
+data CondensedInfo r = CondensedInfo {
+  _ciNode :: HistoryNode r,
+  _ciBlocks :: Seq MWord,
+  _ciSuccs :: Set Word,
+  _ciFromNetwork :: Bool,
+  _ciToNetwork :: Bool
+}
+
+data CondensedGraph r = CondensedGraph {
+  _cgNodes :: Map Word (CondensedInfo r),
+  _cgEntry :: Maybe Word
+}
+
+makeLenses ''CondensedInfo
+makeLenses ''CondensedGraph
+
 
 initHistoryGraph :: ProgramCFG -> HistoryGraph r
 initHistoryGraph cfg = HistoryGraph 0 [] cfg
@@ -369,13 +394,16 @@ testAbsInt_v prog cfg = evalStateT go (initHistoryGraph cfg)
       initExec s0 >>= runExec
       hg <- get
       lift $ renderHistoryGraphviz hg
+      let cg = condenseGraph hg
+      let segs = condensedToSegments prog cfg cg
+      lift $ renderSegmentsGraphviz segs
 
 renderHistoryGraphviz :: HistoryGraph r -> Hopefully ()
 renderHistoryGraphviz hg = evalStateT (render hg) IntSet.empty
   where
     render hg = do
       traceM "digraph {"
-      mapM go $ hg ^. hsExits
+      mapM_ go $ hg ^. hsExits
       traceM "}"
 
     go h = do
@@ -396,3 +424,109 @@ renderControlFlowGraphviz p = do
   forM_ (IntMap.toList $ p ^. pIpdom) $ \(a, b) -> do
       traceM $ show a ++ " -> " ++ show b ++ " [color = blue];"
   traceM "}"
+
+renderSegmentsGraphviz :: [Segment r MWord] -> Hopefully ()
+renderSegmentsGraphviz ss = do
+  traceM "digraph {  // segments"
+  forM_ (zip [0..] ss) $ \(i, s) -> do
+    traceM $ "seg" ++ show i ++ " [ label = " ++ show (show $ constraints s) ++ " ];"
+    when (fromNetwork s) $ do
+      traceM $ "fromnet" ++ show i  ++ " [ label = \"*\" ];"
+      traceM $ "fromnet" ++ show i ++ " -> seg" ++ show i ++ ";"
+    when (toNetwork s) $ do
+      traceM $ "tonet" ++ show i  ++ " [ label = \"*\" ];"
+      traceM $ "seg" ++ show i ++ " -> tonet" ++ show i ++ ";"
+    forM_ (segSuc s) $ \j -> do
+      traceM $ "seg" ++ show i ++ " -> seg" ++ show j ++ ";"
+  traceM "}  // segments"
+
+
+-- | Convert a HistoryGraph into a CondensedGraph, which summarizes the
+-- connections between nonempty nodes.  (Blocks with `histNodes` set to
+-- `Nothing` are network nodes, those with `Just []` are empty nodes, and all
+-- other nodes are nonempty.)
+condenseGraph :: HistoryGraph r -> CondensedGraph r
+condenseGraph hg = execState (mapM_ (go Nothing) (hg ^. hsExits)) initCG
+  where
+    initCG = CondensedGraph Map.empty Nothing
+
+    -- | Visit node `n` in the graph traversal.  `succ` is either `Just
+    -- nodeID`, indicating that the last interesting successor is `nodeID`, or
+    -- `Nothing`, indicating that the last interesting successor is a network
+    -- node.
+    go succ n = case n ^. histBlocks of
+      Nothing -> do
+        case succ of
+          Nothing -> return ()
+          Just succ' -> cgNodes . ix succ' . ciFromNetwork .= True
+        mapM_ (go Nothing) (n ^. histPreds)
+      Just [] -> do
+        mapM_ (go succ) (n ^. histPreds)
+      Just (blk:blks) -> do
+        seen <- Map.member (n ^. histID) <$> use cgNodes
+        when (not seen) $ do
+          cgNodes %= Map.insert (n ^. histID)
+            (CondensedInfo n (Seq.fromList $ blk : blks) Set.empty False False)
+          mapM_ (go (Just $ n ^. histID)) (n ^. histPreds)
+        case succ of
+          Nothing -> cgNodes . ix (n ^. histID) . ciToNetwork .= True
+          Just succ' -> cgNodes . ix (n ^. histID) . ciSuccs %= Set.insert succ'
+        when (blk == 0) $ do
+          cgEntry .= Just (n ^. histID)
+
+
+condensedToSegments :: forall r.
+  ProgAndMem (AnnotatedProgram Metadata r MWord) ->
+  ProgramCFG ->
+  CondensedGraph r ->
+  [Segment r MWord]
+condensedToSegments (ProgAndMem prog _) cfg cg = [mkSeg w info b | (w, info, b) <- segDescs]
+  where
+    getInfo :: Word -> CondensedInfo r
+    getInfo w = case Map.lookup w (cg ^. cgNodes) of
+      Just x -> x
+      Nothing -> error $ "condensedToSegments: CondensedGraph referenced unknown ID " ++ show w
+
+    segDescs :: [(Word, CondensedInfo r, Int)]
+    segDescs =
+      -- Put the entry node first, if one was found.
+      [(w, info, b) | w <- toList (cg ^. cgEntry), info <- [getInfo w],
+        b <- [0 .. Seq.length (info ^. ciBlocks) - 1]] ++
+      [(w, info, b) | (w, info) <- Map.toList (cg ^. cgNodes), Just w /= cg ^. cgEntry,
+        b <- [0 .. Seq.length (info ^. ciBlocks) - 1]]
+
+    -- | Map from history node IDs to segment indices.
+    idMap :: Map (Word, Int) Int
+    idMap = Map.fromList $ zip (map (\(w, _, b) -> (w, b)) segDescs) [0..]
+
+    convertID :: Word -> Int -> Int
+    convertID w b = case Map.lookup (w, b) idMap of
+      Just i -> i
+      Nothing -> error $ "CondensedGraph node referenced unknown ID " ++ show w
+
+    mkSeg w info b = Segment {
+        segIntrs = instrs,
+        constraints = [PcConst pc],
+        segLen = length instrs,
+        segSuc = if isLast then
+            map (\w -> convertID w 0) (Set.toList $ info ^. ciSuccs)
+          else
+            [convertID w (b + 1)],
+        fromNetwork = isFirst && info ^. ciFromNetwork,
+        toNetwork = isLast && info ^. ciToNetwork
+      }
+      where
+        isFirst = b == 0
+        isLast = b == Seq.length (info ^. ciBlocks) - 1
+
+        progInstrs = Seq.fromList $ map fst prog
+
+        pc = case Seq.lookup b (info ^. ciBlocks) of
+          Just x -> x
+          Nothing -> error $ "condensedToSegments: block " ++ show b ++
+            " out of range for node " ++ show w
+        pc' = case IntSet.lookupGT (fromIntegral pc) (cfg ^. pBlockStarts) of
+            Just pc' -> fromIntegral pc'
+            Nothing -> fromIntegral $ Seq.length progInstrs
+        instrs = toList $ Seq.take (fromIntegral $ pc' - pc) $
+          Seq.drop (fromIntegral pc) $ progInstrs
