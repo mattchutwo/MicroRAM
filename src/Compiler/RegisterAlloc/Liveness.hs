@@ -6,6 +6,7 @@ module Compiler.RegisterAlloc.Liveness where
 import           Data.Graph.Directed (DiGraph)
 import qualified Data.Graph.Directed as DiGraph
 import qualified Data.Queue as Queue
+import           Data.List (foldl')
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Set (Set)
@@ -85,8 +86,8 @@ buildCFG blocks = (DiGraph.setNodeLabels nodeLabels $ DiGraph.fromEdges edges, p
         map (name,) names
       ) blocks
 
-    -- Compute predecessors
-    (predecessors, successors) = foldl (\(predMap, sucMap) (source,target) -> (addEdge target source predMap, addEdge source target sucMap))  (Map.empty, Map.empty) edges 
+    -- Compute predecessors and successsors
+    (predecessors, successors) = foldl' (\(predMap, sucMap) (source,target) -> (addEdge target source predMap, addEdge source target sucMap))  (Map.empty, Map.empty) edges 
       where addEdge :: Ord name => name -> name -> DecessorMap name -> DecessorMap name
             addEdge key val pmap = let preds = maybe mempty id $ Map.lookup key pmap in
               Map.insert key (val:preds) pmap 
