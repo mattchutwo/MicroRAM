@@ -56,31 +56,36 @@ import Output.Output
 -- * Full Output
 
 encodeOutput :: Serialise reg => Output reg -> Encoding
-encodeOutput (SecretOutput prog segs params initM trc adv) =
+encodeOutput (SecretOutput prog segs params initM labels trc adv) =
   map2CBOR $ 
+  -- NB: The order of entries here must match the order of fields in
+  -- `SecretOutput`, since `decodeOutput` only looks at the order and not the
+  -- field names.
   [ ("program", encode prog)
   , ("segments", encode segs)
   , ("params", encode params)
   , ("init_mem", encode initM)
+  , ("labels", encode labels)
   , ("trace", encode trc)
   , ("advice", encode adv)
   ]
-encodeOutput (PublicOutput prog segs params initM ) =
+encodeOutput (PublicOutput prog segs params initM labels) =
   map2CBOR $ 
   [ ("program", encode prog)
   , ("segments", encode segs)
   , ("params", encode params)
   , ("init_mem", encode initM)
+  , ("labels", encode labels)
   ]
 
 decodeOutput :: Serialise reg => Decoder s (Output reg)
 decodeOutput = do
   len <- decodeMapLen
   case len of
-    6 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode
-    4 -> PublicOutput <$> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode
-    n -> fail $ "Only lengths for output are 3 and 5 (Public and Secret). Insted found: " ++ show n 
-    
+    7 -> SecretOutput <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode <*> tagDecode
+    5 -> PublicOutput <$> tagDecode <*> tagDecode <*> tagDecode  <*> tagDecode <*> tagDecode
+    n -> fail $ "Only lengths for output are 5 and 7 (Public and Secret). Insted found: " ++ show n
+
 instance Serialise reg => Serialise (Output reg) where 
     encode = encodeOutput
     decode = decodeOutput

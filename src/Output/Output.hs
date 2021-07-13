@@ -67,6 +67,7 @@ data Output reg  =
   , segmentsOut :: [SegmentOut]
   , params :: CircuitParameters
   , initMem :: InitialMem
+  , labelsOut :: Map.Map String MWord
   , traceOut :: [TraceChunkOut reg]
   , adviceOut :: Map.Map MWord [Advice]
   }
@@ -75,6 +76,7 @@ data Output reg  =
   , segmentsOut :: [SegmentOut]
   , params :: CircuitParameters
   , initMem :: InitialMem
+  , labelsOut :: Map.Map String MWord
   } deriving (Eq, Show, Generic)
 
 data SegmentOut
@@ -89,12 +91,12 @@ mkSegmentOut (Segment _ constr len suc fromNet toNet) = SegmentOut constr len su
 
 -- | Convert between the two outputs
 mkOutputPublic :: Output reg -> Output reg
-mkOutputPublic (SecretOutput a b c d _ _) = PublicOutput a b c d
-mkOutputPublic (PublicOutput a b c d) = PublicOutput a b c d
+mkOutputPublic (SecretOutput a b c d e _ _) = PublicOutput a b c d e
+mkOutputPublic (PublicOutput a b c d e) = PublicOutput a b c d e
 
 mkOutputPrivate :: [TraceChunkOut reg] -> Map.Map MWord [Advice] -> Output reg -> Output reg
-mkOutputPrivate trace adv (PublicOutput a b c d ) = SecretOutput a b c d trace adv
-mkOutputPrivate trace adv (SecretOutput a b c d _ _) = SecretOutput a b c d trace adv
+mkOutputPrivate trace adv (PublicOutput a b c d e ) = SecretOutput a b c d e trace adv
+mkOutputPrivate trace adv (SecretOutput a b c d e _ _) = SecretOutput a b c d e trace adv
 
 
 
@@ -150,8 +152,9 @@ compUnit2Output :: Regs reg => [Segment reg MWord] -> CompilationResult (Program
 compUnit2Output segs (CompUnit p _trLen regData aData _ _) =
   let regNum = getRegNum regData
       circParams = buildCircuitParameters regData aData regNum
-      segsOut = map mkSegmentOut segs in
-  PublicOutput (pmProg $ lowProg p) segsOut circParams (pmMem $ lowProg p)
+      segsOut = map mkSegmentOut segs
+      labelsOut = Map.mapKeys show $ pmLabels $ lowProg p in
+  PublicOutput (pmProg $ lowProg p) segsOut circParams (pmMem $ lowProg p) labelsOut
 
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).

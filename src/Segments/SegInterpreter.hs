@@ -40,8 +40,8 @@ makeLenses ''CheckSt
   
 
 checkOutput :: Output Int -> Result ()
-checkOutput (PublicOutput _ _ _ _) = Left "Found Public Output with no trace to check."
-checkOutput (SecretOutput prog segs params initMem tr _adv) = do
+checkOutput (PublicOutput _ _ _ _ _) = Left "Found Public Output with no trace to check."
+checkOutput (SecretOutput prog segs params initMem _labels tr _adv) = do
   let traceA = concat $ map chunkStatesOut tr
   let len = length traceA
   -- Produce a new trace
@@ -132,7 +132,7 @@ doCheck = case checkOutput testOutput of
             Left msg -> putStrLn msg
 -- checkOutput :: Output Int -> Result ()
 testOutput :: Output Int
-testOutput = SecretOutput prog segs parms mem tr adv
+testOutput = SecretOutput prog segs parms mem labels tr adv
   where prog :: Program Int MWord
         prog = Iadd 0 0 (Const 42) :
                Iadd 0 0 (Const 42) :
@@ -144,6 +144,8 @@ testOutput = SecretOutput prog segs parms mem tr adv
         parms  = CircuitParameters 2 Map.empty
         mem :: Compiler.CompilationUnit.InitialMem
         mem  = []
+        labels :: Map.Map String MWord
+        labels = Map.empty
         tr :: [TraceChunkOut Int]
         tr  = TraceChunkOut 0 [StateOut 1 [42,0,0,0], StateOut 2 [84,0,0,0]] :
           TraceChunkOut 1 [StateOut 3 [42,0,0,0], StateOut 4 [0,0,0,0]] : []

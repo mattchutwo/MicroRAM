@@ -171,5 +171,5 @@ removeLabels compUnit = do
   lMap <- return $ createMap $ pmProg $ programCU compUnit
   prog' <- replaceLabels lMap $ flatten $ pmProg $ programCU compUnit
   initMem <- removeLabelsInitMem lMap $ intermediateInfo compUnit
-  return $ compUnit {programCU = ProgAndMem prog' initMem, intermediateInfo = ()}
+  return $ compUnit {programCU = ProgAndMem prog' initMem lMap, intermediateInfo = ()}
   

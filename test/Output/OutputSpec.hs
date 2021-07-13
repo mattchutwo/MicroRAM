@@ -169,8 +169,8 @@ instance Arbitrary Constraints where
 
 instance Arbitrary reg => Arbitrary (Output reg) where
   arbitrary = oneof
-    [ SecretOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    , PublicOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    [ SecretOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    , PublicOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
     ]
 
 testOutput :: TestTree

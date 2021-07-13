@@ -48,7 +48,7 @@ list2InitMem ls = map word2InitSeg $ zip [0..] ls
 
 trivialCU :: Prog Int -> Word -> [MWord] -> CompilationResult (Prog Int)
 trivialCU prog len input = CompUnit progs len InfinityRegs def firstUnusedName ()
-  where pm = ProgAndMem prog (list2InitMem input)
+  where pm = ProgAndMem prog (list2InitMem input) mempty
         progs = MultiProg pm pm
 
 runProg :: Prog Int -> Word -> [MWord] -> Trace Int

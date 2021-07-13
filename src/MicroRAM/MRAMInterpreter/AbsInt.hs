@@ -527,7 +527,7 @@ runPath n = do
 -}
 
 initState :: Regs r => ProgAndMem (AnnotatedProgram Metadata r MWord) -> AbsIntState r
-initState (ProgAndMem prog mem) =
+initState (ProgAndMem prog mem _) =
   InterpState {
     _sMach = MachineState {
       _mCycle = VExact 0,
