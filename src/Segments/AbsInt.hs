@@ -44,7 +44,13 @@ makeLenses ''HistoryNode
 data HistoryGraph r = HistoryGraph {
   _hsNextID :: Word,
   _hsExits :: [HistoryNode r],
-  _hsCFG :: ProgramCFG
+  _hsCFG :: ProgramCFG,
+  -- | Additional regions to execute.  The region `(pc1, pc2)` means execution
+  -- should start at `pc1` and continue until it reaches `pc2`.
+  _hsPendingRegions :: [(AbsIntState r, MWord)],
+  -- | All regions that have been seen so far.  Used to avoid queuing the same
+  -- static region more than once.
+  _hsSeenRegions :: Set (MWord, MWord)
 }
 makeLenses ''HistoryGraph
 
@@ -67,7 +73,7 @@ makeLenses ''CondensedGraph
 
 
 initHistoryGraph :: ProgramCFG -> HistoryGraph r
-initHistoryGraph cfg = HistoryGraph 0 [] cfg
+initHistoryGraph cfg = HistoryGraph 0 [] cfg [] Set.empty
 
 mkHistoryNode :: MonadState (HistoryGraph r) m =>
   [HistoryNode r] -> Maybe [MWord] -> AbsIntState r -> m (HistoryNode r)
@@ -75,6 +81,15 @@ mkHistoryNode preds blocks finalState = do
   nodeID <- use hsNextID
   hsNextID %= (+ 1)
   return $ HistoryNode nodeID preds blocks finalState
+
+queueRegion :: MonadState (HistoryGraph r) m =>
+  AbsIntState r -> MWord -> m ()
+queueRegion s endPc = do
+  let rg = (s ^. sMach . mPc, endPc)
+  seen <- Set.member rg <$> use hsSeenRegions
+  when (not seen) $ do
+    hsSeenRegions %= Set.insert rg
+    hsPendingRegions %= ((s, endPc) :)
 
 
 data Cont r =
@@ -308,13 +323,21 @@ stepExec ex
               -- necessary to run them (e.g. due to a bug in error handling
               -- code).
               finishBranch h'
-      SrBranch _ _ -> do
+      SrBranch _ dest -> do
+        -- Skip to the postdominator without running either branch.
         optIpdom <- findPostDominator stopPc (ex ^. exReturn)
         case optIpdom of
           Just ipdom -> do
             --traceShowM ("branch (sym) at", stopPc, "has ipdom", ipdom)
             traceM $ "stepExec: branch produces havoc, ipdom = " ++ show ipdom
             h' <- mkHist id >>= mkHavocHist ipdom
+            case dest of
+              VExact dest' -> do
+                -- When the branches we're skipping over are known, queue them
+                -- to be explored independently later on.
+                queueRegion (havocState $ takeBranch dest' (stop ^. stState)) ipdom
+                queueRegion (havocState $ takeFallThrough (stop ^. stState)) ipdom
+              _ -> return ()
             return $ Just $ ex & exLive .~ (h':hs)
           Nothing -> do
             mkHist id >>= finishBranch
@@ -387,7 +410,19 @@ runExec ex = do
   ex' <- stepExec ex
   case ex' of
     Just ex'' -> runExec ex''
-    Nothing -> return ()
+    Nothing -> runNextExec
+
+runNextExec :: Regs r => StateT (HistoryGraph r) Hopefully ()
+runNextExec = do
+  pending <- use hsPendingRegions
+  case pending of
+    [] -> return ()
+    ((s, endPc) : pending') -> do
+      traceM $ "run pending region " ++ show (s ^. sMach . mPc) ++ " .. " ++ show endPc
+      hsPendingRegions .= pending'
+      h <- mkHistoryNode [] Nothing s
+      let exec = Exec [h] [] endPc endPc KDone IntSet.empty
+      runExec exec
 
 testAbsInt_v :: Regs r =>
   ProgAndMem (AnnotatedProgram Metadata r MWord) -> ProgramCFG -> Hopefully ()
