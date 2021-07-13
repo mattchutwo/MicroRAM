@@ -83,7 +83,10 @@ chooseSegments privSize spar prog trace segments = do
       where segMap = V.ifoldl addSegment Map.empty segments
     addSegment :: Map.Map MWord [Int] -> Int -> Segment reg wrd -> Map.Map MWord [Int] 
     addSegment sets indx seg =
-      if fromNetwork seg
+      -- A segment is a valid entry point if it has a fromNetwork port.  As a
+      -- special case, segment 0 is also a valid entry, even without a port,
+      -- since the overall execution always begins there.
+      if fromNetwork seg || indx == 0
       then addToMap sets (segPc seg) indx
       else sets
     addToMap :: Map.Map MWord [Int] -> Maybe MWord -> Int -> Map.Map MWord [Int] 

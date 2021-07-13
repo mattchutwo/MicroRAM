@@ -395,7 +395,7 @@ testAbsInt_v prog cfg = evalStateT go (initHistoryGraph cfg)
       hg <- get
       lift $ renderHistoryGraphviz hg
       let cg = condenseGraph hg
-      let segs = condensedToSegments prog cfg cg
+      let segs = condensedToSegments (pmProg prog) cfg cg
       lift $ renderSegmentsGraphviz segs
 
 renderHistoryGraphviz :: HistoryGraph r -> Hopefully ()
@@ -476,11 +476,11 @@ condenseGraph hg = execState (mapM_ (go Nothing) (hg ^. hsExits)) initCG
 
 
 condensedToSegments :: forall r.
-  ProgAndMem (AnnotatedProgram Metadata r MWord) ->
+  AnnotatedProgram Metadata r MWord ->
   ProgramCFG ->
   CondensedGraph r ->
   [Segment r MWord]
-condensedToSegments (ProgAndMem prog _) cfg cg = [mkSeg w info b | (w, info, b) <- segDescs]
+condensedToSegments prog cfg cg = [mkSeg w info b | (w, info, b) <- segDescs]
   where
     getInfo :: Word -> CondensedInfo r
     getInfo w = case Map.lookup w (cg ^. cgNodes) of
@@ -530,3 +530,12 @@ condensedToSegments (ProgAndMem prog _) cfg cg = [mkSeg w info b | (w, info, b) 
             Nothing -> fromIntegral $ Seq.length progInstrs
         instrs = toList $ Seq.take (fromIntegral $ pc' - pc) $
           Seq.drop (fromIntegral pc) $ progInstrs
+
+segmentProgramWithAbsInt :: Regs r =>
+  ProgAndMem (AnnotatedProgram Metadata r MWord) ->
+  Hopefully [Segment r MWord]
+segmentProgramWithAbsInt pm = do
+  let cfg = buildProgramCFG (pmProg pm)
+  hg <- execStateT (initExec (initState pm) >>= runExec) (initHistoryGraph cfg)
+  let cg = condenseGraph hg
+  return $ condensedToSegments (pmProg pm) cfg cg

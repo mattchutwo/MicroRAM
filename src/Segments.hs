@@ -24,6 +24,7 @@ import MicroRAM.MRAMInterpreter
 
 import Segments.Segmenting
 import Segments.ChooseSegments
+import Segments.AbsInt
 
 import Sparsity.Sparsity (Sparsity)
  
@@ -33,10 +34,11 @@ data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (P
                                               , segTrace :: Maybe [TraceChunk reg]
                                               , segAdvice :: Maybe (Map.Map MWord [Advice])}
 
-segment :: (Show reg) => Bool -> Int -> Maybe Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
+segment :: (Regs reg, Show reg) => Bool -> Int -> Maybe Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
 segment producePublic privSize privSegs compRes = do
   let funCount = functionUsage $ aData compRes 
-  segs <- segmentProgram funCount $ (pmProg . lowProg . programCU) compRes
+  --segs <- segmentProgram funCount $ (pmProg . lowProg . programCU) compRes
+  segs <- segmentProgramWithAbsInt (lowProg $ programCU compRes)
   let pubSegs = if producePublic then segs else []
   let privateSegments = if producePublic then
         mkPrivateSegments (traceLen compRes) privSize privSegs
