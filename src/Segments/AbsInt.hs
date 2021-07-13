@@ -50,7 +50,7 @@ data HistoryGraph r = HistoryGraph {
   _hsPendingRegions :: [(AbsIntState r, MWord)],
   -- | All regions that have been seen so far.  Used to avoid queuing the same
   -- static region more than once.
-  _hsSeenRegions :: Set (MWord, MWord)
+  _hsSeenRegions :: Map (MWord, MWord) Word
 }
 makeLenses ''HistoryGraph
 
@@ -73,7 +73,7 @@ makeLenses ''CondensedGraph
 
 
 initHistoryGraph :: ProgramCFG -> HistoryGraph r
-initHistoryGraph cfg = HistoryGraph 0 [] cfg [] Set.empty
+initHistoryGraph cfg = HistoryGraph 0 [] cfg mempty mempty
 
 mkHistoryNode :: MonadState (HistoryGraph r) m =>
   [HistoryNode r] -> Maybe [MWord] -> AbsIntState r -> m (HistoryNode r)
@@ -86,9 +86,9 @@ queueRegion :: MonadState (HistoryGraph r) m =>
   AbsIntState r -> MWord -> m ()
 queueRegion s endPc = do
   let rg = (s ^. sMach . mPc, endPc)
-  seen <- Set.member rg <$> use hsSeenRegions
-  when (not seen) $ do
-    hsSeenRegions %= Set.insert rg
+  seen <- use hsSeenRegions
+  when (maybe 0 id (Map.lookup rg seen) < 10) $ do
+    hsSeenRegions %= Map.insertWith (+) rg 1
     hsPendingRegions %= ((s, endPc) :)
 
 
