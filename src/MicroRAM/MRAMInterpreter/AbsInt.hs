@@ -444,7 +444,7 @@ maybeStepInstr i = case i of
 
   Iextadvise rd ext -> case ext of
     XAdvisePoison _lo _hi -> do
-      sMach . mReg rd .= VExact 0 -- TODO
+      sMach . mReg rd .= VTop
       finishInstr
       return Nothing
     XMalloc _ -> do
