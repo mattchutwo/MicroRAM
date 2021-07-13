@@ -532,7 +532,7 @@ initState (ProgAndMem prog mem) =
     _sMach = MachineState {
       _mCycle = VExact 0,
       _mPc = 0,
-      _mRegs = initBank (VExact $ lengthInitMem mem),
+      _mRegs = initBank (VExact $ lengthInitMem mem) (VExact 0),
       _mProg = Seq.fromList $ map fst prog,
       _mMem = amem,
       _mBug = False,
@@ -555,10 +555,7 @@ havocState s =
     _sMach = MachineState {
       _mCycle = VTop,
       _mPc = s ^. sMach . mPc,
-      -- FIXME: this only sets registers that have been written to VTop, when
-      -- really we need to set all registers.  But we don't have an easy way to
-      -- get the total number of registers at this point.
-      _mRegs = fmap (const VTop) (s ^. sMach . mRegs),
+      _mRegs = initBank VTop VTop,
       _mProg = s ^. sMach . mProg,
       _mMem = amHavoc,
       _mBug = False,

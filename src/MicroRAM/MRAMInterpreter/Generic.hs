@@ -96,7 +96,7 @@ type InstrHandler' r v s = Instruction r MWord -> InterpM' r v s Hopefully ()
 -- value 0 when the register is uninitialized.
 mReg :: (Functor f, Regs r, AbsDomain v) =>
   r -> (v -> f v) -> (MachineState' r v -> f (MachineState' r v))
-mReg r = mRegs . lens (maybe (absExact 0) id . lookupReg r) (flip $ updateBank r)
+mReg r = mRegs . lens (lookupReg r) (flip $ updateBank r)
 
 
 -- | Lift a partial into the interpreter monad, annotating any errors that

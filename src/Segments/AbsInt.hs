@@ -149,7 +149,12 @@ joinPaths hs = do
         (bug1 && bug2)
         (assertEq "answer" answer1 answer2)
 
-    mergeRegs = Map.unionWith absMerge
+    mergeRegs
+      (RegBank m1 d1)
+      (RegBank m2 d2) =
+      RegBank
+        (Map.unionWith absMerge m1 m2)
+        (absMerge d1 d2)
 
     mergeMem
       (AbsMemory mem1 default1 poisonedZero1)

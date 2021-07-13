@@ -118,10 +118,7 @@ instance Show PrintableWords where
   show (PW w) = pprintConst w
     
 lookupReg' :: Regs a => a -> RegBank a MWord -> MaybeWord
-lookupReg' a bank =
-  case lookupReg a bank of
-    Just w -> JustW w
-    Nothing -> NoW
+lookupReg' a bank = JustW $ lookupReg a bank
 
 
 data ResRegs = RRs

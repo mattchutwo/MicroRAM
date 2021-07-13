@@ -57,9 +57,9 @@ runProg prog len input = run $ trivialCU prog len input
 -- We are treating the first register as the return
 -- To get ouptu to get output provide a program and a number of steps to get the result after that long
 -- Execute gets the trace and then looks at the first register after t steps
-exec :: Prog Int -> Word -> [MWord] -> Maybe MWord
+exec :: Prog Int -> Word -> [MWord] -> MWord
 exec prog steps input = lookupReg sp (seeRegs (runProg prog (steps+1) input) (fromEnum steps)) -- this throws an error if there is no register 0
-simpl_exec :: Prog Int -> Word -> Maybe MWord
+simpl_exec :: Prog Int -> Word -> MWord
 simpl_exec prog steps = exec prog steps [] -- when there are no inputs
 seeRegs:: Trace mreg -> Int -> RegBank mreg MWord
 seeRegs t n = regs (t !! n)
@@ -79,7 +79,7 @@ prog1 = [Iadd 0 0 (Const 1),
        Imull 0 0 (Reg 1)]
 
 test1 :: TestTree
-test1 = testProperty ("Testing (1+2)*(3+4) == 21.")  $ (simpl_exec prog1 5) == Just 21
+test1 = testProperty ("Testing (1+2)*(3+4) == 21.")  $ (simpl_exec prog1 5) == 21
 
 
 
@@ -96,7 +96,7 @@ prog2 = [Iadd 0 0 (Const 1),
 
 test2 :: TestTree
 test2 = testProperty "Test `x++` on a loop" $ \n -> (n :: Word) >= 1 ==>
-                                                    simpl_exec prog2 (2*n) == (Just $ fromIntegral n)
+                                                    simpl_exec prog2 (2*n) == fromIntegral n
 
 -- # Test 3: fibonacci
 {-
@@ -133,7 +133,7 @@ claimEqual a b =
 
 test3 :: TestTree
 test3 = testProperty "Test fibonacci" $ \n -> (n :: Word) <= 30 ==>
-                                              (simpl_exec prog3 (1+4*n)) ==  (Just $ fib_pure (n+1))
+                                              (simpl_exec prog3 (1+4*n)) ==  fib_pure (n+1)
    
 -- # Test 4: conditional + input
 
@@ -150,7 +150,7 @@ prog4 = [IloadW 1 (Const 0), --
 
 test4 :: TestTree
 test4 = testProperty "Test a conditional and input" $ \x ->
-   claimEqual (exec prog4 6 [x]) (Just $ if x>10 then 42 else 77)
+   claimEqual (exec prog4 6 [x]) (if x>10 then 42 else 77)
 
                                                                
 -- # Test 5: sum all input
@@ -175,10 +175,10 @@ prog5 = [Imov 0 (Const 0),
          Ijmp (Const 2)]
         
 
---test5 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
+--test5 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (sum ls)
 test5 :: TestTree
 test5 = testProperty "Test adding a list of inputs" $ \xs ->
-   claimEqual (exec prog5 (4 * (toEnum $ length xs)) xs)  (Just $ sum xs)
+   claimEqual (exec prog5 (4 * (toEnum $ length xs)) xs)  (sum xs)
 
 
 
@@ -205,13 +205,13 @@ progAshr input shift =
         zerow = 0
         monew = 0-1 
   
---test6 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (Just $ sum ls)
+--test6 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (sum ls)
 testAshr :: TestTree
 testAshr = testProperty "Test implementation of arithmetic shift right"
         $ \inpt -> (inpt :: Int) == inpt ==>
                    \shift ->  (shift :: Int) >= 0 ==>
                               exec (progAshr (binaryFromInt inpt) (binaryFromInt shift)) 6 [] ==
-                              Just (binaryFromInt $ inpt `shiftR` shift)
+                              (binaryFromInt $ inpt `shiftR` shift)
 binaryFromInt :: Int -> MWord
 binaryFromInt n =
   if n >= 0 then toEnum n else maxBound - (toEnum (-1- n))

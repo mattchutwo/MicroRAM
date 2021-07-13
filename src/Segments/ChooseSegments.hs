@@ -17,6 +17,7 @@ module Segments.ChooseSegments where
 import qualified Data.Graph as G
 import Data.Foldable (toList)
 
+import Compiler.Registers (RegBank(..))
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
@@ -406,7 +407,7 @@ splitEvery n list = first : (splitEvery n rest)
 -- TESTING
 
 fakeState :: MWord -> ExecutionState ()
-fakeState n = ExecutionState n Map.empty (0, Map.empty) Set.empty [] False False 0
+fakeState n = ExecutionState n (RegBank Map.empty 0) (0, Map.empty) Set.empty [] False False 0
 
 testTrace :: Trace ()
 testTrace =

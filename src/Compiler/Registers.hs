@@ -15,7 +15,7 @@ the compiler to choose the number of registers as well as the classes
 -}
 module Compiler.Registers
     ( Regs(..),
-      RegBank,
+      RegBank(..),
       initBank, lookupReg, updateBank,
       RegisterData(..),
       regToList
@@ -36,21 +36,24 @@ class Ord a => Regs a where
   
 -- Register bank
 -- | registers can be stored in a register bank with lookups and updates
-type RegBank regT wrdT = Map.Map regT wrdT 
+data RegBank regT wrdT = RegBank (Map.Map regT wrdT) wrdT
+  deriving (Show)
+
 initBank ::
   Regs regT =>
-  b  -- ^ Takes default and initial valuse of sp/bp  
-  -> RegBank regT b 
-initBank def = Map.fromList [(sp,def),(sp,def)]  
+  b  -- ^ Initial valuse of sp/bp
+  -> b -- ^ Initial value for all other registers
+  -> RegBank regT b
+initBank spVal def = RegBank (Map.fromList [(sp, spVal), (sp, spVal)]) def
 
-lookupReg :: Regs a => a -> RegBank a b -> Maybe b
-lookupReg = Map.lookup
+lookupReg :: Regs a => a -> RegBank a b -> b
+lookupReg r (RegBank m d) = maybe d id $ Map.lookup r m
 updateBank :: Regs a => a -> b -> RegBank a b -> RegBank a b
-updateBank = Map.insert
+updateBank r v (RegBank m d) = RegBank (Map.insert r v m) d
 
 -- | Flattens a register bank to a list. Takes a bound
 -- in case the register type or the bank is infinite.
-regToList :: Regs mreg => Word -> RegBank mreg b -> [Maybe b]
+regToList :: Regs mreg => Word -> RegBank mreg b -> [b]
 regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound - 1]
 
 
