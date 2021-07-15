@@ -34,6 +34,7 @@ module Compiler.IRs(
   -- $GIR
   IRprog(..), Function(..), IRFunction, BB(..),
   IRInstruction(..),
+  modifyCode,
   
   VReg, DAGinfo,
   -- Utilities
@@ -164,6 +165,11 @@ data IRprog mdata wrdT funcT = IRprog
   } deriving (Show, Functor, Foldable, Traversable)
 
 
+-- | When you want to just change the code (like a light lense)
+modifyCode :: Monad m => ([funcT] -> m [funcT']) -> IRprog mdata wrdT funcT -> m (IRprog mdata wrdT funcT')
+modifyCode f prog = do
+  code' <- f $ code prog
+  return $ prog {code = code'}
 
 
 -- ** MicroIR
@@ -245,7 +251,7 @@ type Rprog mdata wrdT = IRprog mdata wrdT $ RFunction mdata wrdT
 data Slot =
     Local     -- ^ Used by register allocation to spill pseudo-registers to the stack
   | Incoming  -- ^ Stores parameters of the current function
---  | Outgoing  -- ^ Stores arguments to the called function that cannot be in registers.
+  | Outgoing  -- ^ Stores arguments to the called function that cannot be in registers.
   deriving (Eq, Read, Show)
 
 -- | Locations are the disjoint union of machine registers and stack loctions

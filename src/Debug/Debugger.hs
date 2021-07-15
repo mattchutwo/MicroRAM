@@ -43,6 +43,7 @@ import Compiler.Globals
 import Compiler.InstructionSelection
 import Compiler.Intrinsics
 import Compiler.IRs
+import Compiler.LayArgs
 import Compiler.Legalize
 import Compiler.LocalizeLabels
 import Compiler.Metadata
@@ -351,6 +352,7 @@ jpProgComp len = do
 
     >>= (justCompileWithNames edgeSplit)
     >>= (justCompileWithNames removePhi)
+    >>= (justCompileWithNamesSt layArgs)
     >>= (registerAlloc def)
     >>= (justCompile callingConvention)
     >>= (replaceGlobals)

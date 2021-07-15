@@ -6,6 +6,7 @@ module Compiler.RegisterAlloc.Liveness where
 import           Data.Graph.Directed (DiGraph)
 import qualified Data.Graph.Directed as DiGraph
 import qualified Data.Queue as Queue
+import           Data.List (foldl')
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Set (Set)
@@ -43,7 +44,7 @@ livenessAnalysis blocks = do -- trace (show blocks) $ do
 
   where
     -- Build CFG (Edges of instruction names?)
-    cfg = buildCFG blocks
+    (cfg, predecessorMap, successroMap) = buildCFG blocks
 
     -- Compute use and define set for each block.
     (useM, defM) = foldr (\(BB name insts insts' _) (useM, defM) ->
@@ -56,29 +57,40 @@ livenessAnalysis blocks = do -- trace (show blocks) $ do
 
     lookupSet k = maybe mempty id . Map.lookup k
 
+    getPredecessors v = maybe [] id $ Map.lookup v predecessorMap
+    getSuccessors v = maybe [] id $ Map.lookup v successroMap
+
     go ins outs q = case Queue.pop q of
       Nothing -> (ins, outs)
       Just (q, v) -> 
         let oldIn = lookupSet v ins in
 
-        let newOut = Set.unions $ map (\v' -> lookupSet v' ins) $ DiGraph.successors cfg v in
+        let newOut = Set.unions $ map (\v' -> lookupSet v' ins) $ getSuccessors v in
         let outs' = Map.insert v newOut outs in
 
         let newIn = lookupSet v useM `Set.union` (newOut `Set.difference` lookupSet v defM) in
         let ins' = Map.insert v newIn ins in
 
-        let q' = if oldIn /= newIn then foldr Queue.push q (DiGraph.predecessors cfg v) else q in
+        let q' = if oldIn /= newIn then foldr Queue.push q (getPredecessors v) else q in
 
         go ins' outs' q'
-    
 
-buildCFG :: Ord name => [BB name inst] -> DiGraph name ([inst], [inst]) ()
-buildCFG blocks = DiGraph.setNodeLabels nodeLabels $ DiGraph.fromEdges edges
+     
+    
+type DecessorMap name = Map.Map name [name]
+  
+buildCFG :: Ord name => [BB name inst] -> (DiGraph name ([inst], [inst]) (), DecessorMap name, DecessorMap name)
+buildCFG blocks = (DiGraph.setNodeLabels nodeLabels $ DiGraph.fromEdges edges, predecessors, successors)
   where
     edges = concatMap (\(BB name _insts _insts' names) -> 
         map (name,) names
       ) blocks
 
+    -- Compute predecessors and successsors
+    (predecessors, successors) = foldl' (\(predMap, sucMap) (source,target) -> (addEdge target source predMap, addEdge source target sucMap))  (Map.empty, Map.empty) edges 
+      where addEdge :: Ord name => name -> name -> DecessorMap name -> DecessorMap name
+            addEdge key val pmap = let preds = maybe mempty id $ Map.lookup key pmap in
+              Map.insert key (val:preds) pmap 
     -- JP: We have the invariant that each block has one instruction, so we could return `DiGraph name inst ()` instead.
     nodeLabels = map (\(BB name insts insts' _names) -> (name, (insts, insts'))) blocks
 

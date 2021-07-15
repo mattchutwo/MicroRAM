@@ -74,7 +74,6 @@ import MicroRAM
 
 import Util.Util
 
-
 type LOperand mreg =  MAOperand mreg MWord
 
 -- ** Usefull snipets
@@ -83,32 +82,19 @@ push, _pop :: Regs mreg => mreg -> [MAInstruction mreg MWord]
 push r = [Isub sp sp (LImm $ fromIntegral wordBytes), IstoreW (AReg sp) r]
 _pop r = [IloadW r (AReg sp), Iadd sp sp (LImm $ fromIntegral wordBytes)]
 
--- | pushOperand sometimes we want to push a constant
--- Notice here we use ax. This can only be done at funciton entry
--- where ax is callee-saved.
-pushOperand :: Regs mreg => LOperand mreg -> [MAInstruction mreg MWord]
-pushOperand (AReg r) = push r
-pushOperand op = Imov ax op :  push ax
-
-
-
-pushN :: Regs mreg => [LOperand mreg] -> [MAInstruction mreg MWord]
-pushN [] = []
-pushN (r:rs) = pushOperand r ++ pushN rs 
-
 -- PopN doesn't return, just drops the top n things in the stack
-popN :: Regs mreg => Word -> [MAInstruction mreg MWord]
-popN 0 = []
-popN n = [Iadd sp sp (LImm $ fromIntegral $ wordBytes * fromIntegral n) ]
+_popN :: Regs mreg => Word -> [MAInstruction mreg MWord]
+_popN 0 = []
+_popN n = [Iadd sp sp (LImm $ fromIntegral $ wordBytes * fromIntegral n) ]
 
 
 -- | smartMov is like Imov, but does nothing if the registers are the same
 smartMov :: Regs mreg => mreg -> mreg -> [MAInstruction mreg MWord]
 smartMov r1 r2 = if r1 == r2 then [] else [Imov r1 (AReg r2)]
 
--- smartMovMaybe :: Regs mreg => Maybe mreg -> mreg -> [MAInstruction mreg MWord]
--- smartMovMaybe Nothing _ = []
--- smartMovMaybe (Just r) a = smartMov r a
+_smartMovMaybe :: Regs mreg => Maybe mreg -> mreg -> [MAInstruction mreg MWord]
+_smartMovMaybe Nothing _ = []
+_smartMovMaybe (Just r) a = smartMov r a
 
 -- | Premain: no arguments to main!
 -- This is a pseudofunction, that sets up return address for main.
@@ -145,9 +131,10 @@ returnBlock retName = NBlock (Just retName) [(Ianswer (AReg ax),md)]
 -- | prologue: allocates the stack at the beggining of the function
 prologue :: Regs mreg => MWord -> Name -> [MAInstruction mreg MWord]
 prologue size entry =
-    [ Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size))
-    , Ijmp $ Label entry
-    ]
+  (case size of
+    0 -> []
+    _ -> [Isub sp sp (LImm $ fromIntegral $ wordBytes * (fromIntegral size))])
+  ++ [Ijmp (Label entry)]
 
 
 -- | epilogue: deallocate the stack, then jump to return address
@@ -173,25 +160,33 @@ funCallInstructions ::
   -> [Ty]
   -> [LOperand mreg] -- ^ Arguments
   -> [(MAInstruction mreg MWord, Metadata)]
-funCallInstructions md _ ret f _ args =
+funCallInstructions md _ ret f _typs _args =
   -- Push all arguments to stack
   -- We store arguments backwards
   addMD md 
-  (pushN (reverse args) ++
+  (
   -- Push return addres
     [Imov ax HereLabel,
      Iadd ax ax (LImm 7) -- FIXME: The compiler should do this addition
     ] ++ push ax ++
-    push bp ++ [Imov bp (AReg sp)] ++ -- Set new stack frame (sp is increased in the function)
+    -- push the old base pointer, and move the base pointer to the sp
+    push bp ++
+    [Imov bp (AReg sp)] ++
   -- Run function 
     [Ijmp f]) ++
   -- The function should return to this next instruciton
-  -- restore the base pointer (right before this is used to compute return address)
+  -- restore the base pointer (right before this it is used to compute return address)
   (Imov sp (AReg bp), md{mdReturnCall = True}): -- get old sp 
   addMD md 
   (IloadW bp (AReg sp) :         -- get old bp
-  -- remove arguments and return address from the stack
-  (popN (fromIntegral $ (length args) + 2)) ++
+  -- NOTE: Decided not to remove arguments from the stack
+  --       they will be removed once the caller returns and we don't
+  --       we have plenty of space in the stack, so this should save
+  --       an instruction. Notice we use `typs`, because `args` is empty
+  --       by now. To remove them uncomment the following line:
+  -- (Also recomended to rename _popN and _typs to remove the underscore) 
+  -- (_popN (fromIntegral $ (length _typs))) ++
+  
   -- move the return value (always returns to ax)
   setResult ret)
   
@@ -212,6 +207,12 @@ stackLTLInstr md (Lsetstack reg Incoming offset _) = return $ addMD md $
    [ Iadd bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))
    , IstoreW (AReg bp) reg
    , Isub bp bp (LImm $ fromIntegral $ wordBytes * (2 + fromIntegral offset))]
+stackLTLInstr md (Lgetstack Outgoing offset _ reg) = return $ addMD md $
+   [ Isub reg sp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
+   , IloadW reg (AReg reg)]
+stackLTLInstr md (Lsetstack reg Outgoing _offset _) = return $ addMD md $
+   [ Isub sp sp (LImm $ fromIntegral $ wordBytes * 1) -- Offset is ignored,calculate it by bumping sp
+   , IstoreW (AReg sp) reg]
 stackLTLInstr md (Lgetstack Local offset _ reg) = return $ addMD md $
    [ Isub reg bp (LImm $ fromIntegral $ wordBytes * (1 + fromIntegral offset))
    , IloadW reg (AReg reg)]  -- JP: offset+1?
@@ -280,15 +281,27 @@ stackFunction (LFunction name _retT _argT _argN size code) = do
     NBlock (Just name) _ : _ -> return name
     _ -> assumptError $ "function " ++ show name ++ " entry block has no name"
   let prologueBody = addMD prolMD (prologue size entryName)
-  let prologueBlock = NBlock (Just name) $ markFunStart prologueBody 
-  return $ prologueBlock : codeBlocks
+  -- Prologue has the same name of the function and the removeLabels pass will look for
+  -- this prologue (not the function) when jumping. That's why we need a prologue even if it's empty
+  let prologueBlock = NBlock (Just name) $ prologueBody
+  return $ markFunStart $ prologueBlock : codeBlocks
+    
   where prolMD = trivialMetadata name name
         -- | Add metadata for the first instruction in a funciton
-        markFunStart :: [(MAInstruction mreg MWord, Metadata)] -> [(MAInstruction mreg MWord, Metadata)]
-        markFunStart ls = let firstInst = head ls in -- We know ls is not empyt because the prelude is not empyt.
-          (fst firstInst, (snd firstInst){mdFunctionStart = True}) : tail ls 
-  
-  
+        markFunStart :: [NamedBlock Metadata mreg MWord] -> [NamedBlock Metadata mreg MWord]
+        markFunStart blocks =
+          -- Find the first instruction and add 'mdFunctionStart = True'
+          case blocks of
+            [] -> [] -- ^ If the funciton is empty, it has no start
+            NBlock (Just name) [] : bbs -> NBlock (Just name) [] : markFunStart bbs
+            bb : bbs -> (markFunStartBlock bb) : bbs -- ^ guarantees that bb is not empty
+        -- Assumes the block is not empty
+        markFunStartBlock :: NamedBlock Metadata mreg MWord -> NamedBlock Metadata mreg MWord
+        markFunStartBlock  (NBlock (Just name) (firstInst : insts)) =
+          NBlock (Just name) $ (fst firstInst, (snd firstInst){mdFunctionStart = True}) : insts
+        markFunStartBlock (NBlock name []) = error $
+          "Block is expected to be non-empty, but found empty block: \n\t" <> show name
+          
 stacking :: Regs mreg => (Lprog Metadata mreg MWord, Word) -> Hopefully $ (MAProgram Metadata mreg MWord, Word)
 stacking (IRprog _ _ functions, nextName) = do
   functions' <- mapM stackFunction functions

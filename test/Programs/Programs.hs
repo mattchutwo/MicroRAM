@@ -45,13 +45,19 @@ testTrivial = ManyTests "Trivial programs" $ OneTest <$>
   defaultTest {
     testName = "Function call with multiple args"
     ,fileName ="test/Programs/multiArgs.ll"
-    ,testLen = 110
+    ,testLen = 120
     ,testResult = 123
+    } :
+  defaultTest {
+    testName = "Function call with 10 args"
+    ,fileName ="test/Programs/manyArgs.ll"
+    ,testLen = 400
+    ,testResult = 45
     } :
   defaultTest {
     testName = "arithmetic shift right"
     ,fileName ="test/Programs/arithShr.ll"
-    ,testLen = 600
+    ,testLen = 660
     ,testResult = 8
     }  :
   defaultTest {
@@ -223,7 +229,7 @@ testDatastruct = ManyTests "Test data structures" $ OneTest <$>
   defaultTest {
   testName = "Binary search tree"
   ,fileName ="test/Programs/binaryTree/binaryTree.c.ll"
-  ,testLen = 2400
+  ,testLen = 3000
   ,testResult = 30
     } :
   []
