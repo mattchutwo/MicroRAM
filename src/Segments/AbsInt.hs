@@ -3,7 +3,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Segments.AbsInt where
 
-import Control.Lens (makeLenses, (^.), (&), (.~), (%~), use, (.=), (%=), ix)
+import Control.Lens (makeLenses, (^.), (^?), (&), (.~), (%~), use, (.=), (%=), ix, at)
 import Control.Monad.State
 import Data.Bits
 import Data.Foldable (toList)
@@ -48,9 +48,13 @@ data HistoryGraph r = HistoryGraph {
   -- | Additional regions to execute.  The region `(pc1, pc2)` means execution
   -- should start at `pc1` and continue until it reaches `pc2`.
   _hsPendingRegions :: [(AbsIntState r, MWord)],
-  -- | All regions that have been seen so far.  Used to avoid queuing the same
-  -- static region more than once.
-  _hsSeenRegions :: Map (MWord, MWord) Word
+  -- | All regions that have been seen so far, together with how many times the
+  -- region was seen.  Used to avoid queuing more than some maximum number of
+  -- instances of the same static region.
+  _hsSeenRegions :: Map (MWord, MWord) Word,
+  -- | Maximum number of instances to produce for each region.  If a region is
+  -- missing from this map, its limit will be computed on first access.
+  _hsRegionInstanceLimit :: Map (MWord, MWord) Word
 }
 makeLenses ''HistoryGraph
 
@@ -73,7 +77,7 @@ makeLenses ''CondensedGraph
 
 
 initHistoryGraph :: ProgramCFG -> HistoryGraph r
-initHistoryGraph cfg = HistoryGraph 0 [] cfg mempty mempty
+initHistoryGraph cfg = HistoryGraph 0 [] cfg mempty mempty mempty
 
 mkHistoryNode :: MonadState (HistoryGraph r) m =>
   [HistoryNode r] -> Maybe [MWord] -> AbsIntState r -> m (HistoryNode r)
@@ -82,12 +86,61 @@ mkHistoryNode preds blocks finalState = do
   hsNextID %= (+ 1)
   return $ HistoryNode nodeID preds blocks finalState
 
+-- | Heuristic for determining the maximum number of instances to generate for
+-- a given region.
+regionInstanceLimit :: MonadState (HistoryGraph r) m =>
+  (MWord, MWord) -> m Word
+regionInstanceLimit rg = do
+  optLimit <- use $ hsRegionInstanceLimit . at rg
+  case optLimit of
+    Just x -> return x
+    Nothing -> do
+      traceM $ "computing limit for " ++ show rg
+      cfg <- use hsCFG
+
+      -- The current heuristic: for a region containing `N` static
+      -- instructions, generate up to `1000 / N` copies.
+      -- TODO: base the 1000 on the trace length, or otherwise make it tunable
+      -- TODO: count call instructions as 10x-100x the cost of normal instrs
+      let regionSize = calcSize cfg rg
+      let limit = if regionSize == 0 then 1 else max 1 $ 1000 `div` regionSize
+
+      traceM $ "computed region limit for " ++ show rg ++ ": " ++ show limit ++
+        " (size = " ++ show regionSize ++ ")"
+      hsRegionInstanceLimit . at rg .= Just limit
+      return limit
+  where
+    calcSize :: ProgramCFG -> (MWord, MWord) -> Word
+    calcSize cfg (startPc, endPc) =
+      sum $ map (blockSize cfg) $ Set.toList $ regionBlocks cfg Set.empty endPc startPc
+
+    regionBlocks :: ProgramCFG -> Set MWord -> MWord -> MWord -> Set MWord
+    regionBlocks cfg blks endPc pc
+      | trace ("try adding block " ++ show pc ++ " to " ++ show blks) False = undefined
+      -- Don't include the end PC, since it's not executed as part of the
+      -- region.
+      | pc == endPc = blks
+      | Set.member pc blks = blks
+      | otherwise =
+        IntSet.foldr' (\pc' blks' -> regionBlocks cfg blks' endPc (fromIntegral pc'))
+          (Set.insert pc blks) succs
+      where
+        succs = maybe mempty id $ cfg ^? pSuccs . ix (fromIntegral pc)
+
+    blockSize :: ProgramCFG -> MWord -> Word
+    blockSize cfg pc = case IntSet.lookupGT (fromIntegral pc) (cfg ^. pBlockStarts) of
+      Just pc' -> fromIntegral pc' - fromIntegral pc
+      Nothing -> 1000
+
 queueRegion :: MonadState (HistoryGraph r) m =>
   AbsIntState r -> MWord -> m ()
 queueRegion s endPc = do
   let rg = (s ^. sMach . mPc, endPc)
   seen <- use hsSeenRegions
-  when (maybe 0 id (Map.lookup rg seen) < 10) $ do
+  limit <- regionInstanceLimit rg
+  when (maybe 0 id (Map.lookup rg seen) < limit) $ do
+    traceM $ "queue " ++ show rg ++ " instance " ++
+      show (maybe 0 id (Map.lookup rg seen)) ++ " / " ++ show limit
     hsSeenRegions %= Map.insertWith (+) rg 1
     hsPendingRegions %= ((s, endPc) :)
 
@@ -486,7 +539,7 @@ renderSegmentsGraphviz ss = do
 -- `Nothing` are network nodes, those with `Just []` are empty nodes, and all
 -- other nodes are nonempty.)
 condenseGraph :: HistoryGraph r -> CondensedGraph r
-condenseGraph hg = execState (mapM_ (go Nothing) (hg ^. hsExits)) initCG
+condenseGraph hg = execState (mapM_ (\x -> go Nothing Nothing x) (hg ^. hsExits)) initCG
   where
     initCG = CondensedGraph Map.empty Nothing
 
@@ -494,20 +547,23 @@ condenseGraph hg = execState (mapM_ (go Nothing) (hg ^. hsExits)) initCG
     -- nodeID`, indicating that the last interesting successor is `nodeID`, or
     -- `Nothing`, indicating that the last interesting successor is a network
     -- node.
-    go succ n = case n ^. histBlocks of
+    go succ realSucc n = case n ^. histBlocks of
       Nothing -> do
         case succ of
           Nothing -> return ()
           Just succ' -> cgNodes . ix succ' . ciFromNetwork .= True
-        mapM_ (go Nothing) (n ^. histPreds)
+        mapM_ (go Nothing realSucc) (n ^. histPreds)
       Just [] -> do
-        mapM_ (go succ) (n ^. histPreds)
+        mapM_ (go succ realSucc) (n ^. histPreds)
       Just (blk:blks) -> do
         seen <- Map.member (n ^. histID) <$> use cgNodes
         when (not seen) $ do
+          let init = case realSucc of
+                Just x -> Set.singleton x
+                Nothing -> Set.empty
           cgNodes %= Map.insert (n ^. histID)
-            (CondensedInfo n (Seq.fromList $ blk : blks) Set.empty False False)
-          mapM_ (go (Just $ n ^. histID)) (n ^. histPreds)
+            (CondensedInfo n (Seq.fromList $ blk : blks) init False False)
+          mapM_ (go (Just $ n ^. histID) (Just $ n ^. histID)) (n ^. histPreds)
         case succ of
           Nothing -> cgNodes . ix (n ^. histID) . ciToNetwork .= True
           Just succ' -> cgNodes . ix (n ^. histID) . ciSuccs %= Set.insert succ'
