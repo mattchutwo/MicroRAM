@@ -80,7 +80,10 @@ data MachineState r = MachineState
   { _mCycle :: MWord
   , _mPc :: MWord
   , _mRegs :: RegBank r MWord
-  , _mRegLabels :: Maybe (RegBank r Label) -- TODO: Type level stuff to enable tainted things.
+  , _mRegLabels :: Maybe (RegBank r Label) -- Currently, when the `--mode leak-tainted` flag is provided, the tainted labels will be present as a `Just`.
+                                           -- When the flag is not provided, this will be `Nothing`.
+                                           -- In the future, instead of dynamically tracking whether the flag is provided, we could use the type system to ensure labels are tracked only when the tainted flag is provided.
+                                           -- Similar to `IfMode` in the witness checker, we could change this definition to something like `IfMode tainted (RegBank r (Vector Label))`.
   , _mProg :: Seq (Instruction r MWord)
   , _mMem :: Mem
   , _mPsn :: Poison
@@ -125,16 +128,17 @@ memWord addr = lens (get addr) (set addr)
 mMemWord :: Functor f => MWord -> (MWord -> f MWord) -> (MachineState r -> f (MachineState r))
 mMemWord addr = mMem . memWord addr
 
--- | Lens for accessing a particular label of memory.  Produces the 
--- untainted when reading an uninitialized location.
-memLabel :: Functor f => MWord -> (Maybe (Vector Label) -> f (Maybe (Vector Label))) -> (Mem -> f Mem)
-memLabel addr = lens (get addr) (set addr)
+mMemLabel :: Functor f => MWord -> (Maybe (Vector Label) -> f (Maybe (Vector Label))) -> (MachineState r -> f (MachineState r))
+mMemLabel addr = mMem . memLabel addr
   where
+    -- | Lens for accessing a particular label of memory.  Produces the
+    -- untainted when reading an uninitialized location.
+    memLabel :: Functor f => MWord -> (Maybe (Vector Label) -> f (Maybe (Vector Label))) -> (Mem -> f Mem)
+    memLabel addr = lens (get addr) (set addr)
+
     get addr (Mem _d _m l) = (maybe (Vec.replicate wordBytes untainted) id . Map.lookup addr) <$> l
     set addr (Mem d m l) val = Mem d m (Map.insert addr <$> val <*> l)
 
-mMemLabel :: Functor f => MWord -> (Maybe (Vector Label) -> f (Maybe (Vector Label))) -> (MachineState r -> f (MachineState r))
-mMemLabel addr = mMem . memLabel addr
 
 subLabels :: Functor f => MemWidth -> Int -> (Maybe (Vector Label) -> f (Maybe (Vector Label))) -> Maybe (Vector Label) -> f (Maybe (Vector Label))
 subLabels wd offset f ls = put <$> f ls'
@@ -516,7 +520,8 @@ data Advice =
       MWord          -- ^ value
       MemOpType      -- ^ read or write
       MemWidth       -- ^ width of the access
-      (Maybe (Vector Label)) -- ^ Labels for each byte      -- TODO: Type level stuff to enable tainted things.
+      (Maybe (Vector Label)) -- ^ Labels for each byte
+                             -- In the future, instead of dynamically tracking whether the tainted flag is provided, we could use the type system to ensure labels are tracked only when the tainted flag is provided.
   | Advise MWord
   | Stutter
   deriving (Eq, Read, Show, Generic)
@@ -890,7 +895,7 @@ runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
 
 -- Old public definitions
 
-type Mem' = (MWord, Map MWord MWord, Maybe (Map MWord (Vector Label))) -- TODO: Type level stuff to enable tainted things.
+type Mem' = (MWord, Map MWord MWord, Maybe (Map MWord (Vector Label))) -- In the future, instead of dynamically tracking whether the tainted flag is provided, we could use the type system to ensure labels are tracked only when the tainted flag is provided.
 
 -- | The program state 
 data ExecutionState mreg = ExecutionState {
@@ -899,7 +904,7 @@ data ExecutionState mreg = ExecutionState {
   -- | Register bank
   , regs :: RegBank mreg MWord
   -- | Register label bank
-  , regLabels :: Maybe (RegBank mreg Label) -- TODO: Type level stuff to enable tainted things.
+  , regLabels :: Maybe (RegBank mreg Label) -- In the future, instead of dynamically tracking whether the tainted flag is provided, we could use the type system to ensure labels are tracked only when the tainted flag is provided.
   -- | Memory state
   , mem :: Mem'
   -- | Locations that have been poisoned
