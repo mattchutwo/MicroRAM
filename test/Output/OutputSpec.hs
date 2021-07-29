@@ -133,7 +133,7 @@ instance Arbitrary (StateOut) where
     pc <- arbitrary
     regs <- arbitrary
     leakTainted <- arbitrary
-    labels <- if leakTainted then pure Nothing else fmap Just (vectorOf (length regs) $ choose (0,untainted))
+    labels <- if leakTainted then pure Nothing else fmap Just (vectorOf (length regs) $ fmap (replicate wordBytes) $ choose (0,untainted))
     return $ StateOut pc regs labels
 
 testTrace :: TestTree

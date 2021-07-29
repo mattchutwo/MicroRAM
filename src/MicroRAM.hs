@@ -257,8 +257,8 @@ data Instruction' regT operand1 operand2 =
   -- Poison
   | Ipoison MemWidth operand2 operand1
   -- Dynamic taint tracking operations
-  | Isink operand1 operand2
-  | Itaint regT operand2
+  | Isink MemWidth operand1 operand2
+  | Itaint MemWidth regT operand2
   -- Extensions
   | Iext (ExtInstr operand2)                -- ^ Custom instruction with no return value
   | Iextval regT (ExtValInstr operand2)     -- ^ Custom instruction, returning a value
@@ -416,8 +416,8 @@ mapInstrM regF opF1 opF2 instr =
   Iread r1 op2           -> Iread <$>  (regF r1) <*> (opF2 op2)              
   Ianswer op2            -> Ianswer <$>  (opF2 op2)                 
   -- Taint operations
-  Isink r2 l             -> Isink <$> opF1 r2 <*> opF2 l
-  Itaint r2 l            -> Itaint <$> regF r2 <*> opF2 l
+  Isink wd r2 l          -> Isink wd <$> opF1 r2 <*> opF2 l
+  Itaint wd r2 l         -> Itaint wd <$> regF r2 <*> opF2 l
   -- Advice                                    
   Iadvise r1             -> Iadvise <$>  (regF r1)                     
   -- Poison                                    
@@ -466,8 +466,8 @@ aggregateOps instr =
     Iload _ r1 op2         -> r1        <> op2
     Iread r1 op2           -> r1        <> op2
     Ianswer op2            ->              op2
-    Isink r2 l             -> r2 <> l
-    Itaint r2 l            -> r2 <> l
+    Isink _ r2 l           -> r2 <> l
+    Itaint _ r2 l          -> r2 <> l
     Iadvise r1             -> r1
     Ipoison _ op2 op1      ->       op1 <> op2
     Iext ext               -> fold ext

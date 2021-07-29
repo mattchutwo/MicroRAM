@@ -3,6 +3,8 @@
 module Compiler.Tainted where
 
 import Control.Monad.Error.Class (MonadError)
+import Data.Vector (Vector)
+import qualified Data.Vector as Vec
 import Data.Word (Word8)
 
 import Compiler.Errors
@@ -45,19 +47,32 @@ canFlowTo l1 l2 | l1 == l2        = True
 canFlowTo _  _                    = False
 
 -- | Checks that a label is in bounds or throws an exception.
-checkLabel :: MonadError CmplError m => Maybe Label -> m ()
-checkLabel (Just l) | l <= untainted = return ()
-checkLabel (Just l)                  = assumptError ("Invalid label: " <> show l)
-checkLabel Nothing                   = return ()
+checkLabels :: (Foldable f, MonadError CmplError m) => Maybe (f Label) -> m ()
+checkLabels (Just ls) = mapM_ checkLabel ls
+checkLabels Nothing   = return ()
+
+-- | Checks that a label is in bounds or throws an exception.
+checkLabel :: MonadError CmplError m => Label -> m ()
+checkLabel l | l <= untainted = return ()
+checkLabel l                  = assumptError ("Invalid label: " <> show l)
 
 
-concretizeLabel :: Maybe Label -> Label
-concretizeLabel (Just w) = w
-concretizeLabel Nothing = untainted
+replicateWord :: Label -> Vector Label
+replicateWord = Vec.replicate wordBytes
 
-toLabel :: MonadError CmplError m => MWord -> m (Maybe Label)
+untaintedWord :: Vector Label
+untaintedWord = replicateWord untainted
+
+padUntaintedWord :: Vector Label -> Vector Label
+padUntaintedWord ls = ls <> Vec.replicate (wordBytes - Vec.length ls) untainted
+
+concretizeLabel :: Maybe (Vector Label) -> [Label] -- Vector Label
+concretizeLabel (Just w) = Vec.toList w
+concretizeLabel Nothing = Vec.toList untaintedWord
+
+toLabel :: MonadError CmplError m => MWord -> m Label
 toLabel w = do
-  let l = Just $ fromIntegral w
+  let l = fromIntegral w
   checkLabel l
   return l
 

@@ -137,7 +137,7 @@ noniSetLabel wd [ptr, label] Nothing md _ = do
   r <- getNextRegister
   return $ map (\i -> MirM i md) [
       Iload wd r ptr
-    , Itaint r label
+    , Itaint wd r label
     , Istore wd ptr (AReg r)
     ]
 noniSetLabel _ _ _ _ _ = progError "bad arguments"
@@ -147,7 +147,7 @@ noniSink wd [ptr, label] Nothing md _ = do
   r <- getNextRegister
   return $ map (\i -> MirM i md) [
       Iload wd r ptr
-    , Isink (AReg r) label
+    , Isink wd (AReg r) label
     ]
   -- return $ [MirM (Isink ptr label) ()]
   -- error $ show ptr <> " " <> show label

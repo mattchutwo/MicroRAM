@@ -174,8 +174,8 @@ instance (Show reg, Show op1, Show op2, Pretty (PrettyPrintWrapper reg), Pretty 
   pretty (Iload w r1 op) = pretty (PPW r1) <>" = *("<> pretty (PPW op) <> ")" <> pretty w
   -- pretty (Iread r1 op) = pretty (PPW r1) pretty (PPW op)
   pretty (Ianswer op) = "ans "<> pretty (PPW op)
-  pretty (Isink op1 op2) = "sink" <+> pretty (PPW op1) <+> pretty (PPW op2)
-  pretty (Itaint r op) = "taint" <+> pretty (PPW r) <+> pretty (PPW op)
+  pretty (Isink w op1 op2) = "sink" <> pretty w <+> pretty (PPW op1) <+> pretty (PPW op2)
+  pretty (Itaint w r op) = "taint" <> pretty w <+> pretty (PPW r) <+> pretty (PPW op)
   pretty i = viaShow i -- TODO
 
 instance Pretty MemWidth where

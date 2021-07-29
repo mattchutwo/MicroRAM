@@ -121,7 +121,7 @@ data CircuitParameters = CircuitParameters
 data StateOut = StateOut
   { pcOut   :: MWord
   , regsOut :: [MWord]
-  , regLabelsOut :: Maybe [Label] -- In the future, instead of dynamically tracking whether the tainted flag is provided, we could use the type system to ensure labels are tracked only when the tainted flag is provided.
+  , regLabelsOut :: Maybe [[Label]] -- In the future, instead of dynamically tracking whether the tainted flag is provided, we could use the type system to ensure labels are tracked only when the tainted flag is provided.
 --  , adviceOut :: [Advice]
   } deriving (Eq, Show, Generic)
 
