@@ -30,8 +30,6 @@ import Segments.ControlFlow
 import Segments.Segmenting
 import Util.Util (showHex)
 
-import Debug.Trace
-
 
 data HistoryNode r = HistoryNode {
   _histID :: Word,
@@ -95,7 +93,6 @@ regionInstanceLimit rg = do
   case optLimit of
     Just x -> return x
     Nothing -> do
-      traceM $ "computing limit for " ++ show rg
       cfg <- use hsCFG
 
       -- The current heuristic: for a region containing `N` static
@@ -105,8 +102,6 @@ regionInstanceLimit rg = do
       let regionSize = calcSize cfg rg
       let limit = if regionSize == 0 then 1 else max 1 $ 1000 `div` regionSize
 
-      traceM $ "computed region limit for " ++ show rg ++ ": " ++ show limit ++
-        " (size = " ++ show regionSize ++ ")"
       hsRegionInstanceLimit . at rg .= Just limit
       return limit
   where
@@ -116,7 +111,6 @@ regionInstanceLimit rg = do
 
     regionBlocks :: ProgramCFG -> Set MWord -> MWord -> MWord -> Set MWord
     regionBlocks cfg blks endPc pc
-      | trace ("try adding block " ++ show pc ++ " to " ++ show blks) False = undefined
       -- Don't include the end PC, since it's not executed as part of the
       -- region.
       | pc == endPc = blks
@@ -139,8 +133,6 @@ queueRegion s endPc = do
   seen <- use hsSeenRegions
   limit <- regionInstanceLimit rg
   when (maybe 0 id (Map.lookup rg seen) < limit) $ do
-    traceM $ "queue " ++ show rg ++ " instance " ++
-      show (maybe 0 id (Map.lookup rg seen)) ++ " / " ++ show limit
     hsSeenRegions %= Map.insertWith (+) rg 1
     hsPendingRegions %= ((s, endPc) :)
 
@@ -291,8 +283,6 @@ stepExec ex
   | h:hs <- ex ^. exLive = do
     (stop, blocks) <- lift $ runStraightLine' (h ^. histFinalState) (Just $ ex ^. exJoin)
     let stopPc = stop ^. stState . sMach . mPc
-    traceM $ "stepExec: ran from " ++ show (h ^. histFinalState . sMach . mPc) ++ " to " ++
-      show stopPc ++ ", stop reason = " ++ show (stop ^. stReason)
 
     let mkHist f = mkHistoryNode [h] (Just blocks) (f $ stop ^. stState)
     -- Generate a history node representing execution of unknown code from `h`,
@@ -314,14 +304,12 @@ stepExec ex
       SrJump dest | mdIsCall md -> do
         let returnAddr = stopPc + 1
         h' <- mkHist $ takeBranch dest
-        traceM $ "stepExec: call function " ++ show dest ++ ", return = " ++ show returnAddr
         return $ Just $ Exec [h'] [] returnAddr returnAddr
           (KReturn $ ex & exLive .~ hs) (ex ^. exPendingBranches)
       -- Indirect call with unknown destination
       SrBranch BcAlways VTop | mdIsCall md -> do
         let returnAddr = stopPc + 1
         h' <- mkHist id >>= mkHavocHist returnAddr
-        traceM $ "stepExec: call produces havoc, return = " ++ show returnAddr
         return $ Just $ ex & exLive .~ (h':hs)
       _ | mdIsCall md -> error $ "stepExec: impossible: instruction at " ++ show stopPc ++
         " has mdIsCall, but produced unsupported stop reason " ++ show reason
@@ -333,10 +321,8 @@ stepExec ex
       -- unusable.)
       SrJump dest | mdIsReturn md -> do
         h' <- mkHist $ takeBranch dest
-        traceM $ "stepExec: returning to " ++ show dest
         return $ Just $ ex & exLive .~ (h':hs)
       SrBranch BcAlways VTop | mdIsReturn md -> do
-        traceM $ "stepExec: return to unknown dest; actually return to " ++ show (ex ^. exReturn)
         h' <- mkHist $ takeBranch (ex ^. exReturn)
         return $ Just $ ex & exLive .~ (h':hs)
       _ | mdIsCall md -> error $ "stepExec: impossible: instruction at " ++ show stopPc ++
@@ -344,11 +330,9 @@ stepExec ex
 
       SrJump dest -> do
         h' <- mkHist $ takeBranch dest
-        traceM $ "stepExec: jump to " ++ show dest
         return $ Just $ ex & exLive .~ (h':hs)
       SrFallThrough -> do
         h' <- mkHist takeFallThrough
-        traceM $ "stepExec: fall through to " ++ show (stopPc + 1)
         return $ Just $ ex & exLive .~ (h':hs)
       SrBranch _ (VExact dest)
         -- This condition limits unrolling of loops with symbolic bounds.  The
@@ -365,7 +349,6 @@ stepExec ex
           optIpdom <- findPostDominator stopPc (ex ^. exReturn)
           case optIpdom of
             Just ipdom -> do
-              traceM $ "stepExec: branch, ipdom = " ++ show ipdom
               return $ Just $ Exec [h'1, h'2] [] ipdom (ex ^. exReturn)
                 (KJoin $ ex & exLive .~ hs)
                 (IntSet.insert (fromIntegral stopPc) (ex ^. exPendingBranches))
@@ -381,8 +364,6 @@ stepExec ex
         optIpdom <- findPostDominator stopPc (ex ^. exReturn)
         case optIpdom of
           Just ipdom -> do
-            --traceShowM ("branch (sym) at", stopPc, "has ipdom", ipdom)
-            traceM $ "stepExec: branch produces havoc, ipdom = " ++ show ipdom
             h' <- mkHist id >>= mkHavocHist ipdom
             case dest of
               VExact dest' -> do
@@ -400,8 +381,6 @@ stepExec ex
         mkHist id >>= finishBranch
       -- "Requested stop" means this path reached the join point.
       SrRequested -> do
-        traceM $ "stepExec: path reached join point " ++ show (ex ^. exJoin) ++
-          ", pc = " ++ show stopPc
         h' <- mkHist id
         return $ Just $ ex & exLive .~ hs & exFinished %~ (h':)
 
@@ -459,7 +438,6 @@ describeExec ex = "Exec: " ++
 
 runExec :: Regs r => Exec r -> StateT (HistoryGraph r) Hopefully ()
 runExec ex = do
-  traceM $ describeExec ex
   ex' <- stepExec ex
   case ex' of
     Just ex'' -> runExec ex''
@@ -471,67 +449,10 @@ runNextExec = do
   case pending of
     [] -> return ()
     ((s, endPc) : pending') -> do
-      traceM $ "run pending region " ++ show (s ^. sMach . mPc) ++ " .. " ++ show endPc
       hsPendingRegions .= pending'
       h <- mkHistoryNode [] Nothing s
       let exec = Exec [h] [] endPc endPc KDone IntSet.empty
       runExec exec
-
-testAbsInt_v :: Regs r =>
-  ProgAndMem (AnnotatedProgram Metadata r MWord) -> ProgramCFG -> Hopefully ()
-testAbsInt_v prog cfg = evalStateT go (initHistoryGraph cfg)
-  where
-    s0 = initState prog
-    go = do
-      lift $ renderControlFlowGraphviz cfg
-      initExec s0 >>= runExec
-      hg <- get
-      lift $ renderHistoryGraphviz hg
-      let cg = condenseGraph hg
-      let segs = condensedToSegments (pmProg prog) cfg cg
-      lift $ renderSegmentsGraphviz segs
-
-renderHistoryGraphviz :: HistoryGraph r -> Hopefully ()
-renderHistoryGraphviz hg = evalStateT (render hg) IntSet.empty
-  where
-    render hg = do
-      traceM "digraph {"
-      mapM_ go $ hg ^. hsExits
-      traceM "}"
-
-    go h = do
-      seen <- gets $ IntSet.member (fromIntegral $ h ^. histID)
-      when (not seen) $ do
-        modify $ IntSet.insert (fromIntegral $ h ^. histID)
-        traceM $ show (h ^. histID) ++ " [label = " ++ show (show $ h ^. histBlocks) ++ "];"
-        forM_ (h ^. histPreds) $ \h' -> do
-          traceM $ show (h' ^. histID) ++ " -> " ++ show (h ^. histID) ++ ";"
-          go h'
-
-renderControlFlowGraphviz :: ProgramCFG -> Hopefully ()
-renderControlFlowGraphviz p = do
-  traceM "digraph {"
-  forM_ (IntMap.toList $ p ^. pSuccs) $ \(a, bs) -> do
-    forM_ (IntSet.toList bs) $ \b -> do
-      traceM $ show a ++ " -> " ++ show b ++ ";"
-  forM_ (IntMap.toList $ p ^. pIpdom) $ \(a, b) -> do
-      traceM $ show a ++ " -> " ++ show b ++ " [color = blue];"
-  traceM "}"
-
-renderSegmentsGraphviz :: [Segment r MWord] -> Hopefully ()
-renderSegmentsGraphviz ss = do
-  traceM "digraph {  // segments"
-  forM_ (zip [0..] ss) $ \(i, s) -> do
-    traceM $ "seg" ++ show i ++ " [ label = " ++ show (show $ constraints s) ++ " ];"
-    when (fromNetwork s) $ do
-      traceM $ "fromnet" ++ show i  ++ " [ label = \"*\" ];"
-      traceM $ "fromnet" ++ show i ++ " -> seg" ++ show i ++ ";"
-    when (toNetwork s) $ do
-      traceM $ "tonet" ++ show i  ++ " [ label = \"*\" ];"
-      traceM $ "seg" ++ show i ++ " -> tonet" ++ show i ++ ";"
-    forM_ (segSuc s) $ \j -> do
-      traceM $ "seg" ++ show i ++ " -> seg" ++ show j ++ ";"
-  traceM "}  // segments"
 
 
 -- | Convert a HistoryGraph into a CondensedGraph, which summarizes the

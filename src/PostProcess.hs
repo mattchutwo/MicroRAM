@@ -31,7 +31,6 @@ import MicroRAM.MRAMInterpreter
 import Output.Output
 
 import Segments
-import Segments.AbsInt (testAbsInt_v)
 import Segments.ChooseSegments (TraceChunk(..))
 import Segments.ControlFlow (buildProgramCFG)
 
@@ -48,8 +47,6 @@ postProcess_v :: (Show reg, Regs reg)
               -> Maybe Int
               -> Hopefully (Output reg)
 postProcess_v verb producePublic chunkSize private comp privSegs = do
-  let cfg = buildProgramCFG (pmProg $ lowProg $ programCU comp)
-  () <- testAbsInt_v (lowProg $ programCU comp) cfg
   (segment producePublic chunkSize privSegs)
     >=> (doIf private (buildTrace producePublic verb chunkSize spar))
     >=> (doIf private recoverAdvice)

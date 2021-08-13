@@ -24,8 +24,6 @@ import MicroRAM
 import MicroRAM.MRAMInterpreter.Generic
 import Util.Util
 
-import Debug.Trace
-
 
 data AbsValue =
   -- | A set containing only a single value.
@@ -265,7 +263,6 @@ instance AbsDomain AbsValue where
       checkAlign w addr'
       return $ mem & amMem %~ amStore w addr' val
     VTop -> do
-      traceM "inexact store - trashing all memory!"
       return $ mem
         & amMem .~ mempty
         & amDefault .~ VTop
@@ -572,14 +569,3 @@ havocState s =
       _eMetadata = s ^. sExt . eMetadata
     }
   }
-
-{-
-testAbsInt_v :: Regs r => CompilationResult (AnnotatedProgram m r MWord) -> Hopefully ()
-testAbsInt_v (CompUnit (MultiProg _ progMem) _ _ _ _ _) = do
-  let st = initState progMem ()
-  (sr, st') <- runStateT (runPath 10000) st
-  traceM $ "stopped at " ++ show (st' ^. sMach . mPc) ++ " after " ++
-    show (st' ^. sMach . mCycle) ++ " cycles"
-  traceM $ "reason = " ++ show sr
-  return ()
-  -}
