@@ -6,7 +6,10 @@
 module MicroRAM.InterpreterSpec (main) where
 
 
+import Control.Lens ((&), (%~))
+import Control.Monad
 import Test.Tasty
+import Test.Tasty.HUnit (testCase, (@?=))
 import Test.Tasty.QuickCheck
 import qualified Test.QuickCheck.Property as Prop (succeeded, failed, reason, Result)
 
@@ -19,6 +22,8 @@ import Data.Default
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
+import MicroRAM.MRAMInterpreter.AbsInt (AbsValue(..))
+import qualified MicroRAM.MRAMInterpreter.AbsInt as Abs
 
 
 
@@ -28,7 +33,7 @@ main = defaultMain tests
 
 tests :: TestTree
 tests = testGroup "Testing the Interpreter for  MicroRAM"
-  [test1,test2,test3,test4,test5, testAshr]
+  [test1,test2,test3,test4,test5, testAshr, testAbsMem]
 
 -- * Pretty printers
 _ppList :: Show a => [a] -> IO ()
@@ -219,3 +224,46 @@ _binaryToInt :: MWord -> Int
 _binaryToInt w =
   let halfBound :: MWord; halfBound = maxBound `quot` 2 in  
   if w <= halfBound then fromEnum w else - (fromEnum ((maxBound - w))) - 1
+
+
+-- | Tests for `AbsMemory` loads and stores.
+testAbsMem :: TestTree
+testAbsMem =
+  testGroup "Test implementation of abstract memory" [
+    mkTest "8-byte store" W1 (map VExact [8, 7, 6, 5, 4, 3, 2, 1, 0, 0]) emptyMem $
+      Abs.amStore W8 0x1000 (VExact 0x0102030405060708),
+    mkTest "amStore case 1" W1 (map VExact [2, 2]) emptyMem $
+      Abs.amStore W2 0x1000 (VExact 0x0202) .
+      Abs.amStore W2 0x1000 (VExact 0x0101),
+    mkTest "amStore case 2a" W1 (map VExact [2, 2, 1, 1]) emptyMem $
+      Abs.amStore W2 0x1000 (VExact 0x0202) .
+      Abs.amStore W4 0x1000 (VExact 0x01010101),
+    mkTest "amStore case 2b" W1 (map VExact [1, 1, 2, 2, 0]) emptyMem $
+      Abs.amStore W2 0x1002 (VExact 0x0202) .
+      Abs.amStore W4 0x1000 (VExact 0x01010101),
+    mkTest "amStore case 3" W1 (map VExact [1, 1, 1, 1]) emptyMem $
+      Abs.amStore W4 0x1000 (VExact 0x01010101) .
+      Abs.amStore W2 0x1000 (VExact 0x0202) .
+      Abs.amStore W1 0x1003 (VExact 0x03),
+    mkTest "amLoad case 1" W2 (map VExact [0x0102]) emptyMem $
+      Abs.amStore W2 0x1000 (VExact 0x0102),
+    -- The first load is case 2a, the second is 2b.
+    mkTest "amLoad case 2a/2b" W2 (map VExact [0x0304, 0x0102]) emptyMem $
+      Abs.amStore W4 0x1000 (VExact 0x01020304),
+    mkTest "amLoad case 3" W2 (map VExact [0]) emptyMem id,
+    mkTest "amLoad case 4" W4 (map VExact [0x02000101]) emptyMem $
+      Abs.amStore W2 0x1000 (VExact 0x0101) .
+      Abs.amStore W1 0x1003 (VExact 0x02),
+    -- Regression test for a bug in amLoad case 2b / amStore case 2b
+    mkTest "Load just after store" W1 [VExact 0, VExact 0, VTop] Abs.amHavoc $
+      Abs.amStore W2 0x1000 (VExact 0)
+  ]
+  where
+    mkTest name loadWidth loadExpect initMem updateMem = testCase name $ do
+      let mem = initMem & Abs.amMem %~ updateMem
+      forM_ (zip [0..] loadExpect) $ \(i, expected) -> do
+        let actual = Abs.amLoad loadWidth
+              (0x1000 + i * fromIntegral (widthInt loadWidth)) mem
+        actual @?= expected
+
+    emptyMem = Abs.amInit mempty

@@ -32,12 +32,13 @@ data AbsValue =
     VExact MWord
   -- | The set of all values.
   | VTop
-  deriving (Show)
+  deriving (Show, Eq)
 
 data AbsMemory = AbsMemory {
   -- | Gives the width and value of the most recent store at each address.
-  -- Entries never overlap: a `W8` write to `0x1000` will overwrite any entries
-  -- in the range `0x1000 .. 0x1008`.
+  -- Entries are always well-aligned, with the `MWord` address being a multiple
+  -- of the `MemWidth`.  Furthermore, entries never overlap: a `W8` write to
+  -- `0x1000` will overwrite any entries in the range `0x1000 .. 0x1008`.
   _amMem :: Map MWord (MemWidth, AbsValue),
   -- | Default value for addresses not present in `amMem`.  Should be either
   -- `VExact 0` or `VTop`.
@@ -56,6 +57,8 @@ amInit m = AbsMemory m (VExact 0) False
 amHavoc :: AbsMemory
 amHavoc = AbsMemory mempty VTop True
 
+-- | Load a value from abstract memory.  `addr` is assumed to be aligned to a
+-- multiple of `widthInt w`.
 amLoad :: MemWidth -> MWord -> AbsMemory -> AbsValue
 amLoad w addr am
   -- Case 1: the load's address and width exactly matches the store.
@@ -64,9 +67,11 @@ amLoad w addr am
   -- prefix (low bits) of the value that was stored.
   | Just (w', val) <- mid, w' > w = val `absAnd` VExact mask
   -- Case 2b: a store at a lower address covers this load.  We are loading some
-  -- bits out of the middle of the value that was stored.
+  -- bits out of the middle of the value that was stored.  Since both the load
+  -- and the store are well aligned, and the store is wider, the load must
+  -- access a strict subset of the memory affected by the store.
   | Nothing <- mid, Just (addr', (w', val)) <- Map.lookupMax before,
-    w' > w, addr' + fromIntegral (widthInt w') >= addr =
+    w' > w, addr' + fromIntegral (widthInt w') > addr =
     (val `absShr` VExact (fromIntegral $ 8 * (addr - addr'))) `absAnd` VExact mask
   -- Case 3: no stores cover any part of the load.
   | null parts = am ^. amDefault
@@ -101,6 +106,8 @@ amLoad w addr am
           off' = off + fromIntegral (8 * widthInt w)
       in combine acc' off' rest
 
+-- | Store a value into abstract memory.  `addr` is assumed to be aligned to a
+-- multiple of `widthInt w`.
 amStore :: MemWidth -> MWord -> AbsValue -> AbsMemoryMap -> AbsMemoryMap
 amStore w addr val mem
   -- Case 1: the store exactly overwrites a previous value of the same width.
@@ -110,7 +117,7 @@ amStore w addr val mem
     Map.insert addr (w, val) $ Map.union mem $ removePartMap addr w' val' addr w
   -- Case 2b: the store overwrites a middle portion of a wider value.
   | Nothing <- mid, Just (addr', (w', val')) <- Map.lookupMax before,
-    w' > w, addr' + fromIntegral (widthInt w') >= addr =
+    w' > w, addr' + fromIntegral (widthInt w') > addr =
     Map.insert addr (w, val) $ Map.union mem $ removePartMap addr' w' val' addr w
   -- Case 3: the store overwrites zero or more smaller values.
   | otherwise = Map.insert addr (w, val) $ Map.withoutKeys mem overlappedKeys
