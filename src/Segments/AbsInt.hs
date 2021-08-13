@@ -124,7 +124,10 @@ regionInstanceLimit rg = do
     blockSize :: ProgramCFG -> MWord -> Word
     blockSize cfg pc = case IntSet.lookupGT (fromIntegral pc) (cfg ^. pBlockStarts) of
       Just pc' -> fromIntegral pc' - fromIntegral pc
-      Nothing -> 1000
+      -- Note that `blockStarts` contains the address of the end of the
+      -- program, so even the last real block of the program shouldn't enter
+      -- the `Nothing` case.
+      Nothing -> error $ "blockSize: pc " ++ show pc ++ " is not in any block?"
 
 queueRegion :: MonadState (HistoryGraph r) m =>
   AbsIntState r -> MWord -> m ()
