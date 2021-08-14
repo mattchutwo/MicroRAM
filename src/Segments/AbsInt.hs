@@ -149,8 +149,23 @@ data Cont r =
   -- program terminates with `Ianswer`) or one path.
   | KDone
 
+-- | The state of an abstract interpreter execution.  This tracks all the paths
+-- that are currently being explored.
+--
+-- `Exec`s are organized into a stack of scopes.  Each scope is created with
+-- some set of paths, which are initially in `exLive`; as paths are processed,
+-- they eventually move from `exLive` to `exFinished`; and when all paths are
+-- in `exFinished`, the current scope is complete and control returns to the
+-- parent scope via the continuation `exCont`.  A new scope is created when
+-- processing of a path reaches a function call or a symbolic branch.
 data Exec r = Exec {
+  -- | Paths from the current scope that are currently executing.
+  --
+  -- Each path is represented by a `HistoryNode`, which tracks not only the
+  -- current program state but also the path(s) through the program that led up
+  -- to that state.
   _exLive :: [HistoryNode r],
+  -- | Paths from the current scope that have finished executing.
   _exFinished :: [HistoryNode r],
   -- | The address of the next join point.  Once a live branch reaches this
   -- point, it is moved to finished.
@@ -159,7 +174,8 @@ data Exec r = Exec {
   -- branches with a postdominator of -1, indicating that the branches only
   -- rejoin when the function returns.
   _exReturn :: MWord,
-  -- | The continuation: what to do once all branches have finished.
+  -- | The continuation: what to do once all branches in the current scope have
+  -- finished.
   _exCont :: Cont r,
   -- | A set of branch addresses for all pending symbolic branches.
   _exPendingBranches :: IntSet
@@ -252,6 +268,9 @@ joinPaths hs = do
             go (splitMem a1 w1 v1 ++ rest1) all2
           | a2 < a1 || (a2 == a1 && w2 > w1) =
             go all1 (splitMem a2 w2 v2 ++ rest2)
+          -- The `otherwise` case should be unreachable, as we already covered
+          -- each combination of `a1 <=> a2` and `w1 <=> w2`.  But GHC doesn't
+          -- recognize this, and reports a nonexhaustive match without it.
           | otherwise = error $ "mergeMem: impossible case: " ++
             show ((a1, w1, v1), (a2, w2, v2))
 
@@ -275,41 +294,59 @@ joinPaths hs = do
       | otherwise = error $ "joinPaths: expected " ++ desc ++ " values to be equal"
 
 
+-- | Run the abstract interpreter, starting from the execution state `ex`.
+-- Returns a new state `Just ex'`, or `Nothing` to indicate that the execution
+-- has terminated.  Also adds new nodes to the `HistoryGraph` as a side effect.
 stepExec :: Regs r => Exec r -> StateT (HistoryGraph r) Hopefully (Maybe (Exec r))
 stepExec ex
-  -- If the next path to execute has reached the join point, move it into the
-  -- finished list.
+  -- There are three top-level cases here:
+  -- 1. The first live path is ready to finish, having reached `exJoin`
+  -- 2. The first live path is not ready and needs to be run some more
+  -- 3. There are no more live paths, and the current scope can finish
+
+  -- (1) If the next path to execute has reached the join point, move it into
+  -- the finished list.
   | h:hs <- ex ^. exLive, h ^. histFinalState . sMach . mPc == ex ^. exJoin = do
     return $ Just $ ex & exLive .~ hs & exFinished %~ (h:)
 
-  -- Run one step of the next path.
+  -- (2) Run the next path until reaching a stopping point.  "Stopping points"
+  -- are `exJoin` and any function calls or symbolic branches.  Upon stopping,
+  -- this case takes an appropriate action depending on the stop reason.
   | h:hs <- ex ^. exLive = do
     (stop, blocks) <- lift $ runStraightLine' (h ^. histFinalState) (Just $ ex ^. exJoin)
     let stopPc = stop ^. stState . sMach . mPc
 
+    -- Generate a history node representing straight-line execution from `h` to
+    -- the stopping point `stop`, using `f` to rewrite the final state.
     let mkHist f = mkHistoryNode [h] (Just blocks) (f $ stop ^. stState)
-    -- Generate a history node representing execution of unknown code from `h`,
-    -- eventually ending at `pc`.
+    -- Generate a history node representing execution of unknown code from
+    -- `h'`, eventually ending at `pc`.
     let mkHavocHist pc h' = mkHistoryNode [h'] Nothing
           (havocState (h' ^. histFinalState) & sMach . mPc .~ pc)
-    let finishBranch h' = do
-          -- Record `h'` as an exit, then return `ex` with `h` removed (and not
-          -- added to `exFinished`).
+    -- Record `h'` as an exit, then return `ex` with `h` removed.  This is used
+    -- when a path terminates the program.
+    let terminatePath h' = do
           hsExits %= (h':)
           return $ Just $ ex & exLive .~ hs
-
-    -- TODO: correct handling of symbolic branch when ipdom == -1 (return)
 
     let reason = stop ^. stReason
     let md = stop ^. stMetadata
     case reason of
-      -- Direct call, or indirect call with concrete destination
+      -- Function calls
+
+      -- Direct call, or indirect call with concrete destination.  Enter the
+      -- function in a new scope with a `KReturn` continuation.
       SrJump dest | mdIsCall md -> do
         let returnAddr = stopPc + 1
         h' <- mkHist $ takeBranch dest
+        -- Note we remove the current path from `exLive` here, effectively
+        -- transferring ownership into the new scope.  Once the new scope
+        -- finishes, the updated path will be transferred back and added back
+        -- to `exLive`.
         return $ Just $ Exec [h'] [] returnAddr returnAddr
           (KReturn $ ex & exLive .~ hs) (ex ^. exPendingBranches)
-      -- Indirect call with unknown destination
+      -- Indirect call with unknown destination.  Skip the call (since we can't
+      -- execute an unknown PC) and havoc the state instead.
       SrBranch BcAlways VTop | mdIsCall md -> do
         let returnAddr = stopPc + 1
         h' <- mkHist id >>= mkHavocHist returnAddr
@@ -317,56 +354,81 @@ stepExec ex
       _ | mdIsCall md -> error $ "stepExec: impossible: instruction at " ++ show stopPc ++
         " has mdIsCall, but produced unsupported stop reason " ++ show reason
 
-      -- Return with unknown destination.  We force the destination to be
-      -- `exReturn`, under the assumption that the code (usually) doesn't
-      -- actually overwrite the return address on the stack.  (If this
-      -- assumption is violated, the resulting public segments will be
-      -- unusable.)
-      SrJump dest | mdIsReturn md -> do
-        h' <- mkHist $ takeBranch dest
-        return $ Just $ ex & exLive .~ (h':hs)
-      SrBranch BcAlways VTop | mdIsReturn md -> do
+      -- Returns
+
+      -- For all return instructions, regardless of stop reason, we just
+      -- blindly jump to `exReturn`, under the assumption that the code doesn't
+      -- overwrite the return address on the stack.  If this assumption is
+      -- violated, the resulting public segments will be unusable.
+      _ | mdIsReturn md -> do
         h' <- mkHist $ takeBranch (ex ^. exReturn)
         return $ Just $ ex & exLive .~ (h':hs)
-      _ | mdIsCall md -> error $ "stepExec: impossible: instruction at " ++ show stopPc ++
-        " has mdIsReturn, but produced unsupported stop reason " ++ show reason
 
+      -- All other instructions
+
+      -- Take any concrete branches or fallthroughs, and update the current
+      -- path.  These cases should never happen, since `runStraightLine'` is
+      -- supposed to proceed through such jumps, but we include them here just
+      -- in case.
       SrJump dest -> do
         h' <- mkHist $ takeBranch dest
         return $ Just $ ex & exLive .~ (h':hs)
       SrFallThrough -> do
         h' <- mkHist takeFallThrough
         return $ Just $ ex & exLive .~ (h':hs)
+
+      -- A branch with a concrete destination but a symbolic condition.  We
+      -- fork into two paths, one that takes the branch and another that falls
+      -- through, and execute them both in a new scope.
       SrBranch _ (VExact dest)
-        -- This condition limits unrolling of loops with symbolic bounds.  The
-        -- first time we hit the loop condition, we explore both sides.  But
-        -- the second time, we skip straight to the postdominator (by going out
-        -- to the routing network and back) without exploring the branches.
+        -- The first guard here limits unrolling of loops with symbolic bounds
+        -- within a single execution.  The first time we hit the loop
+        -- condition, we explore both sides.  But the second time, we skip
+        -- straight to the postdominator (applying havoc to the program state)
+        -- without exploring the branches.
         | not $ IntSet.member (fromIntegral stopPc) (ex ^. exPendingBranches),
+          -- The second guard limits the number of symbolic branches that will
+          -- be explored in parallel.  If the current path is nested within at
+          -- least N symbolic branches, then it isn't allowed to branch any
+          -- more.  This limits the number of parallel branches in the
+          -- execution graph to `2^N`.
           IntSet.size (ex ^. exPendingBranches) < 4 -> do
+
+          -- `h'` is the common history leading up to just before the branch.
+          -- `h'1` and `h'2` are the two forked paths, with one taking the
+          -- branch and the other falling through.
           h' <- mkHist id
-          -- We use these dummy nodes instead of running `mkHist` twice to avoid
-          -- duplicating blocks prior to the branch.
           h'1 <- mkHistoryNode [h'] (Just []) (takeBranch dest $ h' ^. histFinalState)
           h'2 <- mkHistoryNode [h'] (Just []) (takeFallThrough $ h' ^. histFinalState)
           optIpdom <- findPostDominator stopPc (ex ^. exReturn)
           case optIpdom of
             Just ipdom -> do
+              -- This new scope will execute both branches separately, then
+              -- join them and continue with the current path.  Like in the
+              -- function call case, ownership is transferred into the new
+              -- scope and the resulting path is returned when it finishes.
               return $ Just $ Exec [h'1, h'2] [] ipdom (ex ^. exReturn)
                 (KJoin $ ex & exLive .~ hs)
                 (IntSet.insert (fromIntegral stopPc) (ex ^. exPendingBranches))
             Nothing -> do
-              -- TODO: Currently, if ipdom is missing, it means that there is no
-              -- path from the block to a return statement.  Currently we discard
-              -- such branches immediately, but for some programs it might be
-              -- necessary to run them (e.g. due to a bug in error handling
-              -- code).
-              finishBranch h'
+              -- If ipdom is missing, it means that there is no path from the
+              -- block to a return statement.  Currently we discard such
+              -- paths immediately, but for some programs it might be
+              -- beneficial to run them (e.g. for a bug in error handling code,
+              -- we might want public segments covering that code).
+              terminatePath h'
+
+      -- A branch where either the destination is symbolic, or the conditions
+      -- on the forking case didn't pass.
+      --
+      -- Currently we don't generate conditional branches to non-constant
+      -- addresses, so for now we only get here when the forking conditions
+      -- fail.
       SrBranch _ dest -> do
-        -- Skip to the postdominator without running either branch.
         optIpdom <- findPostDominator stopPc (ex ^. exReturn)
         case optIpdom of
           Just ipdom -> do
+            -- Skip to the postdominator without running either branch.
             h' <- mkHist id >>= mkHavocHist ipdom
             case dest of
               VExact dest' -> do
@@ -377,41 +439,67 @@ stepExec ex
               _ -> return ()
             return $ Just $ ex & exLive .~ (h':hs)
           Nothing -> do
-            mkHist id >>= finishBranch
+            -- As in the forking case, missing ipdom means we discard the path.
+            mkHist id >>= terminatePath
+
+      -- "Answer" and "invalid" are both ways of terminating execution.
       SrAnswer _ -> do
-        mkHist id >>= finishBranch
+        mkHist id >>= terminatePath
       SrInvalid -> do
-        mkHist id >>= finishBranch
+        mkHist id >>= terminatePath
+
       -- "Requested stop" means this path reached the join point.
       SrRequested -> do
+        -- Just update the current path.  The next call to `stepExec` should
+        -- see that the path is at its join point and move it to `exFinished`.
+        -- We don't inline that logic here, for consistency.
         h' <- mkHist id
-        return $ Just $ ex & exLive .~ hs & exFinished %~ (h':)
+        return $ Just $ ex & exLive .~ (h':hs)
 
-  -- All paths have finished, so run the continuation
+  -- (3) All paths in the current scope have finished.  Apply the continuation.
   | [] <- ex ^. exLive = case ex ^. exCont of
+    -- In general, the number of finished paths can't exceed the number of
+    -- paths in `exLive` when the current scope was created.  But it's possible
+    -- for the number to be smaller (even zero), as some paths might terminate
+    -- early.
+
     KReturn ex'
-      -- Continue from here in the caller.
+      -- The function returned normally.  Transfer the resulting path back to
+      -- the parent scope, where it will continue running.
       | [h] <- ex ^. exFinished ->
         return $ Just $ ex' & exLive %~ (h:)
-      -- If no path reached the return statement, discard the path that
-      -- performed this function call.
+      -- No path reached the return statement, so discard the path that entered
+      -- the call.
       | [] <- ex ^. exFinished -> return $ Just ex'
+      -- Scopes ending with `KReturn` are created with only one path, so it
+      -- should be impossible to have multiple paths here.
       | otherwise -> error $ "impossible: KReturn received multiple finished paths"
+
     KJoin ex'
+      -- After forking, all of the new paths terminated before reaching the
+      -- join point.
       | [] <- ex ^. exFinished -> return $ Just ex'
+      -- At least one path reached the join point.
       | otherwise -> do
         -- Create a dummy node that joins all the paths, then continue running
         -- that path in the parent context.
         h <- joinPaths (ex ^. exFinished)
         return $ Just $ ex' & exLive %~ (h:)
+
     KDone
       | [h] <- ex ^. exFinished -> do
+        -- Record the final path as terminating the execution, like in
+        -- `terminatePath` above.
         hsExits %= (h:)
         return Nothing
       | [] <- ex ^. exFinished -> do
         return Nothing
+      -- Scopes ending with `KDone` are created with only one path, so it
+      -- should be impossible to have multiple paths here.
       | otherwise -> error $ "impossible: KDone received multiple finished paths"
 
+-- | Construct the initial `Exec` state for starting from program state `s`.
+-- In practice, `s` is usually the initial program state.
 initExec :: AbsIntState r -> StateT (HistoryGraph r) Hopefully (Exec r)
 initExec s = do
   h <- mkHistoryNode [] (Just []) s
