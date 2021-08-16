@@ -29,17 +29,12 @@ import Codec.CBOR.Read
 import Codec.CBOR.Pretty
 import Codec.Serialise
 
-import           Data.Bits ((.&.), (.|.), shiftL, shiftR)
 import qualified Data.ByteString.Lazy                  as L
 import           Data.Maybe (isJust)
-import           Data.Vector (Vector)
-import qualified Data.Vector as Vector
-import           Data.Word (Word16)
 
 import Compiler.CompilationUnit
 import Compiler.Common (Name)
 import Compiler.Registers
-import Compiler.Tainted
 -- import Compiler.IRs
 --import Compiler.Sparsity
 
@@ -346,26 +341,8 @@ encodeInitMemSegment (InitMemSegment secret read heapInit start len datas labels
   , ("start", encode start)
   , ("len", encode len)
   ] ++  encodeMaybeContent "data" datas
-    ++  encodeMaybeContent "tainted" (map packLabels <$> labels)
+    ++  encodeMaybeContent "tainted" labels
 
--- Position 0 goes with byte 0. This is opposite of the witness checker.
-packLabels :: Vector Label -> Word16
-packLabels ls | Vector.length ls /= wordBytes = error "Unreachable: Must be a label for each byte in a word."
-packLabels ls = Vector.foldr (\w acc -> (acc `shiftL` 2) .|. (fromIntegral w)) 0 ls
-
-unpackLabels :: Word16 -> Vector Label
-unpackLabels w = Vector.fromList [
-    convert 0
-  , convert 2
-  , convert 4
-  , convert 6
-  , convert 8
-  , convert 10
-  , convert 12
-  , convert 14
-  ]
-  where
-    convert offset = fromIntegral (shiftR w offset) .&. 3
 
 encodeMaybeContent :: Serialise a => TXT.Text -> Maybe a -> [(TXT.Text,Encoding)]
 encodeMaybeContent _ Nothing = []
@@ -381,7 +358,7 @@ decodeInitMemSegment = do
       6 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
            tagDecode <*> tagDecode <*> fmap Just tagDecode <*> pure Nothing
       7 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
-           tagDecode <*> tagDecode <*> fmap Just tagDecode <*> fmap (Just . fmap unpackLabels) tagDecode
+           tagDecode <*> tagDecode <*> fmap Just tagDecode <*> fmap Just tagDecode
       _ -> fail $ "invalid state encoding. Length should be 5-7 but found " ++ show len
 
 instance Serialise InitMemSegment where
@@ -468,7 +445,7 @@ encodeAdvice  (MemOp addr val opTyp width label) =
   <> encode val
   <> encode opTyp
   <> encode width
-  <> maybe mempty (encode . packLabels) label
+  <> maybe mempty encode label
 
 encodeAdvice (Advise w) =
   encodeListLen 2
@@ -485,7 +462,7 @@ decodeAdvice = do
   name <- decodeString
   case (ln,name) of
     (5, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode <*> pure Nothing
-    (6, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode <*> (Just . unpackLabels <$> decode)
+    (6, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode <*> (Just <$> decode)
     (1, "Stutter") -> return Stutter
     (ln,name) -> fail $ "Found bad advice of length " ++ show ln ++ " and name: " ++ show name 
 
