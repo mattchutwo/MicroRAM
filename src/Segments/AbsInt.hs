@@ -297,6 +297,10 @@ joinPaths hs = do
 -- | Run the abstract interpreter, starting from the execution state `ex`.
 -- Returns a new state `Just ex'`, or `Nothing` to indicate that the execution
 -- has terminated.  Also adds new nodes to the `HistoryGraph` as a side effect.
+--
+-- A single call to `stepExec` may run multiple steps of the underlying
+-- abstract interpreter, for efficiency.  There is no guarantee as to the
+-- number of steps performed; it may be zero, one, or many steps.
 stepExec :: Regs r => Exec r -> StateT (HistoryGraph r) Hopefully (Maybe (Exec r))
 stepExec ex
   -- There are three top-level cases here:
