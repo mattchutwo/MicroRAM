@@ -205,7 +205,7 @@ defaultFlags name len =
   , spars     = Just 2
   , allowUndefFun = False
   , ppMRAM = False
-  , pubSegMode = PsmAbsInt
+  , pubSegMode = PsmFunctionCalls
   -- Interpreter
   , fileOut   = Nothing
   , end       = FullOutput
