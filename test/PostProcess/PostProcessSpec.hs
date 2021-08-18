@@ -12,6 +12,7 @@ import Test.Tasty
 import qualified Test.QuickCheck.Monadic as QCM
 import Test.Tasty.QuickCheck
 
+import Segments (PublicSegmentMode(..))
 import Segments.SegInterpreter
 import PostProcess
 
@@ -45,7 +46,7 @@ processTest name file len =
         output file len = do
           llvmProg <- llvmParse file
           mramProg <- handleErrorWith $ compile False len llvmProg Nothing
-          let postProcessed = compilerErrorResolve $ postProcess_v False True chunkSize True mramProg Nothing
+          let postProcessed = compilerErrorResolve $ postProcess_v False PsmAbsInt chunkSize True mramProg Nothing
           return $ result2property $ checkOutput <$> postProcessed
         chunkSize = 10
         result2property r = case r of

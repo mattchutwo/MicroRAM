@@ -8,7 +8,7 @@ Stability   : experimental
 
 -}
 
-module Segments (segment, SegmentedProgram(..), chooseSegment') where
+module Segments (segment, SegmentedProgram(..), PublicSegmentMode(..), chooseSegment') where
 
 import Compiler.Analysis
 import Compiler.CompilationUnit
@@ -27,28 +27,40 @@ import Segments.ChooseSegments
 import Segments.AbsInt
 
 import Sparsity.Sparsity (Sparsity)
- 
+
 data SegmentedProgram reg = SegmentedProgram  { compiled :: CompilationResult (Program reg MWord) -- No METADATA
                                               , pubSegments :: [Segment reg MWord]
                                               , privSegments :: [Segment reg MWord]
                                               , segTrace :: Maybe [TraceChunk reg]
                                               , segAdvice :: Maybe (Map.Map MWord [Advice])}
 
-segment :: (Regs reg, Show reg) => Bool -> Int -> Maybe Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
-segment producePublic privSize privSegs compRes = do
+data PublicSegmentMode =
+  -- | Generate no public segments, only secret ones.
+    PsmNone
+  -- | Generate public segments for each function, depending on the number of
+  -- function calls.
+  | PsmFunctionCalls
+  -- | Generate public segments based on abstract interpretation of the input
+  -- program.
+  | PsmAbsInt
+  deriving (Show, Eq)
+
+segment :: (Regs reg, Show reg) => PublicSegmentMode -> Int -> Maybe Int -> CompilationResult (AnnotatedProgram Metadata reg MWord) -> Hopefully (SegmentedProgram reg)
+segment pubSegMode privSize privSegs compRes = do
   let funCount = functionUsage $ aData compRes 
-  --segs <- segmentProgram funCount $ (pmProg . lowProg . programCU) compRes
-  segs <- segmentProgramWithAbsInt (lowProg $ programCU compRes)
-  let pubSegs = if producePublic then segs else []
-  let privateSegments = if producePublic then
+  pubSegs <- case pubSegMode of
+    PsmNone -> return []
+    PsmFunctionCalls -> segmentProgram funCount $ (pmProg . lowProg . programCU) compRes
+    PsmAbsInt -> segmentProgramWithAbsInt (lowProg $ programCU compRes)
+  let privateSegments = if pubSegMode /= PsmNone then
         mkPrivateSegments (traceLen compRes) privSize privSegs
         else
         mkPrivateSegments (traceLen compRes) (fromEnum $ traceLen compRes) privSegs
   return $ SegmentedProgram compResNoMD pubSegs privateSegments Nothing Nothing
   where compResNoMD = compRes {programCU = fmap (fmap (map fst)) (programCU compRes)}
 
-chooseSegment' :: (Show reg, Regs reg) => Bool -> Int -> Sparsity -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg) 
-chooseSegment' producePublic privSize spar trace segProg = do
+chooseSegment' :: (Show reg, Regs reg) => PublicSegmentMode -> Int -> Sparsity -> Trace reg -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
+chooseSegment' pubSegMode privSize spar trace segProg = do
   let prog = pmProg . lowProg . programCU . compiled $ segProg
   let segs = (V.fromList $ pubSegments segProg)
   chunks <- chooseSegments privSize' spar prog trace segs
@@ -60,7 +72,7 @@ chooseSegment' producePublic privSize spar trace segProg = do
   else
     assumptError $ "Trace is not long enough. Execution uses: " ++ (show segmentsTrace) ++ " segments, but only " ++ show numSegments ++ " where generated."
 
-  where privSize' = if producePublic then privSize else (fromEnum $ traceLen $ compiled segProg) 
+  where privSize' = if pubSegMode /= PsmNone then privSize else (fromEnum $ traceLen $ compiled segProg)
 
 mkPrivateSegments :: Word -> Int -> Maybe Int -> [Segment reg MWord]
 mkPrivateSegments len size privSegs = replicate howMany (Segment [] [] size [] True True)
