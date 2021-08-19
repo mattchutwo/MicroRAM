@@ -263,17 +263,18 @@ fromMRAMFile file = do
   contents <- readFile file
   return $ read contents
   
-runFromFile  :: FilePath -> IO (Trace AReg)
-runFromFile file = do
+runFromFile  :: Bool -> FilePath -> IO (Trace AReg)
+runFromFile leakTainted file = do
   prog <- fromMRAMFile file
-  return $ run prog
+  return $ run leakTainted prog
   
 summaryFromFile ::
   FilePath ->
   CustomSummary AReg ->
   Int -> IO ()
 summaryFromFile file cs length = do
-  trace <- runFromFile file
+  let leakTainted = False
+  trace <- runFromFile leakTainted file
   printSummary cs trace length
   
 

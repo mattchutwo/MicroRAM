@@ -168,6 +168,9 @@ legalizeInstr' (MirM i m) = do
     Ipoison w _ _ -> implError $ "non-word-sized Ipoison " ++ show w
     Iadvise rd -> return $ Iadvise rd
 
+    Itaint o1 o2 -> Itaint <$> op2reg o1 <*> pure o2
+    Isink o1 o2 -> Isink <$> op2reg o1 <*> pure o2
+
     Iext name ops -> return $ Iext name ops
     Iextval name rd ops -> return $ Iextval name rd ops
     Iextadvise name rd ops -> return $ Iextadvise name rd ops

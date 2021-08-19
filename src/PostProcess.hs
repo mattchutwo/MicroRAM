@@ -40,27 +40,30 @@ import Sparsity.Sparsity (Sparsity)
   
 postProcess_v :: (Show reg, Regs reg)
               => Bool
+              -> Bool
               -> PublicSegmentMode
               -> Int
               -> Bool
               -> CompilationResult (AnnotatedProgram Metadata reg MWord)
               -> Maybe Int
               -> Hopefully (Output reg)
-postProcess_v verb pubSegMode chunkSize private comp privSegs = do
+
+postProcess_v verb leakTainted pubSegMode chunkSize private comp privSegs =
   (segment pubSegMode chunkSize privSegs)
-    >=> (doIf private (buildTrace pubSegMode verb chunkSize spar))
-    >=> (doIf private recoverAdvice)
-    >=> segProg2Output $
-    comp
+  >=> (doIf private (buildTrace pubSegMode verb leakTainted chunkSize spar))
+  >=> (doIf private recoverAdvice)
+  >=> segProg2Output $
+  comp
+
   where spar = sparsityData . aData $ comp
 
         doIf :: Monad m => Bool -> (a -> m a) -> a -> m a
         doIf cond f = if cond then f else return
 
 
-buildTrace :: (Show reg, Regs reg) => PublicSegmentMode -> Bool -> Int -> Sparsity -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
-buildTrace pubSegMode verb chunkSize spar segProg = do
-  flatTrace <- return $ run_v verb $ compiled segProg
+buildTrace :: (Show reg, Regs reg) => PublicSegmentMode -> Bool -> Bool -> Int -> Sparsity -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
+buildTrace pubSegMode verb leakTainted chunkSize spar segProg = do
+  flatTrace <- return $ run_v verb leakTainted $ compiled segProg
   chooseSegment' pubSegMode chunkSize spar flatTrace segProg
 
 recoverAdvice :: SegmentedProgram reg -> Hopefully (SegmentedProgram reg)

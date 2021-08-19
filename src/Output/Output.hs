@@ -21,6 +21,7 @@ import GHC.Generics
 
 import Compiler.CompilationUnit
 import Compiler.Registers
+import Compiler.Tainted
 import Compiler.Analysis
 
 import MicroRAM.MRAMInterpreter
@@ -122,12 +123,13 @@ data CircuitParameters = CircuitParameters
 data StateOut = StateOut
   { pcOut   :: MWord
   , regsOut :: [MWord]
+  , regLabelsOut :: Maybe [[Label]] -- In the future, instead of dynamically tracking whether the tainted flag is provided, we could use the type system to ensure labels are tracked only when the tainted flag is provided.
 --  , adviceOut :: [Advice]
   } deriving (Eq, Show, Generic)
 
 state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
-state2out bound (ExecutionState pc regs _ _ _advice _ _ _) =
-  StateOut pc (regToList bound regs) -- Advice is ignored
+state2out bound (ExecutionState pc regs regLabels _ _ _advice _ _ _) =
+  StateOut pc (map concretize $ regToList bound regs) (map concretizeLabel . regToList bound <$> regLabels) -- Advice is ignored
 
 
 

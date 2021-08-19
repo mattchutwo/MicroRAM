@@ -15,8 +15,10 @@ compilations units.
 
 -}
 
+import Control.Monad.State (runStateT)
 import Data.Default (def)
 import qualified Data.Map as Map
+import Data.Vector (Vector)
 
 import Util.Util
 import MicroRAM (MWord)
@@ -25,7 +27,7 @@ import Compiler.Analysis
 import Compiler.Common
 import Compiler.LazyConstants
 import Compiler.Registers
-import Control.Monad.State (runStateT)
+import Compiler.Tainted
 
 
 -- | The Compilation Unit
@@ -124,6 +126,7 @@ data InitMemSegment = InitMemSegment
   , location :: MWord
   , segmentLen :: MWord
   , content :: Maybe [MWord]
+  , labels :: Maybe [Vector Label] -- This is Just when content is Just and mode is leak-tainted. -- TODO: Type level stuff to enable tainted things.
   } deriving (Eq, Ord, Read, Show)
 
 type InitialMem = [InitMemSegment]
@@ -149,9 +152,25 @@ flatInitMem' = foldr initSegment (Map.empty, Map.empty)
           where
             words = Map.fromList $
               zip [loc .. loc + len - 1] (maybe [] id optContent ++ repeat 0)
+--  TAINTED
+-- flatInitMem = foldr initSegment Map.empty
+--   where initSegment :: InitMemSegment -> Map.Map MWord MWord -> Map.Map MWord MWord
+--         initSegment (InitMemSegment _ _ _ _ _ Nothing _) = id
+--         initSegment (InitMemSegment _ _ _ loc _ (Just content) _) =
+--           Map.union $ Map.fromList $
+--           -- Map with the new content
+--           zip [loc..] content
+
+flatInitTaintedMem :: InitialMem -> Map.Map MWord (Vector Label)
+flatInitTaintedMem = foldr initSegment Map.empty
+  where initSegment (InitMemSegment _ _ _ _ _ _ Nothing) = id
+        initSegment (InitMemSegment _ _ _ loc _ _ (Just labels)) =
+          Map.union $ Map.fromList $
+          -- Map with the new content
+          zip [loc..] labels
 
 lengthInitMem :: InitialMem -> MWord
 lengthInitMem = foldl (\tip seg -> max tip (segTip seg)) 0
-  where segTip (InitMemSegment _ _ heapInit loc len _)
+  where segTip (InitMemSegment _ _ heapInit loc len _ _)
           | heapInit = 0
           | otherwise = loc + len

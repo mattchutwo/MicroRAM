@@ -30,10 +30,12 @@ import Codec.CBOR.Pretty
 import Codec.Serialise
 
 import qualified Data.ByteString.Lazy                  as L
+import           Data.Maybe (isJust)
 
 import Compiler.CompilationUnit
 import Compiler.Common (Name)
 import Compiler.Registers
+-- import Compiler.IRs
 --import Compiler.Sparsity
 
 import MicroRAM.MRAMInterpreter
@@ -196,6 +198,14 @@ encodeInstr (Ianswer operand     ) = list2CBOR $ encodeString "answer" : encodeN
 encodeInstr (Ipoison W8 operand r2) = list2CBOR $ encodeString "poison8" : encodeNull : encode r2  : (encodeOperand' operand) 
 encodeInstr (Ipoison w _ _       ) = error $ "bad poison width " ++ show w
 encodeInstr (Iadvise r1          ) = list2CBOR $ encodeString "advise" : encode r1  : encodeNull : [encode False, encodeNull]
+encodeInstr (Itaint W1 r2 operand   ) = list2CBOR $ encodeString "taint1"  : encodeNull : encode r2  : (encodeOperand' operand)
+encodeInstr (Itaint W2 r2 operand   ) = list2CBOR $ encodeString "taint2"  : encodeNull : encode r2  : (encodeOperand' operand)
+encodeInstr (Itaint W4 r2 operand   ) = list2CBOR $ encodeString "taint4"  : encodeNull : encode r2  : (encodeOperand' operand)
+encodeInstr (Itaint W8 r2 operand   ) = list2CBOR $ encodeString "taint8"  : encodeNull : encode r2  : (encodeOperand' operand)
+encodeInstr (Isink W1 r2 operand    ) = list2CBOR $ encodeString "sink1"   : encodeNull : encode r2  : (encodeOperand' operand)
+encodeInstr (Isink W2 r2 operand    ) = list2CBOR $ encodeString "sink2"   : encodeNull : encode r2  : (encodeOperand' operand)
+encodeInstr (Isink W4 r2 operand    ) = list2CBOR $ encodeString "sink4"   : encodeNull : encode r2  : (encodeOperand' operand)
+encodeInstr (Isink W8 r2 operand    ) = list2CBOR $ encodeString "sink8"   : encodeNull : encode r2  : (encodeOperand' operand)
 -- `Iext` and `Iextval` should have been compiled away by a previous pass, but
 -- it's sometimes useful for debugging to include them in the output CBOR.  The
 -- witness checker generator doesn't support these instructions at all, so how
@@ -328,18 +338,20 @@ instance Serialise CircuitParameters where
 
 
 encodeInitMemSegment :: InitMemSegment -> Encoding
-encodeInitMemSegment (InitMemSegment secret read heapInit start len datas) =
+encodeInitMemSegment (InitMemSegment secret read heapInit start len datas labels) =
   map2CBOR $
   [ ("secret", encodeBool secret) 
   , ("read_only", encodeBool read)
   , ("heap_init", encodeBool heapInit)
   , ("start", encode start)
   , ("len", encode len)
-  ] ++  encodeMaybeContent datas
+  ] ++  encodeMaybeContent "data" datas
+    ++  encodeMaybeContent "tainted" labels
 
-encodeMaybeContent :: Maybe [MWord] -> [(TXT.Text,Encoding)]
-encodeMaybeContent Nothing = []
-encodeMaybeContent (Just content) = return $ ("data",encode content)
+
+encodeMaybeContent :: Serialise a => TXT.Text -> Maybe a -> [(TXT.Text,Encoding)]
+encodeMaybeContent _ Nothing = []
+encodeMaybeContent s (Just content) = return (s,encode content)
 
 
 decodeInitMemSegment :: Decoder s InitMemSegment
@@ -347,10 +359,12 @@ decodeInitMemSegment = do
     len <- decodeMapLen
     case len of
       5 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
-           tagDecode <*> tagDecode <*> (return Nothing)
+           tagDecode <*> tagDecode <*> pure Nothing <*> pure Nothing
       6 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
-           tagDecode <*> tagDecode <*> do { content <- tagDecode; return $ Just content} 
-      _ -> fail $ "invalid state encoding. Length should be 5 or 6 but found " ++ show len
+           tagDecode <*> tagDecode <*> fmap Just tagDecode <*> pure Nothing
+      7 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
+           tagDecode <*> tagDecode <*> fmap Just tagDecode <*> fmap Just tagDecode
+      _ -> fail $ "invalid state encoding. Length should be 5-7 but found " ++ show len
 
 instance Serialise InitMemSegment where
   decode = decodeInitMemSegment
@@ -370,11 +384,12 @@ instance Serialise InitMemSegment where
 -- *** State Out 
 
 encodeStateOut :: StateOut -> Encoding
-encodeStateOut (StateOut pc regs) =
+encodeStateOut (StateOut pc regs regLabels) =
   map2CBOR $
   [ ("pc", encode pc)
   , ("regs", encode regs)
   ]
+  ++ encodeMaybeContent "tainted_regs" regLabels
 
 decodeStateOut :: Decoder s StateOut
 decodeStateOut = do
@@ -382,7 +397,11 @@ decodeStateOut = do
     case len of
       2 -> StateOut <$ decodeString <*> decode
                     <* decodeString <*> decode
-      _ -> fail $ "invalid state encoding. Length should be 3 but found " ++ show len
+                    <*> pure Nothing
+      3 -> StateOut <$ decodeString <*> decode
+                    <* decodeString <*> decode
+                    <* decodeString <*> (fmap Just decode)
+      _ -> fail $ "invalid state encoding. Length should be 2 or 3 but found " ++ show len
 
 instance Serialise StateOut where
   decode = decodeStateOut
@@ -423,13 +442,15 @@ instance Serialise MemWidth where
 
 
 encodeAdvice :: Advice -> Encoding 
-encodeAdvice  (MemOp addr val opTyp width) =
-  encodeListLen 5
+encodeAdvice  (MemOp addr val opTyp width label) =
+  let taintLen = if isJust label then 1 else 0 in
+  encodeListLen (5 + taintLen)
   <> encodeString "MemOp"
   <> encode addr
   <> encode val
   <> encode opTyp
   <> encode width
+  <> maybe mempty encode label
 
 encodeAdvice (Advise w) =
   encodeListLen 2
@@ -445,7 +466,8 @@ decodeAdvice = do
   ln <- decodeListLen
   name <- decodeString
   case (ln,name) of
-    (5, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode
+    (5, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode <*> pure Nothing
+    (6, "MemOp") -> MemOp <$> decode <*> decode <*> decode <*> decode <*> (Just <$> decode)
     (1, "Stutter") -> return Stutter
     (ln,name) -> fail $ "Found bad advice of length " ++ show ln ++ " and name: " ++ show name 
 
@@ -563,3 +585,13 @@ printOutputWithFormat StdHex out features = show $ (serialOutput out features)
 printOutputWithFormat PHex out features = ppHexOutput out features
 printOutputWithFormat Flat out  features = show $ flatOutput out features
 
+
+-- c :: Output Word
+-- c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
+--                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1], labels = Just [untainted]}]}
+-- 
+-- d :: Output Word
+-- d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
+--                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1], labels = Just [untainted]}],
+--                    trace = [], adviceOut = Map.empty}
+ 

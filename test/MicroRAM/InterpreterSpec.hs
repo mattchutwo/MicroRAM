@@ -16,9 +16,11 @@ import qualified Test.QuickCheck.Property as Prop (succeeded, failed, reason, Re
 import Compiler.Common (firstUnusedName)
 import Compiler.Registers
 import Compiler.CompilationUnit
+import Compiler.Tainted
 
 import Data.Bits
 import Data.Default
+import qualified Data.Vector as Vec
 
 import MicroRAM
 import MicroRAM.MRAMInterpreter
@@ -47,7 +49,7 @@ _ppList all =  putStr $ concat $ map (\st -> show st ++ "\n") all
 list2InitMem :: [MWord] -> InitialMem
 list2InitMem ls = map word2InitSeg $ zip [0..] ls 
   where word2InitSeg :: (MWord,MWord) -> InitMemSegment
-        word2InitSeg (loc,val) = InitMemSegment False False False loc 1 (Just [val])
+        word2InitSeg (loc,val) = InitMemSegment False False False loc 1 (Just [val]) (Just [Vec.replicate wordBytes untainted])
 
 
 
@@ -56,16 +58,16 @@ trivialCU prog len input = CompUnit progs len InfinityRegs def firstUnusedName (
   where pm = ProgAndMem prog (list2InitMem input) mempty
         progs = MultiProg pm pm
 
-runProg :: Prog Int -> Word -> [MWord] -> Trace Int
-runProg prog len input = run $ trivialCU prog len input
+runProg :: Bool -> Prog Int -> Word -> [MWord] -> Trace Int
+runProg leakTainted prog len input = run leakTainted $ trivialCU prog len input
 
 -- We are treating the first register as the return
 -- To get ouptu to get output provide a program and a number of steps to get the result after that long
 -- Execute gets the trace and then looks at the first register after t steps
-exec :: Prog Int -> Word -> [MWord] -> MWord
-exec prog steps input = lookupReg sp (seeRegs (runProg prog (steps+1) input) (fromEnum steps)) -- this throws an error if there is no register 0
-simpl_exec :: Prog Int -> Word -> MWord
-simpl_exec prog steps = exec prog steps [] -- when there are no inputs
+exec :: Bool -> Prog Int -> Word -> [MWord] -> Maybe MWord
+exec leakTainted prog steps input = lookupReg sp (seeRegs (runProg leakTainted prog (steps+1) input) (fromEnum steps)) -- this throws an error if there is no register 0
+simpl_exec :: Prog Int -> Word -> Maybe MWord
+simpl_exec prog steps = exec False prog steps [] -- when there are no inputs
 seeRegs:: Trace mreg -> Int -> RegBank mreg MWord
 seeRegs t n = regs (t !! n)
 
@@ -155,8 +157,7 @@ prog4 = [IloadW 1 (Const 0), --
 
 test4 :: TestTree
 test4 = testProperty "Test a conditional and input" $ \x ->
-   claimEqual (exec prog4 6 [x]) (if x>10 then 42 else 77)
-
+   claimEqual (exec False prog4 6 [x]) (Just $ if x>10 then 42 else 77)
                                                                
 -- # Test 5: sum all input
   {- for i in input
@@ -183,7 +184,7 @@ prog5 = [Imov 0 (Const 0),
 --test5 ls = Seq.lookup 0 (see (run5 ls) (4* (Prelude.length ls))) == (sum ls)
 test5 :: TestTree
 test5 = testProperty "Test adding a list of inputs" $ \xs ->
-   claimEqual (exec prog5 (4 * (toEnum $ length xs)) xs)  (sum xs)
+   claimEqual (exec False prog5 (4 * (toEnum $ length xs)) xs)  (Just $ sum xs)
 
 
 
@@ -215,8 +216,8 @@ testAshr :: TestTree
 testAshr = testProperty "Test implementation of arithmetic shift right"
         $ \inpt -> (inpt :: Int) == inpt ==>
                    \shift ->  (shift :: Int) >= 0 ==>
-                              exec (progAshr (binaryFromInt inpt) (binaryFromInt shift)) 6 [] ==
-                              (binaryFromInt $ inpt `shiftR` shift)
+                              exec False (progAshr (binaryFromInt inpt) (binaryFromInt shift)) 6 [] ==
+                              Just (binaryFromInt $ inpt `shiftR` shift)
 binaryFromInt :: Int -> MWord
 binaryFromInt n =
   if n >= 0 then toEnum n else maxBound - (toEnum (-1- n))

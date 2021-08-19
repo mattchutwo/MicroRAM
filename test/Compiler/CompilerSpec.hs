@@ -33,9 +33,9 @@ mkCompilerTests tg = case tg of
   ManyTests nm ts -> testGroup nm $ mkCompilerTests <$> ts 
 
 mkCompilerTest :: TestProgram -> TestTree
-mkCompilerTest (TestProgram name file len cmpErr res hasBug) =
+mkCompilerTest (TestProgram name file len cmpErr res hasBug leakTainted) =
   if cmpErr then compileErrorTest name file len else 
-  if hasBug then compileBugTest name file len else compileCorrectTest name file len res
+  if hasBug then compileBugTest leakTainted name file len else compileCorrectTest leakTainted name file len res
 
 
 
@@ -62,7 +62,7 @@ compileTest executionFunction tester name file len =
           -> IO MWord -- TestTree-}
         compileTest' file len _verb = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile False len llvmProg Nothing 
+          mramProg <- handleErrorWith $ compile False len llvmProg Nothing
           return $ executionFunction (fmap (tripleFmap fst) mramProg)
 
 tripleFmap :: (Functor f1, Functor f2, Functor f3) =>
@@ -91,25 +91,27 @@ compileErrorTest name file len =
 type AssertionInfo = IO String
 
 compileCorrectTest ::
-  String
+     Bool
+  -> String
   -> FilePath
   -> Word -- ^ Length
   -> MWord  -- ^ return value
   -> TestTree
-compileCorrectTest name file len ret =
-  compileTest (execAnswer False) (== ret) name file len
+compileCorrectTest leakTainted name file len ret =
+  compileTest (execAnswer False leakTainted) (== ret) name file len
 
 -- ## Full compilation tests looking for bugs
 
 -- | compileCorrectTest : compile step by step llvm code from file:
 
 compileBugTest ::
-  String
+     Bool
+  -> String
   -> FilePath
   -> Word -- ^ Length
   -> TestTree
-compileBugTest name file len = 
-  compileTest (execBug False) id name file len
+compileBugTest leakTainted name file len = 
+  compileTest (execBug False leakTainted) id name file len
 
 
 

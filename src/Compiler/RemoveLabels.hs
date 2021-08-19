@@ -40,6 +40,7 @@ module Compiler.RemoveLabels
 import MicroRAM
 import Compiler.IRs
 import qualified Data.Map.Strict as Map
+import qualified Data.Vector as Vec
 
 import Util.Util
 
@@ -47,6 +48,7 @@ import Compiler.Common
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.LazyConstants
+import Compiler.Tainted
 
 -- * Assembler
 
@@ -153,7 +155,8 @@ removeLabelsInitMem lmap lInitMem =
     mapM (removeLabelsSegment fullMap) lInitMem
   where removeLabelsSegment :: (Name -> Wrd) -> LazyInitSegment -> Hopefully $ InitMemSegment
         removeLabelsSegment labelMap (lMem, initSegment) =
-          return $ initSegment {content =  removeLabelInitialValues labelMap lMem}
+          let vals = removeLabelInitialValues labelMap lMem in
+          return $ initSegment {content = vals, labels = fmap (const $ replicate (fromIntegral $ segmentLen initSegment) $ Vec.replicate wordBytes untainted) vals}
         removeLabelInitialValues :: (Name -> Wrd) -> Maybe [LazyConst Name Wrd] -> Maybe [Wrd]
         removeLabelInitialValues labelMap lMem =  map (makeConcreteConst labelMap) <$> lMem
 addDefault :: LabelMap -> Name -> Wrd
@@ -168,7 +171,7 @@ addDefault labelMap name =
 removeLabels :: (CompilationUnit LazyInitialMem (MAProgram md regT Wrd))
              -> Hopefully $ CompilationUnit () (AnnotatedProgram md regT Wrd)
 removeLabels compUnit = do
-  lMap <- return $ createMap $ pmProg $ programCU compUnit
+  let lMap = createMap $ pmProg $ programCU compUnit
   prog' <- replaceLabels lMap $ flatten $ pmProg $ programCU compUnit
   initMem <- removeLabelsInitMem lMap $ intermediateInfo compUnit
   return $ compUnit {programCU = ProgAndMem prog' initMem lMap, intermediateInfo = ()}
