@@ -30,7 +30,7 @@ import MicroRAM
 class (Show v, Show (Memory v)) => AbsDomain v where
   type Memory v
 
-  absInitMem :: Map MWord MWord -> Memory v
+  absInitMem :: InitialMem -> Memory v
 
   absExact :: MWord -> v
 

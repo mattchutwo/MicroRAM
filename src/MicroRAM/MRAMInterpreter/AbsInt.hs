@@ -164,8 +164,8 @@ instance AbsDomain AbsValue where
   absInitMem mem = amInit mem'
     where
       mem' = Map.mapKeysMonotonic (* fromIntegral wordBytes) $
-        fmap (\x -> (WWord, VExact x)) mem
-
+        fmap (\x -> (WWord, VExact x)) flatMem
+      flatMem = flatInitMem mem
 
   absExact x = VExact x
 
