@@ -11,7 +11,8 @@ module MicroRAM.MRAMInterpreter.Generic
     InterpState'(..), sExt, sMach,
     InterpM', InstrHandler',
     doStore, doLoad, doPoison, doGetPoison, doGetValue,
-    fetchInstr, stepInstr, nextPc, finishInstr, regVal, opVal
+    fetchInstr, stepInstr, nextPc, finishInstr, regVal, opVal,
+    stepStoreValue, stepLoadValue, stepPoisonValue
   ) where
 
 import Control.Monad
@@ -20,9 +21,10 @@ import Control.Monad.State
 import Control.Lens (makeLenses, lens, (.=), (%=), use)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
-import Data.Map.Strict (Map)
+-- import Data.Map.Strict (Map)
 
 import Compiler.Errors
+import Compiler.CompilationUnit (InitialMem)
 import Compiler.Registers
 import MicroRAM
 
@@ -61,6 +63,9 @@ class (Show v, Show (Memory v)) => AbsDomain v where
   -- | `absMux c t e`: produces `t` if `c` is nonzero and `e` otherwise.
   absMux :: v -> v -> v -> v
 
+  -- | The memory operations are assumed to be idempotent.
+  -- E.g. storing the same value in the same locatoin twice is equivalent
+  -- to just storing it once. 
   absStore :: MemWidth -> v -> v -> Memory v -> Hopefully (Memory v)
   absLoad :: MemWidth -> v -> Memory v -> Hopefully v
   absPoison :: MemWidth -> v -> Memory v -> Hopefully (Memory v)
@@ -111,7 +116,7 @@ doStore w addr val = do
   old <- use $ sMach . mMem
   new <- liftWrap $ absStore w addr val old
   sMach . mMem .= new
-
+  
 doLoad :: (AbsDomain v) => MemWidth -> v -> InterpM' r v s Hopefully v
 doLoad w addr = do
   mem <- use $ sMach . mMem
@@ -231,32 +236,57 @@ checkPoison w addr = do
   poisoned <- doGetPoison w addr
   when poisoned $ sMach . mBug .= True
 
-stepStore :: (Regs r, AbsDomain v) =>
-  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully ()
-stepStore w op2 r1 = do
+stepStoreValue :: (Regs r, AbsDomain v) =>
+  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully (v, v)
+stepStoreValue w op2 r1 = do
   addr <- opVal op2
   val <- regVal r1
   checkPoison w addr
   doStore w addr val
   nextPc
+  -- For advice, load the entire word at that location
+  -- alternatively we could have `doStore` also return
+  -- the fullWord stored. 
+  fullStoredVal <- doLoad WWord addr 
+  return (addr, fullStoredVal)
 
-stepLoad :: (Regs r, AbsDomain v) =>
-  MemWidth -> r -> Operand r MWord -> InterpM' r v s Hopefully ()
-stepLoad w rd op2 = do
+stepStore :: (Regs r, AbsDomain v) =>
+  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully ()
+stepStore w op2 r1 = do
+  _ <- stepStoreValue w op2 r1
+  return ()
+
+stepLoadValue :: (Regs r, AbsDomain v) =>
+  MemWidth -> r -> Operand r MWord -> InterpM' r v s Hopefully (v, v)
+stepLoadValue w rd op2 = do
   addr <- opVal op2
   checkPoison w addr
   val <- doLoad w addr
   sMach . mReg rd .= val
   nextPc
-
-stepPoison :: (Regs r, AbsDomain v) =>
-  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully ()
-stepPoison w op2 r1 = do
+  return (addr,val)
+  
+stepLoad :: (Regs r, AbsDomain v) =>
+  MemWidth -> r -> Operand r MWord -> InterpM' r v s Hopefully ()
+stepLoad w rd op2 = do
+  _ <- stepLoadValue w rd op2
+  return ()
+  
+stepPoisonValue :: (Regs r, AbsDomain v) =>
+  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully (v, v)
+stepPoisonValue w op2 r1 = do
   addr <- opVal op2
   val <- regVal r1
   doStore w addr val
   doPoison w addr
   nextPc
+  return (addr, val)
+
+stepPoison :: (Regs r, AbsDomain v) =>
+  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully ()
+stepPoison w op2 r1 = do
+  _ <- stepPoisonValue w op2 r1
+  return ()
 
 stepRead :: (Regs r, AbsDomain v) =>
   r -> Operand r MWord -> InterpM' r v s Hopefully ()
