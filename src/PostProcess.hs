@@ -50,7 +50,7 @@ postProcess_v :: (Show reg, Regs reg)
 
 postProcess_v verb leakTainted pubSegMode chunkSize private comp privSegs =
   (segment pubSegMode chunkSize privSegs)
-  >=> (doIf private (buildTrace pubSegMode verb leakTainted chunkSize spar))
+  >=> (doIf private (buildTrace verb leakTainted pubSegMode chunkSize spar))
   >=> (doIf private recoverAdvice)
   >=> segProg2Output $
   comp
@@ -61,8 +61,8 @@ postProcess_v verb leakTainted pubSegMode chunkSize private comp privSegs =
         doIf cond f = if cond then f else return
 
 
-buildTrace :: (Show reg, Regs reg) => PublicSegmentMode -> Bool -> Bool -> Int -> Sparsity -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
-buildTrace pubSegMode verb leakTainted chunkSize spar segProg = do
+buildTrace :: (Show reg, Regs reg) => Bool -> Bool -> PublicSegmentMode -> Int -> Sparsity -> SegmentedProgram reg -> Hopefully (SegmentedProgram reg)
+buildTrace verb leakTainted pubSegMode chunkSize spar segProg = do
   flatTrace <- return $ run_v verb leakTainted $ compiled segProg
   chooseSegment' pubSegMode chunkSize spar flatTrace segProg
 
