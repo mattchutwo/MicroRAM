@@ -146,7 +146,7 @@ flatInitMem' = foldr initSegment (Map.empty, Map.empty)
           InitMemSegment ->
           (Map.Map MWord MWord, Map.Map MWord MWord) ->
           (Map.Map MWord MWord, Map.Map MWord MWord)
-        initSegment (InitMemSegment secret _ _ loc len optContent) (pub, sec)
+        initSegment (InitMemSegment secret _ _ loc len optContent _) (pub, sec)
           | secret = (pub, sec `Map.union` words)
           | otherwise = (pub `Map.union` words, sec)
           where
