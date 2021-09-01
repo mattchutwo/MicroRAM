@@ -197,7 +197,7 @@ encodeInstr (Iread r1 operand    ) = list2CBOR $ encodeString "read"   : encode 
 encodeInstr (Ianswer operand     ) = list2CBOR $ encodeString "answer" : encodeNull : encodeNull : (encodeOperand' operand) 
 encodeInstr (Ipoison W8 operand r2) = list2CBOR $ encodeString "poison8" : encodeNull : encode r2  : (encodeOperand' operand) 
 encodeInstr (Ipoison w _ _       ) = error $ "bad poison width " ++ show w
-encodeInstr (Iadvise r1          ) = list2CBOR $ encodeString "advise" : encode r1  : encodeNull : [encode False, encodeNull]
+encodeInstr (Iadvise r1 operand  ) = list2CBOR $ encodeString "advise" : encode r1  : encodeNull : (encodeOperand' operand)
 encodeInstr (Itaint W1 r2 operand   ) = list2CBOR $ encodeString "taint1"  : encodeNull : encode r2  : (encodeOperand' operand)
 encodeInstr (Itaint W2 r2 operand   ) = list2CBOR $ encodeString "taint2"  : encodeNull : encode r2  : (encodeOperand' operand)
 encodeInstr (Itaint W4 r2 operand   ) = list2CBOR $ encodeString "taint4"  : encodeNull : encode r2  : (encodeOperand' operand)
@@ -227,7 +227,7 @@ encodeInstr (Iextval r1 ext) =
   in list2CBOR $ encodeString "extval" : encode r1 : parts
 -- `Iextadvise` is `Iadvise` plus a hint to the interpreter.  We serialize it
 -- just like a plain `Iadvise`.
-encodeInstr (Iextadvise r1 _     ) = encodeInstr @regT @wrdT (Iadvise r1)
+encodeInstr (Iextadvise r1 op2 _) = encodeInstr @regT @wrdT (Iadvise r1 op2)
 
 decodeOperands :: (Serialise regT, Serialise wrdT) => Int -> Decoder s ([regT], Operand regT wrdT)
 decodeOperands 0 = fail "invalid number of operands: 0"
@@ -279,10 +279,10 @@ decodeInstr = do
       "read"    -> Iread   <$> decode     <*  decodeNull <*> decodeOperand'
       "answer"  -> Ianswer <$  decodeNull <*  decodeNull <*> decodeOperand'
       "poison8" -> flip (Ipoison W8) <$  decodeNull <*> decode     <*> decodeOperand'  
-      "advise"  -> Iadvise <$> decode     <*  decodeNull <*  decodeBool <* decodeNull
+      "advise"  -> Iadvise <$> decode     <*  decodeNull <*> decodeOperand'
       _ -> fail $ "invalid instruction encoding. Tag: " ++ show tag ++ "."
 
-instance (Serialise regT, Serialise ops) => Serialise (Instruction regT ops) where
+instance (Serialise regT, Serialise wrdT) => Serialise (Instruction regT wrdT) where
     encode = encodeInstr
     decode = decodeInstr
 

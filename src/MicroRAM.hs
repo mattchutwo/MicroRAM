@@ -83,7 +83,7 @@ execution of programs. The instructions (inspired by the TinyRAM language
 +-----------------------------------------------------------------+
 | poisonN | ri A   | store N bytes of [ri] at address [A]u and poison them |
 +-----------------------------------------------------------------+
-| advice | ri      | Receive advice to ri                         |
+| advise | ri A    | Receive advice in the range [0..A] into ri   |
 +------------------------------------------------------------------
 | sink   | rj A    | Signifies rj is written to a sink of label A |
 +------------------------------------------------------------------
@@ -257,7 +257,7 @@ data Instruction' regT operand1 operand2 =
                               --  __To be removed__
   | Ianswer operand2          -- ^  stall or halt (and the return value is [A]u)
   -- Advice
-  | Iadvise regT              -- ^ load nondeterministic advice into ri
+  | Iadvise regT operand2     -- ^ load nondeterministic advice into ri
   -- Poison
   | Ipoison MemWidth operand2 operand1
   -- Dynamic taint tracking operations
@@ -266,7 +266,7 @@ data Instruction' regT operand1 operand2 =
   -- Extensions
   | Iext (ExtInstr operand2)                -- ^ Custom instruction with no return value
   | Iextval regT (ExtValInstr operand2)     -- ^ Custom instruction, returning a value
-  | Iextadvise regT (ExtAdviseInstr operand2)   -- ^ Like `Iextval`, but gets serialized as `Iadvise`
+  | Iextadvise regT operand2 (ExtAdviseInstr operand2) -- ^ Like `Iextval`, but gets serialized as `Iadvise`
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
 pattern IstoreW :: operand2 -> operand1 -> Instruction' regT operand1 operand2
@@ -424,13 +424,13 @@ mapInstrM regF opF1 opF2 instr =
   Isink wd r2 l          -> Isink wd <$> opF1 r2 <*> opF2 l
   Itaint wd r2 l         -> Itaint wd <$> regF r2 <*> opF2 l
   -- Advice                                    
-  Iadvise r1             -> Iadvise <$>  (regF r1)                     
+  Iadvise r1 op2         -> Iadvise <$> (regF r1) <*> (opF2 op2)
   -- Poison                                    
   Ipoison w op2 op1      -> Ipoison w <$>  (opF2 op2) <*> (opF1 op1)      
   -- Extensions                            
   Iext ext               -> Iext <$> (mapM opF2 ext)
   Iextval dest ext       -> Iextval <$> (regF dest) <*> (mapM opF2 ext)
-  Iextadvise dest ext    -> Iextadvise <$> (regF dest) <*> (mapM opF2 ext)
+  Iextadvise dest op2 ext -> Iextadvise <$> (regF dest) <*> (opF2 op2) <*> (mapM opF2 ext)
 
 
 foldInstr :: Monoid a =>
@@ -473,8 +473,8 @@ aggregateOps instr =
     Ianswer op2            ->              op2
     Isink _ r2 l           -> r2 <> l
     Itaint _ r2 l          -> r2 <> l
-    Iadvise r1             -> r1
+    Iadvise r1 op2         -> r1        <> op2
     Ipoison _ op2 op1      ->       op1 <> op2
     Iext ext               -> fold ext
     Iextval dest ext       -> dest <> fold ext
-    Iextadvise dest ext    -> dest <> fold ext
+    Iextadvise dest op2 ext -> dest <> op2 <> fold ext

@@ -8,8 +8,11 @@ char* __cc_malloc(size_t size);
 void __cc_free(char* ptr);
 
 // Let the prover arbitrarily choose a word to poison in the range `start <=
-// ptr < end`.  The prover returns `NULL` to indicate that nothing should be
-// poisoned.
+// ptr < end`.  The prover returns `end` to indicate that nothing should be
+// poisoned.  The result is always in the range `start <= ptr <= end` (as long
+// as `start <= end`); this property is enforced by the implementation of the
+// intrinsic within MicroRAM, and therefore doesn't need to be checked
+// explicitly.
 uintptr_t* __cc_advise_poison(char* start, char* end);
 
 // Write `val` to `*ptr` and poison `*ptr`.  If `*ptr` is already poisoned, the
@@ -52,16 +55,12 @@ char* malloc_internal(size_t size) {
 
     // Choose a word to poison in the range `ptr .. metadata`.
     uintptr_t* poison = __cc_advise_poison(ptr + size, (char*)metadata);
-    if (poison != NULL) {
+    if (poison != metadata) {
         // The poisoned address must be well-aligned.
         __cc_valid_if((uintptr_t)poison % sizeof(uintptr_t) == 0,
             "poison address is not word-aligned");
-        // The poisoned address must be in the unused space at the end of the
-        // region.
-        __cc_valid_if(ptr + size <= (char*)poison,
-            "poisoned word overlaps usable allocation");
-        __cc_valid_if(poison < metadata,
-            "poisoned word overlaps allocation metadata");
+        // The poisoned address is guaranteed to be be in the unused space at
+        // the end of the region.
         __cc_write_and_poison(poison, 0);
     }
 
@@ -91,15 +90,11 @@ void free_internal(char* ptr) {
     // Choose an address to poison.
     uintptr_t* metadata = (uintptr_t*)(ptr + region_size - sizeof(uintptr_t));
     uintptr_t* poison = __cc_advise_poison(ptr, (char*)metadata);
-    if (poison != NULL) {
+    if (poison != metadata) {
         // The poisoned address must be well-aligned.
         __cc_valid_if((uintptr_t)poison % sizeof(uintptr_t) == 0,
             "poison address is not word-aligned");
-        // The pointer must be somewhere within the freed region.
-        __cc_valid_if(ptr <= (char*)poison,
-            "poisoned word is before the freed region");
-        __cc_valid_if(poison < metadata,
-            "poisoned word overlaps allocation metadata");
+        // The pointer is guaranteed to be somewhere within the freed region.
         __cc_write_and_poison(poison, 0);
     }
 }

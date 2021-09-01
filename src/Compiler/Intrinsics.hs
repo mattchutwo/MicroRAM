@@ -25,6 +25,8 @@ import           Control.Monad
 import           Data.ByteString.Short (ShortByteString)
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
+
+import           Data.Bits
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set (member, fromList) 
@@ -86,8 +88,9 @@ cc_trap desc _ _ md _ = return [
   MirM (Iext (XTrace ("Trap: " <> desc) [])) md,
   MirM (Ianswer (LImm $ SConst 0)) md] -- TODO
 
-cc_malloc :: IntrinsicImpl m w
-cc_malloc [size] (Just dest) md _ = return [MirM (Iextadvise dest (XMalloc size)) md]
+cc_malloc :: (Num w, Bits w) => IntrinsicImpl m w
+cc_malloc [size] (Just dest) md _ = return [
+  MirM (Iextadvise dest (LImm $ SConst $ complement 0) (XMalloc size)) md]
 cc_malloc _ _ _ _ = progError "bad arguments"
 
 cc_access_valid :: IntrinsicImpl m w
@@ -99,8 +102,17 @@ cc_access_invalid [lo, hi] Nothing md _ = return [MirM (Iext (XAccessInvalid lo 
 cc_access_invalid _ _ _ _ = progError "bad arguments"
 
 cc_advise_poison :: IntrinsicImpl m w
-cc_advise_poison [lo, hi] (Just dest) md _ =
-  return [MirM (Iextadvise dest (XAdvisePoison lo hi)) md]
+cc_advise_poison [lo, hi] (Just dest) md _ = do
+  -- If `lo <= hi`, then this function is required to return a value in the
+  -- range `lo <= ptr <= hi`.  For this, we rely on `Iextadvise` to produce a
+  -- value in the range `0 <= advice <= hi - lo`, which is enforced within the
+  -- witness checker circuit.
+  rMax <- getNextRegister
+  return [
+    MirM (Isub rMax hi lo) md,
+    MirM (Iextadvise dest (AReg rMax) (XAdvisePoison lo hi)) md,
+    MirM (Iadd dest (AReg dest) lo) md
+    ]
 cc_advise_poison _ _ _ _ = progError "bad arguments"
 
 cc_write_and_poison :: IntrinsicImpl m w

@@ -183,10 +183,10 @@ instrType inst =
     Ipoison _ _ _ -> [Kpoison, KmemOp]           
     Itaint _ _ _  -> [Ktaint]
     Isink _ _ _   -> [Ktaint]
-    Iadvise _     -> []
+    Iadvise _ _   -> []
     Iext _        -> []
     Iextval _ _   -> []
-    Iextadvise _ _ -> []
+    Iextadvise _ _ _ -> []
 
 
 -- * Computing Sparsity
