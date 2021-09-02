@@ -40,21 +40,19 @@ module MicroRAM.MRAMInterpreter
     Advice(..), renderAdvc,
     MemOpType(..),
     -- * Just for the debugger
-    Mem', load,
+    Mem, load,
     -- * Just for testing
     Prog
     ) where
 
-import Control.Applicative (liftA2)
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State
-import Control.Lens (makeLenses, ix, at, to, lens, (^.), (^?), (&), (.~), (%~), (.=), (%=), use, Lens', _1, _2, _3)
+import Control.Lens (makeLenses, ix, at, to, (^.), (.=), (%=), use, Lens', _1, _2, _3)
 import Data.Bits
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.List (intercalate)
-import Data.Maybe (isJust, fromMaybe)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import qualified Data.Set as Set
@@ -65,7 +63,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Vector (Vector)
-import qualified Data.Vector as Vec
+import qualified Data.Vector as Vec ()
 import Data.Word
 
 import GHC.Generics (Generic)
@@ -85,9 +83,9 @@ import Util.Util
 import Debug.Trace
 
 -- AbsDomain instance for MWord (concrete interpreter)
-type MachineState r = MachineState' r MWord
 type InterpState r s = InterpState' r MWord s
-type InterpM r s m a = InterpM' r MWord s m a
+-- type MachineState r = MachineState' r MWord
+-- type InterpM r s m a = InterpM' r MWord s m a
 type InstrHandler r s = InstrHandler' r MWord s
 
 -- Returns the label of an operand.
@@ -110,32 +108,78 @@ data MemOpType = MOStore | MOLoad | MOPoison
 
 -- | This information is passed the witness checker as nondeterministic
 -- advice. Currently we only advice about memory operations and steps that stutter.
-data Advice v =
+data Advice =
     MemOp
       MWord          -- ^ address
-      v          -- ^ value
+      MWord          -- ^ value
       MemOpType      -- ^ read or write
       MemWidth       -- ^ width of the access
+      (Maybe (Vector Label)) -- ^ Labels for each byte
+
   | Advise MWord
   | Stutter
   deriving (Eq, Read, Show, Generic)
 
 
 -- | Pretty printer for advice.
-renderAdvc :: Show v => [Advice v] -> String
+renderAdvc :: [Advice] -> String
 renderAdvc advs = concat $ map renderAdvc' advs
-  where renderAdvc' :: Advice v -> String
-        renderAdvc' (MemOp addr v MOStore _w) = "Store: " ++ show addr ++ "->" ++ show v
-        renderAdvc' (MemOp  addr v MOLoad _w) = "Load: " ++ show addr ++ "->" ++ show v 
-        renderAdvc' (MemOp addr v MOPoison _w) = "Poison: " ++ show addr ++ "->" ++ show v
+  where renderAdvc' :: Advice -> String
+        renderAdvc' (MemOp addr v MOStore _w l) = "Store: " ++ show addr ++ "->" ++ show v   ++ " (" ++ show l ++ ")"
+        renderAdvc' (MemOp  addr v MOLoad _w l) = "Load: " ++ show addr ++ "->" ++ show v    ++ " (" ++ show l ++ ")"
+        renderAdvc' (MemOp addr v MOPoison _w l) = "Poison: " ++ show addr ++ "->" ++ show v ++ " (" ++ show l ++ ")"
         renderAdvc' (Advise v) = "Advise: " ++ show v
         renderAdvc' (Stutter) = "...Stutter..."
 
-type AdviceMap v = Map MWord [Advice v]
+-- | Memory for trace. Contains the default value, the stored values and,
+-- when using taint tracking, the tainted labels.
+-- TODO: We could merge the values and the labels into a single map of type:
+--     `Map MWord v`
+-- where `v` is instantiated to `MWord` or `TaintedValue`. Then we can keep everything
+-- abstract.
+type Mem = (MWord,
+            Map MWord MWord,
+            Maybe (Map MWord (Vector Label))) -- When tainted
+type Poison = Set MWord
+
+class AbsDomain v => Concretizable v where
+  -- Assumes: `forall v. absGetValue v = Just $ conGetvalue v
+  conGetValue :: v -> MWord
+  conGetTnt :: v -> Maybe (Vector Label)
+  
+  conMem :: Memory v -> Mem
+  conPsn :: Memory v -> Poison
+
+regBankValues :: Concretizable v => RegBank r v -> RegBank r MWord
+regBankValues (RegBank m dflt) = RegBank (Map.map conGetValue m) (conGetValue dflt)
+
+regBankTaint :: Concretizable v => RegBank r v -> Maybe (RegBank r (Vector Label))
+regBankTaint (RegBank m dflt) =
+  case (conGetTnt dflt) of
+    Nothing -> Nothing
+    Just dfltTnt -> Just $ RegBank (Map.mapMaybe conGetTnt m) dfltTnt
+
+regBankSplit :: Concretizable v => RegBank r v -> (RegBank r MWord, Maybe (RegBank r (Vector Label)))
+regBankSplit rb = (regBankValues rb, regBankTaint rb)
+
+instance Concretizable MWord where
+  conGetValue = id
+  conGetTnt _ = Nothing 
+  conMem (WordMemory d m _) =  (d, m, Nothing)
+  conPsn (WordMemory _ _ psn) = psn
+  
+  
+instance Concretizable TaintedValue where
+  conGetValue (TaintedValue w _) = w
+  conGetTnt (TaintedValue _ t) = Just t
+  conMem (TaintedMem d m l _) = (d, m, Just l)
+  conPsn (TaintedMem _ _ _ psn) = psn
+    
+type AdviceMap = Map MWord [Advice]
 
 -- | Helper function to record advice.  This is used by `adviceHandler` and
 -- also by any other handlers that want to record advice of their own.
-recordAdvice :: Regs r => Lens' s (AdviceMap v) -> Advice v -> InterpM' r v s Hopefully ()
+recordAdvice :: (AbsDomain v, Regs r) => Lens' s AdviceMap -> Advice -> InterpM' r v s Hopefully ()
 recordAdvice adviceMap adv = do
   cycle <- use $ sMach . mCycle
   cycleWord <- lift $ tag "Failed at making the cycle concrete, while recording advice" $
@@ -144,21 +188,27 @@ recordAdvice adviceMap adv = do
 
 -- | The adviceHandler now runs the instruciton again. For example it will replay
 -- the store instruction. This ok as long as the operations are IDEMPOTENT.
-adviceHandler :: Regs r => Lens' s (AdviceMap v) -> InstrHandler' r v s
+adviceHandler :: (Concretizable v, Regs r) => Lens' s AdviceMap -> InstrHandler' r v s
 adviceHandler advice (Istore w op2 r1) = do
   (addr, storedVal) <- stepStoreValue w op2 r1
+  let val = conGetValue storedVal
+      tnt = conGetTnt storedVal
   concreteAddress <- lift $ tag "Failed at making a value concrete" $ absGetValue addr
-  recordAdvice advice (MemOp concreteAddress storedVal MOStore w)
+  recordAdvice advice (MemOp concreteAddress val MOStore w tnt)
 adviceHandler advice (Iload w rd op2) = do
   (addr, loadedVal) <- stepLoadValue w rd op2
+  let val = conGetValue loadedVal
+      tnt = conGetTnt loadedVal
   concreteAddress <- lift $ tag "Failed at making a value concrete" $ absGetValue addr
-  recordAdvice advice (MemOp concreteAddress loadedVal MOLoad w)
+  recordAdvice advice (MemOp concreteAddress val MOLoad w tnt)
 adviceHandler advice (Ipoison w op2 r1) = do
   -- Poison must be a full word.
   _ <- lift $ requireWWord w
   (addr, poisonedVal) <- stepPoisonValue w op2 r1
+  let val = conGetValue poisonedVal
+      tnt = conGetTnt poisonedVal
   concreteAddress <- lift $ tag "Failed at making a value concrete" $ absGetValue addr
-  recordAdvice advice (MemOp concreteAddress poisonedVal MOPoison w)
+  recordAdvice advice (MemOp concreteAddress val MOPoison w tnt)
 adviceHandler _ _ = return ()
 
 
@@ -177,7 +227,7 @@ readStr ptr = do
   let firstBytes = drop offset $ splitWord firstWord
       done = checkEnd firstBytes
       str = takeWhile (/= 0) firstBytes
-  (_, str, done) <- lift $ iterateUntilM isDone (readNextWord mem) (absExact (waddr + 1), str, done)
+  (_, str, _) <- lift $ iterateUntilM isDone (readNextWord mem) (absExact (waddr + 1), str, done)
   -- let restWords = [maybe 0 id $ mem ^? ix waddr' | waddr' <- [waddr + 1 ..]]
   --    bytes = takeWhile (/= 0) $ concat $ firstBytes : map splitWord restWords
   let bs = BS.pack str
@@ -222,7 +272,7 @@ readStr ptr = do
     toWord v = tag "Reading a string for debugging" $ absGetValue v
     
 
-traceHandler :: Regs r => Bool -> InstrHandler r s -> InstrHandler r s
+traceHandler :: (Concretizable v, Regs r) => Bool -> InstrHandler' r v s -> InstrHandler' r v s
 traceHandler active _nextH (Iext (XTrace desc ops)) = do
   vals <- mapM opVal ops
   when active $ traceM $ "TRACE[" ++ Text.unpack desc ++ "] " ++ intercalate ", " (map show vals)
@@ -235,7 +285,7 @@ traceHandler active _nextH (Iext (XTraceStr ptrOp)) = do
 traceHandler active _nextH (Iext (XTraceExec nameOp valOps)) = do
   namePtr <- opVal nameOp
   name <- readStr namePtr
-  vals <- mapM opVal valOps
+  vals <- mapM (conGetValue <.> opVal) valOps
   let vals' = reverse $ dropWhile (== 0) $ reverse vals
   when active $ traceM $ "[FUNC] " ++ Text.unpack name ++
     "(" ++ intercalate ", " (map (drop 2 . showHex) vals') ++ ")"
@@ -337,9 +387,9 @@ checkAccess verbose allocState addr = do
     when verbose $ traceM $ "detected bad access at " ++ showHex addr
     sExt . allocState . asMemErrors  %= (Seq.|> (OutOfBounds, addr))
 
-allocHandler :: Regs r => Bool -> Lens' s AllocState -> InstrHandler r s -> InstrHandler r s
+allocHandler :: forall v r s. (Concretizable v, Regs r) => Bool -> Lens' s AllocState -> InstrHandler' r v s -> InstrHandler' r v s
 allocHandler verbose allocState _nextH (Iextadvise rd (XMalloc sizeOp)) = do
-  size <- opVal sizeOp
+  size <- conGetValue <$> opVal sizeOp
   let sizeClass = ceilLog2 size
   let size' = 1 `shiftL` sizeClass
 
@@ -348,39 +398,40 @@ allocHandler verbose allocState _nextH (Iextadvise rd (XMalloc sizeOp)) = do
   let addr = (base + redzoneSize + size' - 1) .&. complement (size' - 1)
   sExt . allocState . asFrontier .= addr + size'
 
-  let ptr = addr .|. (fromIntegral sizeClass `shiftL` 58)
+  let ptr =  addr .|. (fromIntegral sizeClass `shiftL` 58)
   sExt . allocState . asMallocAddrs %= (Seq.|> ptr)
 
   when verbose $ traceM $ "malloc " ++ show size ++ " bytes (extended to " ++ show size' ++
     ") at " ++ showHex ptr
 
-  sMach . mReg rd .= ptr
+  sMach . mReg rd .= absExact ptr
   finishInstr
+  
 allocHandler verbose allocState _nextH (Iext (XAccessValid loOp hiOp)) = do
-  lo <- opVal loOp
-  hi <- opVal hiOp
+  lo <- conGetValue <$> opVal loOp
+  hi <- conGetValue <$> opVal hiOp
   sExt . allocState . asValid %= markValid lo hi
   when verbose $ traceM $ "valid: " ++ showHex lo ++ " .. " ++ showHex hi
   finishInstr
 allocHandler verbose allocState _nextH (Iext (XAccessInvalid loOp hiOp)) = do
-  lo <- opVal loOp
-  hi <- opVal hiOp
+  lo <- conGetValue <$> opVal loOp
+  hi <- conGetValue <$> opVal hiOp
   sExt . allocState . asValid %= markInvalid lo hi
   when verbose $ traceM $ "invalid: " ++ showHex lo ++ " .. " ++ showHex hi
   finishInstr
 allocHandler _verbose _allocState _nextH (Iextadvise rd (XAdvisePoison _lo _hi)) = do
   -- Always return 0 (don't poison)
-  sMach . mReg rd .= 0
+  sMach . mReg rd .= absExact 0
   finishInstr
 allocHandler verbose  allocState nextH instr@(Istore _w op2 _r1) = do
-  addr <- opVal op2
+  addr <- conGetValue <$>  opVal op2
   -- TODO: this misses errors when the first byte of the access is in bounds
   -- but the later bytes are not.  However, we can't catch such errors yet,
   -- since we can't poison only part of a word.
   checkAccess verbose allocState addr
   nextH instr
 allocHandler verbose allocState nextH instr@(Iload _w _rd op2) = do
-  addr <- opVal op2
+  addr <- conGetValue <$> opVal op2
   checkAccess verbose allocState addr
   nextH instr
 allocHandler _ _ _ (Iextval rd (XLoadUnchecked op2)) = do
@@ -403,13 +454,13 @@ data MemInfo = MemInfo
   }
 makeLenses ''MemInfo
 
-doAdvise :: Regs r => Lens' s (AdviceMap v) -> r -> MWord -> InterpM' r v s Hopefully ()
+doAdvise :: forall r s v. (AbsDomain v, Regs r) => Lens' s AdviceMap -> r -> MWord -> InterpM' r v s Hopefully ()
 doAdvise advice rd val = do
   recordAdvice advice (Advise val)
-  sMach . mReg rd .= val
+  sMach . mReg rd .= absExact val
 
-memErrorHandler :: Regs r => Lens' s MemInfo -> Lens' s (AdviceMap v) ->
-  InstrHandler r s -> InstrHandler r s
+memErrorHandler :: forall r s v. (Concretizable v, Regs r) => Lens' s MemInfo -> Lens' s AdviceMap ->
+  InstrHandler' r v s -> InstrHandler' r v s
 memErrorHandler info advice _nextH (Iextadvise rd (XMalloc _size)) = do
   val <- maybe (assumptError "ran out of malloc addrs") return =<<
     use (sExt . info . miMallocAddrs . to (Seq.lookup 0))
@@ -417,8 +468,8 @@ memErrorHandler info advice _nextH (Iextadvise rd (XMalloc _size)) = do
   doAdvise advice rd val
   finishInstr
 memErrorHandler info advice _nextH (Iextadvise rd (XAdvisePoison loOp hiOp)) = do
-  lo <- opVal loOp
-  hi <- opVal hiOp
+  lo <- conGetValue <$> opVal loOp
+  hi <- conGetValue <$> opVal hiOp
   addrs <- use $ sExt . info . miPoisonAddrs
   -- Find an address where the entire word at `addr` fits within `lo .. hi`.
   case Set.lookupGE lo addrs of
@@ -434,19 +485,19 @@ memErrorHandler _info _advice nextH instr = nextH instr
 
 -- Top-level interpreter
 
-observer :: InstrHandler r s -> InstrHandler r s -> InstrHandler r s
+observer :: InstrHandler' r v s -> InstrHandler' r v s -> InstrHandler' r v s
 observer obs nextH instr = obs instr >> nextH instr
 
-execTraceHandler :: Regs r =>
-  Lens' s (Seq (ExecutionState r v)) ->
-  Lens' s (AdviceMap v) ->
-  InstrHandler r s -> InstrHandler r s
+execTraceHandler :: (Concretizable v, Regs r) =>
+  Lens' s (Seq (ExecutionState r)) ->
+  Lens' s AdviceMap ->
+  InstrHandler' r v s -> InstrHandler' r v s
 execTraceHandler eTrace eAdvice nextH instr = do
   nextH instr
   s <- getStateWithAdvice eAdvice
   sExt . eTrace %= (Seq.|> s)
 
-runWith :: Regs r => InstrHandler r s -> Word -> InterpState r s -> Hopefully (InterpState r s)
+runWith :: Regs r => InstrHandler' r v s -> Word -> InterpState' r v s -> Hopefully (InterpState' r v s)
 runWith handler steps initState = evalStateT go initState
   where
     go = do
@@ -466,7 +517,7 @@ runWith handler steps initState = evalStateT go initState
       i <- fetchInstr pc
       handler i
 
-runPass1 :: Regs r => Bool -> Word -> MachineState' r w -> Hopefully MemInfo
+runPass1 :: (Concretizable v, Regs r) => Bool -> Word -> MachineState' r v -> Hopefully MemInfo
 runPass1 verbose steps initMach' = do
   final <- runWith handler steps initState
   return $ getMemInfo $ final ^. sExt
@@ -485,7 +536,7 @@ runPass1 verbose steps initMach' = do
       [addr .&. complement (fromIntegral wordBytes - 1)
         | (kind, addr) <- toList errs, kind /= Unallocated]
 
-runPass2 :: Regs r => Word -> MachineState' r v -> MemInfo -> Hopefully (Trace r v)
+runPass2 :: (Concretizable v, Regs r) => Word -> MachineState' r v -> MemInfo -> Hopefully (Trace r)
 runPass2 steps initMach' memInfo = do
   -- The first entry of the trace is always the initial state.  Then `steps`
   -- entries follow after it.
@@ -511,8 +562,11 @@ runPass2 steps initMach' memInfo = do
 
 
 -- | Used for checking final traces after post porocessing
-runPassGeneric :: Regs r => Lens' s (Seq (ExecutionState r v)) -> Lens' s (AdviceMap v) -> (InstrHandler r s -> InstrHandler r s)
-                -> s -> Word -> MachineState' r w -> Hopefully (Trace r v)
+runPassGeneric :: forall r s v. (Concretizable v, Regs r)
+               => Lens' s (Seq (ExecutionState r))
+               -> Lens' s AdviceMap
+               -> (InstrHandler' r v s -> InstrHandler' r v s)
+               -> s -> Word -> MachineState' r v -> Hopefully (Trace r)
 runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
   -- The first entry of the trace is always the initial state.  Then `steps`
   -- entries follow after it.k
@@ -528,86 +582,98 @@ runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
 
 -- Old public definitions
 
-type Mem' = (MWord, Map MWord MWord)
-type Poison = Set MWord
-
 -- | The program state 
-data ExecutionState mreg v = ExecutionState {
+data ExecutionState mreg = ExecutionState {
   -- | Program counter
   pc :: MWord
   -- | Register bank
-  , regs :: RegBank mreg v
+  , regs :: RegBank mreg MWord
   -- | Register label bank
   , regLabels :: Maybe (RegBank mreg (Vector Label)) -- In the future, instead of dynamically tracking whether the tainted flag is provided, we could use the type system to ensure labels are tracked only when the tainted flag is provided.
   -- | Memory state
-  , mem :: Mem'
+  , mem :: Mem
   -- | Locations that have been poisoned
   , psn :: Poison
   -- | Nondeterministic advice for the last step
-  , advice :: [Advice v]
+  , advice :: [Advice]
   -- | Marks for bugs and invalid traces
   , bug_flag, inv_flag :: Bool
   -- | Return value.
-  , answer :: v }
+  , answer :: MWord }
 
-deriving instance (Ord mreg, Read mreg, Read v, Read (RegBank mreg v), Read (RegBank mreg Label)) => Read (ExecutionState mreg v)
-deriving instance (Show mreg, Show (RegBank mreg MWord), Show (RegBank mreg Label)) => Show (ExecutionState mreg v)
+deriving instance (Ord mreg, Read mreg, Read (RegBank mreg MWord), Read (RegBank mreg (Vector Label))) => Read (ExecutionState mreg)
+deriving instance (Show mreg, Show (RegBank mreg MWord), Show (RegBank mreg Label)) => Show (ExecutionState mreg)
 
-getStateWithAdvice :: Monad m => Lens' s (AdviceMap v) -> InterpM' r v s m (ExecutionState r v)
+getStateWithAdvice :: forall r v s m. (Concretizable v, Monad m) => Lens' s AdviceMap -> InterpM' r v s m (ExecutionState r)
 getStateWithAdvice advice = do
   pc <- use $ sMach . mPc
-  regs <- use $ sMach . mRegs
-  WordMemory d m psn <- use $ sMach . mMem
-  let mem = (d, m)
-  cycle <- use $ sMach . mCycle
+  regsWithTaint <- use $ sMach . mRegs
+  let (regs, regTnt) = regBankSplit regsWithTaint   
+  absMem <- use $ sMach . mMem
+  let mem = conMem @v absMem
+      psn = conPsn @v absMem
+  cycle <- conGetValue <$> (use $ sMach . mCycle)
   -- Retrieve advice for the cycle that just finished executing.
-  adv <- use $ sExt . advice . ix (cycle - 1)
+  (adv::[Advice]) <- use $ sExt . advice . ix (cycle - 1)
   bug <- use $ sMach . mBug
   let inv = False
   answer <- use $ sMach . mAnswer
-  return $ ExecutionState pc regs regLabels mem psn adv bug inv (maybe 0 id answer)
+  return $ ExecutionState pc regs regTnt mem psn adv bug inv (maybe 0 id answer)
 
 type Prog mreg = Program mreg MWord
-type Trace mreg v = [ExecutionState mreg v]
+type Trace mreg = [ExecutionState mreg]
 
+-- Minimal example
+-- data ModeN = MoInt | MoWord
+-- data ModeCaseN :: forall v. ModeN -> v -> * where
+--   McInt :: ModeCaseN MoInt Int
+--   McWord :: ModeCaseN MoWord Word
 
-data Mode = ModeConcrete | ModeTainted
-data ModeCase :: forall v. Mode -> v -> * where
-  McConcrete :: ModeCase ModeConcrete MWord
-  McTainted :: ModeCase ModeTainted TaintedValue
+-- foo :: ModeCaseN m v -> v -> v
+-- foo m x = abs x
   
-modeInitRegs :: (Regs r, AbsDomain w) => ModeCase m w -> MWord -> MWord -> RegBank regT w
-modeInitRegs McConcrete init deflt = initBank (absExact init) (absExact deflt)
-modeInitRegs McTainted init deflt = initBank (absExact init) (absExact deflt)
--- ^ TODO can this be written in one line as
--- modeInitRegs _ init deflt = initBank (absExact init) (absExact deflt)
-
-initMach :: forall m r w. Regs r => ModeCase m w -> Program r MWord -> InitialMem -> MachineState' r w
-initMach mode prog imem = MachineState
-  { _mCycle = 0
-  , _mPc = 0
-  , _mRegs = modeInitRegs mode (lengthInitMem imem) 0
-  , _mProg = Seq.fromList prog
-  , _mMem = absInitMem @w imem
-  , _mBug = False
-  , _mAnswer = Nothing
-  }
+initMach :: forall v r. (AbsDomain v, Regs r) => Program r MWord -> InitialMem -> MachineState' r v
+initMach prog imem = MachineState
+          { _mCycle = absExact 0
+          , _mPc = 0
+          , _mRegs = initBank (absExact $ lengthInitMem imem) (absExact 0)
+          , _mProg = Seq.fromList prog
+          , _mMem = absInitMem @v imem
+          , _mBug = False
+          , _mAnswer = Nothing
+          }
+          
+  -- case mode of -- ^ We do this to tell the compiler all possible 'v's have instance of 'AbsDomain v'. 
+  --   McImmaculate -> initMach' prog imem  
+  --   McTainted  ->   initMach' prog imem
+  -- where initMach' :: forall m r v. (AbsDomain v, Regs r) => Program r MWord -> InitialMem -> MachineState' r v
+  --       initMach' prog imem = MachineState
+  --         { _mCycle = absExact 0
+  --         , _mPc = 0
+  --         , _mRegs = initBank (absExact $ lengthInitMem imem) (absExact 0)
+  --         , _mProg = Seq.fromList prog
+  --         , _mMem = absInitMem @v imem
+  --         , _mBug = False
+  --         , _mAnswer = Nothing
+  --         }
 
 type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
-run_v :: Regs mreg => Bool -> Bool -> Executor mreg (Trace mreg v)
-run_v verbose leakTainted (CompUnit progs trLen _ _ _analysis _) = case go of
-  Left e -> error $ describeError e
-  Right x -> x
+run_v :: Regs mreg => Bool -> Bool -> Executor mreg (Trace mreg)
+run_v verbose leakTainted compUnit =
+  case (if leakTainted then run' @TaintedValue else run' @MWord) verbose compUnit of
+    Left e -> error $ describeError e
+    Right x -> x
   where
-    go = do
-      let highState = initMach leakTainted (pmProg $ highProg progs) (pmMem $ highProg progs)
+    run'  :: forall v mreg. (Concretizable v, Regs mreg) => Bool -> Executor mreg (Hopefully (Trace mreg))
+    run' verbose (CompUnit progs trLen _ _ _analysis _) = do
+      let highState = initMach @v (pmProg $ highProg progs) (pmMem $ highProg progs)
       memInfo <- runPass1 verbose  (trLen - 1) highState
-      let lowState = initMach leakTainted (pmProg $ lowProg progs) (pmMem $ lowProg progs)
+      let lowState = initMach @v (pmProg $ lowProg progs) (pmMem $ lowProg progs)
       tr <- runPass2 (trLen - 1) lowState memInfo
-      return tr
+      return tr    
       
-run :: Regs mreg => Bool -> Executor mreg (Trace mreg v)
+run :: Regs mreg => Bool -> Executor mreg (Trace mreg)
 run leakTainted = run_v False leakTainted
       
 -- | Execute the program and return the result.
@@ -619,7 +685,7 @@ execBug :: Regs mreg => Bool -> Bool -> Executor mreg Bool
 execBug verb leakTainted compUnit = bug_flag $ last $ run_v verb leakTainted compUnit
 
 -- | Read from a location in memory
-load ::  MWord -> Mem' -> MWord
+load ::  MWord -> Mem -> MWord
 load x (d,m,_l)=  case Map.lookup x m of
                  Just y -> y
                  Nothing -> d

@@ -127,9 +127,17 @@ data StateOut = StateOut
 --  , adviceOut :: [Advice]
   } deriving (Eq, Show, Generic)
 
+-- | Compiler is allowed to concretise.
+-- This is assuming all registers are initialized to 0.
+-- FIXME: showld we pass the maybe type to the circuit generator? 
+concretize :: Maybe MWord -> MWord
+concretize (Just w) = w
+concretize Nothing = 0
+
 state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
 state2out bound (ExecutionState pc regs regLabels _ _ _advice _ _ _) =
-  StateOut pc (map concretize $ regToList bound regs) (map concretizeLabel . regToList bound <$> regLabels) -- Advice is ignored
+  StateOut pc (-- map concretize $
+  regToList bound regs) (map Vec.toList . regToList bound <$> regLabels) -- Advice is ignored
 
 
 
