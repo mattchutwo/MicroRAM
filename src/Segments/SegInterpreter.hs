@@ -40,12 +40,12 @@ makeLenses ''CheckSt
   
 
 checkOutput :: Bool -> Output Int -> Result ()
-checkOutput _leakTainted (PublicOutput _ _ _ _) = Left "Found Public Output with no trace to check."
-checkOutput leakTainted (SecretOutput prog segs params initMem _labels tr _adv) = do
+checkOutput _leakTainted (PublicOutput _ _ _ _ _) = Left "Found Public Output with no trace to check."
+checkOutput _leakTainted (SecretOutput prog segs params initMem _labels tr _adv) = do
   let traceA = concat $ map chunkStatesOut tr
   let len = length traceA
   -- Produce a new trace
-  traceB <- compilerErrorResolve $ runPassCheck (toEnum len) (initMach leakTainted prog initMem)
+  traceB <- compilerErrorResolve $ runPassCheck (toEnum len) (initMach prog initMem)
   -- Check states give are equal to those produced
   _ <- zipWithM_ checkStEq traceA (tail $ outputStates len regNum traceB) -- drop first state.
   let initCheck = CheckSt {_indxSt = 0, _pcSt= 0, _succSt = [0], _toNetSt = False, _usedSegsSt = Set.empty}

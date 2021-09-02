@@ -17,6 +17,7 @@ Data structures passed down to Circuit generator
 
 module Output.Output where
 import qualified Data.Map as Map
+import qualified Data.Vector as Vec
 import GHC.Generics
 
 import Compiler.CompilationUnit

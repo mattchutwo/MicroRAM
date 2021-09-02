@@ -53,11 +53,11 @@ memWord addr = lens (get addr) (set addr)
     get addr m = maybe (m ^. wmDefault) id $ m ^? wmMem . ix addr
     set addr m val = m & wmMem . at addr .~ Just val
 
-mMemWord :: Functor f =>
+_mMemWord :: Functor f =>
   MWord ->
   (MWord -> f MWord) ->
   (MachineState' r MWord -> f (MachineState' r MWord))
-mMemWord addr = mMem . memWord addr
+_mMemWord addr = mMem . memWord addr
 
 toMInt :: MWord -> MInt
 toMInt = fromIntegral
