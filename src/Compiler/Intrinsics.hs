@@ -101,19 +101,10 @@ cc_access_invalid :: IntrinsicImpl m w
 cc_access_invalid [lo, hi] Nothing md _ = return [MirM (Iext (XAccessInvalid lo hi)) md]
 cc_access_invalid _ _ _ _ = progError "bad arguments"
 
-cc_advise_poison :: IntrinsicImpl m w
-cc_advise_poison [lo, hi] (Just dest) md _ = do
-  -- If `lo <= hi`, then this function is required to return a value in the
-  -- range `lo <= ptr <= hi`.  For this, we rely on `Iextadvise` to produce a
-  -- value in the range `0 <= advice <= hi - lo`, which is enforced within the
-  -- witness checker circuit.
-  rMax <- getNextRegister
-  return [
-    MirM (Isub rMax hi lo) md,
-    MirM (Iextadvise dest (AReg rMax) (XAdvisePoison lo hi)) md,
-    MirM (Iadd dest (AReg dest) lo) md
-    ]
-cc_advise_poison _ _ _ _ = progError "bad arguments"
+cc_advise_poison_offset :: IntrinsicImpl m w
+cc_advise_poison_offset [lo, len] (Just dest) md _ =
+  return [MirM (Iextadvise dest len (XAdvisePoison lo len)) md]
+cc_advise_poison_offset _ _ _ _ = progError "bad arguments"
 
 cc_write_and_poison :: IntrinsicImpl m w
 cc_write_and_poison [ptr, val] Nothing md _ =
@@ -198,7 +189,7 @@ intrinsicsList =
   , ("@__cc_malloc", cc_malloc)
   , ("@__cc_access_valid", cc_access_valid)
   , ("@__cc_access_invalid", cc_access_invalid)
-  , ("@__cc_advise_poison", cc_advise_poison)
+  , ("@__cc_advise_poison_offset", cc_advise_poison_offset)
   , ("@__cc_write_and_poison", cc_write_and_poison)
   , ("@__cc_read_unchecked", cc_read_unchecked)
   , ("@__cc_write_unchecked", cc_write_unchecked)

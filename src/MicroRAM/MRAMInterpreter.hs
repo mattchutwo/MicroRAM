@@ -409,7 +409,7 @@ allocHandler verbose allocState _nextH (Iext (XAccessInvalid loOp hiOp)) = do
   sExt . allocState . asValid %= markInvalid lo hi
   when verbose $ traceM $ "invalid: " ++ showHex lo ++ " .. " ++ showHex hi
   finishInstr
-allocHandler _verbose _allocState _nextH (Iextadvise rd maxValOp (XAdvisePoison _lo _hi)) = do
+allocHandler _verbose _allocState _nextH (Iextadvise rd maxValOp (XAdvisePoison _lo _len)) = do
   -- Always return maxVal (don't poison)
   maxVal <- conGetValue <$> opVal maxValOp
   sMach . mReg rd .= absExact maxVal
@@ -458,9 +458,10 @@ memErrorHandler info advice _nextH (Iextadvise rd _ (XMalloc _size)) = do
   sExt . info . miMallocAddrs %= Seq.drop 1
   doAdvise advice rd val
   finishInstr
-memErrorHandler info advice _nextH (Iextadvise rd _ (XAdvisePoison loOp hiOp)) = do
+memErrorHandler info advice _nextH (Iextadvise rd _ (XAdvisePoison loOp lenOp)) = do
   lo <- conGetValue <$> opVal loOp
-  hi <- conGetValue <$> opVal hiOp
+  len <- conGetValue <$> opVal lenOp
+  let hi = lo + len
   addrs <- use $ sExt . info . miPoisonAddrs
   -- Find an address where the entire word at `addr` fits within `lo .. hi`.
   case Set.lookupGE lo addrs of
