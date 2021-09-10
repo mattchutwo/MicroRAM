@@ -27,7 +27,6 @@ import Compiler.CompilationUnit (InitialMem)
 import Compiler.Registers
 import MicroRAM
 
-
 class (Show v, Show (Memory v)) => AbsDomain v where
   type Memory v
 
@@ -120,7 +119,7 @@ liftWrap f = do
 doStore :: (AbsDomain v) => MemWidth -> v -> v -> InterpM' r v s Hopefully ()
 doStore w addr val = do
   old <- use $ sMach . mMem
-  new <- liftWrap $ absStore w addr val old
+  new <- liftWrap $ absStore w addr val old 
   sMach . mMem .= new
   
 doLoad :: (AbsDomain v) => MemWidth -> v -> InterpM' r v s Hopefully v

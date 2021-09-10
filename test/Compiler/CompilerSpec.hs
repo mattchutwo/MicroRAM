@@ -25,7 +25,7 @@ main = defaultMain testsWithOptions
 -- We can't generate inputs right now, so set test number to 1
 testsWithOptions :: TestTree
 testsWithOptions = localOption (QuickCheckTests 1) compilerTests
-  where compilerTests = mkCompilerTests allTests
+  where compilerTests = mkCompilerTests allTests -- oneTest
 
 mkCompilerTests :: TestGroupAbs -> TestTree
 mkCompilerTests tg = case tg of

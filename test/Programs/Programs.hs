@@ -11,11 +11,13 @@ import MicroRAM
 testTrivial, testLoops, testGEP, testDatastruct, testBugs, testCorrectness, allTests, testErrors :: TestGroupAbs
 
 oneTest = OneTest $ defaultTest {
-  testName = "Linked list generic"
-  ,fileName ="test/Programs/LinkedList/linkedList.c.ll"
-  ,testLen = 1500
-  ,testResult = 42
-  } 
+    testName = "Heartbleed"
+    , fileName = "test/Programs/noni/heartbleed.ll"
+    , testLen = 5000
+    , testResult = 0
+    , leakTainted = True
+    , bug = True
+    }
 
 allTests = ManyTests "Program tests"
         [testCorrectness, testErrors, testBugs]
