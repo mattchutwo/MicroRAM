@@ -120,6 +120,14 @@ data Advice =
   | Stutter
   deriving (Eq, Read, Show, Generic)
 
+concretizeAdvice :: forall v. Concretizable v
+                 => v -- ^ address
+                 -> v -- ^ bbstract value
+                 -> MemOpType
+                 -> MemWidth
+                 -> Advice
+concretizeAdvice addr val t w =
+  MemOp (conGetValue addr) (conGetValue val) t w (conGetTnt val)
 
 -- | Pretty printer for advice.
 renderAdvc :: [Advice] -> String
@@ -186,29 +194,23 @@ recordAdvice adviceMap adv = do
     absGetValue cycle
   sExt . adviceMap . at cycleWord %= Just . (adv:) . maybe [] id
 
--- | The adviceHandler now runs the instruciton again. For example it will replay
--- the store instruction. This ok as long as the operations are IDEMPOTENT.
-adviceHandler :: (Concretizable v, Regs r) => Lens' s AdviceMap -> InstrHandler' r v s
-adviceHandler advice (Istore w op2 r1) = do
-  (addr, storedVal) <- stepStoreValue w op2 r1
-  let val = conGetValue storedVal
-      tnt = conGetTnt storedVal
-  concreteAddress <- lift $ tag "Failed at making a value concrete" $ absGetValue addr
-  recordAdvice advice (MemOp concreteAddress val MOStore w tnt)
-adviceHandler advice (Iload w rd op2) = do
-  (addr, loadedVal) <- stepLoadValue w rd op2
-  let val = conGetValue loadedVal
-      tnt = conGetTnt loadedVal
-  concreteAddress <- lift $ tag "Failed at making a value concrete" $ absGetValue addr
-  recordAdvice advice (MemOp concreteAddress val MOLoad w tnt)
+adviceHandler :: forall v r s. (Concretizable v, Regs r) => Lens' s AdviceMap -> InstrHandler' r v s
+adviceHandler advice (Istore w op2 _r1) = do
+  addr <- opVal op2
+  -- The advide records the entire Word with proper alignment.
+  let waddr = conAlignWord addr 
+  storedVal <- doLoad WWord (absExact waddr)
+  recordAdvice advice $ concretizeAdvice addr storedVal MOStore w
+adviceHandler advice (Iload w _rd op2) = do
+  addr <- opVal op2
+  -- The advide records the entire Word with proper alignment.
+  let waddr = conAlignWord addr
+  loadedVal <- doLoad WWord (absExact waddr)
+  recordAdvice advice $ concretizeAdvice addr loadedVal MOStore w
 adviceHandler advice (Ipoison w op2 r1) = do
-  -- Poison must be a full word.
-  _ <- lift $ requireWWord w
-  (addr, poisonedVal) <- stepPoisonValue w op2 r1
-  let val = conGetValue poisonedVal
-      tnt = conGetTnt poisonedVal
-  concreteAddress <- lift $ tag "Failed at making a value concrete" $ absGetValue addr
-  recordAdvice advice (MemOp concreteAddress val MOPoison w tnt)
+  addr <- opVal op2
+  val <- regVal r1
+  recordAdvice advice $ concretizeAdvice addr val MOPoison w
 adviceHandler _ _ = return ()
 
 

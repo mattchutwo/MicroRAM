@@ -12,7 +12,6 @@ module MicroRAM.MRAMInterpreter.Generic
     InterpM', InstrHandler',
     doStore, doLoad, doPoison, doGetPoison, doGetValue,
     fetchInstr, stepInstr, nextPc, finishInstr, regVal, opVal,
-    stepStoreValue, stepLoadValue, stepPoisonValue
   ) where
 
 import Control.Monad
