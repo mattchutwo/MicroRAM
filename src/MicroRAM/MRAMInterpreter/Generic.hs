@@ -69,6 +69,13 @@ class (Show v, Show (Memory v)) => AbsDomain v where
   absLoad :: MemWidth -> v -> Memory v -> Hopefully v
   absPoison :: MemWidth -> v -> Memory v -> Hopefully (Memory v)
 
+  -- | Taint operations.
+  absTaint :: MemWidth -> Int -> v -> v -> Hopefully v 
+  absTaint _ _ _ x = return x
+  
+  absSink  :: MemWidth -> v -> v -> Hopefully Bool
+  absSink _ _ _ = return False
+
   absGetPoison :: MemWidth -> v -> Memory v -> Hopefully Bool
   absGetValue :: v -> Hopefully MWord
 
@@ -187,6 +194,9 @@ stepInstr i = do
 
     Iadvise _ -> assumptError $ "unhandled advice request"
 
+    Itaint w rj op2 -> stepTain w rj op2
+    Isink  w rj op2 -> stepSink w rj op2
+
     i -> do
       -- Replace input operands with their values, and convert the destination
       -- register to a `Word` so it can be printed.
@@ -235,57 +245,53 @@ checkPoison w addr = do
   poisoned <- doGetPoison w addr
   when poisoned $ sMach . mBug .= True
 
-stepStoreValue :: (Regs r, AbsDomain v) =>
-  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully (v, v)
-stepStoreValue w op2 r1 = do
+stepStore :: (Regs r, AbsDomain v) =>
+  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully ()
+stepStore w op2 r1 = do
   addr <- opVal op2
   val <- regVal r1
   checkPoison w addr
   doStore w addr val
   nextPc
-  -- For advice, load the entire word at that location
-  -- alternatively we could have `doStore` also return
-  -- the fullWord stored. 
-  fullStoredVal <- doLoad WWord addr 
-  return (addr, fullStoredVal)
 
-stepStore :: (Regs r, AbsDomain v) =>
-  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully ()
-stepStore w op2 r1 = do
-  _ <- stepStoreValue w op2 r1
-  return ()
-
-stepLoadValue :: (Regs r, AbsDomain v) =>
-  MemWidth -> r -> Operand r MWord -> InterpM' r v s Hopefully (v, v)
-stepLoadValue w rd op2 = do
+stepLoad :: (Regs r, AbsDomain v) =>
+  MemWidth -> r -> Operand r MWord -> InterpM' r v s Hopefully ()
+stepLoad w rd op2 = do
   addr <- opVal op2
   checkPoison w addr
   val <- doLoad w addr
   sMach . mReg rd .= val
   nextPc
-  return (addr,val)
-  
-stepLoad :: (Regs r, AbsDomain v) =>
-  MemWidth -> r -> Operand r MWord -> InterpM' r v s Hopefully ()
-stepLoad w rd op2 = do
-  _ <- stepLoadValue w rd op2
-  return ()
-  
-stepPoisonValue :: (Regs r, AbsDomain v) =>
-  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully (v, v)
-stepPoisonValue w op2 r1 = do
+
+stepPoison :: (Regs r, AbsDomain v) =>
+  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully ()
+stepPoison w op2 r1 = do
   addr <- opVal op2
   val <- regVal r1
   doStore w addr val
   doPoison w addr
   nextPc
-  return (addr, val)
 
-stepPoison :: (Regs r, AbsDomain v) =>
-  MemWidth -> Operand r MWord -> r -> InterpM' r v s Hopefully ()
-stepPoison w op2 r1 = do
-  _ <- stepPoisonValue w op2 r1
-  return ()
+stepTain :: (Regs r, AbsDomain v) =>
+  MemWidth -> r -> Operand r MWord -> InterpM' r v s Hopefully ()
+stepTain w rj op2 = do  
+  l <- opVal op2 -- label is still a tainted value
+  let offset = 0
+  old <- use $ sMach . mReg rj
+  new <- lift $ absTaint w offset l old
+  sMach . mReg rj .= new
+  nextPc
+
+stepSink :: (Regs r, AbsDomain v) =>
+  MemWidth -> r -> Operand r MWord -> InterpM' r v s Hopefully ()
+stepSink w rj op2 = do 
+  -- Write of value in `rj` to label `op2`.
+  -- Bug here if label of rj cannot flow into op2.
+  ls <- regVal rj
+  l2 <- opVal op2
+  taintBug <- lift $ absSink w ls l2
+  when taintBug $ sMach . mBug .= True
+  nextPc
 
 stepRead :: (Regs r, AbsDomain v) =>
   r -> Operand r MWord -> InterpM' r v s Hopefully ()

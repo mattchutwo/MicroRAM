@@ -9,6 +9,7 @@ import Control.Monad (when)
 -- import Control.Monad.State
 -- import Data.Bits
 import Data.Map (Map)
+import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 -- import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -111,6 +112,21 @@ instance AbsDomain TaintedValue where
   absPoison w (TaintedValue addr1 _) mem =
     mem & mkConcrete (absPoison w addr1)
 
+  absTaint w offset l old = do
+    ls <- toLabel $ l ^. tval
+    return $ old & tlbl . subLabels w offset .~ replicateWord ls
+      
+  absSink w ls (TaintedValue l2 _) = do
+    -- Write of value in `rj` to label `op2`.
+    -- Bug here if label of rj cannot flow into op2.
+    let ljs = (Vec.take (widthInt w)) $ (view tlbl ls)
+    checkLabels (Just ljs)
+    lbl2 <- toLabel l2
+    let isBug = fromMaybe False $ do
+          return $ any (\lj -> not $ lj `canFlowTo` lbl2) ljs
+    return isBug
+
+  
   absGetPoison w (TaintedValue addr1 _) mem = 
     absGetPoison w addr1 $ view mkConcrete mem
     

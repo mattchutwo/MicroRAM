@@ -158,6 +158,10 @@ class AbsDomain v => Concretizable v where
   conMem :: Memory v -> Mem
   conPsn :: Memory v -> Poison
 
+-- Returns address aligned to the word 
+conAlignWord :: forall v. Concretizable v => v -> MWord
+conAlignWord v = conGetValue v `shiftR` logWordBytes `shiftL` logWordBytes
+
 regBankValues :: Concretizable v => RegBank r v -> RegBank r MWord
 regBankValues (RegBank m dflt) = RegBank (Map.map conGetValue m) (conGetValue dflt)
 
