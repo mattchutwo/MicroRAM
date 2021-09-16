@@ -210,58 +210,39 @@ adviceHandler _ _ = return ()
 -- for the entire string to be read, including the entire last word
 -- that contains part of the string, the ending symbol `0` and possibly
 -- some extra garbage.
-readStr :: forall v r s. AbsDomain v => v -> InterpM' r v s Hopefully Text
+readStr :: forall v r s. Concretizable v => v -> InterpM' r v s Hopefully Text
 readStr ptr = do
-  ptr' <- lift $ toWord ptr
-  let (waddr, offset) = splitAddr ptr'
+  let ptr' = conGetValue  ptr
   mem :: Memory v <- use $ sMach . mMem
-  firstWord <- lift $ readWord (absExact waddr) mem 
-  let firstBytes = drop offset $ splitWord firstWord
-      done = checkEnd firstBytes
-      str = takeWhile (/= 0) firstBytes
-  (_, str, _) <- lift $ iterateUntilM isDone (readNextWord mem) (absExact (waddr + 1), str, done)
+  (_, str, _) <- lift $ iterateUntilM isDone (readNextByte mem) (ptr', [], False)
   let bs = BS.pack str
       t = Text.decodeUtf8With (\_ _ -> Just '?') bs
   return t
   where
-    -- | Read a MWord froma n abstract memory
-    readWord :: v -> Memory v -> Hopefully MWord
-    readWord addr mem = toWord =<< absLoad WWord addr mem
-    
-    -- | Split word into bytes
-    splitWord :: MWord -> [Word8]
-    splitWord x = [fromIntegral $ x `shiftR` (i * 8) | i <- [0 .. wordBytes - 1]]
-
-    -- | Check if the string piece contains '0'
-    -- to see if it marks the end of the string.
-    checkEnd :: [Word8] -> Bool
-    checkEnd str = elem 0 str
-
     -- | Marks when the execution finds the end of the string
     -- marked by a '0' byte
     isDone (_,_,done) = done
 
-
-    -- | Reads the next word in a string.
-    -- Splits the word into bytes and checks for '0' that mark
-    -- the end of the string.
+    -- | Reads the next byte/char in a string.
+    -- If the byte is 0 it only sets `isDone` to true.
     -- The "state" of the execution is a triple containing:
     -- * MWord   -- The next address to read.
     -- * [Word8] -- The accumulated string read so far
     -- * Bool    -- If the end of the string has been found.
-    readNextWord :: Memory v -> (v, [Word8], Bool) -> Hopefully (v, [Word8], Bool)
-    readNextWord mem (waddr, str, _) = do
-      nextWord <- readWord waddr mem
-      let bytes = splitWord nextWord
-          done = checkEnd bytes
-          strTail = takeWhile (/= 0) bytes
-      waddr' <- tag "Reading a string for debugging" $ absGetValue waddr
-      return $ (absExact(waddr' + 1), str ++ strTail, done)
+    readNextByte :: Memory v -> (MWord, [Word8], Bool) -> Hopefully (MWord, [Word8], Bool)
+    readNextByte mem (addr, str, _) = do
+      nextByte <- readByte addr mem
+      let nextAddr = addr + 1
+      return $ if nextByte == 0 then
+                 (nextAddr, str, True)
+               else
+                 (nextAddr, str ++ [nextByte], False)
 
-    toWord :: v -> Hopefully MWord 
-    toWord v = tag "Reading a string for debugging" $ absGetValue v
+    -- | In this function, `absLoad W1` insures that the word is always
+    -- smaller than the largest byte, so the conversion is legal
+    readByte :: MWord -> Memory v -> Hopefully Word8
+    readByte addr mem = fromIntegral . conGetValue <$> absLoad W1 (absExact @v addr) mem
     
-
 traceHandler :: (Concretizable v, Regs r) => Bool -> InstrHandler' r v s -> InstrHandler' r v s
 traceHandler active _nextH (Iext (XTrace desc ops)) = do
   vals <- mapM opVal ops
