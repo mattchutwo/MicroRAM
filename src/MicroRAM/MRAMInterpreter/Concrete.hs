@@ -24,7 +24,7 @@ instance of the abstract domain with `v =  MWord`.
 module MicroRAM.MRAMInterpreter.Concrete (splitAddr, splitAlignedAddr, WordMemory(..)) where
 
 import Control.Monad
-import Control.Lens (makeLenses, at, ix, lens, (^?), (^.), (&), (.~), (%~))
+import Control.Lens (makeLenses, at, (^.), (&), (.~), (%~))
 import Data.Bits
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -44,20 +44,6 @@ data WordMemory = WordMemory {
   }
   deriving (Show)
 makeLenses ''WordMemory
-
--- | Lens for accessing a particular word of memory.  Produces the `Mem`'s
--- default value when reading an uninitialized location.
-memWord :: Functor f => MWord -> (MWord -> f MWord) -> (WordMemory -> f WordMemory)
-memWord addr = lens (get addr) (set addr)
-  where
-    get addr m = maybe (m ^. wmDefault) id $ m ^? wmMem . ix addr
-    set addr m val = m & wmMem . at addr .~ Just val
-
-_mMemWord :: Functor f =>
-  MWord ->
-  (MWord -> f MWord) ->
-  (MachineState' r MWord -> f (MachineState' r MWord))
-_mMemWord addr = mMem . memWord addr
 
 toMInt :: MWord -> MInt
 toMInt = fromIntegral

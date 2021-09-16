@@ -20,7 +20,6 @@ import Control.Monad.State
 import Control.Lens (makeLenses, lens, (.=), (%=), use)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
--- import Data.Map.Strict (Map)
 
 import Compiler.Errors
 import Compiler.CompilationUnit (InitialMem)
@@ -193,7 +192,7 @@ stepInstr i = do
 
     Iadvise _ -> assumptError $ "unhandled advice request"
 
-    Itaint w rj op2 -> stepTain w rj op2
+    Itaint w rj op2 -> stepTaint w rj op2
     Isink  w rj op2 -> stepSink w rj op2
 
     i -> do
@@ -271,9 +270,9 @@ stepPoison w op2 r1 = do
   doPoison w addr
   nextPc
 
-stepTain :: (Regs r, AbsDomain v) =>
+stepTaint :: (Regs r, AbsDomain v) =>
   MemWidth -> r -> Operand r MWord -> InterpM' r v s Hopefully ()
-stepTain w rj op2 = do  
+stepTaint w rj op2 = do  
   l <- opVal op2 -- label is still a tainted value
   let offset = 0
   old <- use $ sMach . mReg rj

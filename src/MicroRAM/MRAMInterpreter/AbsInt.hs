@@ -470,7 +470,6 @@ runBlock s = evalStateT go s
   where
     go = do
       pc <- use $ sMach . mPc
-      _regs <- use $ sMach . mRegs
       i <- fetchInstr pc
       optReason <- maybeStepInstr i
       case optReason of

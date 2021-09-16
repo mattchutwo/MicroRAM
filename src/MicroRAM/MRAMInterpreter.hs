@@ -63,7 +63,6 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Vector (Vector)
-import qualified Data.Vector as Vec ()
 import Data.Word
 
 import GHC.Generics (Generic)
@@ -84,20 +83,7 @@ import Debug.Trace
 
 -- AbsDomain instance for MWord (concrete interpreter)
 type InterpState r s = InterpState' r MWord s
--- type MachineState r = MachineState' r MWord
--- type InterpM r s m a = InterpM' r MWord s m a
 type InstrHandler r s = InstrHandler' r MWord s
-
--- Returns the label of an operand.
--- opLabel ::  Regs r => Operand r MWord -> InterpM r s Hopefully (Maybe (Vector Label))
--- opLabel (Reg r) = regLabel r
--- opLabel (Const _w) = do
---   check <- checkLeakTainted
---   if check then
---     return $ Just untaintedWord
---   else
---     return Nothing
-
 
 -- Advice-generating extension
 
@@ -127,7 +113,7 @@ concretizeAdvice :: forall v. Concretizable v
                  -> MemWidth
                  -> Advice
 concretizeAdvice addr val t w =
-  MemOp (conGetValue addr) (conGetValue val) t w (conGetTnt val)
+  MemOp (conGetValue addr) (conGetValue val) t w (conGetTaint val)
 
 -- | Pretty printer for advice.
 renderAdvc :: [Advice] -> String
@@ -153,10 +139,10 @@ type Poison = Set MWord
 class AbsDomain v => Concretizable v where
   -- Assumes: `forall v. absGetValue v = Just $ conGetvalue v
   conGetValue :: v -> MWord
-  conGetTnt :: v -> Maybe (Vector Label)
+  conGetTaint :: v -> Maybe (Vector Label)
   
   conMem :: Memory v -> Mem
-  conPsn :: Memory v -> Poison
+  conPoison :: Memory v -> Poison
 
 -- Returns address aligned to the word 
 conAlignWord :: forall v. Concretizable v => v -> MWord
@@ -167,25 +153,25 @@ regBankValues (RegBank m dflt) = RegBank (Map.map conGetValue m) (conGetValue df
 
 regBankTaint :: Concretizable v => RegBank r v -> Maybe (RegBank r (Vector Label))
 regBankTaint (RegBank m dflt) =
-  case (conGetTnt dflt) of
+  case (conGetTaint dflt) of
     Nothing -> Nothing
-    Just dfltTnt -> Just $ RegBank (Map.mapMaybe conGetTnt m) dfltTnt
+    Just dfltTnt -> Just $ RegBank (Map.mapMaybe conGetTaint m) dfltTnt
 
 regBankSplit :: Concretizable v => RegBank r v -> (RegBank r MWord, Maybe (RegBank r (Vector Label)))
 regBankSplit rb = (regBankValues rb, regBankTaint rb)
 
 instance Concretizable MWord where
   conGetValue = id
-  conGetTnt _ = Nothing 
+  conGetTaint _ = Nothing 
   conMem (WordMemory d m _) =  (d, m, Nothing)
-  conPsn (WordMemory _ _ psn) = psn
+  conPoison (WordMemory _ _ psn) = psn
   
   
 instance Concretizable TaintedValue where
   conGetValue (TaintedValue w _) = w
-  conGetTnt (TaintedValue _ t) = Just t
+  conGetTaint (TaintedValue _ t) = Just t
   conMem (TaintedMem d m l _) = (d, m, Just l)
-  conPsn (TaintedMem _ _ _ psn) = psn
+  conPoison (TaintedMem _ _ _ psn) = psn
     
 type AdviceMap = Map MWord [Advice]
 
@@ -210,7 +196,7 @@ adviceHandler advice (Iload w _rd op2) = do
   -- The advide records the entire Word with proper alignment.
   let waddr = conAlignWord addr
   loadedVal <- doLoad WWord (absExact waddr)
-  recordAdvice advice $ concretizeAdvice addr loadedVal MOStore w
+  recordAdvice advice $ concretizeAdvice addr loadedVal MOLoad w
 adviceHandler advice (Ipoison w op2 r1) = do
   addr <- opVal op2
   val <- regVal r1
@@ -234,8 +220,6 @@ readStr ptr = do
       done = checkEnd firstBytes
       str = takeWhile (/= 0) firstBytes
   (_, str, _) <- lift $ iterateUntilM isDone (readNextWord mem) (absExact (waddr + 1), str, done)
-  -- let restWords = [maybe 0 id $ mem ^? ix waddr' | waddr' <- [waddr + 1 ..]]
-  --    bytes = takeWhile (/= 0) $ concat $ firstBytes : map splitWord restWords
   let bs = BS.pack str
       t = Text.decodeUtf8With (\_ _ -> Just '?') bs
   return t
@@ -617,7 +601,7 @@ getStateWithAdvice advice = do
   let (regs, regTnt) = regBankSplit regsWithTaint   
   absMem <- use $ sMach . mMem
   let mem = conMem @v absMem
-      psn = conPsn @v absMem
+      psn = conPoison @v absMem
   cycle <- conGetValue <$> (use $ sMach . mCycle)
   -- Retrieve advice for the cycle that just finished executing.
   (adv::[Advice]) <- use $ sExt . advice . ix (cycle - 1)
@@ -628,15 +612,6 @@ getStateWithAdvice advice = do
 
 type Prog mreg = Program mreg MWord
 type Trace mreg = [ExecutionState mreg]
-
--- Minimal example
--- data ModeN = MoInt | MoWord
--- data ModeCaseN :: forall v. ModeN -> v -> * where
---   McInt :: ModeCaseN MoInt Int
---   McWord :: ModeCaseN MoWord Word
-
--- foo :: ModeCaseN m v -> v -> v
--- foo m x = abs x
   
 initMach :: forall v r. (AbsDomain v, Regs r) => Program r MWord -> InitialMem -> MachineState' r v
 initMach prog imem = MachineState
@@ -648,20 +623,6 @@ initMach prog imem = MachineState
           , _mBug = False
           , _mAnswer = Nothing
           }
-          
-  -- case mode of -- ^ We do this to tell the compiler all possible 'v's have instance of 'AbsDomain v'. 
-  --   McImmaculate -> initMach' prog imem  
-  --   McTainted  ->   initMach' prog imem
-  -- where initMach' :: forall m r v. (AbsDomain v, Regs r) => Program r MWord -> InitialMem -> MachineState' r v
-  --       initMach' prog imem = MachineState
-  --         { _mCycle = absExact 0
-  --         , _mPc = 0
-  --         , _mRegs = initBank (absExact $ lengthInitMem imem) (absExact 0)
-  --         , _mProg = Seq.fromList prog
-  --         , _mMem = absInitMem @v imem
-  --         , _mBug = False
-  --         , _mAnswer = Nothing
-  --         }
 
 type Executor mreg r = CompilationResult (Prog mreg) -> r
 -- | Produce the trace of a program
