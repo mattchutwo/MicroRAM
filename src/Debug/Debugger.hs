@@ -90,7 +90,7 @@ data CustomSummary mreg = CS
 memSummarySize :: Integer
 memSummarySize = 5
 
-toSummaryMem :: [MWord] -> Mem' -> [MWord]
+toSummaryMem :: [MWord] -> Mem -> [MWord]
 toSummaryMem theseLocations m =
   map (\loc -> load loc m) theseLocations
   
@@ -118,10 +118,7 @@ instance Show PrintableWords where
   show (PW w) = pprintConst w
     
 lookupReg' :: Regs a => a -> RegBank a MWord -> MaybeWord
-lookupReg' a bank =
-  case lookupReg a bank of
-    Just w -> JustW w
-    Nothing -> NoW
+lookupReg' a bank = JustW $ lookupReg a bank
 
 
 data ResRegs = RRs
@@ -266,17 +263,18 @@ fromMRAMFile file = do
   contents <- readFile file
   return $ read contents
   
-runFromFile  :: FilePath -> IO (Trace AReg)
-runFromFile file = do
+runFromFile  :: Bool -> FilePath -> IO (Trace AReg)
+runFromFile leakTainted file = do
   prog <- fromMRAMFile file
-  return $ run prog
+  return $ run leakTainted prog
   
 summaryFromFile ::
   FilePath ->
   CustomSummary AReg ->
   Int -> IO ()
 summaryFromFile file cs length = do
-  trace <- runFromFile file
+  let leakTainted = False
+  trace <- runFromFile leakTainted file
   printSummary cs trace length
   
 

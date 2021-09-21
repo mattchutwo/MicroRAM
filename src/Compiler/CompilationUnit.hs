@@ -15,8 +15,10 @@ compilations units.
 
 -}
 
+import Control.Monad.State (runStateT)
 import Data.Default (def)
 import qualified Data.Map as Map
+import Data.Vector (Vector)
 
 import Util.Util
 import MicroRAM (MWord)
@@ -25,7 +27,7 @@ import Compiler.Analysis
 import Compiler.Common
 import Compiler.LazyConstants
 import Compiler.Registers
-import Control.Monad.State (runStateT)
+import Compiler.Tainted
 
 
 -- | The Compilation Unit
@@ -52,7 +54,11 @@ data MultiProg prog = MultiProg
   }
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
-data ProgAndMem prog = ProgAndMem { pmProg :: prog, pmMem :: InitialMem }
+data ProgAndMem prog = ProgAndMem {
+  pmProg :: prog,
+  pmMem :: InitialMem,
+  pmLabels :: Map.Map Name MWord
+}
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
 type CompilationUnit a prog = CompilationUnit' a (ProgAndMem prog)
@@ -60,7 +66,7 @@ type CompilationUnit a prog = CompilationUnit' a (ProgAndMem prog)
 type CompilationResult prog = CompilationUnit' () (MultiProg (ProgAndMem prog))
 
 prog2unit :: Word -> prog -> CompilationUnit () prog
-prog2unit len p = CompUnit (ProgAndMem p []) len InfinityRegs def firstUnusedName () -- ^ 2 reserves `0` and `1` for premain and main 
+prog2unit len p = CompUnit (ProgAndMem p [] Map.empty) len InfinityRegs def firstUnusedName () -- ^ 2 reserves `0` and `1` for premain and main 
 
 -- * Lifting operators
 
@@ -77,19 +83,19 @@ justCompileWithNames :: Monad m =>
   -> CompilationUnit a progS
   -> m $ CompilationUnit a progT
 justCompileWithNames pass p = do
-  let ProgAndMem sProg mem = programCU p
+  let ProgAndMem sProg _ _ = programCU p
   let nBound = nameBound p
   (tProg, nBound') <- pass (sProg, nBound)   
-  return $ p {programCU = ProgAndMem tProg mem, nameBound = nBound'}
+  return $ p {programCU = (programCU p) { pmProg = tProg }, nameBound = nBound'}
 justCompileWithNamesSt :: Monad m =>
   ((progS) -> WithNextReg m (progT))
   -> CompilationUnit a progS
   -> m $ CompilationUnit a progT
 justCompileWithNamesSt pass p = do
-  let ProgAndMem sProg mem = programCU p
+  let ProgAndMem sProg _ _ = programCU p
   let nBound = nameBound p
   (tProg, nBound') <- runStateT (pass sProg) nBound   
-  return $ p {programCU = ProgAndMem tProg mem, nameBound = nBound'}
+  return $ p {programCU = (programCU p) { pmProg = tProg }, nameBound = nBound'}
 
 
 -- | Informed Compilation: passes that use analysis data but only change code
@@ -120,6 +126,7 @@ data InitMemSegment = InitMemSegment
   , location :: MWord
   , segmentLen :: MWord
   , content :: Maybe [MWord]
+  , labels :: Maybe [Vector Label] -- This is Just when content is Just and mode is leak-tainted. -- TODO: Type level stuff to enable tainted things.
   } deriving (Eq, Ord, Read, Show)
 
 type InitialMem = [InitMemSegment]
@@ -130,16 +137,40 @@ type LazyInitialMem = [LazyInitSegment]
 
 
 flatInitMem :: InitialMem -> Map.Map MWord MWord
-flatInitMem = foldr initSegment Map.empty
-  where initSegment :: InitMemSegment -> Map.Map MWord MWord -> Map.Map MWord MWord
-        initSegment (InitMemSegment _ _ _ _ _ Nothing) = id
-        initSegment (InitMemSegment _ _ _ loc _ (Just content)) =
+flatInitMem imem = Map.union public secret
+  where (public, secret) = flatInitMem' imem
+
+flatInitMem' :: InitialMem -> (Map.Map MWord MWord, Map.Map MWord MWord)
+flatInitMem' = foldr initSegment (Map.empty, Map.empty)
+  where initSegment ::
+          InitMemSegment ->
+          (Map.Map MWord MWord, Map.Map MWord MWord) ->
+          (Map.Map MWord MWord, Map.Map MWord MWord)
+        initSegment (InitMemSegment secret _ _ loc len optContent _) (pub, sec)
+          | secret = (pub, sec `Map.union` words)
+          | otherwise = (pub `Map.union` words, sec)
+          where
+            words = Map.fromList $
+              zip [loc .. loc + len - 1] (maybe [] id optContent ++ repeat 0)
+--  TAINTED
+-- flatInitMem = foldr initSegment Map.empty
+--   where initSegment :: InitMemSegment -> Map.Map MWord MWord -> Map.Map MWord MWord
+--         initSegment (InitMemSegment _ _ _ _ _ Nothing _) = id
+--         initSegment (InitMemSegment _ _ _ loc _ (Just content) _) =
+--           Map.union $ Map.fromList $
+--           -- Map with the new content
+--           zip [loc..] content
+
+flatInitTaintedMem :: InitialMem -> Map.Map MWord (Vector Label)
+flatInitTaintedMem = foldr initSegment Map.empty
+  where initSegment (InitMemSegment _ _ _ _ _ _ Nothing) = id
+        initSegment (InitMemSegment _ _ _ loc _ _ (Just labels)) =
           Map.union $ Map.fromList $
           -- Map with the new content
-          zip [loc..] content
+          zip [loc..] labels
 
 lengthInitMem :: InitialMem -> MWord
 lengthInitMem = foldl (\tip seg -> max tip (segTip seg)) 0
-  where segTip (InitMemSegment _ _ heapInit loc len _)
+  where segTip (InitMemSegment _ _ heapInit loc len _ _)
           | heapInit = 0
           | otherwise = loc + len

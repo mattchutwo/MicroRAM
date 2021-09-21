@@ -30,6 +30,12 @@ mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
 mapMaybeM op = foldr f (pure [])
     where f x xs = do x <- op x; case x of Nothing -> xs; Just x -> do xs <- xs; pure $ x:xs
 
+-- From Control.Monad.Loops
+-- | Yields the result of applying f until p holds.
+iterateUntilM :: (Monad m) => (a -> Bool) -> (a -> m a) -> a -> m a
+iterateUntilM p f v 
+    | p v       = return v
+    | otherwise = f v >>= iterateUntilM p f
 
 -- | take with words
 takeEnum :: Enum a1 => a1 -> [a2] -> [a2]

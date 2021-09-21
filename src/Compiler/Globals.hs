@@ -74,9 +74,9 @@ memoryFromGlobals ggg  =
   where resolveGlobalsMem :: Map.Map Name MWord -> LazyInitialMem -> LazyInitialMem
         resolveGlobalsMem globMap lInitMem = map (resolveGlobalsSegment globMap) lInitMem
         resolveGlobalsSegment :: Map.Map Name MWord -> LazyInitSegment -> LazyInitSegment
-        resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly heapInit loc len _) =
+        resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly heapInit loc len _ _) =
           let concreteInit = map (applyPartialMap g) <$> lazyConst in
-          (concreteInit, InitMemSegment secr rOnly heapInit loc len Nothing)
+          (concreteInit, InitMemSegment secr rOnly heapInit loc len Nothing Nothing)
 
 lazyMemoryFromGlobals :: GEnv MWord -> (LazyInitialMem, MWord, Map.Map Name MWord)
 lazyMemoryFromGlobals  = foldr memoryFromGlobal ([], 1, Map.empty)
@@ -90,7 +90,7 @@ lazyMemoryFromGlobals  = foldr memoryFromGlobal ([], 1, Map.empty)
           let newLoc = if not heapInit then alignTo align nextAddr
                 else heapInitAddress `div` fromIntegral wordBytes in
           let newLazySegment =
-                (initzr, InitMemSegment secr isConst heapInit newLoc (fromIntegral size) Nothing) in -- __FIXME__
+                (initzr, InitMemSegment secr isConst heapInit newLoc (fromIntegral size) Nothing Nothing) in -- __FIXME__
           -- The addresses assigned to global variable symbols must be given in
           -- bytes, unlike all other global / init-mem related measurements,
           -- which are in words.

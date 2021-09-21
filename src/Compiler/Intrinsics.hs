@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -21,17 +22,13 @@ module Compiler.Intrinsics
 
 
 import           Control.Monad
-
-import Data.ByteString.Short (ShortByteString)
-
+import           Data.ByteString.Short (ShortByteString)
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
-
 import           Data.Map (Map)
 import qualified Data.Map as Map
-
 import qualified Data.Set as Set (member, fromList) 
-import Data.Text (Text)
+import           Data.Text (Text)
 import qualified Data.Text as Text
 
 
@@ -135,6 +132,27 @@ cc_flag_bug [] Nothing md _ =
   where zero = LImm $ SConst 0
 cc_flag_bug _ _ _ _ = progError "bad arguments"
 
+noniSetLabel :: MemWidth -> IntrinsicImpl m MWord
+noniSetLabel wd [ptr, label] Nothing md _ = do
+  r <- getNextRegister
+  return $ map (\i -> MirM i md) [
+      Iload wd r ptr
+    , Itaint wd r label
+    , Istore wd ptr (AReg r)
+    ]
+noniSetLabel _ _ _ _ _ = progError "bad arguments"
+
+noniSink :: MemWidth -> IntrinsicImpl m MWord
+noniSink wd [ptr, label] Nothing md _ = do
+  r <- getNextRegister
+  return $ map (\i -> MirM i md) [
+      Iload wd r ptr
+    , Isink wd (AReg r) label
+    ]
+  -- return $ [MirM (Isink ptr label) ()]
+  -- error $ show ptr <> " " <> show label
+noniSink _ _ _ _ _ = progError "bad arguments"
+
 cc_trace :: IntrinsicImpl m w
 cc_trace [msg] Nothing md _ = return [MirM (Iext (XTraceStr msg)) md]
 cc_trace _ _ _ _ = progError "bad arguments"
@@ -190,6 +208,24 @@ intrinsicsList =
   , mkTrap "@__cxa_begin_catch"
   , mkTrap "@__cxa_end_catch"
   , mkTrap "@llvm.eh.typeid.for"
+
+  -- Dynamic taint tracking
+  , ("@noniSetLabelU8", noniSetLabel W1) -- TODO: Is there a better way to get the width?
+  , ("@noniSetLabelI8", noniSetLabel W1)
+  , ("@noniSinkU8", noniSink W1)
+  , ("@noniSinkI8", noniSink W1)
+  , ("@noniSetLabelU16", noniSetLabel W2)
+  , ("@noniSetLabelI16", noniSetLabel W2)
+  , ("@noniSinkU16", noniSink W2)
+  , ("@noniSinkI16", noniSink W2)
+  , ("@noniSetLabelU32", noniSetLabel W4)
+  , ("@noniSetLabelI32", noniSetLabel W4)
+  , ("@noniSinkU32", noniSink W4)
+  , ("@noniSinkI32", noniSink W4)
+  , ("@noniSetLabelU64", noniSetLabel W8)
+  , ("@noniSetLabelI64", noniSetLabel W8)
+  , ("@noniSinkU64", noniSink W8)
+  , ("@noniSinkI64", noniSink W8)
 
   -- Explicit trap
   , mkTrap "@__cxa_pure_virtual"

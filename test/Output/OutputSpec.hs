@@ -14,9 +14,11 @@ import Test.Tasty.QuickCheck
 -- import Test.SmallCheck.Series
 
 import qualified Data.Map as Map
+import qualified Data.Vector as Vec
 
 -- import Compiler.Registers
 import Compiler.CompilationUnit
+import Compiler.Tainted
 import Output.CBORFormat()
 import Output.Output
 
@@ -127,7 +129,12 @@ testParams = testProperty "Serialising Parameters" $
 
 -- * Testing Traces
 instance Arbitrary (StateOut) where
-  arbitrary = StateOut <$> arbitrary <*> arbitrary
+  arbitrary = do
+    pc <- arbitrary
+    regs <- arbitrary
+    leakTainted <- arbitrary
+    labels <- if leakTainted then pure Nothing else fmap Just (vectorOf (length regs) $ fmap (replicate wordBytes) $ choose (0,untainted))
+    return $ StateOut pc regs labels
 
 testTrace :: TestTree
 testTrace = testProperty "Serialising traces" $
@@ -141,7 +148,11 @@ instance Arbitrary MemOpType where
 
 instance Arbitrary Advice where
   arbitrary = oneof $
-    [ MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    [ do
+      wd <- arbitrary
+      leakTainted <- arbitrary
+      let labels = if leakTainted then pure Nothing else fmap (Just . Vec.fromList) (vectorOf wordBytes $ choose (0,untainted))
+      MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> pure wd <*> labels
     , return Stutter 
     ]
 
@@ -152,8 +163,11 @@ testAdvice = testProperty "Serialising advice" $
 
 -- * Testing Output
 instance Arbitrary InitMemSegment where
-  arbitrary = InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*>
-              arbitrary <*> arbitrary <*> arbitrary
+  arbitrary = do
+    content <- arbitrary
+    labels <- mapM (\c -> vectorOf (length c) (Vec.fromList <$> vectorOf wordBytes (choose (0,untainted)))) content
+    InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*>
+              arbitrary <*> arbitrary <*> pure content <*> pure labels
 
 instance Arbitrary reg => Arbitrary (Segment reg MWord) where
   arbitrary = Segment  <$> arbitrary <*> arbitrary <*> arbitrary  <*> arbitrary <*> arbitrary <*> arbitrary
@@ -169,8 +183,8 @@ instance Arbitrary Constraints where
 
 instance Arbitrary reg => Arbitrary (Output reg) where
   arbitrary = oneof
-    [ SecretOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    , PublicOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    [ SecretOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    , PublicOutput  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
     ]
 
 testOutput :: TestTree

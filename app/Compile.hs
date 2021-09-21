@@ -21,6 +21,7 @@ import Output.Output
 import Output.CBORFormat
 
 import PostProcess
+import Segments (PublicSegmentMode(..))
 
 import System.Console.GetOpt
 import System.Directory
@@ -96,12 +97,21 @@ main = do
                     -> Maybe Int
                     -> IO (Output Int)
         postProcess fr mramProg privSegsNum = handleErrors $
-          postProcess_v (verbose fr) (produceSegs fr) chunkSize (end fr == FullOutput) mramProg privSegsNum
+          postProcess_v
+            (verbose fr)
+            (modeLeakTainted fr)
+            (pubSegMode fr)
+            chunkSize
+            (end fr == FullOutput)
+            mramProg
+            privSegsNum
         outputTheResult :: FlagRecord -> Output AReg -> IO ()
-        outputTheResult fr out =
+        outputTheResult fr out = do
+          let features = (if modeLeakTainted fr then ["leak-tainted"] else [])
+                       ++ [] -- Replace list with features
           case fileOut fr of
-            Just file -> L.writeFile file $ serialOutput out [] -- Replace list with features
-            Nothing   -> putStrLn $ printOutputWithFormat (outFormat fr) out [] -- Replace list with features  
+            Just file -> L.writeFile file $ serialOutput out features
+            Nothing   -> putStrLn $ printOutputWithFormat (outFormat fr) out features
         chunkSize = 10
 
         
@@ -121,6 +131,12 @@ handleErrors hx = case hx of
   Right x -> return x
 
        
+data Mode = LeakTaintedMode
+  deriving (Eq, Ord)
+
+readMode :: String -> Mode
+readMode "leak-tainted" = LeakTaintedMode
+readMode m = error $ "Unknown --mode `" <> m <> "`. See --help for valid modes." -- TODO: Better error handling.
 
 data Flag
  = -- General flags
@@ -138,7 +154,8 @@ data Flag
    | MemSparsity Int
    | AllowUndefFun
    | PrettyPrint
-   | ProduceSegs
+   | PubSegMode String
+   | ModeFlag Mode
    -- Interpreter flags
    | FromMRAM
    | Output String
@@ -170,7 +187,8 @@ data FlagRecord = FlagRecord
   , spars :: Maybe Int
   , allowUndefFun:: Bool
   , ppMRAM :: Bool
-  , produceSegs :: Bool
+  , pubSegMode :: PublicSegmentMode
+  , modeLeakTainted :: Bool
   -- Interpreter
   , fileOut :: Maybe String
   , end :: Stages
@@ -198,7 +216,8 @@ defaultFlags name len =
   , spars     = Just 2
   , allowUndefFun = False
   , ppMRAM = False
-  , produceSegs = True
+  , pubSegMode = PsmFunctionCalls
+  , modeLeakTainted = False
   -- Interpreter
   , fileOut   = Nothing
   , end       = FullOutput
@@ -210,9 +229,9 @@ defaultFlags name len =
 parseFlag :: Flag -> FlagRecord -> FlagRecord
 parseFlag flag fr =
   case flag of
-    Verbose ->                 fr {verbose = True}
+    Verbose ->                  fr {verbose = True}
     -- Front end flags
-    Optimisation n ->          fr {optim = n}
+    Optimisation n ->           fr {optim = n}
     -- Back end flags 
     LLVMout (Just llvmOut) ->  fr {llvmFile = llvmOut}
     LLVMout Nothing ->         fr {llvmFile = replaceExtension (fileIn fr) ".ll"}
@@ -223,16 +242,20 @@ parseFlag flag fr =
     MemSparsity s ->           fr {spars = Just s}
     AllowUndefFun ->           fr {allowUndefFun = True}
     PrettyPrint ->             fr {ppMRAM = True}
-    ProduceSegs ->              fr {produceSegs = False}
+    PubSegMode "none" ->       fr {pubSegMode = PsmNone}
+    PubSegMode "function-calls" -> fr {pubSegMode = PsmFunctionCalls}
+    PubSegMode "abs-int" ->    fr {pubSegMode = PsmAbsInt}
+    PubSegMode x ->            error $ "unsupported public segment mode: " ++ show x
+    ModeFlag LeakTaintedMode -> fr {modeLeakTainted = True}
     -- Interpreter flags
-    FromMRAM ->                fr {beginning = MRAMLang} -- In this case we are reading the fileIn
-    MRAMout (Just outFile) ->  fr {mramFile = Just outFile}
-    MRAMout Nothing ->         fr {mramFile = Just $ replaceExtension (fileIn fr) ".micro"}
-    Output outFile ->          fr {fileOut = Just outFile}
-    DoubleCheck ->             fr {doubleCheck = True}
-    FlatFormat ->              fr {outFormat = max Flat $ outFormat fr}
-    PrettyHex ->               fr {outFormat = max PHex $ outFormat fr}
-    _ ->                       fr
+    FromMRAM ->                 fr {beginning = MRAMLang} -- In this case we are reading the fileIn
+    MRAMout (Just outFile) ->   fr {mramFile = Just outFile}
+    MRAMout Nothing ->          fr {mramFile = Just $ replaceExtension (fileIn fr) ".micro"}
+    Output outFile ->           fr {fileOut = Just outFile}
+    DoubleCheck ->              fr {doubleCheck = True}
+    FlatFormat ->               fr {outFormat = max Flat $ outFormat fr}
+    PrettyHex ->                fr {outFormat = max PHex $ outFormat fr}
+    _ ->                        fr
 
 parseOptions :: String -> Maybe Word -> [Flag] -> IO FlagRecord
 parseOptions filein len flags = do
@@ -259,7 +282,8 @@ options =
   , Option ['s'] ["sparsity"]    (ReqArg (\s -> MemSparsity $ read s) "MEM SARSITY")               "check the result"
   , Option []    ["allow-undef"] (NoArg AllowUndefFun)          "Allow declared functions with no body."
   , Option []    ["pretty-print"] (NoArg PrettyPrint)          "Pretty print the MicroRAM program with metadata."
-  , Option []    ["no-segs"] (NoArg ProduceSegs)              "Don't use segments (old version)."
+  , Option []    ["pub-seg-mode"] (ReqArg PubSegMode "MODE")   "Public segment generation mode, one of: none, function-calls, abs-int"
+  , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")              "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)

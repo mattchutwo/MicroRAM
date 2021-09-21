@@ -17,10 +17,12 @@ Data structures passed down to Circuit generator
 
 module Output.Output where
 import qualified Data.Map as Map
+import qualified Data.Vector as Vec
 import GHC.Generics
 
 import Compiler.CompilationUnit
 import Compiler.Registers
+import Compiler.Tainted
 import Compiler.Analysis
 
 import MicroRAM.MRAMInterpreter
@@ -67,6 +69,7 @@ data Output reg  =
   , segmentsOut :: [SegmentOut]
   , params :: CircuitParameters
   , initMem :: InitialMem
+  , labelsOut :: Map.Map String MWord
   , traceOut :: [TraceChunkOut reg]
   , adviceOut :: Map.Map MWord [Advice]
   }
@@ -75,6 +78,7 @@ data Output reg  =
   , segmentsOut :: [SegmentOut]
   , params :: CircuitParameters
   , initMem :: InitialMem
+  , labelsOut :: Map.Map String MWord
   } deriving (Eq, Show, Generic)
 
 data SegmentOut
@@ -89,12 +93,12 @@ mkSegmentOut (Segment _ constr len suc fromNet toNet) = SegmentOut constr len su
 
 -- | Convert between the two outputs
 mkOutputPublic :: Output reg -> Output reg
-mkOutputPublic (SecretOutput a b c d _ _) = PublicOutput a b c d
-mkOutputPublic (PublicOutput a b c d) = PublicOutput a b c d
+mkOutputPublic (SecretOutput a b c d e _ _) = PublicOutput a b c d e
+mkOutputPublic (PublicOutput a b c d e) = PublicOutput a b c d e
 
 mkOutputPrivate :: [TraceChunkOut reg] -> Map.Map MWord [Advice] -> Output reg -> Output reg
-mkOutputPrivate trace adv (PublicOutput a b c d ) = SecretOutput a b c d trace adv
-mkOutputPrivate trace adv (SecretOutput a b c d _ _) = SecretOutput a b c d trace adv
+mkOutputPrivate trace adv (PublicOutput a b c d e ) = SecretOutput a b c d e trace adv
+mkOutputPrivate trace adv (SecretOutput a b c d e _ _) = SecretOutput a b c d e trace adv
 
 
 
@@ -120,6 +124,7 @@ data CircuitParameters = CircuitParameters
 data StateOut = StateOut
   { pcOut   :: MWord
   , regsOut :: [MWord]
+  , regLabelsOut :: Maybe [[Label]] -- In the future, instead of dynamically tracking whether the tainted flag is provided, we could use the type system to ensure labels are tracked only when the tainted flag is provided.
 --  , adviceOut :: [Advice]
   } deriving (Eq, Show, Generic)
 
@@ -131,8 +136,9 @@ concretize (Just w) = w
 concretize Nothing = 0
 
 state2out :: Regs mreg => Word -> ExecutionState mreg -> StateOut
-state2out bound (ExecutionState pc regs _ _ _advice _ _ _) =
-  StateOut pc (map concretize $ regToList bound regs) -- Advice is ignored
+state2out bound (ExecutionState pc regs regLabels _ _ _advice _ _ _) =
+  StateOut pc (-- map concretize $
+  regToList bound regs) (map Vec.toList . regToList bound <$> regLabels) -- Advice is ignored
 
 
 
@@ -157,8 +163,9 @@ compUnit2Output :: Regs reg => [Segment reg MWord] -> CompilationResult (Program
 compUnit2Output segs (CompUnit p _trLen regData aData _ _) =
   let regNum = getRegNum regData
       circParams = buildCircuitParameters regData aData regNum
-      segsOut = map mkSegmentOut segs in
-  PublicOutput (pmProg $ lowProg p) segsOut circParams (pmMem $ lowProg p)
+      segsOut = map mkSegmentOut segs
+      labelsOut = Map.mapKeys show $ pmLabels $ lowProg p in
+  PublicOutput (pmProg $ lowProg p) segsOut circParams (pmMem $ lowProg p) labelsOut
 
 -- | Convert the Full output of the compiler (Compilation Unit) AND the interpreter
 -- (Trace, Advice) into Output (a Private one).

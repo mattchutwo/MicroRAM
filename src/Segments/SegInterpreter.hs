@@ -39,9 +39,9 @@ data CheckSt = CheckSt {
 makeLenses ''CheckSt
   
 
-checkOutput :: Output Int -> Result ()
-checkOutput (PublicOutput _ _ _ _) = Left "Found Public Output with no trace to check."
-checkOutput (SecretOutput prog segs params initMem tr _adv) = do
+checkOutput :: Bool -> Output Int -> Result ()
+checkOutput _leakTainted (PublicOutput _ _ _ _ _) = Left "Found Public Output with no trace to check."
+checkOutput _leakTainted (SecretOutput prog segs params initMem _labels tr _adv) = do
   let traceA = concat $ map chunkStatesOut tr
   let len = length traceA
   -- Produce a new trace
@@ -126,13 +126,13 @@ compilerErrorResolve (Right x) = Right x
 
 
 --- Testing:
-doCheck :: IO ()
-doCheck = case checkOutput testOutput of
+doCheck :: Bool -> IO ()
+doCheck leakTainted = case checkOutput leakTainted testOutput of
             Right _ -> putStrLn "Ok."
             Left msg -> putStrLn msg
 -- checkOutput :: Output Int -> Result ()
 testOutput :: Output Int
-testOutput = SecretOutput prog segs parms mem tr adv
+testOutput = SecretOutput prog segs parms mem labels tr adv
   where prog :: Program Int MWord
         prog = Iadd 0 0 (Const 42) :
                Iadd 0 0 (Const 42) :
@@ -144,8 +144,11 @@ testOutput = SecretOutput prog segs parms mem tr adv
         parms  = CircuitParameters 2 Map.empty
         mem :: Compiler.CompilationUnit.InitialMem
         mem  = []
+        labels :: Map.Map String MWord
+        labels = Map.empty
         tr :: [TraceChunkOut Int]
-        tr  = TraceChunkOut 0 [StateOut 1 [42,0,0,0], StateOut 2 [84,0,0,0]] :
-          TraceChunkOut 1 [StateOut 3 [42,0,0,0], StateOut 4 [0,0,0,0]] : []
+        tr  = TraceChunkOut 0 [StateOut 1 [42,0,0,0] untainteds, StateOut 2 [84,0,0,0] untainteds] :
+          TraceChunkOut 1 [StateOut 3 [42,0,0,0] untainteds, StateOut 4 [0,0,0,0] untainteds] : []
         adv :: Map.Map MWord [Advice]
         adv  = Map.empty
+        untainteds = Nothing -- replicate 4 untainted

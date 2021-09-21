@@ -170,11 +170,17 @@ instance (Show reg, Show op1, Show op2, Pretty (PrettyPrintWrapper reg), Pretty 
   pretty (Ijmp op) = "jmp "<> pretty (PPW op)
   pretty (Icjmp r2 op) = "if " <> pretty (PPW r2) <> " jmp "<> pretty (PPW op)
   pretty (Icnjmp r2 op) = "if not" <> pretty (PPW r2) <> " jmp "<> pretty (PPW op)
-  pretty (Istore _ op r1) = "*("<> pretty (PPW op) <>") = "<> pretty (PPW r1)
-  pretty (Iload _ r1 op) = pretty (PPW r1) <>" = *("<> pretty (PPW op) <> ")"
+  pretty (Istore w op r1) = "*("<> pretty (PPW op) <>")" <> pretty w <> " = "<> pretty (PPW r1)
+  pretty (Iload w r1 op) = pretty (PPW r1) <>" = *("<> pretty (PPW op) <> ")" <> pretty w
   -- pretty (Iread r1 op) = pretty (PPW r1) pretty (PPW op)
   pretty (Ianswer op) = "ans "<> pretty (PPW op)
+  pretty (Isink w op1 op2) = "sink" <> pretty w <+> pretty (PPW op1) <+> pretty (PPW op2)
+  pretty (Itaint w r op) = "taint" <> pretty w <+> pretty (PPW r) <+> pretty (PPW op)
   pretty i = viaShow i -- TODO
+
+instance Pretty MemWidth where
+  pretty W8 = mempty
+  pretty w = "_" <> viaShow (widthInt w)
 
 -- Newtype wrappers to call registers + operands.
 newtype PrettyPrintWrapper a = PPW a

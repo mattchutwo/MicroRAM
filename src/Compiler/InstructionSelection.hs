@@ -115,7 +115,14 @@ freshName = newName "fresh"
 
 getMetadata :: Statefully Metadata
 getMetadata = do
-  Metadata <$> use currentFunction <*> use currentBlock <*> use lineNumber <*> (return False) <*> (return False)
+  Metadata
+    <$> use currentFunction
+    <*> use currentBlock
+    <*> use lineNumber
+    <*> pure False
+    <*> pure False
+    <*> pure False
+    <*> pure False
 
 -- | Environment to keep track of global and type definitions
 data Env = Env {llvmtTypeEnv :: LLVMTypeEnv, globs :: Set.Set LLVM.Name}
@@ -1402,7 +1409,7 @@ constant2typedLazyConst env c =
       bop2typedLazyConst env (typedLazyBop lcRem) op1 op2
     (LLVM.Constant.SRem op1 op2                     ) -> do
       bits <- lift $ intTypeWidth $ typeOf (llvmtTypeEnv env) op1
-      bop2typedLazyConst env (typedLazyBop $ lcSDiv bits) op1 op2
+      bop2typedLazyConst env (typedLazyBop $ lcSRem bits) op1 op2
     (LLVM.Constant.And op1 op2                      ) -> bop2typedLazyConst env (.&.) op1 op2
     (LLVM.Constant.Or op1 op2                       ) -> bop2typedLazyConst env (.|.) op1 op2
     (LLVM.Constant.Xor op1 op2                      ) -> bop2typedLazyConst env xor op1 op2
