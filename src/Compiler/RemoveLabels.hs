@@ -156,7 +156,8 @@ removeLabelsInitMem lmap lInitMem =
   where removeLabelsSegment :: (Name -> Wrd) -> LazyInitSegment -> Hopefully $ InitMemSegment
         removeLabelsSegment labelMap (lMem, initSegment) =
           let vals = removeLabelInitialValues labelMap lMem in
-          return $ initSegment {content = vals, labels = fmap (const $ replicate (fromIntegral $ segmentLen initSegment) $ Vec.replicate wordBytes untainted) vals}
+          let taintLabels = labels initSegment in
+          return $ initSegment {content = vals}
         removeLabelInitialValues :: (Name -> Wrd) -> Maybe [LazyConst Name Wrd] -> Maybe [Wrd]
         removeLabelInitialValues labelMap lMem =  map (makeConcreteConst labelMap) <$> lMem
 addDefault :: LabelMap -> Name -> Wrd

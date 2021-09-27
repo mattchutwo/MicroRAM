@@ -45,7 +45,7 @@ processTest leakTainted name file len =
   where output :: FilePath -> Word -> IO Property 
         output file len = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile False len llvmProg Nothing
+          mramProg <- handleErrorWith $ compile False False len llvmProg Nothing
           let postProcessed = compilerErrorResolve $ postProcess_v False False PsmAbsInt chunkSize True mramProg Nothing
           return $ result2property $ checkOutput leakTainted <$> postProcessed
         chunkSize = 10

@@ -78,7 +78,13 @@ main = do
               putStrLn $ "Found no trace, can't compile."
               exitWith ExitSuccess
             Just trLength -> do
-              handleErrorWith (compile undefinedFunctions trLength llvmModule $ spars fr)
+              handleErrorWith (compile
+                undefinedFunctions
+                (modeLeakTainted fr)
+                trLength
+                llvmModule
+                (spars fr)
+                )
             where undefinedFunctions = allowUndefFun fr
 
 

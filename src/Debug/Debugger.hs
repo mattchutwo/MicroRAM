@@ -352,7 +352,7 @@ jpProgComp len = do
     >>= (justCompileWithNamesSt layArgs)
     >>= (registerAlloc def)
     >>= (justCompile callingConvention)
-    >>= (replaceGlobals)
+    >>= (replaceGlobals False)
     >>= (justCompileWithNames stacking)
     >>= (justAnalyse (return . SparsityData . (forceSparsity spars))) 
     >>= (blockCleanup)
@@ -393,7 +393,7 @@ jpProgComp'
 jpProgComp' len = do
   m <- fromLLVMFile "test/programs/varArgs.ll"
   return $ either (error . show) id $
-    compile False len m Nothing
+    compile False False len m Nothing
 
 -- printProg (fmap lowProg p)
 -- let t = run $ fmap (fmap $ fmap $ fmap fst) p

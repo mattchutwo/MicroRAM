@@ -19,6 +19,7 @@ module Compiler.Globals
 
 import Data.Bits
 import qualified Data.Map as Map
+import qualified Data.Vector as V
 
 import Compiler.Common
 --import Compiler.Layout
@@ -27,6 +28,7 @@ import Compiler.Errors
 import Compiler.LazyConstants
 import Compiler.IRs
 import Compiler.Registers
+import Compiler.Tainted (untainted)
 
 import MicroRAM
 
@@ -48,16 +50,17 @@ import Util.Util
 
 -}
 replaceGlobals :: Regs mreg =>
-        CompilationUnit () (Lprog m mreg MWord)
-        -> Hopefully $ CompilationUnit LazyInitialMem (Lprog m mreg MWord)
-replaceGlobals (CompUnit pm tr regs anData nmBound _) = do
-  (prog', initMem) <- globals' $ pmProg pm
+        Bool ->
+        CompilationUnit () (Lprog m mreg MWord) ->
+        Hopefully $ CompilationUnit LazyInitialMem (Lprog m mreg MWord)
+replaceGlobals tainted (CompUnit pm tr regs anData nmBound _) = do
+  (prog', initMem) <- globals' tainted $ pmProg pm
   return $ CompUnit (pm { pmProg = prog' }) tr regs anData nmBound initMem 
 
-globals' :: Regs mreg => Lprog m mreg MWord
+globals' :: Regs mreg => Bool -> Lprog m mreg MWord
          -> Hopefully $ (Lprog m mreg MWord, LazyInitialMem)
-globals' (IRprog tenv genv prog) = do
-  (initMem, globalMap) <- return $ memoryFromGlobals genv
+globals' tainted (IRprog tenv genv prog) = do
+  (initMem, globalMap) <- return $ memoryFromGlobals tainted genv
   prog' <- raplaceGlobals globalMap prog
   return (IRprog tenv genv prog', initMem)
 
@@ -67,19 +70,19 @@ globals' (IRprog tenv genv prog) = do
 -- After constructing the globals map, these lazy segments are converted to real ones.
 
 -- * Building initial memory and the `globalMap`
-memoryFromGlobals :: GEnv MWord -> (LazyInitialMem, Map.Map Name MWord)
-memoryFromGlobals ggg  = 
-  let (lazyInitMem, _, globs) = lazyMemoryFromGlobals ggg in
+memoryFromGlobals :: Bool -> GEnv MWord -> (LazyInitialMem, Map.Map Name MWord)
+memoryFromGlobals tainted ggg = 
+  let (lazyInitMem, _, globs) = lazyMemoryFromGlobals tainted ggg in
     (resolveGlobalsMem globs lazyInitMem, globs)
   where resolveGlobalsMem :: Map.Map Name MWord -> LazyInitialMem -> LazyInitialMem
         resolveGlobalsMem globMap lInitMem = map (resolveGlobalsSegment globMap) lInitMem
         resolveGlobalsSegment :: Map.Map Name MWord -> LazyInitSegment -> LazyInitSegment
-        resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly heapInit loc len _ _) =
+        resolveGlobalsSegment g (lazyConst, InitMemSegment secr rOnly heapInit loc len _ taint) =
           let concreteInit = map (applyPartialMap g) <$> lazyConst in
-          (concreteInit, InitMemSegment secr rOnly heapInit loc len Nothing Nothing)
+          (concreteInit, InitMemSegment secr rOnly heapInit loc len Nothing taint)
 
-lazyMemoryFromGlobals :: GEnv MWord -> (LazyInitialMem, MWord, Map.Map Name MWord)
-lazyMemoryFromGlobals  = foldr memoryFromGlobal ([], 1, Map.empty)
+lazyMemoryFromGlobals :: Bool -> GEnv MWord -> (LazyInitialMem, MWord, Map.Map Name MWord)
+lazyMemoryFromGlobals tainted = foldr memoryFromGlobal ([], 1, Map.empty)
   where memoryFromGlobal ::
           GlobalVariable MWord
           -> (LazyInitialMem, MWord, Map.Map Name MWord)
@@ -89,8 +92,12 @@ lazyMemoryFromGlobals  = foldr memoryFromGlobal ([], 1, Map.empty)
             (initMem, nextAddr, gMap) =
           let newLoc = if not heapInit then alignTo align nextAddr
                 else heapInitAddress `div` fromIntegral wordBytes in
+          let optTaintLabels = if not tainted then Nothing else
+                Just $ replicate
+                  (fromIntegral (alignTo (fromIntegral wordBytes) size) `div` wordBytes)
+                  (V.replicate (fromIntegral wordBytes) untainted) in
           let newLazySegment =
-                (initzr, InitMemSegment secr isConst heapInit newLoc (fromIntegral size) Nothing Nothing) in -- __FIXME__
+                (initzr, InitMemSegment secr isConst heapInit newLoc (fromIntegral size) Nothing optTaintLabels) in
           -- The addresses assigned to global variable symbols must be given in
           -- bytes, unlike all other global / init-mem related measurements,
           -- which are in words.

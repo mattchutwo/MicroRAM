@@ -184,9 +184,10 @@ compile1 allowUndefFun len llvmProg = (return $ prog2unit len llvmProg)
 
 compile2
   :: Maybe Int
+  -> Bool
   -> CompilationUnit () (MIRprog Metadata MWord) ->
   Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
-compile2 spars prog = return prog
+compile2 spars tainted prog = return prog
   >>= (tagPass "Legalize Instructions" $ justCompileWithNames legalize)
   >>= (tagPass "Localize Labels"     $ justCompileWithNames localizeLabels)
   >>= (tagPass "Edge split"          $ justCompileWithNames edgeSplit)
@@ -194,19 +195,20 @@ compile2 spars prog = return prog
   >>= (tagPass "Remove Phi Nodes"    $ justCompileWithNamesSt layArgs)
   >>= (tagPass "Register Allocation" $ registerAlloc def)
   >>= (tagPass "Calling Convention"  $ justCompile callingConvention)
-  >>= (tagPass "Remove Globals"      $ replaceGlobals)
+  >>= (tagPass "Remove Globals"      $ replaceGlobals tainted)
   >>= (tagPass "Count Funcitons"     $ justAnalyse countFunctions)
   >>= (tagPass "Stacking"            $ justCompileWithNames stacking)
   >>= (tagPass "Computing Sparsity"  $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
   >>= (tagPass "Block cleanup"       $ blockCleanup)
   >>= (tagPass "Removing labels"     $ removeLabels)
 
-compile :: Bool -> Word -> LLVM.Module -> Maybe Int -> Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
-compile allowUndefFun len llvmProg spars = do
+compile :: Bool -> Bool -> Word -> LLVM.Module -> Maybe Int ->
+  Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
+compile allowUndefFun tainted len llvmProg spars = do
   ir <- compile1 allowUndefFun len llvmProg
-  high <- compile2 spars ir
+  high <- compile2 spars tainted ir
   low <- return ir
     >>= (tagPass "Lower Extension Instructions" $ justCompileWithNames lowerExtensionInstrs)
-    >>= compile2 spars
+    >>= compile2 spars tainted
   -- Return both programs, using the analysis data from the final one.
   return $ low { programCU = MultiProg (programCU high) (programCU low) }
