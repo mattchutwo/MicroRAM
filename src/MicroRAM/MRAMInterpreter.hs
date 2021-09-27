@@ -175,33 +175,52 @@ instance Concretizable TaintedValue where
     
 type AdviceMap = Map MWord [Advice]
 
--- | Helper function to record advice.  This is used by `adviceHandler` and
--- also by any other handlers that want to record advice of their own.
-recordAdvice :: (AbsDomain v, Regs r) => Lens' s AdviceMap -> Advice -> InterpM' r v s Hopefully ()
-recordAdvice adviceMap adv = do
+recordAdvice' :: (AbsDomain v, Regs r) =>
+  Lens' s AdviceMap -> Bool -> Advice -> InterpM' r v s Hopefully ()
+recordAdvice' adviceMap isPost adv = do
   cycle <- use $ sMach . mCycle
   cycleWord <- lift $ tag "Failed at making the cycle concrete, while recording advice" $
     absGetValue cycle
-  sExt . adviceMap . at cycleWord %= Just . (adv:) . maybe [] id
+  let cycleWord' = if isPost then cycleWord - 1 else cycleWord
+  sExt . adviceMap . at cycleWord' %= Just . (adv:) . maybe [] id
 
-adviceHandler :: forall v r s. (Concretizable v, Regs r) => Lens' s AdviceMap -> InstrHandler' r v s
-adviceHandler advice (Istore w op2 _r1) = do
+-- | Helper function to record advice.  This is used by `adviceHandler` and
+-- also by any other handlers that want to record advice of their own.
+recordAdvice :: (AbsDomain v, Regs r) =>
+  Lens' s AdviceMap -> Advice -> InterpM' r v s Hopefully ()
+recordAdvice adviceMap adv = recordAdvice' adviceMap False adv
+
+-- | Like `recordAdvice`, but it can be used in the post state, after running
+-- the normal instruction.
+recordAdvicePost :: (AbsDomain v, Regs r) =>
+  Lens' s AdviceMap -> Advice -> InterpM' r v s Hopefully ()
+recordAdvicePost adviceMap adv = recordAdvice' adviceMap True adv
+
+adviceHandler :: forall v r s. (Concretizable v, Regs r) =>
+  Lens' s AdviceMap -> InstrHandler' r v s -> InstrHandler' r v s
+adviceHandler advice nextH instr@(Istore w op2 _r1) = do
   addr <- opVal op2
   -- The advide records the entire Word with proper alignment.
   let waddr = conAlignWord addr 
+  -- Run `nextH` before `doLoad` so the `doLoad` will observe the store.
+  nextH instr
   storedVal <- doLoad WWord (absExact waddr)
-  recordAdvice advice $ concretizeAdvice addr storedVal MOStore w
-adviceHandler advice (Iload w _rd op2) = do
+  recordAdvicePost advice $ concretizeAdvice addr storedVal MOStore w
+adviceHandler advice nextH instr@(Iload w _rd op2) = do
   addr <- opVal op2
   -- The advide records the entire Word with proper alignment.
   let waddr = conAlignWord addr
   loadedVal <- doLoad WWord (absExact waddr)
   recordAdvice advice $ concretizeAdvice addr loadedVal MOLoad w
-adviceHandler advice (Ipoison w op2 r1) = do
+  -- Run `nextH` only after computing `addr`, since if `rd == op2`, `nextH`
+  -- will modify the result of `opVal op2`.
+  nextH instr
+adviceHandler advice nextH instr@(Ipoison w op2 r1) = do
   addr <- opVal op2
   val <- regVal r1
   recordAdvice advice $ concretizeAdvice addr val MOPoison w
-adviceHandler _ _ = return ()
+  nextH instr
+adviceHandler _ nextH instr = nextH instr
 
 
 -- | Trace handler (for debugging)
@@ -456,9 +475,6 @@ memErrorHandler _info _advice nextH instr = nextH instr
 
 -- Top-level interpreter
 
-observer :: InstrHandler' r v s -> InstrHandler' r v s -> InstrHandler' r v s
-observer obs nextH instr = obs instr >> nextH instr
-
 execTraceHandler :: (Concretizable v, Regs r) =>
   Lens' s (Seq (ExecutionState r)) ->
   Lens' s AdviceMap ->
@@ -526,7 +542,7 @@ runPass2 steps initMach' memInfo = do
 
     handler =
       execTraceHandler eTrace eAdvice $
-      observer (adviceHandler eAdvice) $
+      adviceHandler eAdvice $
       memErrorHandler eMemInfo eAdvice $
       traceHandler False $
       stepInstr
