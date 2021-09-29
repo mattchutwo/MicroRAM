@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -1325,7 +1324,7 @@ typedLazyBop ::
   TypedLazyConst -> TypedLazyConst -> TypedLazyConst
 typedLazyBop op (TypedLazyConst lc1 w1 _) (TypedLazyConst lc2 w2 _) =
   mkTypedLazyConst (op lc1 lc2) (max w1 w2)
-
+  
 instance Num TypedLazyConst where
   (+) = typedLazyBop (+)
   (-) = typedLazyBop (-)
@@ -1354,23 +1353,21 @@ instance Bits TypedLazyConst where
   bit _ = error "bit not supported for TypedLazyConst"
   popCount _ = error "popCount not supported for TypedLazyConst"
 
-
+-- | shift right  a TypedLazyConst
+-- NOTE: If the shift amount is larger than the word size, this funciton returns 0.
+-- In LLVM semantics that action would result in a poison value.
+shiftRTLC :: TypedLazyConst -> TypedLazyConst -> TypedLazyConst
+shiftRTLC = typedLazyBop $ lazyBop shiftRWord
+  where shiftRWord :: MWord -> MWord -> MWord
+        shiftRWord a b = a `shiftR` (fromEnum b)
+          
 constant2typedLazyConst ::
   Env
   -> LLVM.Constant.Constant
   -> Statefully $ [TypedLazyConst]
 constant2typedLazyConst env c =
   case c of
-    (LLVM.Constant.Int bits val                     ) -> case bits of
-      -- Special case for `i1`/bool.  We represent it as 1 byte wide.  `i1`
-      -- should never appear in memory accesses, so this shouldn't present any
-      -- problem.
-      1 -> return [mkTypedLazyConst (fromInteger val) W1]
-      8 -> return [mkTypedLazyConst (fromInteger val) W1]
-      16 -> return [mkTypedLazyConst (fromInteger val) W2]
-      32 -> return [mkTypedLazyConst (fromInteger val) W4]
-      64 -> return [mkTypedLazyConst (fromInteger val) W8]
-      _ -> implError $ "Constant.Int with width " ++ show bits ++ " is not supported"
+    (LLVM.Constant.Int bits val                     ) -> mkConstatnTyped (fromInteger val) bits
     (LLVM.Constant.Float someFloat) -> case someFloat of
       LLVM.Single f -> return [mkTypedLazyConst (fromIntegral $ floatToWord f) W4]
       LLVM.Double f -> return [mkTypedLazyConst (fromIntegral $ doubleToWord f) W8]
@@ -1434,10 +1431,54 @@ constant2typedLazyConst env c =
       implError $ "Vectors not yet supported."
     (LLVM.Constant.ShuffleVector _op1 _op2 _mask    ) -> 
       implError $ "Vectors not yet supported."
+    (LLVM.Constant.Trunc op1 typ2                   ) -> do
+      let typ1 = typeOf (llvmtTypeEnv env) op1
+      op1' <- constant2typedLazyConst env op1
+      truncateConst typ1 op1' typ2
+    (LLVM.Constant.ZExt op1 typ2                   ) -> do 
+      op1' <- constant2typedLazyConst env op1
+      zeroExtend op1' typ2
+    (LLVM.Constant.LShr _ op1 op2                   ) ->  bop2typedLazyConst env shiftRTLC op1 op2
     c -> implError $ "Constant not supported yet for global initializers: " ++ show c
   where
     zeroByte = mkTypedLazyConst 0 W1
 
+    mkConstatnTyped val bits =
+      case bits of
+        -- Special case for `i1`/bool.  We represent it as 1 byte wide.  `i1`
+        -- should never appear in memory accesses, so this shouldn't present any
+        -- problem.
+        1 -> return [mkTypedLazyConst  val W1]
+        8 -> return [mkTypedLazyConst  val W1]
+        16 -> return [mkTypedLazyConst val W2]
+        32 -> return [mkTypedLazyConst val W4]
+        64 -> return [mkTypedLazyConst val W8]
+        _ -> implError $ "Constant.Int with width " ++ show bits ++ " is not supported"
+
+    truncateConst :: LLVM.Type -> [TypedLazyConst] -> LLVM.Type -> Statefully [TypedLazyConst]
+    truncateConst (LLVM.IntegerType typBits1) [x] (LLVM.IntegerType typBits2)
+      | typBits1 > typBits2 = do
+          let mask = mkTypedLazyConst (SConst (1 `shiftL` fromIntegral typBits2) - 1) WWord
+          return [x .&. mask]
+    truncateConst typ1 _ typ2 = lift $ assumptError $ "Found unsuported types for truncating. \n\tType1 = " <>     
+                               show typ1 <> "\n\tType2=" <>
+                               show typ2
+
+    zeroExtend :: [TypedLazyConst] -> LLVM.Type -> Statefully [TypedLazyConst]
+    zeroExtend [TypedLazyConst lazyConst bits1 _] (LLVM.IntegerType bits2)
+      | widthInt bits1 < fromEnum bits2 = do
+          x <- mkConstatnTyped lazyConst bits2
+          return x
+      | otherwise = lift $ assumptError $ "In zext, the bit size of the value" <> show bits1 <>
+                    "must be smaller than the bit size of the destination type" <> show bits2 <>
+                    "."
+    zeroExtend c typ =  
+      implError $ "Vectors not yet supported (ZExt):\n\tCONSTANT of length: "
+      <> show (length c) <> "\n\tTYPE: "
+      <> show typ
+      
+    
+                    
 -- | Generate an arbitrary non-`Undef` constant of the given type, to use as a
 -- replacement for `LLVM.Constant.Undef t`.
 defineUndefConst :: LLVMTypeEnv -> LLVM.Type -> Hopefully LLVM.Constant.Constant
@@ -1508,6 +1549,7 @@ bop2typedLazyConst env bop op1 op2 = do
   op2s <- constant2typedLazyConst env op2
   op2' <- lift $ getUniqueWord op2s
   return [bop op1' op2']
+
 
 icmpTypedLazyConst ::
   Env ->
