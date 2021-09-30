@@ -46,6 +46,10 @@ instance (Show wrdT) => Show (LazyConst name wrdT) where
   show (LConst _) = "LazyConstant"
   show (SConst w) = show w 
 
+lazyUop :: (wrdT -> wrdT) -> LazyConst name wrdT -> LazyConst name wrdT
+lazyUop uop (LConst l1) = LConst $ \ge -> uop (l1 ge) 
+lazyUop uop (SConst c1) = SConst $ uop c1
+
 lazyBop :: (wrdT -> wrdT -> wrdT)
      -> LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
 lazyBop bop (LConst l1) (LConst l2) = LConst $ \ge -> bop (l1 ge) (l2 ge) 
@@ -53,9 +57,18 @@ lazyBop bop (LConst l1) (SConst c2) = LConst $ \ge -> bop (l1 ge) c2
 lazyBop bop (SConst c1) (LConst l2) = LConst $ \ge -> bop c1      (l2 ge)
 lazyBop bop (SConst c1) (SConst c2) = SConst $ bop c1 c2
 
-lazyUop :: (wrdT -> wrdT) -> LazyConst name wrdT -> LazyConst name wrdT
-lazyUop uop (LConst l1) = LConst $ \ge -> uop (l1 ge) 
-lazyUop uop (SConst c1) = SConst $ uop c1
+lazyTop :: (wrdT -> wrdT -> wrdT -> wrdT)
+        -> LazyConst name wrdT
+        -> LazyConst name wrdT
+        -> LazyConst name wrdT
+        -> LazyConst name wrdT
+lazyTop top (SConst c1) (SConst c2) (SConst c3) = SConst $ top c1 c2 c3
+lazyTop top a1 a2 a3 = case forceLazy <$> [a1,a2,a3] of
+                         [LConst a1',LConst a2',LConst a3'] ->
+                           LConst $ \env -> top (a1' env) (a2' env) (a3' env)
+                         _ -> undefined -- Impossible case
+  where forceLazy (SConst a) = LConst (\_ -> a) -- Allways returns lazy.
+        forceLazy lc@(LConst _) = lc
 
 
 instance Num wrdT => Num (LazyConst name wrdT) where

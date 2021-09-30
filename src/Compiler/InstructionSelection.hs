@@ -1313,6 +1313,9 @@ mkTypedLazyConst lc w = TypedLazyConst (lc .&. SConst mask) w align
     mask = (1 `shiftL` (8 * MRAM.widthInt w)) - 1
     align = widthInt w
 
+changeWidthTLConstant :: TypedLazyConst -> MemWidth -> TypedLazyConst
+changeWidthTLConstant (TypedLazyConst lc _ _) w = mkTypedLazyConst lc w
+
 typedLazyUop ::
   (LazyConst Name MWord -> LazyConst Name MWord) ->
   TypedLazyConst -> TypedLazyConst
@@ -1364,7 +1367,7 @@ shiftRTLC = typedLazyBop $ lazyBop shiftRWord
 constant2typedLazyConst ::
   Env
   -> LLVM.Constant.Constant
-  -> Statefully $ [TypedLazyConst]
+  -> Statefully [TypedLazyConst]
 constant2typedLazyConst env c =
   case c of
     (LLVM.Constant.Int bits val                     ) -> mkConstatnTyped (fromInteger val) bits
@@ -1438,11 +1441,30 @@ constant2typedLazyConst env c =
     (LLVM.Constant.ZExt op1 typ2                   ) -> do 
       op1' <- constant2typedLazyConst env op1
       zeroExtend op1' typ2
-    (LLVM.Constant.LShr _ op1 op2                   ) ->  bop2typedLazyConst env shiftRTLC op1 op2
+    (LLVM.Constant.LShr _ op1 op2                   ) -> bop2typedLazyConst env shiftRTLC op1 op2
+    (LLVM.Constant.Select cond op1 op2             ) -> do
+      cond' <- constant2typedLazyConst env cond
+      op1' <- constant2typedLazyConst env op1
+      op2' <- constant2typedLazyConst env op2
+      case (cond', op1', op2') of
+        ([cond''], [op1''], [op2'']) -> constantSelect cond'' op1'' op2''
+        _ -> assumptError $ "Selection not suported for vectors yer. Found operands \n\tCOND: " ++ show cond
+             ++ "\n\tOP1: " ++ show op1
+             ++ "\n\tOP2: " ++ show op2
     c -> implError $ "Constant not supported yet for global initializers: " ++ show c
   where
     zeroByte = mkTypedLazyConst 0 W1
-
+    singleton a = [a]
+  
+    constantSelect :: TypedLazyConst -> TypedLazyConst -> TypedLazyConst -> Statefully [TypedLazyConst]
+    constantSelect (TypedLazyConst cond wcond _) (TypedLazyConst op1 w1 _) (TypedLazyConst op2 w2 _)
+      | wcond == W1 && w1 == w2 = return $ singleton $
+                                  flip mkTypedLazyConst w1 $
+                                  lazyTop (\cnd a b -> if cnd == 0 then b else a) cond op1 op2 
+      | otherwise = assumptError $ "Wrong width for selection operands. Found operands \n\tCOND: " ++ show wcond
+             ++ "\n\tOP1: " ++ show w1
+             ++ "\n\tOP2: " ++ show w2 
+      
     mkConstatnTyped val bits =
       case bits of
         -- Special case for `i1`/bool.  We represent it as 1 byte wide.  `i1`
@@ -1551,6 +1573,7 @@ bop2typedLazyConst env bop op1 op2 = do
   return [bop op1' op2']
 
 
+
 icmpTypedLazyConst ::
   Env ->
   IntPred.IntegerPredicate ->
@@ -1563,7 +1586,9 @@ icmpTypedLazyConst env pred op1 op2 = do
   op2s <- constant2typedLazyConst env op2
   op2' <- lift $ getUniqueWord op2s
   width <- lift $ intTypeWidth $ typeOf (llvmtTypeEnv env) op1
-  return [typedLazyBop (go width) op1' op2']
+  let result = typedLazyBop (go width) op1' op2'
+  -- ICMP allways returns i1
+  return [changeWidthTLConstant result W1]
   where
     go width = case pred of
       IntPred.EQ  -> lcCompareUnsigned (==)
