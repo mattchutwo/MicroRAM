@@ -241,7 +241,8 @@ parseFlag flag fr =
     -- Back end flags 
     LLVMout (Just llvmOut) ->  fr {llvmFile = llvmOut}
     LLVMout Nothing ->         fr {llvmFile = replaceExtension (fileIn fr) ".ll"}
-    FromLLVM ->                fr {beginning = LLVMLang, llvmFile = fileIn fr} -- In this case we are reading the fileIn
+    FromLLVM ->                fr {beginning = min LLVMLang (beginning fr), llvmFile = fileIn fr} 
+    FromMRAM ->                fr {beginning = min LLVMLang (beginning fr), llvmFile = fileIn fr}
     PrivSegs numSegs ->        fr {privSegs = Just numSegs}
     JustLLVM ->                fr {end = max LLVMLang $ end fr}
     JustMRAM ->                fr {end = max MRAMLang $ end fr}
@@ -277,6 +278,7 @@ options =
   , Option ['O'] ["optimize"]    (OptArg readOpimisation "arg")    "Optimization level of the front end"
   , Option ['o'] ["output"]      (ReqArg Output "FILE")            "Write ouput to file"
   , Option []    ["from-llvm"]   (NoArg FromLLVM)           "Compile only with the backend. Compiles from an LLVM file."
+  , Option []    ["from-mram"]   (NoArg FromMRAM)           "Load the .mram file and only run the interpreter."
   , Option []    ["priv-segs"]   (ReqArg (PrivSegs . read) "arg")           "Number of private segments. " 
   , Option []    ["just-llvm"]   (NoArg JustLLVM)           "Compile only with the frontend. "
   , Option []    ["just-mram","verifier"]   (NoArg JustMRAM)           "Only run the compiler (no interpreter). "
