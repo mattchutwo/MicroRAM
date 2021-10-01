@@ -378,7 +378,7 @@ checkAccess verbose allocState addr = do
     sExt . allocState . asMemErrors  %= (Seq.|> (OutOfBounds, addr))
 
 allocHandler :: forall v r s. (Concretizable v, Regs r) => Bool -> Lens' s AllocState -> InstrHandler' r v s -> InstrHandler' r v s
-allocHandler verbose allocState _nextH (Iextadvise rd (XMalloc sizeOp)) = do
+allocHandler verbose allocState _nextH (Iextadvise rd _ (XMalloc sizeOp)) = do
   size <- conGetValue <$> opVal sizeOp
   let sizeClass = ceilLog2 size
   let size' = 1 `shiftL` sizeClass
@@ -409,9 +409,10 @@ allocHandler verbose allocState _nextH (Iext (XAccessInvalid loOp hiOp)) = do
   sExt . allocState . asValid %= markInvalid lo hi
   when verbose $ traceM $ "invalid: " ++ showHex lo ++ " .. " ++ showHex hi
   finishInstr
-allocHandler _verbose _allocState _nextH (Iextadvise rd (XAdvisePoison _lo _hi)) = do
-  -- Always return 0 (don't poison)
-  sMach . mReg rd .= absExact 0
+allocHandler _verbose _allocState _nextH (Iextadvise rd maxValOp (XAdvisePoison _lo _len)) = do
+  -- Always return maxVal (don't poison)
+  maxVal <- conGetValue <$> opVal maxValOp
+  sMach . mReg rd .= absExact maxVal
   finishInstr
 allocHandler verbose  allocState nextH instr@(Istore _w op2 _r1) = do
   addr <- conGetValue <$>  opVal op2
@@ -451,24 +452,25 @@ doAdvise advice rd val = do
 
 memErrorHandler :: forall r s v. (Concretizable v, Regs r) => Lens' s MemInfo -> Lens' s AdviceMap ->
   InstrHandler' r v s -> InstrHandler' r v s
-memErrorHandler info advice _nextH (Iextadvise rd (XMalloc _size)) = do
+memErrorHandler info advice _nextH (Iextadvise rd _ (XMalloc _size)) = do
   val <- maybe (assumptError "ran out of malloc addrs") return =<<
     use (sExt . info . miMallocAddrs . to (Seq.lookup 0))
   sExt . info . miMallocAddrs %= Seq.drop 1
   doAdvise advice rd val
   finishInstr
-memErrorHandler info advice _nextH (Iextadvise rd (XAdvisePoison loOp hiOp)) = do
+memErrorHandler info advice _nextH (Iextadvise rd _ (XAdvisePoison loOp lenOp)) = do
   lo <- conGetValue <$> opVal loOp
-  hi <- conGetValue <$> opVal hiOp
+  len <- conGetValue <$> opVal lenOp
+  let hi = lo + len
   addrs <- use $ sExt . info . miPoisonAddrs
   -- Find an address where the entire word at `addr` fits within `lo .. hi`.
   case Set.lookupGE lo addrs of
     Just addr | addr + fromIntegral wordBytes <= hi -> do
-      doAdvise advice rd addr
+      doAdvise advice rd (addr - lo)
       -- Poisoning a second time would be a prover error.
       sExt . info . miPoisonAddrs %= Set.delete addr
     _ -> do
-      doAdvise advice rd 0
+      doAdvise advice rd (hi - lo)
   finishInstr
 memErrorHandler _info _advice nextH instr = nextH instr
 

@@ -25,6 +25,8 @@ import           Control.Monad
 import           Data.ByteString.Short (ShortByteString)
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
+
+import           Data.Bits
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set (member, fromList) 
@@ -86,8 +88,9 @@ cc_trap desc _ _ md _ = return [
   MirM (Iext (XTrace ("Trap: " <> desc) [])) md,
   MirM (Ianswer (LImm $ SConst 0)) md] -- TODO
 
-cc_malloc :: IntrinsicImpl m w
-cc_malloc [size] (Just dest) md _ = return [MirM (Iextadvise dest (XMalloc size)) md]
+cc_malloc :: (Num w, Bits w) => IntrinsicImpl m w
+cc_malloc [size] (Just dest) md _ = return [
+  MirM (Iextadvise dest (LImm $ SConst $ complement 0) (XMalloc size)) md]
 cc_malloc _ _ _ _ = progError "bad arguments"
 
 cc_access_valid :: IntrinsicImpl m w
@@ -98,10 +101,10 @@ cc_access_invalid :: IntrinsicImpl m w
 cc_access_invalid [lo, hi] Nothing md _ = return [MirM (Iext (XAccessInvalid lo hi)) md]
 cc_access_invalid _ _ _ _ = progError "bad arguments"
 
-cc_advise_poison :: IntrinsicImpl m w
-cc_advise_poison [lo, hi] (Just dest) md _ =
-  return [MirM (Iextadvise dest (XAdvisePoison lo hi)) md]
-cc_advise_poison _ _ _ _ = progError "bad arguments"
+cc_advise_poison_offset :: IntrinsicImpl m w
+cc_advise_poison_offset [lo, len] (Just dest) md _ =
+  return [MirM (Iextadvise dest len (XAdvisePoison lo len)) md]
+cc_advise_poison_offset _ _ _ _ = progError "bad arguments"
 
 cc_write_and_poison :: IntrinsicImpl m w
 cc_write_and_poison [ptr, val] Nothing md _ =
@@ -186,7 +189,7 @@ intrinsicsList =
   , ("@__cc_malloc", cc_malloc)
   , ("@__cc_access_valid", cc_access_valid)
   , ("@__cc_access_invalid", cc_access_invalid)
-  , ("@__cc_advise_poison", cc_advise_poison)
+  , ("@__cc_advise_poison_offset", cc_advise_poison_offset)
   , ("@__cc_write_and_poison", cc_write_and_poison)
   , ("@__cc_read_unchecked", cc_read_unchecked)
   , ("@__cc_write_unchecked", cc_write_unchecked)

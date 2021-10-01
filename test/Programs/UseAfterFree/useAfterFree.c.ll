@@ -36,112 +36,86 @@ define dso_local i32 @main() local_unnamed_addr #0 {
   tail call void @__cc_write_and_poison(i64* nonnull %15, i64 1) #5
   %16 = getelementptr inbounds i8, i8* %1, i64 12
   tail call void @__cc_access_valid(i8* %1, i8* nonnull %16) #5
-  %17 = tail call i64* @__cc_advise_poison(i8* nonnull %16, i8* nonnull %14) #5
-  %18 = icmp eq i64* %17, null
-  br i1 %18, label %malloc.exit, label %19
+  %17 = ptrtoint i8* %14 to i64
+  %18 = ptrtoint i8* %16 to i64
+  %19 = sub i64 %17, %18
+  %20 = tail call i64 @__cc_advise_poison_offset(i8* nonnull %16, i64 %19) #5
+  %21 = icmp ult i64 %20, %19
+  br i1 %21, label %22, label %malloc.exit
 
-19:                                               ; preds = %12
-  %20 = ptrtoint i64* %17 to i64
-  %21 = and i64 %20, 7
-  %22 = icmp eq i64 %21, 0
-  br i1 %22, label %24, label %23
+22:                                               ; preds = %12
+  %23 = getelementptr inbounds i8, i8* %16, i64 %20
+  %24 = bitcast i8* %23 to i64*
+  %25 = ptrtoint i8* %23 to i64
+  %26 = and i64 %25, 7
+  %27 = icmp eq i64 %26, 0
+  br i1 %27, label %29, label %28
 
-23:                                               ; preds = %19
+28:                                               ; preds = %22
   tail call void @__cc_flag_invalid() #5
-  br label %24
+  br label %29
 
-24:                                               ; preds = %23, %19
-  %25 = bitcast i64* %17 to i8*
-  %26 = icmp ugt i8* %16, %25
-  br i1 %26, label %27, label %28
-
-27:                                               ; preds = %24
-  tail call void @__cc_flag_invalid() #5
-  br label %28
-
-28:                                               ; preds = %27, %24
-  %29 = icmp ult i64* %17, %15
-  br i1 %29, label %31, label %30
-
-30:                                               ; preds = %28
-  tail call void @__cc_flag_invalid() #5
-  br label %31
-
-31:                                               ; preds = %30, %28
-  tail call void @__cc_write_and_poison(i64* nonnull %17, i64 0) #5
+29:                                               ; preds = %28, %22
+  tail call void @__cc_write_and_poison(i64* nonnull %24, i64 0) #5
   br label %malloc.exit
 
-malloc.exit:                                      ; preds = %12, %31
-  %32 = bitcast i8* %1 to i32*
-  store i32 21, i32* %32, align 4, !tbaa !4
-  %33 = getelementptr inbounds i8, i8* %1, i64 4
-  %34 = bitcast i8* %33 to i32*
-  store i32 22, i32* %34, align 4, !tbaa !4
-  %35 = load i32, i32* @SECRET_NUMBER, align 4, !tbaa !4
-  %36 = getelementptr inbounds i8, i8* %1, i64 8
-  %37 = bitcast i8* %36 to i32*
-  store i32 %35, i32* %37, align 4, !tbaa !4
-  %38 = load i32, i32* @SECRET_BOUND, align 4, !tbaa !4
-  %39 = icmp slt i32 %38, 145
-  br i1 %39, label %40, label %60
+malloc.exit:                                      ; preds = %12, %29
+  %30 = bitcast i8* %1 to i32*
+  store i32 21, i32* %30, align 4, !tbaa !4
+  %31 = getelementptr inbounds i8, i8* %1, i64 4
+  %32 = bitcast i8* %31 to i32*
+  store i32 22, i32* %32, align 4, !tbaa !4
+  %33 = load i32, i32* @SECRET_NUMBER, align 4, !tbaa !4
+  %34 = getelementptr inbounds i8, i8* %1, i64 8
+  %35 = bitcast i8* %34 to i32*
+  store i32 %33, i32* %35, align 4, !tbaa !4
+  %36 = load i32, i32* @SECRET_BOUND, align 4, !tbaa !4
+  %37 = icmp slt i32 %36, 145
+  br i1 %37, label %38, label %54
 
-40:                                               ; preds = %malloc.exit
-  br i1 %10, label %42, label %41
+38:                                               ; preds = %malloc.exit
+  br i1 %10, label %40, label %39
 
-41:                                               ; preds = %40
+39:                                               ; preds = %38
   tail call void @__cc_flag_bug() #5
-  br label %42
+  br label %40
 
-42:                                               ; preds = %41, %40
+40:                                               ; preds = %39, %38
   store i8 0, i8* %1, align 1, !tbaa !8
   tail call void @__cc_access_invalid(i8* nonnull %1, i8* nonnull %13) #5
-  %43 = tail call i64* @__cc_advise_poison(i8* nonnull %1, i8* nonnull %14) #5
-  %44 = icmp eq i64* %43, null
-  br i1 %44, label %free.exit, label %45
+  %41 = add i64 %4, -16
+  %42 = tail call i64 @__cc_advise_poison_offset(i8* nonnull %1, i64 %41) #5
+  %43 = icmp ult i64 %42, %41
+  br i1 %43, label %44, label %free.exit
 
-45:                                               ; preds = %42
-  %46 = ptrtoint i64* %43 to i64
-  %47 = and i64 %46, 7
-  %48 = icmp eq i64 %47, 0
-  br i1 %48, label %50, label %49
+44:                                               ; preds = %40
+  %45 = getelementptr inbounds i8, i8* %1, i64 %42
+  %46 = bitcast i8* %45 to i64*
+  %47 = ptrtoint i8* %45 to i64
+  %48 = and i64 %47, 7
+  %49 = icmp eq i64 %48, 0
+  br i1 %49, label %51, label %50
 
-49:                                               ; preds = %45
+50:                                               ; preds = %44
   tail call void @__cc_flag_invalid() #5
-  br label %50
+  br label %51
 
-50:                                               ; preds = %49, %45
-  %51 = bitcast i64* %43 to i8*
-  %52 = icmp ugt i8* %1, %51
-  br i1 %52, label %53, label %54
-
-53:                                               ; preds = %50
-  tail call void @__cc_flag_invalid() #5
-  br label %54
-
-54:                                               ; preds = %53, %50
-  %55 = icmp ult i64* %43, %15
-  br i1 %55, label %57, label %56
-
-56:                                               ; preds = %54
-  tail call void @__cc_flag_invalid() #5
-  br label %57
-
-57:                                               ; preds = %56, %54
-  tail call void @__cc_write_and_poison(i64* nonnull %43, i64 0) #5
+51:                                               ; preds = %50, %44
+  tail call void @__cc_write_and_poison(i64* nonnull %46, i64 0) #5
   br label %free.exit
 
-free.exit:                                        ; preds = %42, %57
-  %58 = load i32, i32* @SECRET_BOUND, align 4, !tbaa !4
-  %59 = icmp sgt i32 %58, 143
-  br i1 %59, label %free.exit._crit_edge, label %60
+free.exit:                                        ; preds = %40, %51
+  %52 = load i32, i32* @SECRET_BOUND, align 4, !tbaa !4
+  %53 = icmp sgt i32 %52, 143
+  br i1 %53, label %free.exit._crit_edge, label %54
 
 free.exit._crit_edge:                             ; preds = %free.exit
-  %.pre = load i32, i32* %37, align 4, !tbaa !4
-  br label %60
+  %.pre = load i32, i32* %35, align 4, !tbaa !4
+  br label %54
 
-60:                                               ; preds = %malloc.exit, %free.exit._crit_edge, %free.exit
-  %61 = phi i32 [ 22, %free.exit ], [ %.pre, %free.exit._crit_edge ], [ %35, %malloc.exit ]
-  ret i32 %61
+54:                                               ; preds = %malloc.exit, %free.exit._crit_edge, %free.exit
+  %55 = phi i32 [ 22, %free.exit ], [ %.pre, %free.exit._crit_edge ], [ %33, %malloc.exit ]
+  ret i32 %55
 }
 
 declare dso_local i8* @__cc_malloc(i64) local_unnamed_addr #1
@@ -152,7 +126,7 @@ declare dso_local void @__cc_write_and_poison(i64*, i64) local_unnamed_addr #1
 
 declare dso_local void @__cc_access_valid(i8*, i8*) local_unnamed_addr #1
 
-declare dso_local i64* @__cc_advise_poison(i8*, i8*) local_unnamed_addr #1
+declare dso_local i64 @__cc_advise_poison_offset(i8*, i64) local_unnamed_addr #1
 
 declare dso_local void @__cc_flag_bug() local_unnamed_addr #1
 

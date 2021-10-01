@@ -74,51 +74,39 @@ define internal fastcc noalias %struct.node* @new_node(i32, i32) unnamed_addr #0
   tail call void @__cc_write_and_poison(i64* nonnull %17, i64 1) #5
   %18 = getelementptr inbounds i8, i8* %3, i64 24
   tail call void @__cc_access_valid(i8* %3, i8* nonnull %18) #5
-  %19 = tail call i64* @__cc_advise_poison(i8* nonnull %18, i8* nonnull %16) #5
-  %20 = icmp eq i64* %19, null
-  br i1 %20, label %malloc.exit, label %21
+  %19 = ptrtoint i8* %16 to i64
+  %20 = ptrtoint i8* %18 to i64
+  %21 = sub i64 %19, %20
+  %22 = tail call i64 @__cc_advise_poison_offset(i8* nonnull %18, i64 %21) #5
+  %23 = icmp ult i64 %22, %21
+  br i1 %23, label %24, label %malloc.exit
 
-21:                                               ; preds = %14
-  %22 = ptrtoint i64* %19 to i64
-  %23 = and i64 %22, 7
-  %24 = icmp eq i64 %23, 0
-  br i1 %24, label %26, label %25
+24:                                               ; preds = %14
+  %25 = getelementptr inbounds i8, i8* %18, i64 %22
+  %26 = bitcast i8* %25 to i64*
+  %27 = ptrtoint i8* %25 to i64
+  %28 = and i64 %27, 7
+  %29 = icmp eq i64 %28, 0
+  br i1 %29, label %31, label %30
 
-25:                                               ; preds = %21
+30:                                               ; preds = %24
   tail call void @__cc_flag_invalid() #5
-  br label %26
+  br label %31
 
-26:                                               ; preds = %25, %21
-  %27 = bitcast i64* %19 to i8*
-  %28 = icmp ugt i8* %18, %27
-  br i1 %28, label %29, label %30
-
-29:                                               ; preds = %26
-  tail call void @__cc_flag_invalid() #5
-  br label %30
-
-30:                                               ; preds = %29, %26
-  %31 = icmp ult i64* %19, %17
-  br i1 %31, label %33, label %32
-
-32:                                               ; preds = %30
-  tail call void @__cc_flag_invalid() #5
-  br label %33
-
-33:                                               ; preds = %32, %30
-  tail call void @__cc_write_and_poison(i64* nonnull %19, i64 0) #5
+31:                                               ; preds = %30, %24
+  tail call void @__cc_write_and_poison(i64* nonnull %26, i64 0) #5
   br label %malloc.exit
 
-malloc.exit:                                      ; preds = %14, %33
-  %34 = bitcast i8* %3 to %struct.node*
-  %35 = bitcast i8* %3 to i32*
-  store i32 %0, i32* %35, align 8, !tbaa !8
-  %36 = getelementptr inbounds i8, i8* %3, i64 4
-  %37 = bitcast i8* %36 to i32*
-  store i32 %1, i32* %37, align 4, !tbaa !11
-  %38 = getelementptr inbounds i8, i8* %3, i64 8
-  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 8 %38, i8 0, i64 16, i1 false)
-  ret %struct.node* %34
+malloc.exit:                                      ; preds = %14, %31
+  %32 = bitcast i8* %3 to %struct.node*
+  %33 = bitcast i8* %3 to i32*
+  store i32 %0, i32* %33, align 8, !tbaa !8
+  %34 = getelementptr inbounds i8, i8* %3, i64 4
+  %35 = bitcast i8* %34 to i32*
+  store i32 %1, i32* %35, align 4, !tbaa !11
+  %36 = getelementptr inbounds i8, i8* %3, i64 8
+  tail call void @llvm.memset.p0i8.i64(i8* nonnull align 8 %36, i8 0, i64 16, i1 false)
+  ret %struct.node* %32
 }
 
 ; Function Attrs:  nounwind uwtable
@@ -159,7 +147,7 @@ declare dso_local void @__cc_write_and_poison(i64*, i64) local_unnamed_addr #1
 
 declare dso_local void @__cc_access_valid(i8*, i8*) local_unnamed_addr #1
 
-declare dso_local i64* @__cc_advise_poison(i8*, i8*) local_unnamed_addr #1
+declare dso_local i64 @__cc_advise_poison_offset(i8*, i64) local_unnamed_addr #1
 
 ; Function Attrs: argmemonly nounwind
 declare void @llvm.memset.p0i8.i64(i8* nocapture writeonly, i8, i64, i1 immarg) #2

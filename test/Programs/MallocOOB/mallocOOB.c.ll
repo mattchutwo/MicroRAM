@@ -40,57 +40,45 @@ define dso_local i32 @main() local_unnamed_addr #0 {
   tail call void @__cc_write_and_poison(i64* nonnull %19, i64 1) #5
   %20 = getelementptr inbounds i8, i8* %4, i64 %3
   tail call void @__cc_access_valid(i8* %4, i8* %20) #5
-  %21 = tail call i64* @__cc_advise_poison(i8* %20, i8* nonnull %18) #5
-  %22 = icmp eq i64* %21, null
-  br i1 %22, label %malloc.exit, label %23
+  %21 = ptrtoint i8* %18 to i64
+  %22 = ptrtoint i8* %20 to i64
+  %23 = sub i64 %21, %22
+  %24 = tail call i64 @__cc_advise_poison_offset(i8* %20, i64 %23) #5
+  %25 = icmp ult i64 %24, %23
+  br i1 %25, label %26, label %malloc.exit
 
-23:                                               ; preds = %16
-  %24 = ptrtoint i64* %21 to i64
-  %25 = and i64 %24, 7
-  %26 = icmp eq i64 %25, 0
-  br i1 %26, label %28, label %27
+26:                                               ; preds = %16
+  %27 = getelementptr inbounds i8, i8* %20, i64 %24
+  %28 = bitcast i8* %27 to i64*
+  %29 = ptrtoint i8* %27 to i64
+  %30 = and i64 %29, 7
+  %31 = icmp eq i64 %30, 0
+  br i1 %31, label %33, label %32
 
-27:                                               ; preds = %23
+32:                                               ; preds = %26
   tail call void @__cc_flag_invalid() #5
-  br label %28
+  br label %33
 
-28:                                               ; preds = %27, %23
-  %29 = bitcast i64* %21 to i8*
-  %30 = icmp ugt i8* %20, %29
-  br i1 %30, label %31, label %32
-
-31:                                               ; preds = %28
-  tail call void @__cc_flag_invalid() #5
-  br label %32
-
-32:                                               ; preds = %31, %28
-  %33 = icmp ult i64* %21, %19
-  br i1 %33, label %35, label %34
-
-34:                                               ; preds = %32
-  tail call void @__cc_flag_invalid() #5
-  br label %35
-
-35:                                               ; preds = %34, %32
-  tail call void @__cc_write_and_poison(i64* nonnull %21, i64 0) #5
+33:                                               ; preds = %32, %26
+  tail call void @__cc_write_and_poison(i64* %28, i64 0) #5
   br label %malloc.exit
 
-malloc.exit:                                      ; preds = %16, %35
-  %36 = bitcast i8* %4 to i32*
-  store i32 21, i32* %36, align 4, !tbaa !4
-  %37 = getelementptr inbounds i8, i8* %4, i64 4
+malloc.exit:                                      ; preds = %16, %33
+  %34 = bitcast i8* %4 to i32*
+  store i32 21, i32* %34, align 4, !tbaa !4
+  %35 = getelementptr inbounds i8, i8* %4, i64 4
+  %36 = bitcast i8* %35 to i32*
+  store i32 22, i32* %36, align 4, !tbaa !4
+  %37 = getelementptr inbounds i8, i8* %4, i64 8
   %38 = bitcast i8* %37 to i32*
-  store i32 22, i32* %38, align 4, !tbaa !4
-  %39 = getelementptr inbounds i8, i8* %4, i64 8
-  %40 = bitcast i8* %39 to i32*
-  store i32 23, i32* %40, align 4, !tbaa !4
-  %41 = load i32, i32* @SECRET_NUMBER, align 4, !tbaa !4
-  %42 = getelementptr inbounds i8, i8* %4, i64 16
-  %43 = bitcast i8* %42 to i32*
-  store i32 %41, i32* %43, align 4, !tbaa !4
-  %44 = getelementptr inbounds i32, i32* %36, i64 %2
-  %45 = load i32, i32* %44, align 4, !tbaa !4
-  ret i32 %45
+  store i32 23, i32* %38, align 4, !tbaa !4
+  %39 = load i32, i32* @SECRET_NUMBER, align 4, !tbaa !4
+  %40 = getelementptr inbounds i8, i8* %4, i64 16
+  %41 = bitcast i8* %40 to i32*
+  store i32 %39, i32* %41, align 4, !tbaa !4
+  %42 = getelementptr inbounds i32, i32* %34, i64 %2
+  %43 = load i32, i32* %42, align 4, !tbaa !4
+  ret i32 %43
 }
 
 declare dso_local i8* @__cc_malloc(i64) local_unnamed_addr #1
@@ -101,7 +89,7 @@ declare dso_local void @__cc_write_and_poison(i64*, i64) local_unnamed_addr #1
 
 declare dso_local void @__cc_access_valid(i8*, i8*) local_unnamed_addr #1
 
-declare dso_local i64* @__cc_advise_poison(i8*, i8*) local_unnamed_addr #1
+declare dso_local i64 @__cc_advise_poison_offset(i8*, i64) local_unnamed_addr #1
 
 ; Function Attrs:  norecurse nounwind uwtable
 define dso_local void @__llvm__memcpy__p0i8__p0i8__i64(i8* nocapture, i8* nocapture readonly, i64) local_unnamed_addr #2 {

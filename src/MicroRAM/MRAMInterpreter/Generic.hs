@@ -190,7 +190,7 @@ stepInstr i = do
     Iread rd op2 -> stepRead rd op2
     Ianswer op2  -> stepAnswer op2
 
-    Iadvise _ -> assumptError $ "unhandled advice request"
+    Iadvise _ _ -> assumptError $ "unhandled advice request"
 
     Itaint w rj op2 -> stepTaint w rj op2
     Isink  w rj op2 -> stepSink w rj op2

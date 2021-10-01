@@ -445,7 +445,7 @@ maybeStepInstr i = case i of
     val <- opVal op2
     return $ Just $ SrAnswer val
 
-  Iextadvise rd ext -> case ext of
+  Iextadvise rd _maxVal ext -> case ext of
     XAdvisePoison _lo _hi -> do
       sMach . mReg rd .= VTop
       finishInstr
