@@ -81,6 +81,7 @@ main = do
               handleErrorWith (compile
                 undefinedFunctions
                 (modeLeakTainted fr)
+                (skipRegisterAllocation fr)
                 trLength
                 llvmModule
                 (spars fr)
@@ -162,6 +163,7 @@ data Flag
    | PrettyPrint
    | PubSegMode String
    | ModeFlag Mode
+   | SkipRegisterAllocation
    -- Interpreter flags
    | FromMRAM
    | Output String
@@ -195,6 +197,7 @@ data FlagRecord = FlagRecord
   , ppMRAM :: Bool
   , pubSegMode :: PublicSegmentMode
   , modeLeakTainted :: Bool
+  , skipRegisterAllocation :: Bool
   -- Interpreter
   , fileOut :: Maybe String
   , end :: Stages
@@ -224,6 +227,7 @@ defaultFlags name len =
   , ppMRAM = False
   , pubSegMode = PsmFunctionCalls
   , modeLeakTainted = False
+  , skipRegisterAllocation = False
   -- Interpreter
   , fileOut   = Nothing
   , end       = FullOutput
@@ -253,6 +257,7 @@ parseFlag flag fr =
     PubSegMode "abs-int" ->    fr {pubSegMode = PsmAbsInt}
     PubSegMode x ->            error $ "unsupported public segment mode: " ++ show x
     ModeFlag LeakTaintedMode -> fr {modeLeakTainted = True}
+    SkipRegisterAllocation ->   fr {skipRegisterAllocation = True}
     -- Interpreter flags
     FromMRAM ->                 fr {beginning = MRAMLang} -- In this case we are reading the fileIn
     MRAMout (Just outFile) ->   fr {mramFile = Just outFile}
@@ -290,6 +295,7 @@ options =
   , Option []    ["pretty-print"] (NoArg PrettyPrint)          "Pretty print the MicroRAM program with metadata."
   , Option []    ["pub-seg-mode"] (ReqArg PubSegMode "MODE")   "Public segment generation mode, one of: none, function-calls, abs-int"
   , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")              "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
+  , Option []    ["debug-skip-register-allocation"]   (NoArg SkipRegisterAllocation)    "Skip register allocation. Should only be used while debugging."
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)

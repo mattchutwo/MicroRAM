@@ -10,7 +10,7 @@ Description : Lay Arguments
 Maintainer  : 
 Stability   : 
 
-Lays argument sin the activation stack. This
+Lays arguments in the activation stack. This
 pass goes from RTL -> LTL
 
 After this pass, function arguments are passed in an abstract

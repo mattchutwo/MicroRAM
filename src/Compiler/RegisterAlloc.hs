@@ -16,7 +16,6 @@ Register allocation
 -}
 module Compiler.RegisterAlloc
     ( registerAlloc
-    , trivialRegisterAlloc -- FIXME : remove when reg alloc completed
     , AReg
     , RegisterAllocOptions(..)
     ) where
@@ -60,10 +59,12 @@ instance Default RegisterAllocOptions where
 type AReg = Int
 type Registers = [AReg]
 
-registerAlloc :: RegisterAllocOptions
+registerAlloc :: Bool
+              -> RegisterAllocOptions
               -> CompilationUnit a (Lprog Metadata VReg MWord)
               -> Hopefully $ CompilationUnit a (Lprog Metadata AReg MWord)
-registerAlloc opt comp = do
+registerAlloc True                    _   comp = skipRegisterAlloc comp
+registerAlloc _skipRegisterAllocation opt comp = do
   let regData = NumRegisters $ fromEnum numRegisters
   lprog   <- registerAllocProg (pmProg $ programCU comp)
   return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData}
@@ -87,13 +88,17 @@ registerAlloc opt comp = do
 
       
     -- Available registers.
-    -- First three registers are reserved.
     numRegisters = registerAllocNumRegisters opt
     registers :: Registers
-    registers = [3..(fromIntegral numRegisters)-1]
+    registers = [firstAvailableRegister..(fromIntegral numRegisters)-1]
 
-    setCode :: Lprog Metadata reg0 MWord -> [LFunction Metadata reg MWord] -> Lprog Metadata reg MWord
-    setCode (IRprog tenv globals _) code = IRprog tenv globals code
+-- First three registers are reserved.
+firstAvailableRegister :: Int
+firstAvailableRegister = 3
+
+
+setCode :: Lprog Metadata reg0 MWord -> [LFunction Metadata reg MWord] -> Lprog Metadata reg MWord
+setCode (IRprog tenv globals _) code = IRprog tenv globals code
 
 -- Register allocator state.
 data RAState = RAState {
@@ -125,9 +130,6 @@ registerAllocFunc spillBound registers (LFunction name typ typs argNms stackSize
     -- argRegisters =
     --     let numArgs = length typs in
     --     Set.fromList $ map (Name . BSS.pack . pure . c2w . intToDigit) [0..(numArgs-1)]
-
-    extractRegisters :: Ord reg => BB name (LTLInstr Metadata reg wrdT) -> Set reg
-    extractRegisters (BB _ insts insts' _) = Set.unions $ map (\i -> readRegisters i <> writeRegisters i) (insts' ++ insts)
 
 
     registerAllocFunc' :: Name -> [BB (Name, Int) (LTLInstr Metadata VReg wrdT)] -> StateT RAState Hopefully [BB (Name, Int) (LTLInstr Metadata AReg wrdT)]
@@ -184,6 +186,9 @@ registerAllocFunc spillBound registers (LFunction name typ typs argNms stackSize
     --   Set.toList $ Set.unions $ map (\(BB _ insts insts' _) -> 
     --       Set.unions $ map (\i -> Set.union (readRegisters i) (writeRegisters i)) $ insts ++ insts'
     --     ) blocks
+
+extractRegisters :: Ord reg => BB name (LTLInstr Metadata reg wrdT) -> Set reg
+extractRegisters (BB _ insts insts' _) = Set.unions $ map (\i -> readRegisters i <> writeRegisters i) (insts' ++ insts)
 
 
 
@@ -407,11 +412,24 @@ computeInterferenceGraph liveness allRegs = -- argRegs =
 
 
 
+skipRegisterAlloc :: CompilationUnit a (Lprog Metadata VReg MWord)
+                  -> Hopefully (CompilationUnit a (Lprog Metadata AReg MWord))
+skipRegisterAlloc comp = do
+  (lprog, registerC) <- skipRegisterAllocProg $ pmProg $ programCU comp
+  return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = NumRegisters registerC}
+
+  where
+    skipRegisterAllocProg :: Lprog Metadata VReg MWord -> Hopefully (Lprog Metadata AReg MWord, Int)
+    skipRegisterAllocProg lprog = do
+      (code', registerCounts) <- fmap unzip $ mapM skipRegisterAllocFunc $ code lprog
+      return (setCode lprog code', foldr1 max registerCounts)
+
+    skipRegisterAllocFunc :: LFunction Metadata VReg wrd -> Hopefully (LFunction Metadata AReg wrd, Int)
+    skipRegisterAllocFunc (LFunction name typ typs argNms stackSize' blocks') = do
+      let allRegisters = Set.toList $ Set.unions $ map extractRegisters blocks'
+      let coloring = Map.fromList $ zip allRegisters [firstAvailableRegister..]
+      blocks <- applyColoring coloring blocks'
+      return (LFunction name typ typs argNms stackSize' blocks, firstAvailableRegister + Map.size coloring)
 
 
 
--- * Triviall allocation: we provide a pass that erases the code. Usefull for early testing.
--- FIXME: remove this once registerAlloc is implemented and can be tested!
-
-trivialRegisterAlloc :: Rprog String MWord -> Hopefully $ Lprog String VReg MWord
-trivialRegisterAlloc = rtlToLtl

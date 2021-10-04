@@ -350,7 +350,7 @@ jpProgComp len = do
     >>= (justCompileWithNames edgeSplit)
     >>= (justCompileWithNames removePhi)
     >>= (justCompileWithNamesSt layArgs)
-    >>= (registerAlloc def)
+    >>= (registerAlloc False def)
     >>= (justCompile callingConvention)
     >>= (replaceGlobals False)
     >>= (justCompileWithNames stacking)
@@ -393,7 +393,7 @@ jpProgComp'
 jpProgComp' len = do
   m <- fromLLVMFile "test/programs/varArgs.ll"
   return $ either (error . show) id $
-    compile False False len m Nothing
+    compile False False False len m Nothing
 
 -- printProg (fmap lowProg p)
 -- let t = run $ fmap (fmap $ fmap $ fmap fst) p
