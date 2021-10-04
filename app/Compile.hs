@@ -51,6 +51,7 @@ main = do
                 else read <$> readFile (fileIn fr)
   when (ppMRAM fr) $ putStr $ microPrint (pmProg $ lowProg $ programCU microProg)
   saveMramProgram fr microProg
+  when (end fr >= MRAMLang) $ exitWith ExitSuccess 
   -- --------------
   -- POST PROCESS
   -- --------------
@@ -241,8 +242,7 @@ parseFlag flag fr =
     -- Back end flags 
     LLVMout (Just llvmOut) ->  fr {llvmFile = llvmOut}
     LLVMout Nothing ->         fr {llvmFile = replaceExtension (fileIn fr) ".ll"}
-    FromLLVM ->                fr {beginning = min LLVMLang (beginning fr), llvmFile = fileIn fr} 
-    FromMRAM ->                fr {beginning = min LLVMLang (beginning fr), llvmFile = fileIn fr}
+    FromLLVM ->                fr {beginning = min LLVMLang (beginning fr), llvmFile = fileIn fr}
     PrivSegs numSegs ->        fr {privSegs = Just numSegs}
     JustLLVM ->                fr {end = max LLVMLang $ end fr}
     JustMRAM ->                fr {end = max MRAMLang $ end fr}
@@ -272,25 +272,24 @@ parseOptions filein len flags = do
   
 options :: [OptDescr Flag]
 options =
-  [ Option ['h'] ["help"]        (NoArg Help)               "Print this help message"
+  [ Option ['h'] ["help"]        (NoArg Help)                      "Print this help message"
   , Option []    ["llvm-out"]    (OptArg LLVMout "FILE")           "Save the llvm IR to file"
   , Option []    ["mram-out"]    (OptArg MRAMout "FILE")           "Save the compiled MicroRAM program to file"
   , Option ['O'] ["optimize"]    (OptArg readOpimisation "arg")    "Optimization level of the front end"
   , Option ['o'] ["output"]      (ReqArg Output "FILE")            "Write ouput to file"
-  , Option []    ["from-llvm"]   (NoArg FromLLVM)           "Compile only with the backend. Compiles from an LLVM file."
-  , Option []    ["from-mram"]   (NoArg FromMRAM)           "Load the .mram file and only run the interpreter."
-  , Option []    ["priv-segs"]   (ReqArg (PrivSegs . read) "arg")           "Number of private segments. " 
-  , Option []    ["just-llvm"]   (NoArg JustLLVM)           "Compile only with the frontend. "
-  , Option []    ["just-mram","verifier"]   (NoArg JustMRAM)           "Only run the compiler (no interpreter). "
-  , Option []    ["from-mram"]   (NoArg FromMRAM)           "Only run the interpreter from a compiled MicroRAM file."
-  , Option ['v'] ["verbose"]     (NoArg Verbose)            "Chatty compiler"
-  , Option []    ["pretty-hex"]  (NoArg PrettyHex)               "Pretty print the CBOR output. Won't work if writting to file. "
-  , Option []    ["flat-hex"]    (NoArg FlatFormat)               "Output in flat CBOR format. Won't work if writting to file. "
+  , Option []    ["from-llvm"]   (NoArg FromLLVM)                  "Compile only with the backend. Compiles from an LLVM file."
+  , Option []    ["priv-segs"]   (ReqArg (PrivSegs . read) "arg")  "Number of private segments. " 
+  , Option []    ["just-llvm"]   (NoArg JustLLVM)                  "Compile only with the frontend. "
+  , Option []    ["just-mram","verifier"]   (NoArg JustMRAM)       "Only run the compiler (no interpreter). "
+  , Option []    ["from-mram","interpreter"]   (NoArg FromMRAM)    "Only run the interpreter from a compiled MicroRAM file."
+  , Option ['v'] ["verbose"]     (NoArg Verbose)                   "Chatty compiler"
+  , Option []    ["pretty-hex"]  (NoArg PrettyHex)                 "Pretty print the CBOR output. Won't work if writting to file. "
+  , Option []    ["flat-hex"]    (NoArg FlatFormat)                "Output in flat CBOR format. Won't work if writting to file. "
   , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
   , Option ['s'] ["sparsity"]    (ReqArg (\s -> MemSparsity $ read s) "MEM SARSITY")               "check the result"
-  , Option []    ["allow-undef"] (NoArg AllowUndefFun)          "Allow declared functions with no body."
-  , Option []    ["pretty-print"] (NoArg PrettyPrint)          "Pretty print the MicroRAM program with metadata."
-  , Option []    ["pub-seg-mode"] (ReqArg PubSegMode "MODE")   "Public segment generation mode, one of: none, function-calls, abs-int"
+  , Option []    ["allow-undef"] (NoArg AllowUndefFun)             "Allow declared functions with no body."
+  , Option []    ["pretty-print"] (NoArg PrettyPrint)              "Pretty print the MicroRAM program with metadata."
+  , Option []    ["pub-seg-mode"] (ReqArg PubSegMode "MODE")       "Public segment generation mode, one of: none, function-calls, abs-int"
   , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")              "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
   ]
   where readOpimisation Nothing = Optimisation 1

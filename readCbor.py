@@ -25,6 +25,7 @@ trace = cbor.load(open(file, 'rb'))[2]["trace"]
 segs_used = [seg for seg, states in trace]
 
 dupSegs = [dup for dup in set(segs_used) if segs_used.count(dup)>1]
+print("Program length ", len(program))
 print(len(segs_used), 'used segments. ', len(set(segs_used)), 'distinct used segments')
 print("Duplicated segments: " , dupSegs)
 
