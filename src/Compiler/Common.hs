@@ -41,6 +41,7 @@ module Compiler.Common (
 
 import Data.ByteString.Short (ShortByteString, fromShort, toShort) 
 import qualified Data.ByteString.UTF8 as BSU
+import           Data.Char (isDigit)
 
 import qualified Data.Map as Map
 
@@ -154,9 +155,12 @@ instance Show Name where
   show (Name n dbgName) = (short2string dbgName) <> "#" <> (show n)
 
 instance Read Name where
-  readsPrec _ txt = case splitLast '#' txt of
-                      Right (dbgName, nTxt) -> [(Name (read nTxt) (string2short dbgName), "")]
-                      Left _ -> error $  "Malformed variable name: " <> txt 
+  readsPrec _ txt = case span (/= '#') txt of
+                      (dbgName, '#':rest1) ->
+                        let (nTxt, rest2) = span isDigit rest1
+                            name = Name (read nTxt) (string2short dbgName) in
+                          [(name, rest2)]
+                      _ -> error ("Malformed variable name: " <> txt) 
     where splitLast :: Eq a => a -> [a] -> Either [a] ([a],[a])
           splitLast c' = foldr go (Left [])
             where
@@ -183,7 +187,7 @@ spName = Name 0 "sp"
 bpName = Name 1 "bp"
 axName = Name 2 "ax"
 defaultName, premainName, mainName, va_startName :: Name
-defaultName  = Name 3 "DefaultName-ShouldNeverAppearOnCode"
+defaultName  = Name 3 "DefaultName" -- Can appear in metadata.
 premainName  = Name 4 "premain"
 mainName     = Name 5 "main"
 va_startName = Name 6 "__cc_va_start"
