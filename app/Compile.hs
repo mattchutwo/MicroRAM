@@ -1,4 +1,6 @@
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Compile where
 
 import qualified Data.ByteString.Lazy                  as L
@@ -30,6 +32,7 @@ import System.FilePath
 import System.IO
 import System.Exit
 
+type CompiledProgram = CompilationResult (AnnotatedProgram Metadata AReg MWord)
 
 main :: IO ()
 main = do
@@ -46,9 +49,12 @@ main = do
   -- --------------
   -- Run Backend
   -- --------------
-  microProg <-  if (beginning fr >= LLVMLang) then -- Compile or read from file
-                  callBackend fr
-                else read <$> readFile (fileIn fr)
+  microProg::CompiledProgram <- if (beginning fr >= LLVMLang) then -- Compile or read from file
+                                       callBackend fr
+                                 else do
+    let file = (fileIn fr)
+    giveInfo fr $ "Reading from file " <> file 
+    (read <$> readFile file)::IO CompiledProgram
   when (ppMRAM fr) $ putStr $ microPrint (pmProg $ lowProg $ programCU microProg)
   saveMramProgram fr microProg
   when (end fr >= MRAMLang) $ exitWith ExitSuccess 
@@ -68,7 +74,7 @@ main = do
           giveInfo fr output
 
         -- Backend
-        callBackend :: FlagRecord -> IO $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
+        callBackend :: FlagRecord -> IO $ CompiledProgram
         callBackend fr = do  
           giveInfo fr "Running the compiler backend..."
           -- Retrieve program from file
@@ -95,7 +101,7 @@ main = do
             Just mramFileOut -> do
               giveInfo fr $ "Write MicroRAM program to file : " ++ mramFileOut
               writeFile mramFileOut $ show microProg
-            Nothing -> return ()
+            Nothing -> return () 
 
 
         -- POST PROCESS
