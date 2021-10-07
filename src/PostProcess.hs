@@ -48,10 +48,10 @@ postProcess_v :: (Show reg, Regs reg)
               -> Maybe Int
               -> Hopefully (Output reg)
 
-postProcess_v verb leakTainted pubSegMode chunkSize private comp privSegs =
+postProcess_v verb leakTainted pubSegMode chunkSize prover comp privSegs =
   (segment pubSegMode chunkSize privSegs)
-  >=> (doIf private (buildTrace verb leakTainted pubSegMode chunkSize spar))
-  >=> (doIf private recoverAdvice)
+  >=> (doIf prover (buildTrace verb leakTainted pubSegMode chunkSize spar))
+  >=> (doIf prover recoverAdvice)
   >=> segProg2Output $
   comp
 
