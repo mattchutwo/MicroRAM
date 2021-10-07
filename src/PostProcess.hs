@@ -23,6 +23,8 @@ import Compiler.Metadata
 
 import Control.Monad
 
+import           Debug.Trace
+
 import qualified Data.Map as Map
 
 import MicroRAM
@@ -36,7 +38,10 @@ import Segments.ControlFlow (buildProgramCFG)
 
 import Sparsity.Sparsity (Sparsity)
 
-
+-- When verbose, shows the current post process pass for debugging. 
+verbTagPass :: Bool -> String -> (a -> Hopefully b) -> a -> Hopefully b
+verbTagPass verb txt x =
+  (if verb then trace ("\tPost process Pass: " <> txt) else id) $ tagPass txt x
   
 postProcess_v :: (Show reg, Regs reg)
               => Bool
@@ -49,10 +54,10 @@ postProcess_v :: (Show reg, Regs reg)
               -> Hopefully (Output reg)
 
 postProcess_v verb leakTainted pubSegMode chunkSize private comp privSegs =
-  (segment pubSegMode chunkSize privSegs)
-  >=> (doIf private (buildTrace verb leakTainted pubSegMode chunkSize spar))
-  >=> (doIf private recoverAdvice)
-  >=> segProg2Output $
+  (verbTagPass verb "Create segments" $ segment pubSegMode chunkSize privSegs)
+  >=> (doIf private (verbTagPass verb "Build Trace" $ buildTrace verb leakTainted pubSegMode chunkSize spar))
+  >=> (doIf private (verbTagPass verb "Recover Advice" $ recoverAdvice))
+  >=> (verbTagPass verb "Produce the output cbor" segProg2Output) $
   comp
 
   where spar = sparsityData . aData $ comp
