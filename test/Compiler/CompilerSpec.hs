@@ -58,7 +58,7 @@ compileTest executionFunction tester name file len =
           
         compileTest' file len skipRegAlloc = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile False False False len llvmProg Nothing
+          mramProg <- handleErrorWith $ compile False False skipRegAlloc len llvmProg Nothing
           return $ executionFunction (fmap (tripleFmap fst) mramProg)
 
 tripleFmap :: (Functor f1, Functor f2, Functor f3) =>
