@@ -185,15 +185,16 @@ compile1 allowUndefFun len llvmProg = (return $ prog2unit len llvmProg)
 compile2
   :: Maybe Int
   -> Bool
+  -> Bool
   -> CompilationUnit () (MIRprog Metadata MWord) ->
   Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
-compile2 spars tainted prog = return prog
+compile2 spars tainted skipRegisterAllocation prog = return prog
   >>= (tagPass "Legalize Instructions" $ justCompileWithNames legalize)
   >>= (tagPass "Localize Labels"     $ justCompileWithNames localizeLabels)
   >>= (tagPass "Edge split"          $ justCompileWithNames edgeSplit)
   >>= (tagPass "Remove Phi Nodes"    $ justCompileWithNames removePhi)
-  >>= (tagPass "Remove Phi Nodes"    $ justCompileWithNamesSt layArgs)
-  >>= (tagPass "Register Allocation" $ registerAlloc def)
+  >>= (tagPass "Layout arguments"    $ justCompileWithNamesSt layArgs)
+  >>= (tagPass "Register Allocation" $ registerAlloc skipRegisterAllocation def)
   >>= (tagPass "Calling Convention"  $ justCompile callingConvention)
   >>= (tagPass "Remove Globals"      $ replaceGlobals tainted)
   >>= (tagPass "Count Funcitons"     $ justAnalyse countFunctions)
@@ -202,13 +203,13 @@ compile2 spars tainted prog = return prog
   >>= (tagPass "Block cleanup"       $ blockCleanup)
   >>= (tagPass "Removing labels"     $ removeLabels)
 
-compile :: Bool -> Bool -> Word -> LLVM.Module -> Maybe Int ->
+compile :: Bool -> Bool -> Bool -> Word -> LLVM.Module -> Maybe Int ->
   Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
-compile allowUndefFun tainted len llvmProg spars = do
+compile allowUndefFun tainted skipRegisterAllocation len llvmProg spars = do
   ir <- compile1 allowUndefFun len llvmProg
-  high <- compile2 spars tainted ir
+  high <- compile2 spars tainted skipRegisterAllocation ir
   low <- return ir
     >>= (tagPass "Lower Extension Instructions" $ justCompileWithNames lowerExtensionInstrs)
-    >>= compile2 spars tainted
+    >>= compile2 spars tainted skipRegisterAllocation
   -- Return both programs, using the analysis data from the final one.
   return $ low { programCU = MultiProg (programCU high) (programCU low) }

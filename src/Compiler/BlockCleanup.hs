@@ -52,9 +52,32 @@ redundantMovs prog = return $ map updateBlock prog
 -- | Basic jump threading.  If block A contains nothing but a jump to B, then
 -- replace each reference to `Label "A"` with `Label "B"`.  This should
 -- correctly handle both direct and indirect jumps to A.
-threadJumps :: MAProgram md regT wrdT -> Hopefully (MAProgram md regT wrdT)
-threadJumps prog = return $ map updateBlock $ filter (not . isJumpSource) $ prog
+threadJumps :: (Show regT, Show wrdT) => MAProgram Metadata regT wrdT -> Hopefully (MAProgram Metadata regT wrdT)
+threadJumps prog = return $ map (updateStart . updateBlock) $ filter (not . isJumpSource) prog
   where
+
+    -- If removed block (src) was a starting block, mark the dest in jumpMap' as a starting block.
+    updateStart (NBlock name (i:instrs)) | shouldStart name = NBlock name (setStartInst i: instrs)
+    updateStart b                                           = b
+
+    shouldStart (Just name) =
+      let startingDests = Set.fromList $ map snd $ filter (\(src, _dest) ->
+              -- Check if the src is a starting block.
+              case Map.lookup src blockMap of
+                Just (i:_insts) -> mdFunctionStart $ snd i
+                _               -> False
+            ) $ Map.toList jumpMap'
+      in
+      Set.member name startingDests
+    shouldStart Nothing     = False
+
+    setStartInst (i,md) = (i, md {mdFunctionStart = True})
+
+    -- Map from names to blocks.
+    blockMap = Map.fromList $ do
+      NBlock (Just n) is <- prog
+      return (n, is)
+
     -- Map from old labels to new ones.  If block A contains only a jump to B,
     -- then we record (A, B) in this map.
     jumpMap :: Map.Map Name Name 

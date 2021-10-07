@@ -47,7 +47,7 @@ testTrivial = ManyTests "Trivial programs" $ OneTest <$>
   defaultTest {
     testName = "Function call with multiple args"
     ,fileName ="test/Programs/multiArgs.ll"
-    ,testLen = 120
+    ,testLen = 180 -- 120
     ,testResult = 123
     } :
   defaultTest {
@@ -59,7 +59,7 @@ testTrivial = ManyTests "Trivial programs" $ OneTest <$>
   defaultTest {
     testName = "arithmetic shift right"
     ,fileName ="test/Programs/arithShr.ll"
-    ,testLen = 660
+    ,testLen = 850-- 660
     ,testResult = 8
     }  :
   defaultTest {
@@ -101,19 +101,19 @@ testFunctionPointer = ManyTests "Test function pointers" $ OneTest <$> [
     defaultTest {
       testName = "call function pointer"
     , fileName = "test/Programs/funcPointer.ll"
-    , testLen = 100
+    , testLen = 200 -- 100
     , testResult = 5
     },
     defaultTest {
       testName = "function pointer in static initializer"
     , fileName = "test/Programs/funcPointerStatic.ll"
-    , testLen = 100
+    , testLen = 200 -- 100
     , testResult = 5
     },
     defaultTest {
       testName = "function pointer with multiple args"
     , fileName = "test/Programs/funcPointerArgs.ll"
-    , testLen = 100
+    , testLen = 150
     , testResult = 15
     }
   ]
@@ -122,19 +122,19 @@ testVarArgs = ManyTests "Test varargs" $ OneTest <$> [
     defaultTest {
       testName = "call function with varargs"
     , fileName = "test/Programs/varArgs.ll"
-    , testLen = 700
+    , testLen = 900 -- 700
     , testResult = 15
     }
   , defaultTest {
       testName = "call another function with varargs"
     , fileName = "test/Programs/varArgs2.ll"
-    , testLen = 2000
+    , testLen = 2500 -- 2000
     , testResult = 23
     }
   , defaultTest {
       testName = "call a third function with varargs"
     , fileName = "test/Programs/varArgs3.ll"
-    , testLen = 2000
+    , testLen = 2500 -- 2000
     , testResult = 30
     }
   ]
@@ -151,7 +151,7 @@ testLoops = ManyTests "Conditionals, Branching and loops" $ OneTest <$>
   defaultTest {
     testName = "Easy function call"
     ,fileName ="test/Programs/easyFunction.ll"
-    ,testLen = 70
+    ,testLen = 100 -- 70
     ,testResult =   42
     } : 
   defaultTest {
@@ -163,13 +163,13 @@ testLoops = ManyTests "Conditionals, Branching and loops" $ OneTest <$>
   defaultTest {
     testName = "Factorial with recursive calls"
     ,fileName ="test/Programs/factRec.ll"
-    ,testLen = 600
+    ,testLen = 800 -- 600
     ,testResult =   120
     } :
   defaultTest {
     testName = "Or with phi"
     ,fileName ="test/Programs/or.ll"
-    ,testLen = 100
+    ,testLen = 150 -- 100
     ,testResult =   1
     } : 
   {-  defaultTest {
@@ -225,13 +225,13 @@ testDatastruct = ManyTests "Test data structures" $ OneTest <$>
   defaultTest {
   testName = "Linked list generic"
   ,fileName ="test/Programs/LinkedList/linkedList.c.ll"
-  ,testLen = 1500
+  ,testLen = 2500 -- 1500
   ,testResult = 42
   } :
   defaultTest {
   testName = "Binary search tree"
   ,fileName ="test/Programs/binaryTree/binaryTree.c.ll"
-  ,testLen = 3000
+  ,testLen = 7000 --3500
   ,testResult = 30
     } :
   []
@@ -273,7 +273,7 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
   defaultTest {
     testName = "Information leakage"
   , fileName = "test/Programs/noni/heartbleed.ll"
-  , testLen = 5000
+  , testLen = 6000 -- 5000
   , testResult = 0
   , leakTainted = True
   , bug = True }  :

@@ -49,20 +49,16 @@ compileTest
   -> Word
   -> TestTree
 compileTest executionFunction tester name file len = 
-  testProperty name $ 
-  QCM.monadicIO $ do
-  --QCM.run $ putStrLn "Here"
-  answer <- QCM.run $ compileTest' file len  False
-  --QCM.run $ putStrLn "Here 2" 
-  QCM.assert $ tester answer
-  where {-compileTest' ::
-          FilePath
-          -> Word -- ^ Length
-          -> Bool -- ^ verbose
-          -> IO MWord -- TestTree-}
-        compileTest' file len _verb = do
+  testGroup name [monadicTest False, monadicTest True]
+  where monadicTest skipRegAlloc =
+          testProperty (if skipRegAlloc then "Skip RegAlloc" else "Regular") $ 
+          QCM.monadicIO $ do
+          answer <- QCM.run $ compileTest' file len skipRegAlloc
+          QCM.assert $ tester answer
+          
+        compileTest' file len skipRegAlloc = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile False False len llvmProg Nothing
+          mramProg <- handleErrorWith $ compile False False skipRegAlloc len llvmProg Nothing
           return $ executionFunction (fmap (tripleFmap fst) mramProg)
 
 tripleFmap :: (Functor f1, Functor f2, Functor f3) =>
@@ -82,7 +78,7 @@ compileErrorTest name file len =
   QCM.assert $ isLeft compResult
   where compileFromFile file len = do
           llvmProg <- llvmParse file
-          return $ compile False False len llvmProg Nothing 
+          return $ compile False False False len llvmProg Nothing
           
 -- ## Full compilation tests of correctness
 
