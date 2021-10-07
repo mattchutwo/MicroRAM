@@ -86,6 +86,7 @@ main = do
               exitWith ExitSuccess
             Just trLength -> do
               handleErrorWith (compile
+                (verbose fr)
                 undefinedFunctions
                 (modeLeakTainted fr)
                 (skipRegisterAllocation fr)
