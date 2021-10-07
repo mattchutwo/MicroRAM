@@ -41,11 +41,14 @@ emptyTest = testGroup "Compiler errors not tested" [] -- This is ignored by Quic
 
 processTest :: Bool -> TestName -> FilePath -> Word -> TestTree
 processTest leakTainted name file len =
-  testProperty name $ QCM.monadicIO $ QCM.run (output file len)
-  where output :: FilePath -> Word -> IO Property 
-        output file len = do
+  testGroup name [monadicTest False, monadicTest True]
+  where monadicTest skipRegAlloc =
+          testProperty (if skipRegAlloc then "Skip RegAlloc" else "Regular") $
+          QCM.monadicIO $ QCM.run (output file len skipRegAlloc)
+        output :: FilePath -> Word -> Bool -> IO Property 
+        output file len skipRegAlloc = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile False False False len llvmProg Nothing
+          mramProg <- handleErrorWith $ compile False False skipRegAlloc len llvmProg Nothing
           let postProcessed = compilerErrorResolve $ postProcess_v False False PsmAbsInt chunkSize True mramProg Nothing
           return $ result2property $ checkOutput leakTainted <$> postProcessed
         chunkSize = 10
