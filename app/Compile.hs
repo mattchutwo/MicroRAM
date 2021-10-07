@@ -116,7 +116,7 @@ main = do
             (modeLeakTainted fr)
             (pubSegMode fr)
             chunkSize
-            (verifierMode fr)
+            (not $ verifierMode fr)
             mramProg
             privSegsNum
         outputTheResult :: FlagRecord -> Output AReg -> IO ()
