@@ -116,7 +116,7 @@ main = do
             (modeLeakTainted fr)
             (pubSegMode fr)
             chunkSize
-            (end fr == FullOutput)
+            (verifierMode fr)
             mramProg
             privSegsNum
         outputTheResult :: FlagRecord -> Output AReg -> IO ()
@@ -172,6 +172,7 @@ data Flag
    | ModeFlag Mode
    | SkipRegisterAllocation
    -- Interpreter flags
+   | VerifierMode
    | FromMRAM
    | Output String
    -- About the result
@@ -206,6 +207,7 @@ data FlagRecord = FlagRecord
   , modeLeakTainted :: Bool
   , skipRegisterAllocation :: Bool
   -- Interpreter
+  , verifierMode :: Bool -- VerifierMode
   , fileOut :: Maybe String
   , end :: Stages
   --
@@ -236,6 +238,7 @@ defaultFlags name len =
   , modeLeakTainted = False
   , skipRegisterAllocation = False
   -- Interpreter
+  , verifierMode = False
   , fileOut   = Nothing
   , end       = FullOutput
   --
@@ -291,7 +294,8 @@ options =
   , Option []    ["from-llvm"]   (NoArg FromLLVM)                  "Compile only with the backend. Compiles from an LLVM file."
   , Option []    ["priv-segs"]   (ReqArg (PrivSegs . read) "arg")  "Number of private segments. " 
   , Option []    ["just-llvm"]   (NoArg JustLLVM)                  "Compile only with the frontend. "
-  , Option []    ["just-mram","verifier"]   (NoArg JustMRAM)       "Only run the compiler (no interpreter). "
+  , Option []    ["just-mram"]   (NoArg JustMRAM)                  "Only run the compiler (no interpreter) and output mram. "
+  , Option []    ["verifier"]    (NoArg VerifierMode)              "Run in verifier mode  (skips the interpreter). "
   , Option []    ["from-mram","interpreter"]   (NoArg FromMRAM)    "Only run the interpreter from a compiled MicroRAM file."
   , Option ['v'] ["verbose"]     (NoArg Verbose)                   "Chatty compiler"
   , Option []    ["pretty-hex"]  (NoArg PrettyHex)                 "Pretty print the CBOR output. Won't work if writting to file. "
