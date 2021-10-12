@@ -92,13 +92,13 @@ createMap prog = lMap $ foldl createMapStep initState prog
 -- to get a "flat" list of (MicroAssembly) instructions 
 
 flattenStep ::
-  [(MAInstruction regT wrdT, md)]
-  -> NamedBlock md regT wrdT
+  NamedBlock md regT wrdT
   -> [(MAInstruction regT wrdT, md)]
-flattenStep prog (NBlock _ code) = prog ++ code
+  -> [(MAInstruction regT wrdT, md)]
+flattenStep (NBlock _ code) prog = code ++ prog
   
 flatten :: MAProgram md regT wrdT -> [(MAInstruction regT wrdT,md)]
-flatten maProg = foldl flattenStep [] maProg
+flatten maProg = foldr flattenStep [] maProg
 
 -- ** Translate label
 -- Given the label map, we can replace all labels

@@ -64,9 +64,6 @@ executables:
     source-dirs:         app
     ghc-options: 
     - -main-is Compile
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
     dependencies:
     - MicroRAM
 
