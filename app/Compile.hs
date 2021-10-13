@@ -49,13 +49,14 @@ main = do
   -- --------------
   -- Run Backend
   -- --------------
-  microProg::CompiledProgram <- if (beginning fr >= LLVMLang) then -- Compile or read from file
+  microProg::CompiledProgram <- case trLen fr of
+                                  Nothing -> do
+                                    putStrLn $ "Found no trace, can't compile."
+                                    exitWith ExitSuccess
+                                  Just trLength -> if (beginning fr >= LLVMLang) then -- Compile or read from file
                                                      callBackend trLength fr
-                                else
-                                  do let file = (fileIn fr)
-                                     giveInfo fr $ "Reading from file " <> file 
-                                     read <$> readFile file
-
+                                                   else
+                                                     readMRAMFile trLength fr
   when (ppMRAM fr) $ putStr $ microPrint (pmProg $ lowProg $ programCU microProg)
   saveMramProgram fr microProg
   when (end fr >= MRAMLang) $ exitWith ExitSuccess 
@@ -81,20 +82,15 @@ main = do
           -- Retrieve program from file
           llvmModule <- llvmParse $ llvmFile fr
           -- Then compile
-          case trLen fr of
-            Nothing -> do
-              putStrLn $ "Found no trace, can't compile."
-              exitWith ExitSuccess
-            Just trLength -> do
-              handleErrorWith (compile
-                (verbose fr)
-                undefinedFunctions
-                (modeLeakTainted fr)
-                (skipRegisterAllocation fr)
-                trLength
-                llvmModule
-                (spars fr)
-                )
+          handleErrorWith (compile
+                            (verbose fr)
+                            undefinedFunctions
+                            (modeLeakTainted fr)
+                            (skipRegisterAllocation fr)
+                            trLength
+                            llvmModule
+                            (spars fr)
+                          )
             where undefinedFunctions = allowUndefFun fr
 
 
