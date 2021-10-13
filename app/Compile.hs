@@ -83,13 +83,14 @@ main = do
           llvmModule <- llvmParse $ llvmFile fr
           -- Then compile
           handleErrorWith (compile
-                undefinedFunctions
-                (modeLeakTainted fr)
-                (skipRegisterAllocation fr)
-                trLength
-                llvmModule
-                (spars fr)
-                )
+                            (verbose fr)
+                            undefinedFunctions
+                            (modeLeakTainted fr)
+                            (skipRegisterAllocation fr)
+                            trLength
+                            llvmModule
+                            (spars fr)
+                          )
             where undefinedFunctions = allowUndefFun fr
 
 
