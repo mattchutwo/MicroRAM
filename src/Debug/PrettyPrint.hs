@@ -92,7 +92,7 @@ instance (Pretty (PrettyPrintWrapper reg), Pretty (PrettyPrintWrapper op)) => Pr
   pretty (LAlloc opM s n) = maybe "" (\op -> pretty (PPW op) <> " = ") opM <> "alloc(" <> pretty (PPW n) <> " * " <> pretty s <> ")"
   pretty (LGetBP reg) = pretty (PPW reg) <> " = %bp"
 
-instance Pretty wrd => Pretty (LazyConst l wrd) where
+instance Pretty wrd => Pretty (LazyConst wrd) where
   pretty (SConst s) = pretty s
   pretty (LConst _) = "lazy_constant"
 

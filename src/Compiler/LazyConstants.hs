@@ -24,7 +24,7 @@ import qualified LLVM.AST as LLVM(Name(..))
 
 import Util.Util
 import Compiler.Errors
---import Compiler.Common
+import Compiler.Name
 
 -- | Lazy constants are constants that can't be evaluated until a global environment is provided.
 -- They should behave like constants for all purposes of the compiler, then a genv can be provided
@@ -32,33 +32,33 @@ import Compiler.Errors
 
 -- | Maps global names to their constant address.
 -- gives a default of 0 for undefined globals, those should be checked before. 
-type GlobMap name wrdT = name -> wrdT
+type GlobMap wrdT = Name -> wrdT
 
-data LazyConst name wrdT =
-   LConst ( GlobMap name wrdT -> wrdT)  -- ^ Lazy constants
+data LazyConst wrdT =
+   LConst (GlobMap wrdT -> wrdT)  -- ^ Lazy constants
   | SConst wrdT   -- ^ Static constant, allows optimizations/folding upstream and debugging
 
-makeConcreteConst :: GlobMap name wrdT -> LazyConst name wrdT -> wrdT
+makeConcreteConst :: GlobMap wrdT -> LazyConst wrdT -> wrdT
 makeConcreteConst gmap (LConst lw) = lw gmap
 makeConcreteConst _    (SConst  w) = w
 
-instance (Show wrdT) => Show (LazyConst name wrdT) where
+instance (Show wrdT) => Show (LazyConst wrdT) where
   show (LConst _) = "LazyConstant"
   show (SConst w) = show w 
 
 lazyBop :: (wrdT -> wrdT -> wrdT)
-     -> LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+     -> LazyConst wrdT -> LazyConst wrdT -> LazyConst wrdT
 lazyBop bop (LConst l1) (LConst l2) = LConst $ \ge -> bop (l1 ge) (l2 ge) 
 lazyBop bop (LConst l1) (SConst c2) = LConst $ \ge -> bop (l1 ge) c2
 lazyBop bop (SConst c1) (LConst l2) = LConst $ \ge -> bop c1      (l2 ge)
 lazyBop bop (SConst c1) (SConst c2) = SConst $ bop c1 c2
 
-lazyUop :: (wrdT -> wrdT) -> LazyConst name wrdT -> LazyConst name wrdT
+lazyUop :: (wrdT -> wrdT) -> LazyConst wrdT -> LazyConst wrdT
 lazyUop uop (LConst l1) = LConst $ \ge -> uop (l1 ge) 
 lazyUop uop (SConst c1) = SConst $ uop c1
 
 
-instance Num wrdT => Num (LazyConst name wrdT) where
+instance Num wrdT => Num (LazyConst wrdT) where
   (+) = lazyBop (+)
   (*) = lazyBop (*)
   (-) = lazyBop (-)
@@ -67,10 +67,10 @@ instance Num wrdT => Num (LazyConst name wrdT) where
   signum = lazyUop signum
   fromInteger n = SConst $ fromInteger n  
 
-instance Eq (LazyConst name wrdT) where
+instance Eq (LazyConst wrdT) where
   _ == _ = error "(==) not supported for LazyConst"
 
-instance Bits wrdT => Bits (LazyConst name wrdT) where
+instance Bits wrdT => Bits (LazyConst wrdT) where
   (.&.) = lazyBop (.&.)
   (.|.) = lazyBop (.|.)
   xor = lazyBop xor
@@ -86,37 +86,37 @@ instance Bits wrdT => Bits (LazyConst name wrdT) where
   bit i = SConst (bit i)
   popCount _ = error "popCount not supported for LazyConst"
 
-lcQuot :: Integral wrdT => LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+lcQuot :: Integral wrdT => LazyConst wrdT -> LazyConst wrdT -> LazyConst wrdT
 lcQuot = lazyBop quot
 
-lcRem :: Integral wrdT => LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+lcRem :: Integral wrdT => LazyConst wrdT -> LazyConst wrdT -> LazyConst wrdT
 lcRem = lazyBop rem
 
 lcCompare ::
   Num wrdT =>
   (Integer -> Integer -> Bool) ->
   (wrdT -> Integer) ->
-  LazyConst name wrdT ->
-  LazyConst name wrdT ->
-  LazyConst name wrdT
+  LazyConst wrdT ->
+  LazyConst wrdT ->
+  LazyConst wrdT
 lcCompare cmp convert lc1 lc2 = lazyBop go lc1 lc2
   where go x y = if cmp (convert x) (convert y) then 1 else 0
 
 lcCompareUnsigned ::
   Integral wrdT =>
   (Integer -> Integer -> Bool) ->
-  LazyConst name wrdT ->
-  LazyConst name wrdT ->
-  LazyConst name wrdT
+  LazyConst wrdT ->
+  LazyConst wrdT ->
+  LazyConst wrdT
 lcCompareUnsigned cmp lc1 lc2 = lcCompare cmp toInteger lc1 lc2
 
 lcCompareSigned ::
   (Integral wrdT, Bits wrdT) =>
   (Integer -> Integer -> Bool) ->
   Int ->
-  LazyConst name wrdT ->
-  LazyConst name wrdT ->
-  LazyConst name wrdT
+  LazyConst wrdT ->
+  LazyConst wrdT ->
+  LazyConst wrdT
 lcCompareSigned cmp bits lc1 lc2 = lcCompare cmp convert lc1 lc2
   where convert x = toInteger x - 2 * toInteger (x .&. (1 `shiftL` bits - 1))
 
@@ -124,9 +124,9 @@ lazySignedBop ::
   (Integral wrdT, Bits wrdT) =>
   (Integer -> Integer -> Integer) ->
   Int ->
-  LazyConst name wrdT ->
-  LazyConst name wrdT ->
-  LazyConst name wrdT
+  LazyConst wrdT ->
+  LazyConst wrdT ->
+  LazyConst wrdT
 lazySignedBop bop bits lc1 lc2 =
     lazyBop (\x y -> unconvert $ bop (convert x) (convert y)) lc1 lc2
   where
@@ -135,12 +135,12 @@ lazySignedBop bop bits lc1 lc2 =
 
 lcSDiv ::
   (Integral wrdT, Bits wrdT) =>
-  Int -> LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+  Int -> LazyConst wrdT -> LazyConst wrdT -> LazyConst wrdT
 lcSDiv = lazySignedBop quot
 
 lcSRem ::
   (Integral wrdT, Bits wrdT) =>
-  Int -> LazyConst name wrdT -> LazyConst name wrdT -> LazyConst name wrdT
+  Int -> LazyConst wrdT -> LazyConst wrdT -> LazyConst wrdT
 lcSRem = lazySignedBop rem
 
 
@@ -159,10 +159,10 @@ checkName globs name =
 -- Can we unify
 
 
-applyPartialMap :: Ord a => Map.Map a b -> LazyConst a b -> LazyConst a b
+applyPartialMap :: Map.Map Name b -> LazyConst b -> LazyConst b
 applyPartialMap _  (SConst w) = SConst w
 applyPartialMap m1 (LConst lw) = LConst $ \ge -> lw $ partiallyAppliedMap m1 ge
-  where partiallyAppliedMap :: Ord a => Map.Map a b -> (a -> b) -> a -> b
+  where partiallyAppliedMap :: Map.Map Name b -> (Name -> b) -> Name -> b
         partiallyAppliedMap map1 f a = case Map.lookup a map1 of
                                          Just w -> w
                                          Nothing -> f a

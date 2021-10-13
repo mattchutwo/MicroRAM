@@ -101,7 +101,7 @@ data GlobalVariable wrdT = GlobalVariable
   { globName :: Name -- Optimize?
   , isConstant :: Bool
   , gType :: Ty
-  , initializer :: Maybe [LazyConst Name wrdT]
+  , initializer :: Maybe [LazyConst wrdT]
     -- ^ A list of machine words to initialize this global
   , gSize :: MWord    -- ^ Size of this global in words
   , gAlign :: MWord

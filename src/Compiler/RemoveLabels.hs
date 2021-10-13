@@ -156,7 +156,7 @@ removeLabelsInitMem lmap lInitMem =
           let vals = removeLabelInitialValues labelMap lMem in
           let taintLabels = labels initSegment in
           return $ initSegment {content = vals}
-        removeLabelInitialValues :: (Name -> Wrd) -> Maybe [LazyConst Name Wrd] -> Maybe [Wrd]
+        removeLabelInitialValues :: (Name -> Wrd) -> Maybe [LazyConst Wrd] -> Maybe [Wrd]
         removeLabelInitialValues labelMap lMem =  map (makeConcreteConst labelMap) <$> lMem
 addDefault :: LabelMap -> Name -> Wrd
 addDefault labelMap name =
