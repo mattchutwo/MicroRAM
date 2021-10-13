@@ -120,10 +120,6 @@ raplaceGlobals gmap = mapM $ traverseOpLFun $ raplaceGlobalsOperands gmap
           Map.Map Name MWord
           -> MAOperand mreg MWord
           -> Hopefully $ MAOperand mreg MWord
-        raplaceGlobalsOperands gmap' (Glob name) =  -- FIXME : SC I think we can remove Glob as it is covered by lazy constants 
-          case Map.lookup name gmap' of
-            Just gptr -> return $ LImm $ SConst gptr
-            _ -> assumptError $ "Global not found in the environment: " ++ show name
         raplaceGlobalsOperands gmap' (LImm lc) =
           return $ LImm $ applyPartialMap gmap' lc
         raplaceGlobalsOperands _ op = return op

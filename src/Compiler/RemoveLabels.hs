@@ -113,8 +113,6 @@ translateOperand labelMap _ (LImm lc) =
   return $ Const $ makeConcreteConst fullMap lc
   where fullMap = addDefault labelMap
   --assumptError $ "There should be no lazy constants at this point. Found a Lazy Constant LConst. \n"
-translateOperand _ _ (Glob g) =  assumptError $ "There should be no globals at this point. Found \n" ++
-                                 "Glob " ++ show g
 translateOperand lmap _ (Label lbl) = do
   location <- getLabel lmap lbl 
   return $  Const location
