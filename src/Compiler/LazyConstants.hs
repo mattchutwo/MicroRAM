@@ -17,6 +17,7 @@ module Compiler.LazyConstants where
 
 import Data.Bits
 import qualified Data.Map as Map
+import Data.Set (Set)
 import qualified Data.Set as Set
 
 import qualified LLVM.AST as LLVM(Name(..))
@@ -35,26 +36,31 @@ import Compiler.Name
 type GlobMap wrdT = Name -> wrdT
 
 data LazyConst wrdT =
-   LConst (GlobMap wrdT -> wrdT)  -- ^ Lazy constants
+    LConst
+      (GlobMap wrdT -> wrdT)    -- ^ Function for computing the constant value
+      (Set Name)                -- ^ Names referenced by this constant
   | SConst wrdT   -- ^ Static constant, allows optimizations/folding upstream and debugging
 
 makeConcreteConst :: GlobMap wrdT -> LazyConst wrdT -> wrdT
-makeConcreteConst gmap (LConst lw) = lw gmap
+makeConcreteConst gmap (LConst lw _) = lw gmap
 makeConcreteConst _    (SConst  w) = w
 
 instance (Show wrdT) => Show (LazyConst wrdT) where
-  show (LConst _) = "LazyConstant"
+  show (LConst _ ns) = "LazyConstant " ++ show (Set.toList ns)
   show (SConst w) = show w 
+
+lcGlobal :: Name -> LazyConst wrdT
+lcGlobal name = LConst (\ge -> ge name) (Set.singleton name)
 
 lazyBop :: (wrdT -> wrdT -> wrdT)
      -> LazyConst wrdT -> LazyConst wrdT -> LazyConst wrdT
-lazyBop bop (LConst l1) (LConst l2) = LConst $ \ge -> bop (l1 ge) (l2 ge) 
-lazyBop bop (LConst l1) (SConst c2) = LConst $ \ge -> bop (l1 ge) c2
-lazyBop bop (SConst c1) (LConst l2) = LConst $ \ge -> bop c1      (l2 ge)
+lazyBop bop (LConst l1 ns1) (LConst l2 ns2) = LConst (\ge -> bop (l1 ge) (l2 ge)) (ns1 <> ns2)
+lazyBop bop (LConst l1 ns) (SConst c2) = LConst (\ge -> bop (l1 ge) c2) ns
+lazyBop bop (SConst c1) (LConst l2 ns) = LConst (\ge -> bop c1 (l2 ge)) ns
 lazyBop bop (SConst c1) (SConst c2) = SConst $ bop c1 c2
 
 lazyUop :: (wrdT -> wrdT) -> LazyConst wrdT -> LazyConst wrdT
-lazyUop uop (LConst l1) = LConst $ \ge -> uop (l1 ge) 
+lazyUop uop (LConst l1 ns) = LConst (\ge -> uop (l1 ge)) ns
 lazyUop uop (SConst c1) = SConst $ uop c1
 
 
@@ -161,7 +167,7 @@ checkName globs name =
 
 applyPartialMap :: Map.Map Name b -> LazyConst b -> LazyConst b
 applyPartialMap _  (SConst w) = SConst w
-applyPartialMap m1 (LConst lw) = LConst $ \ge -> lw $ partiallyAppliedMap m1 ge
+applyPartialMap m1 (LConst lw ns) = LConst (\ge -> lw $ partiallyAppliedMap m1 ge) ns
   where partiallyAppliedMap :: Map.Map Name b -> (Name -> b) -> Name -> b
         partiallyAppliedMap map1 f a = case Map.lookup a map1 of
                                          Just w -> w

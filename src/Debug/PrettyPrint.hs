@@ -19,6 +19,7 @@ module Debug.PrettyPrint (
   pprintOp,
   pprintConst) where
 
+import qualified Data.Set as Set
 import MicroRAM
 import Compiler.Common
 import Compiler.IRs
@@ -94,7 +95,7 @@ instance (Pretty (PrettyPrintWrapper reg), Pretty (PrettyPrintWrapper op)) => Pr
 
 instance Pretty wrd => Pretty (LazyConst wrd) where
   pretty (SConst s) = pretty s
-  pretty (LConst _) = "lazy_constant"
+  pretty (LConst _ ns) = "lazy_constant(" <> concatWith (surround ",") (map pretty $ Set.toList ns) <> ")"
 
 instance (Pretty (PrettyPrintWrapper reg), Pretty wrd) => Pretty (PrettyPrintWrapper (MAOperand reg wrd)) where
   pretty (PPW (AReg reg)) = pretty $ PPW reg

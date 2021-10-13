@@ -1396,7 +1396,7 @@ constant2typedLazyConst env c =
     (LLVM.Constant.GlobalReference _ty name         ) -> do
       _ <- lift $ checkName (globs env) name
       name' <- globalName name
-      return [mkTypedLazyConst (LConst $ \ge -> ge name') WWord]
+      return [mkTypedLazyConst (lcGlobal name') WWord]
     (LLVM.Constant.Add _ _ op1 op2                  ) -> bop2typedLazyConst env (+) op1 op2
     (LLVM.Constant.Sub  _ _ op1 op2                 ) -> bop2typedLazyConst env (-) op1 op2
     (LLVM.Constant.Mul  _ _ op1 op2                 ) -> bop2typedLazyConst env (*) op1 op2

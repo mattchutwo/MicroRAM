@@ -251,8 +251,11 @@ stackLTLInstr md (LAlloc reg sz n) = do
         -- | Round a constant up to the next multiple of `wordBytes`.
         roundUp (SConst n) = SConst $ (n + fromIntegral wordBytes - 1) .&.
           complement (fromIntegral wordBytes - 1)
-        roundUp (LConst f) = LConst $ \ge -> (f ge + fromIntegral wordBytes - 1) .&.
-          complement (fromIntegral wordBytes - 1)  
+        roundUp (LConst f ns) =
+          LConst
+            (\ge -> (f ge + fromIntegral wordBytes - 1) .&.
+              complement (fromIntegral wordBytes - 1))
+            ns
  
 -- | stack all instructions
 stackInstr ::
