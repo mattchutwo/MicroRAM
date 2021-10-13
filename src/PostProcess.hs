@@ -53,10 +53,10 @@ postProcess_v :: (Show reg, Regs reg)
               -> Maybe Int
               -> Hopefully (Output reg)
 
-postProcess_v verb leakTainted pubSegMode chunkSize private comp privSegs =
+postProcess_v verb leakTainted pubSegMode chunkSize prover comp privSegs =
   (verbTagPass verb "Create segments" $ segment pubSegMode chunkSize privSegs)
-  >=> (doIf private (verbTagPass verb "Build Trace" $ buildTrace verb leakTainted pubSegMode chunkSize spar))
-  >=> (doIf private (verbTagPass verb "Recover Advice" $ recoverAdvice))
+  >=> (doIf prover (verbTagPass verb "Build Trace" $ buildTrace verb leakTainted pubSegMode chunkSize spar))
+  >=> (doIf prover (verbTagPass verb "Recover Advice" $ recoverAdvice))
   >=> (verbTagPass verb "Produce the output cbor" segProg2Output) $
   comp
 

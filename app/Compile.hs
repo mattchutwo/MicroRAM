@@ -50,11 +50,12 @@ main = do
   -- Run Backend
   -- --------------
   microProg::CompiledProgram <- if (beginning fr >= LLVMLang) then -- Compile or read from file
-                                       callBackend fr
-                                 else do
-    let file = (fileIn fr)
-    giveInfo fr $ "Reading from file " <> file 
-    (read <$> readFile file)::IO CompiledProgram
+                                                     callBackend trLength fr
+                                else
+                                  do let file = (fileIn fr)
+                                     giveInfo fr $ "Reading from file " <> file 
+                                     read <$> readFile file
+
   when (ppMRAM fr) $ putStr $ microPrint (pmProg $ lowProg $ programCU microProg)
   saveMramProgram fr microProg
   when (end fr >= MRAMLang) $ exitWith ExitSuccess 
@@ -74,8 +75,8 @@ main = do
           giveInfo fr output
 
         -- Backend
-        callBackend :: FlagRecord -> IO $ CompiledProgram
-        callBackend fr = do  
+        callBackend :: Word -> FlagRecord -> IO $ CompiledProgram
+        callBackend trLength fr = do  
           giveInfo fr "Running the compiler backend..."
           -- Retrieve program from file
           llvmModule <- llvmParse $ llvmFile fr
@@ -105,6 +106,12 @@ main = do
               writeFile mramFileOut $ show microProg
             Nothing -> return () 
 
+        -- Read from MRAM file
+        readMRAMFile trLength fr = do
+          let file = (fileIn fr) 
+          giveInfo fr $ "Reading from file " <> file 
+          mramProgram :: CompiledProgram <- read <$> readFile file
+          return $ mramProgram {traceLen = trLength} 
 
         -- POST PROCESS
         postProcess :: FlagRecord
@@ -117,7 +124,7 @@ main = do
             (modeLeakTainted fr)
             (pubSegMode fr)
             chunkSize
-            (end fr == FullOutput)
+            (not $ verifierMode fr)
             mramProg
             privSegsNum
         outputTheResult :: FlagRecord -> Output AReg -> IO ()
@@ -173,6 +180,7 @@ data Flag
    | ModeFlag Mode
    | SkipRegisterAllocation
    -- Interpreter flags
+   | VerifierMode
    | FromMRAM
    | Output String
    -- About the result
@@ -207,6 +215,7 @@ data FlagRecord = FlagRecord
   , modeLeakTainted :: Bool
   , skipRegisterAllocation :: Bool
   -- Interpreter
+  , verifierMode :: Bool -- VerifierMode
   , fileOut :: Maybe String
   , end :: Stages
   --
@@ -237,6 +246,7 @@ defaultFlags name len =
   , modeLeakTainted = False
   , skipRegisterAllocation = False
   -- Interpreter
+  , verifierMode = False
   , fileOut   = Nothing
   , end       = FullOutput
   --
@@ -292,7 +302,8 @@ options =
   , Option []    ["from-llvm"]   (NoArg FromLLVM)                  "Compile only with the backend. Compiles from an LLVM file."
   , Option []    ["priv-segs"]   (ReqArg (PrivSegs . read) "arg")  "Number of private segments. " 
   , Option []    ["just-llvm"]   (NoArg JustLLVM)                  "Compile only with the frontend. "
-  , Option []    ["just-mram","verifier"]   (NoArg JustMRAM)       "Only run the compiler (no interpreter). "
+  , Option []    ["just-mram"]   (NoArg JustMRAM)                  "Only run the compiler (no interpreter) and output mram. "
+  , Option []    ["verifier"]    (NoArg VerifierMode)              "Run in verifier mode  (skips the interpreter). "
   , Option []    ["from-mram","interpreter"]   (NoArg FromMRAM)    "Only run the interpreter from a compiled MicroRAM file."
   , Option ['v'] ["verbose"]     (NoArg Verbose)                   "Chatty compiler"
   , Option []    ["pretty-hex"]  (NoArg PrettyHex)                 "Pretty print the CBOR output. Won't work if writting to file. "
