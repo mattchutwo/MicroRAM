@@ -49,12 +49,14 @@ main = do
   -- --------------
   -- Run Backend
   -- --------------
-  microProg::CompiledProgram <- if (beginning fr >= LLVMLang) then -- Compile or read from file
-                                       callBackend fr
-                                 else do
-    let file = (fileIn fr)
-    giveInfo fr $ "Reading from file " <> file 
-    (read <$> readFile file)::IO CompiledProgram
+  microProg::CompiledProgram <- case trLen fr of
+                                  Nothing -> do
+                                    putStrLn $ "Found no trace, can't compile."
+                                    exitWith ExitSuccess
+                                  Just trLength -> if (beginning fr >= LLVMLang) then -- Compile or read from file
+                                                     callBackend trLength fr
+                                                   else
+                                                     readMRAMFile trLength fr
   when (ppMRAM fr) $ putStr $ microPrint (pmProg $ lowProg $ programCU microProg)
   saveMramProgram fr microProg
   when (end fr >= MRAMLang) $ exitWith ExitSuccess 
@@ -74,18 +76,13 @@ main = do
           giveInfo fr output
 
         -- Backend
-        callBackend :: FlagRecord -> IO $ CompiledProgram
-        callBackend fr = do  
+        callBackend :: Word -> FlagRecord -> IO $ CompiledProgram
+        callBackend trLength fr = do  
           giveInfo fr "Running the compiler backend..."
           -- Retrieve program from file
           llvmModule <- llvmParse $ llvmFile fr
           -- Then compile
-          case trLen fr of
-            Nothing -> do
-              putStrLn $ "Found no trace, can't compile."
-              exitWith ExitSuccess
-            Just trLength -> do
-              handleErrorWith (compile
+          handleErrorWith (compile
                 undefinedFunctions
                 (modeLeakTainted fr)
                 (skipRegisterAllocation fr)
@@ -104,6 +101,12 @@ main = do
               writeFile mramFileOut $ show microProg
             Nothing -> return () 
 
+        -- Read from MRAM file
+        readMRAMFile trLength fr = do
+          let file = (fileIn fr) 
+          giveInfo fr $ "Reading from file " <> file 
+          mramProgram :: CompiledProgram <- read <$> readFile file
+          return $ mramProgram {traceLen = trLength} 
 
         -- POST PROCESS
         postProcess :: FlagRecord
