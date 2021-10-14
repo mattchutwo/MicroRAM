@@ -99,7 +99,7 @@ _smartMovMaybe (Just r) a = smartMov r a
 -- Sends main to the returnBlock
 premain :: Regs mreg => Name -> NamedBlock Metadata mreg MWord
 premain returnName =
-  NBlock Nothing $
+  NBlock (Just premainName) $
   -- poison address 0
   (IpoisonW (LImm 0) sp, md{mdFunctionStart = True}) : -- Premain is a 'function' add function start metadata
   addMD md (
