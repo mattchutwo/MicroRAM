@@ -85,7 +85,10 @@ threadJumps prog = return $ map (updateStart . updateBlock) $ filter (not . isJu
     -- then we record (A, B) in this map.
     jumpMap :: Map.Map Name Name 
     jumpMap = Map.fromList $ do
-      NBlock (Just src) [(Ijmp (Label dest), _)] <- prog
+      NBlock (Just src) [(Ijmp (Label dest), md)] <- prog
+      -- TODO: This temporarily disables thread jumping for blocks that start functions. This leads to errors if globals reference the function and the names aren't updated.
+      guard $ not $ mdFunctionStart md
+
       return (src, dest)
 
     -- Like jumpMap, but we resolve chains of jumps to a single destination.
