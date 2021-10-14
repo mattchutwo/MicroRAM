@@ -39,7 +39,6 @@ import Compiler.Analysis
 import Compiler.BlockCleanup
 import Compiler.CallingConvention
 import Compiler.CompilationUnit
-import Compiler.Globals
 import Compiler.InstructionSelection
 import Compiler.Intrinsics
 import Compiler.IRs
@@ -352,11 +351,11 @@ jpProgComp len = do
     >>= (justCompileWithNamesSt layArgs)
     >>= (registerAlloc False def)
     >>= (justCompile callingConvention)
-    >>= (replaceGlobals False)
+    >>= (return . stashGlobals)
     >>= (justCompileWithNames stacking)
     >>= (justAnalyse (return . SparsityData . (forceSparsity spars))) 
     >>= (blockCleanup)
-    >>= (removeLabels)
+    >>= (removeLabels False)
     
     -- compile False len m Nothing
   where

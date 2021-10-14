@@ -45,11 +45,7 @@ e  |         |
         | Register allocation
    +----v----+
    |         +---+
-   |         |   | Calling conventions
-   |         <---+
-   |   LTL   |
-   |         +---+
-   |         |   | Globals
+   |   LTL   |   | Calling conventions
    |         <---+
    +----+----+
         | Stacking
@@ -118,10 +114,6 @@ between functions.
 
 * __Calling Convention__ (`callingConvention`): Saving callee saved registersto the stack.
 
-* __Gloabls__ (`replaceGlobals`): Converts globals into initial memory and replaces all
-  uses of global variables with the constant pointer to their
-  location in memory.         
-                              
 * __Stacking__ (`stacking`): Lays out the stack in memory. Moreover this pass adds
   the necessary instructions from stack frame creation and destruction on function
   call and return.
@@ -147,7 +139,6 @@ import           Compiler.CompilationUnit
 import           Compiler.CountFunctions
 import           Compiler.Errors
 import           Compiler.Extension
-import           Compiler.Globals
 import           Compiler.IRs
 import           Compiler.InstructionSelection
 import           Compiler.Intrinsics
@@ -203,12 +194,12 @@ compile2 verb spars tainted skipRegisterAllocation prog = return prog
   >>= (verbTagPass verb "Layout arguments"    $ justCompileWithNamesSt layArgs)
   >>= (verbTagPass verb "Register Allocation" $ registerAlloc skipRegisterAllocation def)
   >>= (verbTagPass verb "Calling Convention"  $ justCompile callingConvention)
-  >>= (verbTagPass verb "Remove Globals"      $ replaceGlobals tainted)
+  >>= (verbTagPass verb "Stash Globals"       $ return . stashGlobals)
   >>= (verbTagPass verb "Count Funcitons"     $ justAnalyse countFunctions)
   >>= (verbTagPass verb "Stacking"            $ justCompileWithNames stacking)
   >>= (verbTagPass verb "Computing Sparsity"  $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
   >>= (verbTagPass verb "Block cleanup"       $ blockCleanup)
-  >>= (verbTagPass verb "Removing labels"     $ removeLabels)
+  >>= (verbTagPass verb "Removing labels"     $ removeLabels tainted)
 
 compile :: Bool -> Bool -> Bool -> Bool -> Word -> LLVM.Module -> Maybe Int ->
   Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)

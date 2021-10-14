@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-|
 Module      : Removing Labels
 Description : Replaces labels with concrete instruction numbers : MARAM -> MRAM
@@ -32,146 +33,194 @@ TODO: It can all be done in 2 passes. Optimize?
 -}
 module Compiler.RemoveLabels
     ( removeLabels,
-      removeLabelsProg
+      stashGlobals
     ) where
 
 
+import Control.Monad
 
 import MicroRAM
 import Compiler.IRs
+import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import qualified Data.Vector as Vec
-
-import Util.Util
+import qualified Data.Set as Set
+import qualified Data.Vector as V
 
 import Compiler.Common
 import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.LazyConstants
 import Compiler.Tainted
+import Compiler.Layout (alignTo)
 
--- * Assembler
+import Debug.Trace
+
 
 type Wrd = MWord
 
-naturals :: [Wrd]
-naturals = iterate (1 +) 1
+-- * Assembler
 
+{-
+data LabeledItem =
+    LiBlock (NamedBlock md regT MWord)
+  | LiGlobal (GlobalVariable MWord)
 
--- ** Create a label map
+buildLabelMap ::
+  MAProgram md regT MWord ->
+  [GlobalVariable MWord] ->
+  Hopefully (Map Name LabeledItem)
+buildLabelMap blocks globs = do
+  blockMap <- goBlocks mempty blocks
+  globMap <- goGlobs mempty globs
+  let overlap = Set.intersection (Map.keysSet blockMap) (Map.keysSet globMap)
+  when (not $ Set.null overlap) $
+    assumptError $ "name collision between blocks and globals: " ++ show overlap
+  return $ blockMap <> globMap
+  where
+    goBlocks m [] = return m
+    goBlocks m (b@(NBlock (Just name) _) : bs) = do
+      when (Map.member name m) $
+        assumptError $ "name collision between blocks: " ++ show name
+      goBlocks (Map.insert name (LiBlock b) m) bs
+    goBlocks m (NBlock Nothing _ : bs) = do
+      assumptError $ "unnamed block in buildLabelMap"
 
-type LabelMap = Map.Map Name Wrd
-getLabel :: LabelMap -> Name -> Hopefully Wrd
-getLabel lmap lbl =
-  case Map.lookup lbl lmap of
-    Just w -> Right w
-    Nothing -> assumptError $ "Code label called but not defined. Label" ++ (show lbl)
+    goGlobs m [] = return m
+    goGlobs m (g:gs) = do
+      let name = globName g
+      when (Map.member name m) $
+        assumptError $ "name collision between globals: " ++ show name
+      goGlobs (Map.insert name (LiGlobal g) m) gs
+-}
 
-data State = State { pc :: Wrd, lMap :: LabelMap}
+blocksStart :: MWord
+blocksStart = 0
 
-initState :: State
-initState = State 0 Map.empty
+blockSize :: NamedBlock md regT MWord -> MWord
+blockSize (NBlock _ instrs) = fromIntegral $ length instrs
 
--- | createMapStep
--- Updates the state given one block 
-createMapStep :: State -> NamedBlock md regT wrdT -> State
-createMapStep st (NBlock name code) =
-  State ( pc st + (fromIntegral $ length code)) (update oldMap name)
-  where location = pc st
-        oldMap = lMap st
-        update lm (Just nm) | Map.member nm lm =
-          error $ "duplicate definition of label " ++ show nm
-        update lm (Just nm) = Map.insert nm location lm
-        update lm _ = lm
+globalsStart :: MWord
+globalsStart = 1 * fromIntegral wordBytes
 
-createMap :: MAProgram md regT wrdT -> LabelMap
-createMap prog = lMap $ foldl createMapStep initState prog
+nextGlobalAddr :: MWord -> GlobalVariable MWord -> MWord
+nextGlobalAddr addr g =
+  alignTo (fromIntegral wordBytes * gAlign g) $
+    addr + fromIntegral wordBytes * gSize g
 
--- ** Flaten the program
--- Now that the labels have been computed we can remove the labes
--- to get a "flat" list of (MicroAssembly) instructions 
+buildLabelMap ::
+  [NamedBlock md regT MWord] ->
+  [GlobalVariable MWord] ->
+  Hopefully (Map Name MWord)
+buildLabelMap blocks globs = do
+  blockMap <- goBlocks mempty blocksStart blocks
+  globMap <- goGlobs mempty globalsStart globs
+  let overlap = Set.intersection (Map.keysSet blockMap) (Map.keysSet globMap)
+  when (not $ Set.null overlap) $
+    assumptError $ "name collision between blocks and globals: " ++ show overlap
+  return $ blockMap <> globMap
+  where
+    goBlocks m _addr [] = return m
+    goBlocks m addr (b@(NBlock (Just name) _) : bs) = do
+      when (Map.member name m) $
+        assumptError $ "name collision between blocks: " ++ show name
+      goBlocks (Map.insert name addr m) (addr + blockSize b) bs
+    goBlocks m addr (b@(NBlock Nothing _) : bs) = do
+      trace "warning: unnamed block in RemoveLabels" $
+        goBlocks m (addr + blockSize b) bs
 
-flattenStep ::
-  NamedBlock md regT wrdT
-  -> [(MAInstruction regT wrdT, md)]
-  -> [(MAInstruction regT wrdT, md)]
-flattenStep (NBlock _ code) prog = code ++ prog
-  
-flatten :: MAProgram md regT wrdT -> [(MAInstruction regT wrdT,md)]
-flatten maProg = foldr flattenStep [] maProg
+    goGlobs m _addr [] = return m
+    goGlobs m addr (g:gs) = do
+      let name = globName g
+      when (Map.member name m) $
+        assumptError $ "name collision between globals: " ++ show name
+      goGlobs (Map.insert name addr m) (nextGlobalAddr addr g) gs
 
--- ** Translate label
--- Given the label map, we can replace all labels
--- with the correct code location
+getOrZero :: Map Name MWord -> Name -> MWord
+getOrZero m n = case Map.lookup n m of
+  Nothing -> trace ("warning: label " ++ show n ++ " is missing; defaulting to zero") 0
+  Just x -> x
 
--- | Translate the operands
--- This takes the current instruction to translate 'HereLabel'
-translateOperand :: LabelMap -> Wrd -> MAOperand regT Wrd -> Hopefully (Operand regT Wrd)
-translateOperand _ _ (AReg r) = return $  Reg r
-translateOperand _ _ (LImm (SConst sc)) =  return $  Const sc
-translateOperand labelMap _ (LImm lc) =
-  return $ Const $ makeConcreteConst fullMap lc
-  where fullMap = addDefault labelMap
-  --assumptError $ "There should be no lazy constants at this point. Found a Lazy Constant LConst. \n"
-translateOperand lmap _ (Label lbl) = do
-  location <- getLabel lmap lbl 
-  return $  Const location
-translateOperand _ loc (HereLabel) = return $  Const loc
+flattenBlocks ::
+  Map Name MWord ->
+  [NamedBlock md regT MWord] ->
+  Hopefully [(Instruction regT MWord, md)]
+flattenBlocks lm bs = goBlocks blocksStart bs
+  where
+    goBlocks ::
+      MWord -> [NamedBlock md regT MWord] -> Hopefully [(Instruction regT MWord, md)]
+    goBlocks _addr [] = return []
+    goBlocks addr (b@(NBlock _ instrs) : bs) = do
+      instrs' <- goInstrs addr instrs
+      rest <- goBlocks (addr + blockSize b) bs
+      return $ instrs' ++ rest
 
-translatePair:: Monad m =>
-  (w -> a -> m b) ->
-  ((Instruction' regT regT a, md), w) ->
-  m (Instruction' regT regT b, md)
-translatePair f (inst_md,w) = mapFstM (mapM $ f w) inst_md
+    goInstrs ::
+      MWord -> [(MAInstruction regT MWord, md)] -> Hopefully [(Instruction regT MWord, md)]
+    goInstrs _addr [] = return []
+    goInstrs addr ((i, md) : rest) = do
+      i' <- traverse (goOperand addr) i
+      rest' <- goInstrs (addr + 1) rest
+      return $ (i', md) : rest'
 
-translateProgram:: Monad m =>
-  (w -> a -> m b) ->
-  [((Instruction' regT regT a, md), w)] ->
-  m [(Instruction' regT regT b, md)]
-translateProgram f = mapM (translatePair f)
+    goOperand :: MWord -> MAOperand regT MWord -> Hopefully (Operand regT MWord)
+    goOperand _ (AReg r) = return $ Reg r
+    goOperand _ (LImm lc) = return $ Const $ makeConcreteConst lmFunc lc
+    goOperand _ (Label name) = return $ Const $ lmFunc name
+    goOperand addr HereLabel = return $ Const addr
 
+    lmFunc = getOrZero lm
 
--- Reoplaces labels with the real value.
--- In the future it will ALSO replace lazy constants with immediates.
--- (Remember we stillneed "HERE LABEL", which cannot (should not) be replaced by lazy constants)
-replaceLabels:: LabelMap -> [(MAInstruction regT Wrd, md)] -> Hopefully $ AnnotatedProgram md regT Wrd
-replaceLabels lm amProg = translateProgram (translateOperand lm) numberedProg
-  where numberedProg = zip amProg naturals -- naturals == [0..]?
+flattenGlobals ::
+  Bool ->
+  Map Name MWord ->
+  [GlobalVariable MWord] ->
+  Hopefully [InitMemSegment]
+flattenGlobals tainted lm gs = goGlobals globalsStart gs
+  where
+    goGlobals :: MWord -> [GlobalVariable MWord] -> Hopefully [InitMemSegment]
+    goGlobals _addr [] = return []
+    goGlobals addr (g:gs) = do
+      init' <- mapM (mapM goLazyConst) (initializer g)
+      let seg = InitMemSegment {
+            isSecret = secret g,
+            isReadOnly = isConstant g,
+            isHeapInit = gvHeapInit g,
+            location = addr `div` fromIntegral wordBytes,
+            segmentLen = gSize g,
+            content = init',
+            labels = if tainted then
+                Just $ replicate (fromIntegral $ gSize g) $ V.replicate wordBytes untainted
+              else Nothing
+            }
+      rest <- goGlobals (nextGlobalAddr addr g) gs
+      return $ seg : rest
 
+    goLazyConst :: LazyConst MWord -> Hopefully MWord
+    goLazyConst lc = return $ makeConcreteConst lmFunc lc
 
--- ** Assemble : put all steps together
-
--- Old way of doing it.
-removeLabelsProg :: MAProgram md regT Wrd -> Hopefully $ AnnotatedProgram md regT Wrd
-removeLabelsProg massProg = replaceLabels lMap flatProg
-  where lMap     = createMap massProg
-        flatProg = flatten massProg
-
-removeLabelsInitMem :: LabelMap -> LazyInitialMem -> Hopefully $ InitialMem
-removeLabelsInitMem lmap lInitMem =
-  let fullMap = addDefault lmap in
-    mapM (removeLabelsSegment fullMap) lInitMem
-  where removeLabelsSegment :: (Name -> Wrd) -> LazyInitSegment -> Hopefully $ InitMemSegment
-        removeLabelsSegment labelMap (lMem, initSegment) =
-          let vals = removeLabelInitialValues labelMap lMem in
-          let taintLabels = labels initSegment in
-          return $ initSegment {content = vals}
-        removeLabelInitialValues :: (Name -> Wrd) -> Maybe [LazyConst Wrd] -> Maybe [Wrd]
-        removeLabelInitialValues labelMap lMem =  map (makeConcreteConst labelMap) <$> lMem
-addDefault :: LabelMap -> Name -> Wrd
-addDefault labelMap name =
-  case Map.lookup name labelMap of
-    Just x -> x
-    Nothing -> 0  -- Adds a default. Checking undefined names and labels should be done at Instruction Selection.
-                  -- So, here we asssume all funcitons are in the map and the default will never be returned.
-      
+    lmFunc = getOrZero lm
 
 -- ** Remove labels from the entire CompilationUnit  
-removeLabels :: (CompilationUnit LazyInitialMem (MAProgram md regT Wrd))
-             -> Hopefully $ CompilationUnit () (AnnotatedProgram md regT Wrd)
-removeLabels compUnit = do
-  let lMap = createMap $ pmProg $ programCU compUnit
-  prog' <- replaceLabels lMap $ flatten $ pmProg $ programCU compUnit
-  initMem <- removeLabelsInitMem lMap $ intermediateInfo compUnit
-  return $ compUnit {programCU = ProgAndMem prog' initMem lMap, intermediateInfo = ()}
-  
+removeLabels ::
+  Bool ->
+  CompilationUnit [GlobalVariable MWord] (MAProgram md regT Wrd) ->
+  Hopefully (CompilationUnit () (AnnotatedProgram md regT Wrd))
+removeLabels tainted cu = do
+  let blocks = pmProg $ programCU cu
+  let globs = intermediateInfo cu
+  lm <- buildLabelMap blocks globs
+  prog <- flattenBlocks lm blocks
+  mem <- flattenGlobals tainted lm globs
+  return $ cu {
+    programCU = ProgAndMem prog mem lm,
+    intermediateInfo = ()
+  }
+
+-- FIXME: This is a temporary hack.  Instead MAProgram should contain both a
+-- list of blocks and a list of globals, and Stacking should copy the global
+-- env into the right field of the MAProgram.
+stashGlobals ::
+  CompilationUnit () (Lprog m mreg MWord) ->
+  CompilationUnit [GlobalVariable MWord] (Lprog m mreg MWord)
+stashGlobals cu = cu { intermediateInfo = gs }
+  where gs = globals $ pmProg $ programCU cu

@@ -14,9 +14,6 @@ this pass transforms those instructions into real stack manipulations.
 Moreover this pass adds the necessary instructions from stack frame
 creation and destruction on function call and return.
 
-(Note that global variables are passed as initial memory to the cricuit generator.
- see Compiler/Globals.hs for details)
-
 
     Stack layout during function execution
 
@@ -171,7 +168,7 @@ funCallInstructions md _ ret f _typs _args =
   (
   -- Push return addres
     [Imov ax HereLabel,
-     Iadd ax ax (LImm 7) -- FIXME: The compiler should do this addition
+     Iadd ax ax (LImm 8) -- FIXME: The compiler should do this addition
     ] ++ push ax ++
     -- push the old base pointer, and move the base pointer to the sp
     push bp ++
