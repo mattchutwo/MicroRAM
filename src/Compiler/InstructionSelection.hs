@@ -424,10 +424,8 @@ isInstruction env ret instr =
     (LLVM.InsertValue _ _ _ _)   -> makeTraceInvalid "insertvalue" =<< getMetadata
     (LLVM.ExtractValue _ _ _ )   -> makeTraceInvalid "extractvalue" =<< getMetadata
     -- Transformers
-    -- FIXME: SExt needs to set the high bits to match the sign bit of `op`
-    (LLVM.SExt op _ _)       -> toRTL =<< withReturn ret (isMove env op) 
-    -- FIXME: ZExt needs to set the high bits to zero
-    (LLVM.ZExt op _ _)       -> toRTL =<< withReturn ret (isMove env op)
+    (LLVM.SExt op _ _)       -> toRTL =<< withReturn ret (isExtend env True op)
+    (LLVM.ZExt op _ _)       -> toRTL =<< withReturn ret (isExtend env False op)
     (LLVM.PtrToInt op _ty _) -> toRTL =<< withReturn ret (isMove env op)
     (LLVM.IntToPtr op _ty _) -> toRTL =<< withReturn ret (isMove env op)
     (LLVM.BitCast op _typ _) -> toRTL =<< withReturn ret (isMove env op)
@@ -855,12 +853,21 @@ isTruncate env op ty ret = do
 
                        
 -- ** Conversions
--- We fit everything in size 32 bits, so extensions are trivial
 isMove :: Env -> LLVM.Operand -> VReg -> Statefully $ [MA2Instruction VReg MWord]
 isMove env op ret = -- lift $ toRTL <$>
   do op' <- operand2operand env op
      return $ smartMove ret op'
-  
+
+-- | Zero/sign extension.
+isExtend :: Env -> Bool -> LLVM.Operand -> VReg -> Statefully $ [MA2Instruction VReg MWord]
+isExtend env signed op ret =
+  -- `operand2operandTrunc` truncates to the width indicated by the type of
+  -- `op`, then zero/sign extends to 64 bits.  For values less than 64 bits
+  -- wide, we allow there to be junk in the high bits of the register, so
+  -- there's no more work to do beyond this.
+  do (op', extra) <- operand2operandTrunc env signed op
+     return $ extra ++ smartMove ret op'
+
 -- | Optimize away the move if it's to the same register
 --
 -- TODO: is the same-register case even possible on inputs in SSA form?

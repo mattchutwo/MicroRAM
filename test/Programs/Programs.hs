@@ -59,7 +59,7 @@ testTrivial = ManyTests "Trivial programs" $ OneTest <$>
   defaultTest {
     testName = "arithmetic shift right"
     ,fileName ="test/Programs/arithShr.ll"
-    ,testLen = 850-- 660
+    ,testLen = 1000 -- 850-- 660
     ,testResult = 8
     }  :
   defaultTest {
@@ -169,7 +169,7 @@ testLoops = ManyTests "Conditionals, Branching and loops" $ OneTest <$>
   defaultTest {
     testName = "Or with phi"
     ,fileName ="test/Programs/or.ll"
-    ,testLen = 150 -- 100
+    ,testLen = 200 -- 150 -- 100
     ,testResult =   1
     } : 
   {-  defaultTest {
@@ -198,7 +198,7 @@ testGEP = ManyTests "Test structs and arrays with GetElementPtr" $ OneTest <$>
     defaultTest {
     testName = "Trivial struct"
     ,fileName ="test/Programs/easyStruct.ll"
-    ,testLen = 50
+    ,testLen = 100 -- 50
     ,testResult =   3
     } :
     defaultTest {
@@ -271,9 +271,9 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
   , leakTainted = True
   , bug = True }  :
   defaultTest {
-    testName = "Information leakage"
+    testName = "Information leakage: heartbleed"
   , fileName = "test/Programs/noni/heartbleed.ll"
-  , testLen = 6000 -- 5000
+  , testLen = 7000 -- 6000 -- 5000
   , testResult = 0
   , leakTainted = True
   , bug = True }  :
