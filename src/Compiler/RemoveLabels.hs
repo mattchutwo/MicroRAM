@@ -60,39 +60,6 @@ type Wrd = MWord
 
 -- * Assembler
 
-{-
-data LabeledItem =
-    LiBlock (NamedBlock md regT MWord)
-  | LiGlobal (GlobalVariable MWord)
-
-buildLabelMap ::
-  MAProgram md regT MWord ->
-  [GlobalVariable MWord] ->
-  Hopefully (Map Name LabeledItem)
-buildLabelMap blocks globs = do
-  blockMap <- goBlocks mempty blocks
-  globMap <- goGlobs mempty globs
-  let overlap = Set.intersection (Map.keysSet blockMap) (Map.keysSet globMap)
-  when (not $ Set.null overlap) $
-    assumptError $ "name collision between blocks and globals: " ++ show overlap
-  return $ blockMap <> globMap
-  where
-    goBlocks m [] = return m
-    goBlocks m (b@(NBlock (Just name) _) : bs) = do
-      when (Map.member name m) $
-        assumptError $ "name collision between blocks: " ++ show name
-      goBlocks (Map.insert name (LiBlock b) m) bs
-    goBlocks m (NBlock Nothing _ : bs) = do
-      assumptError $ "unnamed block in buildLabelMap"
-
-    goGlobs m [] = return m
-    goGlobs m (g:gs) = do
-      let name = globName g
-      when (Map.member name m) $
-        assumptError $ "name collision between globals: " ++ show name
-      goGlobs (Map.insert name (LiGlobal g) m) gs
--}
-
 blocksStart :: MWord
 blocksStart = 0
 

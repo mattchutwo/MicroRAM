@@ -122,7 +122,7 @@ threadJumps prog = return $ map (updateStart . updateBlock) $ filter (not . isJu
     updateOperand x = x
 
 -- | Eliminate any blocks that are not reachable from the first (entry point)
--- block.
+-- block. It follows global pointers, function pointers, jumps and fallthroughs.
 elimDead :: (Show regT, Show wrdT) => [GlobalVariable wrdT] -> MAProgram Metadata regT wrdT -> Hopefully (MAProgram Metadata regT wrdT)
 elimDead _ [] = return []
 elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBlocks]
@@ -137,6 +137,7 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
 
     premainIndex = Map.findWithDefault (error "unreachable: block for premain not found") premainName nameMap
 
+    -- `Either Name Int` stands for the union of global names and block indexes, respectively.
     nameDeps :: Either Name Int -> Set.Set (Either Name Int)
     nameDeps (Left n) = globalDeps n
     nameDeps (Right i) = blockDeps i
