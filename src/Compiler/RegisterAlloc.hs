@@ -326,7 +326,6 @@ applyColoring coloring = mapM applyBasicBlock
     applyOperand (AReg r)   = AReg <$> applyReg r
     applyOperand (LImm w) = return $ LImm w
     applyOperand (Label s) = return $ Label s
-    applyOperand (Glob s) = return $ Glob s
     applyOperand HereLabel = return $ HereLabel
 
 

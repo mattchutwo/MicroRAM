@@ -1247,7 +1247,7 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
     (sectionIsSecret sectn) (sectionIsHeapInit sectn)
   where flatInit :: Env ->
                     Maybe LLVM.Constant.Constant ->
-                    Statefully $ Maybe [LazyConst Name MWord]
+                    Statefully $ Maybe [LazyConst MWord]
         flatInit _ Nothing = return Nothing
         flatInit env (Just const) = do
           const' <- flattenConstant env const
@@ -1268,7 +1268,7 @@ isGlobVar _ other = unreachableError $ show other
 -- machine words.
 flattenConstant :: Env
                 -> LLVM.Constant.Constant
-                -> Statefully [LazyConst Name MWord]
+                -> Statefully [LazyConst MWord]
 flattenConstant env c = do
     chunks <- constant2typedLazyConst env c
     return $ go (SConst 0) 0 $ map unpack chunks
@@ -1276,8 +1276,8 @@ flattenConstant env c = do
     unpack (TypedLazyConst lc w _align) = (lc, widthInt w)
 
     go ::
-      LazyConst Name MWord -> Int -> [(LazyConst Name MWord, Int)] ->
-      [LazyConst Name MWord]
+      LazyConst MWord -> Int -> [(LazyConst MWord, Int)] ->
+      [LazyConst MWord]
     go _acc 0 [] = []
     go acc _pos [] = [acc]
     go acc pos ((lc, w) : cs)
@@ -1300,7 +1300,7 @@ flattenConstant env c = do
 constant2OnelazyConst ::
   Env
   -> LLVM.Constant.Constant
-  -> Statefully $ LazyConst Name MWord
+  -> Statefully $ LazyConst MWord
 constant2OnelazyConst env c = do
   cs' <- constant2typedLazyConst env c
   case cs' of
@@ -1313,22 +1313,22 @@ constant2OnelazyConst env c = do
 -- | A `LazyConst` whose value is guaranteed to fit within `width` bytes.  Do
 -- not construct directly; use `mkTypedLazyConst` instead (which enforces the
 -- invariant).
-data TypedLazyConst = TypedLazyConst (LazyConst Name MWord) MemWidth Int
+data TypedLazyConst = TypedLazyConst (LazyConst MWord) MemWidth Int
 
-mkTypedLazyConst :: LazyConst Name MWord -> MemWidth -> TypedLazyConst
+mkTypedLazyConst :: LazyConst MWord -> MemWidth -> TypedLazyConst
 mkTypedLazyConst lc w = TypedLazyConst (lc .&. SConst mask) w align
   where
     mask = (1 `shiftL` (8 * MRAM.widthInt w)) - 1
     align = widthInt w
 
 typedLazyUop ::
-  (LazyConst Name MWord -> LazyConst Name MWord) ->
+  (LazyConst MWord -> LazyConst MWord) ->
   TypedLazyConst -> TypedLazyConst
 typedLazyUop op (TypedLazyConst lc1 w1 _) =
   mkTypedLazyConst (op lc1) w1
 
 typedLazyBop ::
-  (LazyConst Name MWord -> LazyConst Name MWord -> LazyConst Name MWord) ->
+  (LazyConst MWord -> LazyConst MWord -> LazyConst MWord) ->
   TypedLazyConst -> TypedLazyConst -> TypedLazyConst
 typedLazyBop op (TypedLazyConst lc1 w1 _) (TypedLazyConst lc2 w2 _) =
   mkTypedLazyConst (op lc1 lc2) (max w1 w2)
@@ -1403,7 +1403,7 @@ constant2typedLazyConst env c =
     (LLVM.Constant.GlobalReference _ty name         ) -> do
       _ <- lift $ checkName (globs env) name
       name' <- globalName name
-      return [mkTypedLazyConst (LConst $ \ge -> ge name') WWord]
+      return [mkTypedLazyConst (lcGlobal name') WWord]
     (LLVM.Constant.Add _ _ op1 op2                  ) -> bop2typedLazyConst env (+) op1 op2
     (LLVM.Constant.Sub  _ _ op1 op2                 ) -> bop2typedLazyConst env (-) op1 op2
     (LLVM.Constant.Mul  _ _ op1 op2                 ) -> bop2typedLazyConst env (*) op1 op2
@@ -1466,9 +1466,9 @@ defineUndefConst _ t = implError $ "Constant type not yet supported: " ++ show t
 
 constGEP :: LLVMTypeEnv
          -> LLVM.Type
-         -> LazyConst Name MWord
-         -> [LazyConst Name MWord]
-         -> Hopefully $ LazyConst Name MWord
+         -> LazyConst MWord
+         -> [LazyConst MWord]
+         -> Hopefully $ LazyConst MWord
 constGEP _ (LLVM.PointerType _refT _) _ [] = assumptError "GetElementPtr should have at least one index. "
 constGEP tenv (LLVM.PointerType refT _) ptr (inx:inxs) = do
   _typ' <- type2type tenv refT
@@ -1477,9 +1477,9 @@ constGEP tenv (LLVM.PointerType refT _) ptr (inx:inxs) = do
   return $ final
   where constGEP' :: LLVMTypeEnv
                   -> LLVM.Type
-                  -> LazyConst Name MWord
-                  -> [LazyConst Name MWord]
-                  -> Hopefully $ LazyConst Name MWord 
+                  -> LazyConst MWord
+                  -> [LazyConst MWord]
+                  -> Hopefully $ LazyConst MWord 
         constGEP' _ _ ptr [] = return ptr
         constGEP' env (LLVM.ArrayType _ elemsT) ptr (inx:inxs) = 
            flip (constGEP' env elemsT) inxs (ptr + inx * (SConst $ sizeOf env elemsT))

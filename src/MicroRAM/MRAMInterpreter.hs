@@ -487,12 +487,8 @@ execTraceHandler eTrace eAdvice nextH instr = do
   sExt . eTrace %= (Seq.|> s)
 
 runWith :: Regs r => InstrHandler' r v s -> Word -> InterpState' r v s -> Hopefully (InterpState' r v s)
-runWith handler steps initState = evalStateT go initState
+runWith handler steps initState = execStateT (goSteps steps) initState
   where
-    go = do
-      goSteps steps
-      get
-
     goSteps 0 = return ()
     goSteps n = do
       goStep

@@ -132,7 +132,7 @@ data InitMemSegment = InitMemSegment
 type InitialMem = [InitMemSegment]
 
 -- | For creating an initial memory befor code labels and globals have been resolved.
-type LazyInitSegment = (Maybe [LazyConst Name MWord], InitMemSegment)
+type LazyInitSegment = (Maybe [LazyConst MWord], InitMemSegment)
 type LazyInitialMem = [LazyInitSegment] 
 
 

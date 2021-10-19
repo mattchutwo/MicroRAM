@@ -280,6 +280,7 @@ parseFlag flag fr =
     DoubleCheck ->              fr {doubleCheck = True}
     FlatFormat ->               fr {outFormat = max Flat $ outFormat fr}
     PrettyHex ->                fr {outFormat = max PHex $ outFormat fr}
+    VerifierMode ->             fr {verifierMode = True}
     _ ->                        fr
 
 parseOptions :: String -> Maybe Word -> [Flag] -> IO FlagRecord

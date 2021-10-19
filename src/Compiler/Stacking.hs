@@ -14,9 +14,6 @@ this pass transforms those instructions into real stack manipulations.
 Moreover this pass adds the necessary instructions from stack frame
 creation and destruction on function call and return.
 
-(Note that global variables are passed as initial memory to the cricuit generator.
- see Compiler/Globals.hs for details)
-
 
     Stack layout during function execution
 
@@ -102,7 +99,7 @@ _smartMovMaybe (Just r) a = smartMov r a
 -- Sends main to the returnBlock
 premain :: Regs mreg => Name -> NamedBlock Metadata mreg MWord
 premain returnName =
-  NBlock Nothing $
+  NBlock (Just premainName) $
   -- poison address 0
   (IpoisonW (LImm 0) sp, md{mdFunctionStart = True}) : -- Premain is a 'function' add function start metadata
   addMD md (
@@ -171,7 +168,7 @@ funCallInstructions md _ ret f _typs _args =
   (
   -- Push return addres
     [Imov ax HereLabel,
-     Iadd ax ax (LImm 7) -- FIXME: The compiler should do this addition
+     Iadd ax ax (LImm 8) -- FIXME: The compiler should do this addition
     ] ++ push ax ++
     -- push the old base pointer, and move the base pointer to the sp
     push bp ++
@@ -251,8 +248,11 @@ stackLTLInstr md (LAlloc reg sz n) = do
         -- | Round a constant up to the next multiple of `wordBytes`.
         roundUp (SConst n) = SConst $ (n + fromIntegral wordBytes - 1) .&.
           complement (fromIntegral wordBytes - 1)
-        roundUp (LConst f) = LConst $ \ge -> (f ge + fromIntegral wordBytes - 1) .&.
-          complement (fromIntegral wordBytes - 1)  
+        roundUp (LConst f ns) =
+          LConst
+            (\ge -> (f ge + fromIntegral wordBytes - 1) .&.
+              complement (fromIntegral wordBytes - 1))
+            ns
  
 -- | stack all instructions
 stackInstr ::

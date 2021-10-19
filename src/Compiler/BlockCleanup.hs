@@ -24,10 +24,12 @@ module Compiler.BlockCleanup
 
 
 import Control.Monad.State
+import Data.Either (rights)
 
 import MicroRAM
 import Compiler.Common
 import Compiler.IRs
+import Compiler.LazyConstants
 import Compiler.Metadata
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
@@ -37,6 +39,7 @@ import Compiler.CompilationUnit
 import Compiler.Errors
 
 import Util.Util
+
 
 -- | Removes redundant moves (like `mov r1 r1`).
 redundantMovs :: forall md reg wrd . Eq reg => MAProgram md reg wrd -> Hopefully (MAProgram md reg wrd)
@@ -82,7 +85,10 @@ threadJumps prog = return $ map (updateStart . updateBlock) $ filter (not . isJu
     -- then we record (A, B) in this map.
     jumpMap :: Map.Map Name Name 
     jumpMap = Map.fromList $ do
-      NBlock (Just src) [(Ijmp (Label dest), _)] <- prog
+      NBlock (Just src) [(Ijmp (Label dest), md)] <- prog
+      -- TODO: This temporarily disables thread jumping for blocks that start functions. This leads to errors if globals reference the function and the names aren't updated.
+      guard $ not $ mdFunctionStart md
+
       return (src, dest)
 
     -- Like jumpMap, but we resolve chains of jumps to a single destination.
@@ -116,67 +122,85 @@ threadJumps prog = return $ map (updateStart . updateBlock) $ filter (not . isJu
     updateOperand x = x
 
 -- | Eliminate any blocks that are not reachable from the first (entry point)
--- block.
-elimDead :: (Show regT, Show wrdT) => MAProgram Metadata regT wrdT -> Hopefully (MAProgram Metadata regT wrdT)
-elimDead [] = return []
-elimDead prog = return [b | (i, b) <- zip [0..] prog, Set.member i liveBlocks]
+-- block. It follows global pointers, function pointers, jumps and fallthroughs.
+elimDead :: (Show regT, Show wrdT) => [GlobalVariable wrdT] -> MAProgram Metadata regT wrdT -> Hopefully (MAProgram Metadata regT wrdT)
+elimDead _ [] = return []
+elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBlocks]
   where
+    globalMap = Map.fromList $ map (\g -> (globName g, g)) globals
     progSeq = Seq.fromList prog
 
-    nameMap :: Map.Map Name Int
-    nameMap = Map.fromList [(name, i) | (i, NBlock (Just name) _) <- zip [0..] prog]
+    indexedProg = zip [0..] prog
 
-    blockDeps :: Int -> Set.Set Int
+    nameMap :: Map.Map Name Int
+    nameMap = Map.fromList [(name, i) | (i, NBlock (Just name) _) <- indexedProg]
+
+    premainIndex = Map.findWithDefault (error "unreachable: block for premain not found") premainName nameMap
+
+    -- `Either Name Int` stands for the union of global names and block indexes, respectively.
+    nameDeps :: Either Name Int -> Set.Set (Either Name Int)
+    nameDeps (Left n) = globalDeps n
+    nameDeps (Right i) = blockDeps i
+
+
+    globalDeps :: Name -> Set.Set (Either Name Int)
+    globalDeps n | Just g <- Map.lookup n globalMap = case initializer g of
+      Nothing -> mempty
+      Just is -> Set.unions $ map lazyDeps is
+    globalDeps n = error $ "no global for name " <> show n
+
+    lazyDeps :: LazyConst a -> Set.Set (Either Name Int)
+    lazyDeps (LConst _ ds) = Set.map nameToIndex ds
+    lazyDeps (SConst _)    = mempty
+
+    nameToIndex n = case Map.lookup n nameMap of
+      Just j -> Right j
+      Nothing -> if Map.member n globalMap then
+          Left n
+        else
+          error $ "no definition for name " ++ show n
+
+    blockDeps :: Int -> Set.Set (Either Name Int)
     -- If the last block falls through, consider the one-past-the-end block to
     -- have no dependencies.
     blockDeps i | i >= Seq.length progSeq = mempty
     blockDeps i = deps <> fallthroughDep
       where
         NBlock _ instrs = progSeq `Seq.index` i
-        deps = mconcat $ map ((foldInstr (const mempty) (const mempty) labelSet) . fst) instrs
+        deps = mconcat $ map ((foldInstr (const mempty) (const mempty) opDep) . fst) instrs
 
-        labelSet (Label l) = case Map.lookup l nameMap of
-          Nothing -> error $ "no definition of label " ++ show l
-          Just j -> Set.singleton j
-        labelSet _ = mempty
+        opDep (Label l) = Set.singleton $ nameToIndex l
+        opDep (LImm li) = lazyDeps li
+        opDep (AReg _) = mempty
+        opDep HereLabel = mempty
 
         fallthroughDep = case instrs of
           [] -> mempty
           _:_ -> case fst $ last instrs of
             Ijmp _ -> mempty
-            _ -> Set.singleton (i + 1)
+            _ -> Set.singleton $ Right (i + 1)
 
-    -- | All the blocks that are at the beggining of a function.
-    -- TODO: this is just an approximation of all blocks reachable from globals.
-    -- If we could extract the function calls from the globals, we can use that instead.
-    functionEntries :: [Int]
-    functionEntries = do
-      (i, NBlock _ instrs) <- zip [0..] prog
-      guard $ not $ null instrs                     -- Block is not empty
-      guard $ mdFunctionStart . snd $ (instrs !! 0) -- It's a function start
-      return i
-  
     -- | Add `cur` and all blocks it references (transitively) to the state.
-    gather :: Int -> State (Set.Set Int) ()
+    gather :: Either Name Int -> State (Set.Set (Either Name Int)) ()
     gather cur = do
       seen <- get
       when (not $ Set.member cur seen) $ do
         modify $ Set.insert cur
-        let new = blockDeps cur
+        let new = nameDeps cur
         let new' = Set.difference new seen
         mapM_ gather new'
 
     -- | Set of all blocks referenced transitively from `start`.
     liveBlocks :: Set.Set Int
-    liveBlocks = execState (mapM_ gather $ 0:functionEntries) mempty
+    liveBlocks = Set.fromList $ rights $ Set.toList $ execState (gather $ Right premainIndex) mempty
 
 
-blockCleanup :: (Eq regT, Show regT, Show wrdT) => (CompilationUnit mem (MAProgram Metadata regT wrdT))
-             -> Hopefully (CompilationUnit mem (MAProgram Metadata regT wrdT))
+blockCleanup :: (Eq regT, Show regT, Show wrdT) => (CompilationUnit [GlobalVariable wrdT] (MAProgram Metadata regT wrdT))
+             -> Hopefully (CompilationUnit [GlobalVariable wrdT] (MAProgram Metadata regT wrdT))
 blockCleanup cu = do
   prog' <- return (pmProg $ programCU cu) >>=
     threadJumps >>=
-    elimDead >>=
+    elimDead (intermediateInfo cu) >>=
     redundantMovs >>=
     return
   return $ cu { programCU = (programCU cu) { pmProg = prog' } }
