@@ -396,7 +396,7 @@ isInstruction env ret instr =
     (LLVM.UDiv _ o1 o2 _)    -> isBinopTrunc env False ret o1 o2 MRAM.Iudiv -- this is easy
     (LLVM.URem o1 o2 _)      -> isBinopTrunc env False ret o1 o2 MRAM.Iumod -- this is eay
     -- Binary
-    (LLVM.Shl _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Ishl
+    (LLVM.Shl _ _ o1 o2 _)   -> isBinopTrunc env False ret o1 o2 MRAM.Ishl
     (LLVM.LShr _ o1 o2 _)    -> isBinopTrunc env False ret o1 o2 MRAM.Ishr
     (LLVM.AShr _ o1 o2 _)    -> isArithShr env ret o1 o2
     (LLVM.And o1 o2 _)       -> isBinop env ret o1 o2 MRAM.Iand
@@ -518,13 +518,13 @@ isArithShr _ Nothing _ _ = return []
 isArithShr env (Just ret) o1 o2 = do
   -- Truncate in unsigned mode, so the result of `o1 >> (wrdsize - 1)` is
   -- either zero or one.
-  (o1', pre) <- operand2operandTrunc env False o1
-  o2' <- operand2operand env o2
+  (o1', pre1) <- operand2operandTrunc env False o1
+  (o2', pre2) <- operand2operandTrunc env False o2
   nsign <- freshName
   sign  <- freshName
   ret'' <- freshName
   ret'  <- freshName
-  toRTL $ pre ++
+  toRTL $ pre1 ++ pre2 ++
     [ MRAM.Ishr nsign o1' (LImm $ SConst $ fromIntegral width - 1),
       MRAM.Imull sign (AReg nsign)
         (LImm $ SConst $ complement 0 `shiftR` (64 - fromIntegral width)),
