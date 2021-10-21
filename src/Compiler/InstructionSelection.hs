@@ -516,13 +516,15 @@ isArithShr :: Env
      -> Statefully [MIRInstr Metadata MWord]
 isArithShr _ Nothing _ _ = return []
 isArithShr env (Just ret) o1 o2 = do
-  o1' <- operand2operand env o1
+  -- Truncate in unsigned mode, so the result of `o1 >> (wrdsize - 1)` is
+  -- either zero or one.
+  (o1', pre) <- operand2operandTrunc env False o1
   o2' <- operand2operand env o2
   nsign <- freshName
   sign  <- freshName
   ret'' <- freshName
   ret'  <- freshName
-  toRTL $
+  toRTL $ pre ++
     [ MRAM.Ishr nsign o1' (LImm $ SConst $ fromIntegral width - 1),
       MRAM.Imull sign (AReg nsign)
         (LImm $ SConst $ complement 0 `shiftR` (64 - fromIntegral width)),
