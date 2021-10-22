@@ -44,6 +44,7 @@ module Sparsity.Sparsity (
   InstrKind(..),
   instrType) where
 
+import Data.Foldable (foldl')
 import qualified Data.Map as Map
 
 import Util.Util
@@ -251,7 +252,7 @@ sparsInstr spars (location, instr) =
 sparsBlock :: NamedBlock md r w -> Sparsity'
 sparsBlock (NBlock _ instrs) =
   setEndSpars (length instrs) $                 -- second step
-  foldl sparsInstr Map.empty $ enumerate $ fst <$> instrs -- first step
+  foldl' sparsInstr Map.empty $ enumerate $ fst <$> instrs -- first step
   where setEndSpars lastLoc spars = fmap (setNewEnd lastLoc) spars
 
 -- ** TODO: Functions

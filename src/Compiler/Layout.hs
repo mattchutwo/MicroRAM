@@ -10,6 +10,7 @@ module Compiler.Layout
 ) where
 
 import Data.Bits
+import Data.Foldable (foldl')
 import qualified Data.Map as Map 
 
 import MicroRAM
@@ -57,7 +58,7 @@ alignTo a x = (x + a - 1) .&. complement (a - 1)
 sizeOfStruct :: LLVMTypeEnv -> [Type] -> MWord
 sizeOfStruct tenv tys =
   alignTo (alignOfStruct tenv tys) $
-  foldl (\pos ty -> alignTo (alignOf tenv ty) pos + sizeOf tenv ty) 0 tys
+  foldl' (\pos ty -> alignTo (alignOf tenv ty) pos + sizeOf tenv ty) 0 tys
 
 -- | For each field of a struct, give the amount of padding required after the
 -- field.
@@ -78,7 +79,7 @@ structPadding env tys = tail $ go 0 1 tys
 offsetOfStructElement :: LLVMTypeEnv -> Type -> [Type] -> MWord
 offsetOfStructElement tenv ty_head tys =
   alignTo (alignOf tenv ty_head) $
-  foldl (\pos ty -> alignTo (alignOf tenv ty) pos + sizeOf tenv ty) 0 tys
+  foldl' (\pos ty -> alignTo (alignOf tenv ty) pos + sizeOf tenv ty) 0 tys
   
 
 alignOfStruct :: LLVMTypeEnv -> [Type] -> MWord

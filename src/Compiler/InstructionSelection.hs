@@ -34,6 +34,7 @@ import qualified Data.ByteString.Short as Short
 
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map 
+import Data.Foldable (foldl')
 
 import Control.Lens (makeLenses, (.=), (%=), (^.), use)
 import Control.Monad.Except
@@ -469,7 +470,7 @@ typedIntrinCall ::
 typedIntrinCall env baseName dest retTy ops = intrinCall env name dest retTy ops
   where
     opTys = map (typeOf (llvmtTypeEnv env)) ops
-    name = foldl (<>) "" (baseName : map (\ty -> "_" <> tyName ty) opTys)
+    name = foldl' (<>) "" (baseName : map (\ty -> "_" <> tyName ty) opTys)
 
     tyName :: LLVM.Type -> Short.ShortByteString
     tyName ty = case ty of
