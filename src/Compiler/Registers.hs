@@ -54,7 +54,10 @@ updateBank r v (RegBank m d) = RegBank (Map.insert r v m) d
 -- | Flattens a register bank to a list. Takes a bound
 -- in case the register type or the bank is infinite.
 regToList :: Regs mreg => Word -> RegBank mreg b -> [b]
-regToList bound bank = map (flip lookupReg bank . fromWord) [0..bound - 1]
+regToList bound (RegBank bank def) = fst $ foldr (\i (acc, regs) -> case regs of
+    ((j, reg):regs') | i == j -> (reg:acc, regs')
+    _                         -> (def:acc, regs)
+  ) ([], Map.toDescList bank) $ map fromWord [0..bound - 1]
 
 
 
