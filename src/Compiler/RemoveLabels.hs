@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -110,30 +111,26 @@ getOrZero m n = case Map.lookup n m of
 flattenBlocks ::
   Map Name MWord ->
   [NamedBlock md regT MWord] ->
-  Hopefully [(Instruction regT MWord, md)]
-flattenBlocks lm bs = goBlocks blocksStart bs
+  [(Instruction regT MWord, md)]
+flattenBlocks lm bs = snd $ foldr goBlock (totalBlockSize, []) bs
   where
-    goBlocks ::
-      MWord -> [NamedBlock md regT MWord] -> Hopefully [(Instruction regT MWord, md)]
-    goBlocks _addr [] = return []
-    goBlocks addr (b@(NBlock _ instrs) : bs) = do
-      instrs' <- goInstrs addr instrs
-      rest <- goBlocks (addr + blockSize b) bs
-      return $ instrs' ++ rest
+    !totalBlockSize = blocksStart + sum (map blockSize bs)
 
-    goInstrs ::
-      MWord -> [(MAInstruction regT MWord, md)] -> Hopefully [(Instruction regT MWord, md)]
-    goInstrs _addr [] = return []
-    goInstrs addr ((i, md) : rest) = do
-      i' <- traverse (goOperand addr) i
-      rest' <- goInstrs (addr + 1) rest
-      return $ (i', md) : rest'
+    goBlock (NBlock _ instrs) (!postAddr,!acc) =
+      foldr goInstr (postAddr, acc) instrs
 
-    goOperand :: MWord -> MAOperand regT MWord -> Hopefully (Operand regT MWord)
-    goOperand _ (AReg r) = return $ Reg r
-    goOperand _ (LImm lc) = return $ Const $ makeConcreteConst lmFunc lc
-    goOperand _ (Label name) = return $ Const $ lmFunc name
-    goOperand addr HereLabel = return $ Const addr
+    goInstr :: (MAInstruction regT MWord, md) -> (MWord,[(Instruction regT MWord, md)]) -> (MWord,[(Instruction regT MWord, md)])
+    goInstr (i, md) (!lastAddr,!acc) =
+      let addr = lastAddr - 1 in
+      let !i' = goOperand addr <$> i in
+
+      (addr, (i', md):acc)
+
+    goOperand :: MWord -> MAOperand regT MWord -> Operand regT MWord
+    goOperand _ (AReg r) = Reg r
+    goOperand _ (LImm lc) = Const $ makeConcreteConst lmFunc lc
+    goOperand _ (Label name) = Const $ lmFunc name
+    goOperand addr HereLabel = Const addr
 
     lmFunc = getOrZero lm
 
@@ -176,7 +173,7 @@ removeLabels tainted cu = do
   let blocks = pmProg $ programCU cu
   let globs = intermediateInfo cu
   lm <- buildLabelMap blocks globs
-  prog <- flattenBlocks lm blocks
+  let prog = flattenBlocks lm blocks
   mem <- flattenGlobals tainted lm globs
   return $ cu {
     programCU = ProgAndMem prog mem lm,
