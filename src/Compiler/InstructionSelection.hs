@@ -1444,9 +1444,41 @@ constant2typedLazyConst env c =
       implError $ "Vectors not yet supported."
     (LLVM.Constant.ShuffleVector _op1 _op2 _mask    ) -> 
       implError $ "Vectors not yet supported."
+    (LLVM.Constant.ZExt op1 typ) -> do
+      TypedLazyConst c1 _ _ <- constant2typedLazyConst env op1 >>= \x -> case x of
+        [y] -> return y
+        _ -> error $ "unexpected constant value for " ++ show op1
+      return $ [mkTypedLazyConst c1 (typeWidth typ)]
+    (LLVM.Constant.SExt op1 typ) -> do
+      TypedLazyConst c1 _ _ <- constant2typedLazyConst env op1 >>= \x -> case x of
+        [y] -> return y
+        _ -> error $ "unexpected constant value for " ++ show op1
+      oldBits <- lift $ intTypeWidth $ typeOf (llvmtTypeEnv env) op1
+      newBits <- lift $ intTypeWidth typ
+      let b = newBits - oldBits - 1
+      let f w
+            | newBits == oldBits = w
+            | otherwise = w .|. ((`shiftL` b) $ negate $ (`shiftR` b) $ w)
+      let c' = lazyUop f c1
+      return $ [mkTypedLazyConst c' (typeWidth typ)]
+    (LLVM.Constant.Trunc op1 typ) -> do
+      TypedLazyConst c1 _ _ <- constant2typedLazyConst env op1 >>= \x -> case x of
+        [y] -> return y
+        _ -> error $ "unexpected constant value for " ++ show op1
+      newBits <- lift $ intTypeWidth typ
+      let mask = complement 0 `shift` (MRAM.wordBits - newBits)
+      let c' = lazyUop (\x -> x .&. mask) c1
+      return $ [mkTypedLazyConst c' (typeWidth typ)]
     c -> implError $ "Constant not supported yet for global initializers: " ++ show c
   where
     zeroByte = mkTypedLazyConst 0 W1
+
+    typeWidth typ = case sizeOf (llvmtTypeEnv env) typ of
+      1 -> W1
+      2 -> W2
+      4 -> W4
+      8 -> W8
+      _ -> error $ "can't compute width of type " ++ show typ
 
 -- | Generate an arbitrary non-`Undef` constant of the given type, to use as a
 -- replacement for `LLVM.Constant.Undef t`.
