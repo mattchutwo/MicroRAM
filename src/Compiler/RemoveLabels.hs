@@ -150,7 +150,6 @@ flattenGlobals tainted lm gs = goGlobals globalsStart gs
       init' <- mapM (mapM goLazyConst) (initializer g)
       let seg = InitMemSegment {
             isName   = short2string $  dbName $ globName g,
-            isName   = dbName $ globName g
             isSecret = secret g,
             isReadOnly = isConstant g,
             isHeapInit = gvHeapInit g,
