@@ -338,10 +338,9 @@ instance Serialise CircuitParameters where
 
 
 encodeInitMemSegment :: InitMemSegment -> Encoding
-encodeInitMemSegment (InitMemSegment name secret read heapInit start len datas labels) =
+encodeInitMemSegment (InitMemSegment secret read heapInit start len datas labels) =
   map2CBOR $
-  [ ("name", encode name) 
-  , ("secret", encodeBool secret) 
+  [ ("secret", encodeBool secret) 
   , ("read_only", encodeBool read)
   , ("heap_init", encodeBool heapInit)
   , ("start", encode start)
@@ -359,11 +358,11 @@ decodeInitMemSegment :: Decoder s InitMemSegment
 decodeInitMemSegment = do
     len <- decodeMapLen
     case len of
-      6 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*>
+      5 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
            tagDecode <*> tagDecode <*> pure Nothing <*> pure Nothing
-      7 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*>
+      6 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
            tagDecode <*> tagDecode <*> fmap Just tagDecode <*> pure Nothing
-      8 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*> tagDecode <*>
+      7 -> InitMemSegment <$> tagDecode <*> tagDecode <*> tagDecode <*>
            tagDecode <*> tagDecode <*> fmap Just tagDecode <*> fmap Just tagDecode
       _ -> fail $ "invalid state encoding. Length should be 5-7 but found " ++ show len
 
@@ -585,3 +584,14 @@ printOutputWithFormat :: Serialise reg => OutFormat -> Output reg -> [String] ->
 printOutputWithFormat StdHex out features = show $ (serialOutput out features) 
 printOutputWithFormat PHex out features = ppHexOutput out features
 printOutputWithFormat Flat out  features = show $ flatOutput out features
+
+
+-- c :: Output Word
+-- c = PublicOutput {program = [Ishr 1 0 (Reg 1)], params =
+--                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1], labels = Just [untainted]}]}
+-- 
+-- d :: Output Word
+-- d = SecretOutput {program = [Ishr 1 0 (Reg 1)], params =
+--                      CircuitParameters {numRegs = 1, traceLength = 0, sparcity = Map.fromList [(Kjumps,1)]}, initMem = [InitMemSegment {isSecret = False, isReadOnly = True, location = 1, segmentLen = 1, content = Just [1], labels = Just [untainted]}],
+--                    trace = [], adviceOut = Map.empty}
+ 
