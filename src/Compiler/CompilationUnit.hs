@@ -120,7 +120,8 @@ justAnalyse analysis cUnit = do
 -- TODO: Should we move this to a separate file (e.g. Compiler/InitMem.hs) ?
 
 data InitMemSegment = InitMemSegment
-  { isSecret :: Bool
+  { isName :: String -- ^ human readable name that corresponds to the original global variable
+  , isSecret :: Bool
   , isReadOnly :: Bool
   , isHeapInit :: Bool
   , location :: MWord
