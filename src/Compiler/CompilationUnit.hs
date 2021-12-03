@@ -122,7 +122,6 @@ justAnalyse analysis cUnit = do
 
 data InitMemSegment = InitMemSegment
   { isName :: String -- ^ human readable name that corresponds to the original global variable
-  { isName :: ShortByteString -- ^ human readable name that corresponds to the original global variable
   , isSecret :: Bool
   , isReadOnly :: Bool
   , isHeapInit :: Bool
