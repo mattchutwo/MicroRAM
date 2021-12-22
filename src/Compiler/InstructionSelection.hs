@@ -1370,7 +1370,7 @@ constant2typedLazyConst ::
   -> Statefully [TypedLazyConst]
 constant2typedLazyConst env c =
   case c of
-    (LLVM.Constant.Int bits val                     ) -> mkConstatnTyped (fromInteger val) bits
+    (LLVM.Constant.Int bits val                     ) -> mkConstantTyped (fromInteger val) bits
     (LLVM.Constant.Float someFloat) -> case someFloat of
       LLVM.Single f -> return [mkTypedLazyConst (fromIntegral $ floatToWord f) W4]
       LLVM.Double f -> return [mkTypedLazyConst (fromIntegral $ doubleToWord f) W8]
@@ -1454,18 +1454,17 @@ constant2typedLazyConst env c =
     c -> implError $ "Constant not supported yet for global initializers: " ++ show c
   where
     zeroByte = mkTypedLazyConst 0 W1
-    singleton a = [a]
-  
+    
     constantSelect :: TypedLazyConst -> TypedLazyConst -> TypedLazyConst -> Statefully [TypedLazyConst]
     constantSelect (TypedLazyConst cond wcond _) (TypedLazyConst op1 w1 _) (TypedLazyConst op2 w2 _)
-      | wcond == W1 && w1 == w2 = return $ singleton $
+      | wcond == W1 && w1 == w2 = return $ pure $
                                   flip mkTypedLazyConst w1 $
                                   lazyTop (\cnd a b -> if cnd == 0 then b else a) cond op1 op2 
       | otherwise = assumptError $ "Wrong width for selection operands. Found operands \n\tCOND: " ++ show wcond
              ++ "\n\tOP1: " ++ show w1
              ++ "\n\tOP2: " ++ show w2 
       
-    mkConstatnTyped val bits =
+    mkConstantTyped val bits =
       case bits of
         -- Special case for `i1`/bool.  We represent it as 1 byte wide.  `i1`
         -- should never appear in memory accesses, so this shouldn't present any
@@ -1482,14 +1481,14 @@ constant2typedLazyConst env c =
       | typBits1 > typBits2 = do
           let mask = mkTypedLazyConst (SConst (1 `shiftL` fromIntegral typBits2) - 1) WWord
           return [x .&. mask]
-    truncateConst typ1 _ typ2 = lift $ assumptError $ "Found unsuported types for truncating. \n\tType1 = " <>     
+    truncateConst typ1 _ typ2 = lift $ assumptError $ "Found unsupported types for truncating. \n\tType1 = " <>     
                                show typ1 <> "\n\tType2=" <>
                                show typ2
 
     zeroExtend :: [TypedLazyConst] -> LLVM.Type -> Statefully [TypedLazyConst]
     zeroExtend [TypedLazyConst lazyConst bits1 _] (LLVM.IntegerType bits2)
       | widthInt bits1 < fromEnum bits2 = do
-          x <- mkConstatnTyped lazyConst bits2
+          x <- mkConstantTyped lazyConst bits2
           return x
       | otherwise = lift $ assumptError $ "In zext, the bit size of the value" <> show bits1 <>
                     "must be smaller than the bit size of the destination type" <> show bits2 <>
