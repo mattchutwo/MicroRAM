@@ -39,6 +39,12 @@ testTrivial = ManyTests "Trivial programs" $ OneTest <$>
     ,testResult = 42
     }  :
   defaultTest {
+    testName = "Constant Shr"
+    ,fileName ="test/Programs/constantShr.ll"
+    ,testLen = 50
+    ,testResult = 8
+    }  :
+  defaultTest {
     testName = "Trivial intrinsic call"
     ,fileName ="test/Programs/intrinsicAdd.ll"
     ,testLen = 50
