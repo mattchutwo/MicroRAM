@@ -75,7 +75,6 @@ lazyTop top a1 a2 a3 = case forceLazy <$> [a1,a2,a3] of
                          _ -> undefined -- Impossible case
   where forceLazy (SConst a) = LConst (\_ -> a) -- Allways returns lazy.
         forceLazy lc@(LConst _) = lc
->>>>>>> 70-update-instruction-selection-for-openssl
 
 
 instance Num wrdT => Num (LazyConst wrdT) where
