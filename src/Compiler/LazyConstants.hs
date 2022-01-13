@@ -70,13 +70,11 @@ lazyTop :: (wrdT -> wrdT -> wrdT -> wrdT)
         -> LazyConst wrdT
 lazyTop top (SConst c1) (SConst c2) (SConst c3) = SConst $ top c1 c2 c3
 lazyTop top a1 a2 a3 = case forceLazy <$> [a1,a2,a3] of
-                         [LConst a1',LConst a2',LConst a3'] ->
-                           LConst $ \env -> top (a1' env) (a2' env) (a3' env)
+                         [LConst a1' ns1,LConst a2' ns2,LConst a3' ns3] ->
+                           LConst (\env -> top (a1' env) (a2' env) (a3' env)) (ns1 <> ns2 <> ns3)
                          _ -> undefined -- Impossible case
-  where forceLazy (SConst a) = LConst (\_ -> a) -- Allways returns lazy.
-        forceLazy lc@(LConst _) = lc
->>>>>>> 70-update-instruction-selection-for-openssl
-
+  where forceLazy (SConst a) = LConst (\_ -> a) mempty -- Allways returns lazy.
+        forceLazy lc@(LConst _ _) = lc
 
 instance Num wrdT => Num (LazyConst wrdT) where
   (+) = lazyBop (+)
