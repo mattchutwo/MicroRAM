@@ -63,6 +63,18 @@ lazyUop :: (wrdT -> wrdT) -> LazyConst wrdT -> LazyConst wrdT
 lazyUop uop (LConst l1 ns) = LConst (\ge -> uop (l1 ge)) ns
 lazyUop uop (SConst c1) = SConst $ uop c1
 
+lazyTop :: (wrdT -> wrdT -> wrdT -> wrdT)
+        -> LazyConst wrdT
+        -> LazyConst wrdT
+        -> LazyConst wrdT
+        -> LazyConst wrdT
+lazyTop top (SConst c1) (SConst c2) (SConst c3) = SConst $ top c1 c2 c3
+lazyTop top a1 a2 a3 = case forceLazy <$> [a1,a2,a3] of
+                         [LConst a1' ns1,LConst a2' ns2,LConst a3' ns3] ->
+                           LConst (\env -> top (a1' env) (a2' env) (a3' env)) (ns1 <> ns2 <> ns3)
+                         _ -> undefined -- Impossible case
+  where forceLazy (SConst a) = LConst (\_ -> a) mempty -- Allways returns lazy.
+        forceLazy lc@(LConst _ _) = lc
 
 instance Num wrdT => Num (LazyConst wrdT) where
   (+) = lazyBop (+)
