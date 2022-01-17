@@ -1431,7 +1431,9 @@ constant2typedLazyConst env c =
       gepResult <- lift $ constGEP (llvmtTypeEnv env) ty' addr' inxs'
       -- GEP returns a pointer, which is always one word in size
       return [mkTypedLazyConst gepResult WWord]
-    (LLVM.Constant.PtrToInt op1 _typ                ) -> constant2typedLazyConst env op1
+    (LLVM.Constant.PtrToInt op1 typ                 ) -> do
+      op1' <- constant2typedLazyConst env op1
+      truncOrZExt (typeOf (llvmtTypeEnv env) c) op1' typ
     (LLVM.Constant.IntToPtr op1 _typ                ) -> constant2typedLazyConst env op1
     -- TODO: special case for bitcasting to ptr or int type: repack list of
     -- TypedLazyConsts into a single value
@@ -1506,10 +1508,10 @@ constant2typedLazyConst env c =
         _ -> implError $ "Constant.Int with width " ++ show bits ++ " is not supported"
 
     truncateConst :: LLVM.Type -> [TypedLazyConst] -> LLVM.Type -> Statefully [TypedLazyConst]
-    truncateConst (LLVM.IntegerType typBits1) [x] (LLVM.IntegerType typBits2)
+    truncateConst (LLVM.IntegerType typBits1) [TypedLazyConst lc _ _] ty2@(LLVM.IntegerType typBits2)
       | typBits1 > typBits2 = do
-          let mask = mkTypedLazyConst (SConst (1 `shiftL` fromIntegral typBits2) - 1) WWord
-          return [x .&. mask]
+          let mask = SConst (1 `shiftL` fromIntegral typBits2) - 1
+          return [mkTypedLazyConst (lc .&. mask) (typeWidth ty2)]
     truncateConst typ1 _ typ2 = lift $ assumptError $ "Found unsupported types for truncating. \n\tType1 = " <>     
                                show typ1 <> "\n\tType2=" <>
                                show typ2
@@ -1526,9 +1528,21 @@ constant2typedLazyConst env c =
       implError $ "Vectors not yet supported (ZExt):\n\tCONSTANT of length: "
       <> show (length c) <> "\n\tTYPE: "
       <> show typ
-      
-    
-                    
+
+    truncOrZExt :: LLVM.Type -> [TypedLazyConst] -> LLVM.Type -> Statefully [TypedLazyConst]
+    truncOrZExt (LLVM.IntegerType bits1) [TypedLazyConst lc _ _] ty2@(LLVM.IntegerType bits2)
+      | bits1 < bits2 = do
+        let mask = SConst $ (1 `shiftL` fromIntegral bits2) - 1
+        return [mkTypedLazyConst (lc .&. mask) (typeWidth ty2)]
+      | otherwise = do
+        return [mkTypedLazyConst lc (typeWidth ty2)]
+    truncOrZExt typ1 _ typ2 = lift $ assumptError $ "Found unsupported types for truncOrZExt. \n\tType1 = " <>
+                               show typ1 <> "\n\tType2=" <>
+                               show typ2
+
+
+
+
 -- | Generate an arbitrary non-`Undef` constant of the given type, to use as a
 -- replacement for `LLVM.Constant.Undef t`.
 defineUndefConst :: LLVMTypeEnv -> LLVM.Type -> Hopefully LLVM.Constant.Constant
