@@ -278,7 +278,7 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
   , bug = True }  :
   defaultTest {
     testName = "Information leakage: heartbleed"
-  , fileName = "test/Programs/noni/heartbleed.ll"
+  , fileName = "test/Programs/noni/simple_heartbleed_nobranch.ll" -- "test/Programs/noni/heartbleed.ll"
   , testLen = 7000 -- 6000 -- 5000
   , testResult = 0
   , leakTainted = True
