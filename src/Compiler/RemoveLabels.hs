@@ -116,11 +116,15 @@ flattenBlocks lm bs = snd $ foldr goBlock (totalBlockSize, []) bs
   where
     !totalBlockSize = blocksStart + sum (map blockSize bs)
 
+    -- Walks over blocks in reverse order.
+    -- The instructions for the last block are placed at the end of the accumulated list and each block is processed right to left.
     goBlock (NBlock _ instrs) (!postAddr,!acc) =
       foldr goInstr (postAddr, acc) instrs
 
+    -- Walks over instructions in reverse order.
     goInstr :: (MAInstruction regT MWord, md) -> (MWord,[(Instruction regT MWord, md)]) -> (MWord,[(Instruction regT MWord, md)])
     goInstr (i, md) (!lastAddr,!acc) =
+      -- Get the address of the current instruction.
       let addr = lastAddr - 1 in
       let !i' = goOperand addr <$> i in
 
