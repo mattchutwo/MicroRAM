@@ -21,9 +21,10 @@ import Compiler.Registers (RegBank(..))
 import MicroRAM
 import MicroRAM.MRAMInterpreter
 
+import Data.Foldable (foldl')
 import qualified Data.Map as Map 
 import qualified Data.Set as Set 
-import qualified Data.Vector as V (Vector, (!), fromList, ifoldl, imap)
+import qualified Data.Vector as V (Vector, (!), fromList, ifoldl', imap)
 
 import Segments.Segmenting
 import Sparsity.Sparsity
@@ -81,7 +82,7 @@ chooseSegments privSize spar prog trace segments = do
     -- but only if the segment comes from network
     segmentSets :: Map.Map MWord [Int]
     segmentSets = segMap -- T.trace ("Map of pc -> segment: " ++ show segMap) segMap
-      where segMap = V.ifoldl addSegment Map.empty segments
+      where segMap = V.ifoldl' addSegment Map.empty segments
     addSegment :: Map.Map MWord [Int] -> Int -> Segment reg wrd -> Map.Map MWord [Int] 
     addSegment sets indx seg =
       -- A segment is a valid entry point if it has a fromNetwork port.  As a
@@ -190,7 +191,7 @@ longestPathForest constrs end paths =
                   []  -> if end v then [v] else [] -- Otherwise
 
         maxWith :: (Ord n, Foldable f) => (a -> n) -> a -> f a -> a
-        maxWith f def ls = foldl (\path other -> if f path < f other then other else path) def ls
+        maxWith f def ls = foldl' (\path other -> if f path < f other then other else path) def ls
 
                              
 longestPath :: (Ord state, Show (t state), Show state, Foldable t, Functor t)
@@ -215,7 +216,7 @@ longestPath next end strt = longestPath' Set.empty strt
               else if end start then [start] else  []
 
         maxWith :: (Ord n, Foldable f) => (a -> n) -> a -> f a -> a --
-        maxWith f def ls = foldl (\path other -> if f path < f other then other else path) def ls
+        maxWith f def ls = foldl' (\path other -> if f path < f other then other else path) def ls
 
 
 findPublicPath :: forall reg. Show reg

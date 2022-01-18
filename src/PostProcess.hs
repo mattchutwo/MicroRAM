@@ -25,6 +25,7 @@ import Control.Monad
 
 import           Debug.Trace
 
+import Data.Foldable (foldl')
 import qualified Data.Map as Map
 
 import MicroRAM
@@ -86,9 +87,9 @@ recoverAdvice segProg = do
             AdviceState (Map.insert cyc (advice exSt) adv) (cyc + 1) 
 
         foldOverChunks :: st -> [TraceChunk reg] -> (st -> ExecutionState reg -> st) -> st
-        foldOverChunks st trace f = foldl (foldOverChunkInside f) st trace  
+        foldOverChunks st trace f = foldl' (foldOverChunkInside f) st trace  
         foldOverChunkInside :: (st -> ExecutionState reg -> st) -> st -> TraceChunk reg -> st
-        foldOverChunkInside f st' chunk = foldl f st' (chunkStates chunk)
+        foldOverChunkInside f st' chunk = foldl' f st' (chunkStates chunk)
         
 data AdviceState = AdviceState {adviceSt :: Map.Map MWord [Advice], cycleSt :: MWord}
 emptyAdvice :: AdviceState

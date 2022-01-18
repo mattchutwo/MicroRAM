@@ -231,7 +231,6 @@ intrinsicsList =
   , ("@noniSinkI64", noniSink W8)
 
   -- Explicit trap
-  , mkTrap "@__cxa_pure_virtual"
   , mkTrap "@llvm.trap"
   , mkTrap "@_ZSt9terminatev"
 

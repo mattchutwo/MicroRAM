@@ -17,6 +17,7 @@ compilations units.
 
 import Control.Monad.State (runStateT)
 import Data.Default (def)
+import Data.Foldable (foldl')
 import qualified Data.Map as Map
 import Data.Vector (Vector)
 
@@ -170,7 +171,7 @@ flatInitTaintedMem = foldr initSegment Map.empty
           zip [loc..] labels
 
 lengthInitMem :: InitialMem -> MWord
-lengthInitMem = foldl (\tip seg -> max tip (segTip seg)) 0
+lengthInitMem = foldl' (\tip seg -> max tip (segTip seg)) 0
   where segTip (InitMemSegment _ _ heapInit loc len _ _)
           | heapInit = 0
           | otherwise = loc + len
