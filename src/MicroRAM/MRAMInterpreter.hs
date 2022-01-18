@@ -283,6 +283,8 @@ traceHandler active _nextH (Iext (XTraceExec nameOp valOps)) = do
 traceHandler active nextH instr@(Ianswer op) = do
   val <- opVal op
   when active $ traceM $ "ANSWER = " ++ show val
+  cycle <- conGetValue <$> (use $ sMach . mCycle)
+  when active $ traceM $ "Terminating on cycle " ++ show cycle
   nextH instr
 traceHandler _active nextH instr = nextH instr
 
