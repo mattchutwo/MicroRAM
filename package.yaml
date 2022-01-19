@@ -53,6 +53,7 @@ dependencies:
 - vector
 - data-binary-ieee754
 - dom-lt
+- parsec
 
 library:
   source-dirs: src
