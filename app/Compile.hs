@@ -81,17 +81,17 @@ main = do
           giveInfo fr "Running the compiler backend..."
           -- Retrieve program from file
           llvmModule <- llvmParse $ llvmFile fr
+          -- compiler options
+          let options = CompilerOptions
+                { verb = verbose fr
+                , allowUndefFun = allowUndefFunctions fr
+                , spars = sparsNum fr
+                , tainted = modeLeakTainted fr
+                , skipRegisterAllocation = skipRegAlloc fr
+                , numberRegs = Nothing
+                } in 
           -- Then compile
-          handleErrorWith (compile
-                            (verbose fr)
-                            undefinedFunctions
-                            (modeLeakTainted fr)
-                            (skipRegisterAllocation fr)
-                            trLength
-                            llvmModule
-                            (spars fr)
-                          )
-            where undefinedFunctions = allowUndefFun fr
+            handleErrorWith (compile options trLength llvmModule)
 
 
         saveMramProgram :: Show a => FlagRecord -> a -> IO ()
@@ -204,12 +204,12 @@ data FlagRecord = FlagRecord
   , trLen :: Maybe Word
   , llvmFile :: String -- Defaults to a temporary one if not wanted.
   , mramFile :: Maybe String
-  , spars :: Maybe Int
-  , allowUndefFun:: Bool
+  , sparsNum :: Maybe Int
+  , allowUndefFunctions:: Bool
   , ppMRAM :: Bool
   , pubSegMode :: PublicSegmentMode
   , modeLeakTainted :: Bool
-  , skipRegisterAllocation :: Bool
+  , skipRegAlloc :: Bool
   -- Interpreter
   , verifierMode :: Bool -- VerifierMode
   , fileOut :: Maybe String
@@ -235,12 +235,12 @@ defaultFlags name len =
   , trLen     = len
   , llvmFile  = "temp/temp.ll"
   , mramFile  = Nothing
-  , spars     = Just 2
-  , allowUndefFun = False
+  , sparsNum     = Just 2
+  , allowUndefFunctions = False
   , ppMRAM = False
   , pubSegMode = PsmFunctionCalls
   , modeLeakTainted = False
-  , skipRegisterAllocation = False
+  , skipRegAlloc = False
   -- Interpreter
   , verifierMode = False
   , fileOut   = Nothing
@@ -263,15 +263,15 @@ parseFlag flag fr =
     PrivSegs numSegs ->        fr {privSegs = Just numSegs}
     JustLLVM ->                fr {end = max LLVMLang $ end fr}
     JustMRAM ->                fr {end = max MRAMLang $ end fr}
-    MemSparsity s ->           fr {spars = Just s}
-    AllowUndefFun ->           fr {allowUndefFun = True}
+    MemSparsity s ->           fr {sparsNum = Just s}
+    AllowUndefFun ->           fr {allowUndefFunctions = True}
     PrettyPrint ->             fr {ppMRAM = True}
     PubSegMode "none" ->       fr {pubSegMode = PsmNone}
     PubSegMode "function-calls" -> fr {pubSegMode = PsmFunctionCalls}
     PubSegMode "abs-int" ->    fr {pubSegMode = PsmAbsInt}
     PubSegMode x ->            error $ "unsupported public segment mode: " ++ show x
     ModeFlag LeakTaintedMode -> fr {modeLeakTainted = True}
-    SkipRegisterAllocation ->   fr {skipRegisterAllocation = True}
+    SkipRegisterAllocation ->   fr {skipRegAlloc = True}
     -- Interpreter flags
     FromMRAM ->                 fr {beginning = MRAMLang} -- In this case we are reading the fileIn
     MRAMout (Just outFile) ->   fr {mramFile = Just outFile}
