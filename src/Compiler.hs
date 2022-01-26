@@ -174,9 +174,10 @@ data CompilerOptions = CompilerOptions
   , spars::Maybe Int
   , tainted::Bool
   , skipRegisterAllocation::Bool
-  , numberRegs::Maybe Int
+  , numberRegs::Maybe Word
   }
 
+defOptions :: CompilerOptions
 defOptions = CompilerOptions
   { verb = False
   , allowUndefFun = False
@@ -208,7 +209,7 @@ compile2 options prog = return prog
   >>= (verbTagPass verb "Edge split"          $ justCompileWithNames edgeSplit)
   >>= (verbTagPass verb "Remove Phi Nodes"    $ justCompileWithNames removePhi)
   >>= (verbTagPass verb "Layout arguments"    $ justCompileWithNamesSt layArgs)
-  >>= (verbTagPass verb "Register Allocation" $ registerAlloc skipRegisterAllocation def)
+  >>= (verbTagPass verb "Register Allocation" $ registerAlloc skipRegisterAllocation numRegs)
   >>= (verbTagPass verb "Calling Convention"  $ justCompile callingConvention)
   >>= (verbTagPass verb "Stash Globals"       $ return . stashGlobals)
   >>= (verbTagPass verb "Count Functions"     $ justAnalyse countFunctions)
@@ -216,12 +217,17 @@ compile2 options prog = return prog
   >>= (verbTagPass verb "Computing Sparsity"  $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
   >>= (verbTagPass verb "Block cleanup"       $ blockCleanup)
   >>= (verbTagPass verb "Removing labels"     $ removeLabels tainted)
-  where CompilerOptions { verb=verb
+  where numRegs = case numberRegs of
+          Just n -> RegisterAllocOptions n
+          Nothing -> def
+
+        CompilerOptions { verb=verb
                         , spars=spars
                         , tainted=tainted
                         , skipRegisterAllocation=skipRegisterAllocation
+                        , numberRegs=numberRegs
                         } = options
-
+        
 compile :: CompilerOptions
         -> Word
         -> LLVM.Module
