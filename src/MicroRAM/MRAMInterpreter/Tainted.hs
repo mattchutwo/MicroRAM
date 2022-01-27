@@ -104,7 +104,6 @@ instance AbsDomain TaintedValue where
     (TaintedValue hi l, TaintedValue lo l)
   absDiv = taintBinop absDiv 
   absMod = taintBinop absMod 
-  absNeg (TaintedValue a l1) = TaintedValue (absNeg a) (approxVec l1)
          
   absAnd = taintBinop absAnd 
   absOr  = taintBinop absOr 

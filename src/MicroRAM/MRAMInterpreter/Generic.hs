@@ -40,7 +40,6 @@ class (Show v, Show (Memory v)) => AbsDomain v where
   absSMul :: v -> v -> (v, v)
   absDiv :: v -> v -> v
   absMod :: v -> v -> v
-  absNeg :: v -> v
 
   -- Bitwise operations
   absAnd :: v -> v -> v
