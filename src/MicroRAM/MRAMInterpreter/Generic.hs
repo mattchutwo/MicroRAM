@@ -73,8 +73,8 @@ class (Show v, Show (Memory v)) => AbsDomain v where
   absSink  :: MemWidth -> v -> v -> Hopefully Bool
   absSink _ _ _ = return False
 
-  absValidJump :: v -> Hopefully ()
-  absValidJump _ = return ()
+  absValidJump :: v -> v -> Hopefully ()
+  absValidJump _ _ = return ()
 
   absGetPoison :: MemWidth -> v -> Memory v -> Hopefully Bool
   absGetValue :: v -> Hopefully MWord
@@ -235,9 +235,10 @@ stepMove rd cond op2 = do
 stepJump :: (Regs r, AbsDomain v) =>
   Operand r MWord -> Bool -> Operand r MWord -> InterpM' r v s Hopefully ()
 stepJump cond pos op2 = do
-  y <- opVal op2 >>= doGetValue
+  y' <- opVal op2
   aCond' <- opVal cond
-  liftWrap $ absValidJump aCond'
+  liftWrap $ absValidJump aCond' y'
+  y <- doGetValue y'
   cond' <- doGetValue aCond'
   if pos `xnor` (0 /= cond') then sMach . mPc .= y else nextPc
     where xnor = (==)

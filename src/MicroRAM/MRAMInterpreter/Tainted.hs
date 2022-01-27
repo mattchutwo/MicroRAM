@@ -150,9 +150,10 @@ instance AbsDomain TaintedValue where
     let isBug = any (\lj -> not $ lj `canFlowTo` lbl2) ljs
     return isBug
 
-  absValidJump (TaintedValue _ condL)
-    | Vec.foldr1' join condL == bottom = return ()
-    | otherwise                        = progError $ "Invalid jump. Cannot branch on tainted data with label: " <> show condL
+  absValidJump (TaintedValue _ condL) (TaintedValue _ destL)
+    | Vec.foldr1' join condL /= bottom = progError $ "Invalid jump. Cannot branch on tainted data with label: " <> show condL
+    | Vec.foldr1' join destL /= bottom = progError $ "Invalid jump. Cannot jump to tainted destination with label: " <> show condL
+    | otherwise                        = return ()
 
   absGetPoison w (TaintedValue addr1 _) mem = 
     absGetPoison w addr1 $ view mkConcrete mem
