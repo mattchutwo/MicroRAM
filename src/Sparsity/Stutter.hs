@@ -83,7 +83,7 @@ checkSparsity instr = do
           inTheSameSegment && inTheSameUnit
           where
             inTheSameSegment = inTheSame segSize last cyc
-            inTheSameUnit = inTheSame spc (last `mod` segSize) (cyc `mod` segSize) -- ^ modulo segSize because all units start fresh at the beg. of each segment.
+            inTheSameUnit = inTheSame spc (last `mod` segSize) (cyc `mod` segSize) -- modulo segSize because all units start fresh at the beg. of each segment.
             inTheSame size a b = (a `div` size) == (b `quot` size) 
         -- | Calculates how much we must stutter until we get a new functional unit for this kind.
         -- Explanation in words: Everything is fresh at the begginig og the segment so use the
