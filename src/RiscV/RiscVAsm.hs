@@ -9,7 +9,8 @@ data Instr
   = Instr32I  InstrRV32I -- ^ 32bit Base Integer Instruction Set
   | Instr64I  InstrRV64I -- ^ 64bit Base Integer Instruction Set
   | Instr32M  InstrExt32M  -- ^ RV32M Standard Extension for Integer Multiply and Divide
-  | Instr64M  InstrExt32M  -- ^ RV64M Standard Extension for Integer Multiply and Divide
+  | Instr64M  InstrExt64M  -- ^ RV64M Standard Extension for Integer Multiply and Divide
+  deriving (Show, Eq, Ord)
 
 {- | Modifiers: The RISC-V assembler supports following modifiers for relocatable addresses used in RISC-V instruction operands. These expressions should be resolved during linking.
 -}
@@ -66,8 +67,8 @@ data ImmOp =
   | ImmOr
   | ImmAdd
   | ImmMinus
-  | ImmMult
-  | ImmDiv
+  --- | ImmMult
+  --- | ImmDiv
   deriving (Show, Eq, Ord)
 
 instance Arbitrary ImmOp where
@@ -77,14 +78,15 @@ instance Arbitrary ImmOp where
     , ImmOr
     , ImmAdd
     , ImmMinus
-    , ImmMult
-    , ImmDiv]
+    -- , ImmMult
+    -- , ImmDiv
+    ]
   
 data Imm =
   ImmNumber Word64
   | ImmSymbol String
   | ImmMod Modifier Imm
-  | ImmBinOp Imm ImmOp Imm 
+  | ImmBinOp ImmOp Imm Imm 
   deriving (Show, Eq, Ord)
 
 instance Arbitrary Imm where
@@ -199,7 +201,7 @@ data BranchCond
   | BGE 
   | BLTU
   | BGEU
-
+  deriving (Show, Eq, Ord)
 instance Arbitrary BranchCond where
   arbitrary = 
     oneof $ pure <$>
@@ -211,10 +213,11 @@ instance Arbitrary BranchCond where
     , BGEU]
 
 
-{- | Binop32I: Binary operations with immediates. Has no Sub. For substraction,
+{- | Binop32I: Binary operations with immediates. Has no @SUB@. For substraction,
  add a negative immediate.
 
 Integer Register-Immediate Instructions
+
 +---------------------+-----------------------+------------------------------+
 |       Format        |         Name          |          Pseudocode          |
 +=====================+=======================+==============================+
@@ -241,7 +244,7 @@ Integer Register-Immediate Instructions
 @LUI@ and @AUIPC@ are not binary and are defined directly in 'InstrRV32I'
 
 -}
-data BinopI32
+data Binop32I
   = ADDI       
   | SLTI       
   | SLTIU      
@@ -251,7 +254,7 @@ data BinopI32
   | SLLI       
   | SRLI       
   | SRAI
-
+  deriving (Show, Eq, Ord)
 
   
 {- | Binary Register-Register Instructions
@@ -292,7 +295,7 @@ data Binop32
   | SRA 
   | OR
   | AND 
-
+  deriving (Show, Eq, Ord)
 {- | Memory operations 32I
 
 +---------------------+-----------------------+------------------------------+
@@ -325,7 +328,8 @@ data MemOp32
   | SB 
   | SH 
   | SW
-  
+  deriving (Show, Eq, Ord)
+
 {- | Fences can optionally further restrict the predecessor set and/or
 the successor set to a smaller set of memory accesses in order to
 provide some speedup. Specifically, fences have PR, PW, SR, and SW
@@ -340,7 +344,7 @@ data SetOrdering = SetOrdering
   , succWrite :: Bool
   } deriving (Show, Eq, Ord)
 
-type Offset = Word
+type Offset = Imm
 
 {- | InstrRV32I
 
@@ -392,7 +396,7 @@ data InstrRV32I =
     -- | Integer Register-Immediate Instructions
   | LUI   Reg Imm           
   | AUIPC Reg Offset
-  | ImmBinop32 BinopI32 Reg Reg Imm
+  | ImmBinop32 Binop32I Reg Reg Imm
   
     -- | Integer Register-Register Instructions
   | RegBinop32 Binop32 Reg Reg Reg
@@ -400,6 +404,7 @@ data InstrRV32I =
     -- | Synchronisation Instructions (Fences)
   | FENCE SetOrdering
   | FENCEI            
+  deriving (Show, Eq, Ord)
 
 {- | Memory operations 64I
 
@@ -416,9 +421,8 @@ data InstrRV32I =
 -}
 
 data MemOp64
- = LWU
- | LD 
- | SD 
+ = LWU | LD | SD
+ deriving (Show, Eq, Ord)
 
 {- |  Integer Register-Immediate Instructions 64I
 
@@ -444,7 +448,7 @@ data Binop64I
   | SLLIW   
   | SRLIW   
   | SRAIW
-
+  deriving (Show, Eq, Ord)
 {- | Integer Register-Register Instructions 64I
 
 +--------------------+------------------------------+--------------------------+
@@ -469,7 +473,7 @@ data Binop64
   | SLLW     
   | SRLW     
   | SRAW    
-
+  deriving (Show, Eq, Ord)
 
 {- | $RV64I
 64bit Base Integer Instruction Set, Version 2.1
@@ -478,7 +482,7 @@ data InstrRV64I
   = MemInstr64 MemOp64 Reg Offset Reg -- ^ Memory operations
   | ImmBinop64 Binop64I Reg Reg Imm  -- ^ Integer Register-Immediate Instructions
   | RegBinop64 Binop64 Reg Reg Reg -- ^ Integer Register-Register Instructions
-     
+  deriving (Show, Eq, Ord)
 {- | $ExtM (32)
 RV32M Standard Extension for Integer Multiply and Divide (Version 2.0)
 
@@ -513,7 +517,7 @@ data InstrExt32M
   | DIVU   Reg Reg Reg
   | REM    Reg Reg Reg
   | REMU   Reg Reg Reg
-  
+  deriving (Show, Eq, Ord)
 {- Is Instr Ext Mult better defined as folows?
 data MulOp
   = MUL    
@@ -554,3 +558,4 @@ data InstrExt64M
   | DIVUW   Reg Reg Reg
   | REMW    Reg Reg Reg
   | REMUW   Reg Reg Reg
+  deriving (Show, Eq, Ord)
