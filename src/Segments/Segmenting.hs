@@ -20,7 +20,7 @@ import Compiler.Metadata
 import Compiler.IRs
 import Control.Monad (when, guard)
 
-import qualified Data.Foldable as F (foldl,toList)
+import           Data.Foldable (foldl',toList)
 import qualified Data.Map as Map
 import qualified Data.Graph as G (stronglyConnComp, SCC(..))
 import qualified Data.Sequence as Seq
@@ -83,13 +83,14 @@ segmentProgram funCount prog = do
   let funSegments = map (segmentFunction cuts) funNames -- for each function, create the corresponding segments 
   let funCountList = map (\k -> Map.findWithDefault 1 k funCount) funNames
   let expandedFunSegments = expandList funSegments funCountList -- repeat the segments in each function as necessary
-  return $ F.toList $ foldl appendSegments Seq.empty expandedFunSegments -- Successors need to be updated accordingly.
+  return $ toList $ foldl' appendSegments Seq.empty expandedFunSegments -- Successors need to be updated accordingly.
 
 appendSegments :: Seq.Seq (Segment reg wrd) -> Seq.Seq (Segment reg wrd) -> Seq.Seq (Segment reg wrd)
 appendSegments accumulated funSegments =
   let lenAcc = length accumulated in 
     accumulated Seq.>< (shiftSegment lenAcc  <$> funSegments)
-  where -- | Shifts the successors 
+  where
+    -- | Shifts the successors 
     shiftSegment :: Int -> Segment reg wrd -> Segment reg wrd
     shiftSegment len seg = seg {segSuc = map (+ len) $ segSuc seg}
           
@@ -174,7 +175,7 @@ cut2segment (Cut _funName instrs pc len) succs toNet =
         , constraints = [PcConst pc]
         , segLen = len
         , segSuc = succs
-        , fromNetwork = fromNet  -- ^ From network can change later.
+        , fromNetwork = fromNet  -- From network can change later.
         , toNetwork = toNet } in
     ret --if fromNet then T.trace ("Segmetn to net: " <> (show $ constraints ret)) ret else ret
   where fromNet = case instrs of
@@ -189,7 +190,7 @@ findAllFunctions prog = do
   when (not $ premainName `Set.member` funcSet) $ assumptError "Program doesn't have a Premain."  
   let minusPM = Set.delete  premainName funcSet
   return $ premainName : (Set.toList minusPM) -- Set premain to be the first function.  
-  where funcSet = (foldl addFunction Set.empty prog) -- Can we make this faster with unique?
+  where funcSet = (foldl' addFunction Set.empty prog) -- Can we make this faster with unique?
         addFunction accumulator (_instr, md) = Set.insert (mdFunction md) accumulator
         
 segmentFunction :: Show reg => [Cut Metadata reg MWord] -> Name -> Seq.Seq (Segment reg MWord)
@@ -220,7 +221,7 @@ loopConnections _fName segs = go --T.trace ("Cycles in" ++ fName ++" : " ++ show
 replicateLoops :: [G.SCC Int]               -- Connected components
                  -> Seq.Seq (Segment reg wrd) -- Segments
                  -> Seq.Seq (Segment reg wrd)
-replicateLoops sccs segs = F.foldl (replicateLoop 5) segs sccs 
+replicateLoops sccs segs = foldl' (replicateLoop 5) segs sccs 
   where
     replicateLoop :: Int
                   -> Seq.Seq (Segment reg wrd)
@@ -231,7 +232,7 @@ replicateLoops sccs segs = F.foldl (replicateLoop 5) segs sccs
             G.AcyclicSCC _ -> segs
             G.CyclicSCC loopIdx ->
               let loop =  extractLoop loopIdx segs in
-                foldl appendSegments segs $ replicate n loop
+                foldl' appendSegments segs $ replicate n loop
     -- Extracts a loop from the segmetns, making the edges relative.
     -- Removes edges going outside the loop (replace with toNetwork)
     extractLoop :: [Int] -> Seq.Seq (Segment reg wrd)  -> Seq.Seq (Segment reg wrd)
@@ -261,10 +262,10 @@ connectLoopExits sccs segs = foldOverComponents connectComponent segs sccs
                          -> Seq.Seq (Segment reg wrd)
         connectComponent component segs =
           let compSet = Set.fromList component in
-            foldl (connectLoop compSet) segs component 
+            foldl' (connectLoop compSet) segs component 
         connectLoop compSet segsList compSeg =
           let successors = segSuc (segsList `Seq.index` compSeg) in 
-            foldl (flip $ Seq.adjust' addFromNetwork) segsList $
+            foldl' (flip $ Seq.adjust' addFromNetwork) segsList $
             filter (\i -> not $ i `Set.member` compSet) $ successors
         addFromNetwork seg = seg{fromNetwork = True}
 
@@ -279,7 +280,7 @@ backEdgesToNet sccs segs = foldOverComponents go segs sccs
             -> Seq.Seq (Segment reg wrd)
         go component segs =
           let compSet = Set.fromList component in
-            foldl (backEdgesToNetSeg compSet) segs component
+            foldl' (backEdgesToNetSeg compSet) segs component
         backEdgesToNetSeg :: Set.Set Int -> Seq.Seq (Segment reg wrd) -> Int -> Seq.Seq (Segment reg wrd)   
         backEdgesToNetSeg compSet segsList compSeg =
           let successors = segSuc (segsList `Seq.index` compSeg)
@@ -290,11 +291,11 @@ backEdgesToNet sccs segs = foldOverComponents go segs sccs
                               successors in
             if null backEdgesComp then segsList else
               Seq.adjust' (\seg -> seg{toNetwork = True}) compSeg $ -- add toNetwork
-              foldl (flip $ Seq.adjust' (\seg -> seg{fromNetwork = True})) segsList -- Add FromNetwork
+              foldl' (flip $ Seq.adjust' (\seg -> seg{fromNetwork = True})) segsList -- Add FromNetwork
                    backEdgesComp
                               
 foldOverComponents :: Foldable t => ([Int] -> b -> b) -> b -> t (G.SCC Int) -> b
-foldOverComponents f segs sccs = foldl go segs sccs
+foldOverComponents f segs sccs = foldl' go segs sccs
   where go segs comp = case comp of
                          G.AcyclicSCC _ -> segs
                          G.CyclicSCC component ->

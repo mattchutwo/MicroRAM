@@ -33,6 +33,7 @@ import qualified Data.ByteString.Short as Short
 
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map 
+import Data.Foldable (foldl')
 
 import Control.Lens (makeLenses, (.=), (%=), (^.), use)
 import Control.Monad.Except
@@ -150,7 +151,7 @@ name2name sigil nm = do
 
 getConstant :: Env -> LLVM.Constant.Constant -> Statefully $ MAOperand VReg MWord
 getConstant env (LLVM.Constant.GlobalReference ty name) | itIsFunctionType ty = do
-  _ <- lift $ checkName (globs env) name -- ^ check it's a global variable
+  _ <- lift $ checkName (globs env) name -- check it's a global variable
   Label <$> globalName name
 
   where
@@ -395,7 +396,7 @@ isInstruction env ret instr =
     (LLVM.UDiv _ o1 o2 _)    -> isBinopTrunc env False ret o1 o2 MRAM.Iudiv -- this is easy
     (LLVM.URem o1 o2 _)      -> isBinopTrunc env False ret o1 o2 MRAM.Iumod -- this is eay
     -- Binary
-    (LLVM.Shl _ _ o1 o2 _)   -> isBinop env ret o1 o2 MRAM.Ishl
+    (LLVM.Shl _ _ o1 o2 _)   -> isBinopTrunc env False ret o1 o2 MRAM.Ishl
     (LLVM.LShr _ o1 o2 _)    -> isBinopTrunc env False ret o1 o2 MRAM.Ishr
     (LLVM.AShr _ o1 o2 _)    -> isArithShr env ret o1 o2
     (LLVM.And o1 o2 _)       -> isBinop env ret o1 o2 MRAM.Iand
@@ -468,7 +469,7 @@ typedIntrinCall ::
 typedIntrinCall env baseName dest retTy ops = intrinCall env name dest retTy ops
   where
     opTys = map (typeOf (llvmtTypeEnv env)) ops
-    name = foldl (<>) "" (baseName : map (\ty -> "_" <> tyName ty) opTys)
+    name = foldl' (<>) "" (baseName : map (\ty -> "_" <> tyName ty) opTys)
 
     tyName :: LLVM.Type -> Short.ShortByteString
     tyName ty = case ty of
@@ -515,13 +516,15 @@ isArithShr :: Env
      -> Statefully [MIRInstr Metadata MWord]
 isArithShr _ Nothing _ _ = return []
 isArithShr env (Just ret) o1 o2 = do
-  o1' <- operand2operand env o1
-  o2' <- operand2operand env o2
+  -- Truncate in unsigned mode, so the result of `o1 >> (wrdsize - 1)` is
+  -- either zero or one.
+  (o1', pre1) <- operand2operandTrunc env False o1
+  (o2', pre2) <- operand2operandTrunc env False o2
   nsign <- freshName
   sign  <- freshName
   ret'' <- freshName
   ret'  <- freshName
-  toRTL $
+  toRTL $ pre1 ++ pre2 ++
     [ MRAM.Ishr nsign o1' (LImm $ SConst $ fromIntegral width - 1),
       MRAM.Imull sign (AReg nsign)
         (LImm $ SConst $ complement 0 `shiftR` (64 - fromIntegral width)),
@@ -1441,6 +1444,18 @@ constant2typedLazyConst env c =
       implError $ "Vectors not yet supported."
     (LLVM.Constant.ShuffleVector _op1 _op2 _mask    ) -> 
       implError $ "Vectors not yet supported."
+    (LLVM.Constant.SExt op1 typ) -> do
+      TypedLazyConst c1 _ _ <- constant2typedLazyConst env op1 >>= \x -> case x of
+        [y] -> return y
+        _ -> error $ "unexpected constant value for " ++ show op1
+      oldBits <- lift $ intTypeWidth $ typeOf (llvmtTypeEnv env) op1
+      newBits <- lift $ intTypeWidth typ
+      let b = newBits - oldBits - 1
+      let f w
+            | newBits == oldBits = w
+            | otherwise = w .|. ((`shiftL` b) $ negate $ (`shiftR` b) $ w)
+      let c' = lazyUop f c1
+      return $ [mkTypedLazyConst c' (typeWidth typ)]
     (LLVM.Constant.Trunc op1 typ2                   ) -> do
       let typ1 = typeOf (llvmtTypeEnv env) op1
       op1' <- constant2typedLazyConst env op1
@@ -1462,6 +1477,13 @@ constant2typedLazyConst env c =
   where
     zeroByte = mkTypedLazyConst 0 W1
     
+    typeWidth typ = case sizeOf (llvmtTypeEnv env) typ of
+      1 -> W1
+      2 -> W2
+      4 -> W4
+      8 -> W8
+      _ -> error $ "can't compute width of type " ++ show typ
+
     constantSelect :: TypedLazyConst -> TypedLazyConst -> TypedLazyConst -> Statefully [TypedLazyConst]
     constantSelect (TypedLazyConst cond wcond _) (TypedLazyConst op1 w1 _) (TypedLazyConst op2 w2 _)
       | wcond == W1 && w1 == w2 = return $ pure $

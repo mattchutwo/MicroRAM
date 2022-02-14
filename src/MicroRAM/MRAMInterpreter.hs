@@ -293,8 +293,9 @@ data MemErrorKind = OutOfBounds | UseAfterFree | Unallocated
   deriving (Show, Eq)
 
 data AllocState = AllocState
+  {
   -- | The next unused address.  Used for future allocations.
-  { _asFrontier :: MWord
+  _asFrontier :: MWord
   -- | Map tracking all memory that is valid to access at the moment.  An entry
   -- `(k, v)` means that addresses `k <= addr < v` are valid to access.
   -- Entries are all non-empty (`k < v`) and non-overlapping.

@@ -72,7 +72,7 @@ type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> m -> CallingContext
 
 expandIntrinsicCall :: forall m w. Show w => Map ShortByteString (IntrinsicImpl m w) -> CallingContextMetadata -> MIRInstr m w -> WithNextReg Hopefully [MIRInstr m w]
 expandIntrinsicCall intrinMap ccm (MirI (RCall _ dest (Label (Name _ debugName)) _ args) meta)
-  | Just impl <- Map.lookup debugName intrinMap = -- ^ uses the debugName 
+  | Just impl <- Map.lookup debugName intrinMap = -- uses the debugName 
     tagState ("bad call to intrinsic " ++ show debugName) $ impl args dest meta ccm
 expandIntrinsicCall _ _ instr = return [instr]
 
@@ -231,7 +231,6 @@ intrinsicsList =
   , ("@noniSinkI64", noniSink W8)
 
   -- Explicit trap
-  , mkTrap "@__cxa_pure_virtual"
   , mkTrap "@llvm.trap"
   , mkTrap "@_ZSt9terminatev"
 
@@ -279,7 +278,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
       Function nm _ _ _ _ <- code
       Name _ ss <- return nm
       Just name <- return $ Text.stripPrefix "@__llvm__" $ toText ss
-      return (ss, fromText $ "@llvm." <> Text.replace "__" "." name) -- ^ Doesn't change the Word
+      return (ss, fromText $ "@llvm." <> Text.replace "__" "." name) -- Doesn't change the Word
 
     renameMap = Map.fromList renameList
     removeSet = Set.fromList $ map snd renameList
@@ -319,7 +318,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
         if dbnm == dbName' then name else 
           case Map.lookup dbName' emptyFuncMap of
             Just name' -> name'
-            Nothing -> name -- ^ The dotted form had no dummy definition, so it's probaly never called in the code. 
+            Nothing -> name -- The dotted form had no dummy definition, so it's probaly never called in the code. 
 
     changeMetadata :: Metadata -> Metadata
     changeMetadata md = md {mdFunction = changeName $ mdFunction md}

@@ -101,14 +101,14 @@ lengthW :: Foldable t => t a -> Word
 lengthW = fromIntegral . length
 
 list2CBOR :: [Encoding] -> Encoding
-list2CBOR ls = foldr (<>) mempty (encodeListLen (lengthW ls) : ls )
+list2CBOR ls = foldl (<>) mempty (encodeListLen (lengthW ls) : ls )
 
 tagDecode :: Serialise t => Decoder s t
 tagDecode = decodeString *> decode
 
 map2CBOR :: [(TXT.Text, Encoding)] -> Encoding
 map2CBOR ls =
-     foldr (<>) mempty $ (encodeMapLen len) : map encodeField ls
+     foldl (<>) mempty $ (encodeMapLen len) : map encodeField ls
     where len = lengthW ls
 
           encodeField :: (TXT.Text, Encoding) -> Encoding

@@ -17,6 +17,7 @@ compilations units.
 
 import Control.Monad.State (runStateT)
 import Data.Default (def)
+import Data.Foldable (foldl')
 import qualified Data.Map as Map
 import Data.Vector (Vector)
 
@@ -43,10 +44,10 @@ data CompilationUnit' a prog = CompUnit
 
 -- | Multiple variants of the compiled program.
 data MultiProg prog = MultiProg
-  -- | "High-level" variant, used for the first interpreter pass.  Contains
+  { -- | "High-level" variant, used for the first interpreter pass.  Contains
   -- extension instructions (`Iext` + `Iextval`) in their original forms,
   -- partly for instrumentation purposes.
-  { highProg :: prog
+    highProg :: prog
   -- | "Low-level" variant, used for the second interpreter pass.  Does not
   -- contain extension instructions, with the exception of `Iextadvise`, which
   -- gets serialized as a plain `Iadvise` instead.
@@ -66,7 +67,7 @@ type CompilationUnit a prog = CompilationUnit' a (ProgAndMem prog)
 type CompilationResult prog = CompilationUnit' () (MultiProg (ProgAndMem prog))
 
 prog2unit :: Word -> prog -> CompilationUnit () prog
-prog2unit len p = CompUnit (ProgAndMem p [] Map.empty) len InfinityRegs def firstUnusedName () -- ^ 2 reserves `0` and `1` for premain and main 
+prog2unit len p = CompUnit (ProgAndMem p [] Map.empty) len InfinityRegs def firstUnusedName () --  2 reserves `0` and `1` for premain and main 
 
 -- * Lifting operators
 
@@ -170,7 +171,7 @@ flatInitTaintedMem = foldr initSegment Map.empty
           zip [loc..] labels
 
 lengthInitMem :: InitialMem -> MWord
-lengthInitMem = foldl (\tip seg -> max tip (segTip seg)) 0
+lengthInitMem = foldl' (\tip seg -> max tip (segTip seg)) 0
   where segTip (InitMemSegment _ _ heapInit loc len _ _)
           | heapInit = 0
           | otherwise = loc + len
