@@ -45,7 +45,7 @@ data Segment reg wrd = Segment
     , toNetwork :: Bool } deriving (Eq, Show, Generic)
 -- | Constraints for the segment
 data Constraints =
-  PcConst MWord -- | Pc constraints indicate a public segment.
+  PcConst MWord -- ^ Pc constraints indicate a public segment.
   deriving (Eq, Show, Generic)
   
 
