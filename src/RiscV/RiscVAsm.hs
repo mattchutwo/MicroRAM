@@ -2,19 +2,14 @@ module RiscV.RiscVAsm where
 
 -- import Data.Bits
 import Data.Word (Word64)
-import Test.QuickCheck (Arbitrary, arbitrary, oneof, elements)
+import Test.QuickCheck (Arbitrary, arbitrary, oneof)
 
 
 data Instr
-  = Instr32 InstrRV32I -- ^ 32bit Base Integer Instruction Set
-  | Instr64 InstrRV64I -- ^ 64bit Base Integer Instruction Set
-  | InstrM  InstrExtM  -- ^ Standard Extension for Integer Multiplication and Division
-
-
-{-- $immediates
-
---}
-
+  = Instr32I  InstrRV32I -- ^ 32bit Base Integer Instruction Set
+  | Instr64I  InstrRV64I -- ^ 64bit Base Integer Instruction Set
+  | Instr32M  InstrExt32M  -- ^ RV32M Standard Extension for Integer Multiply and Divide
+  | Instr64M  InstrExt32M  -- ^ RV64M Standard Extension for Integer Multiply and Divide
 
 {- | Modifiers: The RISC-V assembler supports following modifiers for relocatable addresses used in RISC-V instruction operands. These expressions should be resolved during linking.
 -}
@@ -444,7 +439,7 @@ covered in RV32I. The context will make clear the semantics of the
 instruction.
 -}
 
-data BinopI64
+data Binop64I
   =  ADDIW   
   | SLLIW   
   | SRLIW   
@@ -481,11 +476,11 @@ data Binop64
 -}
 data InstrRV64I 
   = MemInstr64 MemOp64 Reg Offset Reg -- ^ Memory operations
-  | ImmBinop64 BinopI64 Reg Reg Imm  -- ^ Integer Register-Immediate Instructions
+  | ImmBinop64 Binop64I Reg Reg Imm  -- ^ Integer Register-Immediate Instructions
   | RegBinop64 Binop64 Reg Reg Reg -- ^ Integer Register-Register Instructions
      
-{- | $ExtM
-Standard Extension for Integer Multiplication and Division (Version 2.0)
+{- | $ExtM (32)
+RV32M Standard Extension for Integer Multiply and Divide (Version 2.0)
 
 +-------------------+-----------------------+---------------------------------+
 |      Format       |         Name          |           Pseudocode            |
@@ -509,4 +504,53 @@ Standard Extension for Integer Multiplication and Division (Version 2.0)
 
 --}
   
-data InstrExtM = BogusM
+data InstrExt32M
+  = MUL    Reg Reg Reg
+  | MULH   Reg Reg Reg
+  | MULHSU Reg Reg Reg
+  | MULHU  Reg Reg Reg
+  | DIV    Reg Reg Reg
+  | DIVU   Reg Reg Reg
+  | REM    Reg Reg Reg
+  | REMU   Reg Reg Reg
+  
+{- Is Instr Ext Mult better defined as folows?
+data MulOp
+  = MUL    
+  | MULH   
+  | MULHSU 
+  | MULHU  
+  | DIV    
+  | DIVU   
+  | REM    
+  | REMU
+
+data InstrExtM = InstrExtM MulOp Reg Reg Reg
+
+-}
+
+
+{- | RV64M Standard Extension for Integer Multiply and Divide
+
++==================+=========================+============================+
+|      Format      |          Name           |         Pseudocode         |
++==================+=========================+============================+
+| MULW rd,rs1,rs2  | Multiple Word           | rd ← u32(rs1) × u32(rs2)   |
++------------------+-------------------------+----------------------------+
+| DIVW rd,rs1,rs2  | Divide Signed Word      | rd ← s32(rs1) ÷ s32(rs2)   |
++------------------+-------------------------+----------------------------+
+| DIVUW rd,rs1,rs2 | Divide Unsigned Word    | rd ← u32(rs1) ÷ u32(rs2)   |
++------------------+-------------------------+----------------------------+
+| REMW rd,rs1,rs2  | Remainder Signed Word   | rd ← s32(rs1) mod s32(rs2) |
++------------------+-------------------------+----------------------------+
+| REMUW rd,rs1,rs2 | Remainder Unsigned Word | rd ← u32(rs1) mod u32(rs2) |
++------------------+-------------------------+----------------------------+
+
+-}
+
+data InstrExt64M
+  = MULW    Reg Reg Reg
+  | DIVW    Reg Reg Reg
+  | DIVUW   Reg Reg Reg
+  | REMW    Reg Reg Reg
+  | REMUW   Reg Reg Reg
