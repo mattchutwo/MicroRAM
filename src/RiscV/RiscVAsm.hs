@@ -271,19 +271,22 @@ type Offset = Word
 
 [Reference](https://mark.theis.site/riscv/)
 
+
+=== Jump Instructions
 +---------------------+-----------------------+------------------------------+
 |       Format        |         Name          |          Pseudocode          |
 +=====================+=======================+==============================+
-| LUI rd,imm          | Load Upper Immediate  | rd ← imm                     |
-+---------------------+-----------------------+------------------------------+
-| AUIPC rd,offset     | Add Upper Imm. to PC  | rd ← pc + offset             |
-+---------------------+-----------------------+------------------------------+
 | JAL rd,offset       | Jump and Link         | "rd ← pc + length(inst)      |
 | .                   | .                     | pc ← pc + offset"            |
 +---------------------+-----------------------+------------------------------+
 | JALR rd,rs1,offset  | Jump and Link Reg     | "rd ← pc + length(inst)      |
 | .                   | .                     | pc ← (rs1 + offset) ∧ -2"    |
 +---------------------+-----------------------+------------------------------+
+
+=== Branch Instructions
++---------------------+-----------------------+------------------------------+
+|       Format        |         Name          |          Pseudocode          |
++=====================+=======================+==============================+
 | BEQ rs1,rs2,off     | Branch Equal          | if rs1 = rs2 : pc ← pc + off |
 +---------------------+-----------------------+------------------------------+
 | BNE rs1,rs2,off     | Branch Not Equal      | if rs1 ≠ rs2 : pc ← pc + off |
@@ -299,6 +302,11 @@ type Offset = Word
 | BGEU rs1,rs2,offset | Branch Greater than   | if rs1 ≥ rs2 : pc ← pc + off |
 | .                   | or Equal Unsigned     |                              |
 +---------------------+-----------------------+------------------------------+
+
+=== Memory Instructions
++---------------------+-----------------------+------------------------------+
+|       Format        |         Name          |          Pseudocode          |
++=====================+=======================+==============================+
 | LB rd,offset(rs1)   | Load Byte             | rd ← s8[rs1 + offset]        |
 +---------------------+-----------------------+------------------------------+
 | LH rd,offset(rs1)   | Load Half             | rd ← s16[rs1 + offset]       |
@@ -314,6 +322,15 @@ type Offset = Word
 | SH rs2,offset(rs1)  | Store Half            | u16[rs1 + offset] ← rs2      |
 +---------------------+-----------------------+------------------------------+
 | SW rs2,offset(rs1)  | Store Word            | u32[rs1 + offset] ← rs2      |
++---------------------+-----------------------+------------------------------+
+
+=== Integer Register-Immediate Instructions
++---------------------+-----------------------+------------------------------+
+|       Format        |         Name          |          Pseudocode          |
++=====================+=======================+==============================+
+| LUI rd,imm          | Load Upper Immediate  | rd ← imm                     |
++---------------------+-----------------------+------------------------------+
+| AUIPC rd,offset     | Add Upper Imm. to PC  | rd ← pc + offset             |
 +---------------------+-----------------------+------------------------------+
 | ADDI rd,rs1,imm     | Add Immediate         | rd ← rs1 + sx(imm)           |
 +---------------------+-----------------------+------------------------------+
@@ -334,6 +351,11 @@ type Offset = Word
 +---------------------+-----------------------+------------------------------+
 | SRAI rd,rs1,imm     | Shift Right Arith Imm | rd ← sx(rs1) » ux(imm)       |
 +---------------------+-----------------------+------------------------------+
+
+=== Integer Register-Register Instructions
++---------------------+-----------------------+------------------------------+
+|       Format        |         Name          |          Pseudocode          |
++=====================+=======================+==============================+
 | ADD rd,rs1,rs2      | Add                   | rd ← sx(rs1) + sx(rs2)       |
 +---------------------+-----------------------+------------------------------+
 | SUB rd,rs1,rs2      | Subtract              | rd ← sx(rs1) - sx(rs2)       |
@@ -354,6 +376,11 @@ type Offset = Word
 +---------------------+-----------------------+------------------------------+
 | AND rd,rs1,rs2      | And                   | rd ← ux(rs1) ∧ ux(rs2)       |
 +---------------------+-----------------------+------------------------------+
+
+=== Fences
++---------------------+-----------------------+------------------------------+
+|       Format        |         Name          |          Pseudocode          |
++=====================+=======================+==============================+
 | FENCE pred,succ     | Fence                 |                              |
 +---------------------+-----------------------+------------------------------+
 | FENCE.I             | Fence Instruction     |                              |
@@ -368,13 +395,14 @@ data InstrRV32I =
   
      -- | Branch Instructions
   | BranchInstr BranchCond Reg Reg Offset
+  
+    -- | Memory Instructions
+  | MemInstr MemOp Reg Offset Reg
 
     -- | Integer Register-Immediate Instructions
   | LUI   Reg Imm           
   | AUIPC Reg Offset
   | ImmBinop BinopI Reg Reg Imm
-    -- | Memory Instructions
-  | MemInstr MemOp Reg Offset Reg
   
     -- | Integer Register-Register Instructions
   | RegBinop Binop Reg Reg Reg
