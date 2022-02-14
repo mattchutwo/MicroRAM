@@ -214,10 +214,10 @@ instance Arbitrary BranchCond where
     , BGEU]
 
 
-{- | BinopI: Binary operations with immediates. Has no Sub. For substraction,
+{- | Binop32I: Binary operations with immediates. Has no Sub. For substraction,
  add a negative immediate. 
 -}
-data BinopI
+data BinopI32
   = ADDI       
   | SLTI       
   | SLTIU      
@@ -228,8 +228,8 @@ data BinopI
   | SRLI       
   | SRAI
   
--- | Binop: Binary operations with two registers.
-data Binop
+-- | Binop32: Binary operations with two registers.
+data Binop32
   = ADD 
   | SUB 
   | SLL 
@@ -241,7 +241,7 @@ data Binop
   | OR
   | AND 
                
-data MemOp
+data MemOp32
   = LB 
   | LH 
   | LW 
@@ -397,30 +397,121 @@ data InstrRV32I =
   | BranchInstr BranchCond Reg Reg Offset
   
     -- | Memory Instructions
-  | MemInstr MemOp Reg Offset Reg
+  | MemInstr32 MemOp32 Reg Offset Reg
 
     -- | Integer Register-Immediate Instructions
   | LUI   Reg Imm           
   | AUIPC Reg Offset
-  | ImmBinop BinopI Reg Reg Imm
+  | ImmBinop32 BinopI32 Reg Reg Imm
   
     -- | Integer Register-Register Instructions
-  | RegBinop Binop Reg Reg Reg
+  | RegBinop32 Binop32 Reg Reg Reg
   
     -- | Synchronisation Instructions (Fences)
   | FENCE SetOrdering
   | FENCEI            
 
-{-- $RV64I
-64bit Base Integer Instruction Set, Version 2.1
+{- | Memory operations
 
++--------------------+------------------------------+--------------------------+
+|       Format       |             Name             |        Pseudocode        |
++====================+==============================+==========================+
+| LWU rd,offset(rs1) | Load Word Unsigned           | rd ← u32[rs1 + offset]   |
++--------------------+------------------------------+--------------------------+
+| LD rd,offset(rs1)  | Load Double                  | rd ← u64[rs1 + offset]   |
++--------------------+------------------------------+--------------------------+
+| SD rs2,offset(rs1) | Store Double                 | u64[rs1 + offset] ← rs2  |
++--------------------+------------------------------+--------------------------+
+
+-}
+
+data MemOp64
+ = LWU
+ | LD 
+ | SD 
+
+{- |  Integer Register-Immediate Instructions
+
++------------------+---------------------------------------+--------------------------+
+|      Format      |                 Name                  |        Pseudocode        |
++==================+=======================================+==========================+
+| ADDIW rd,rs1,imm | Add Immediate Word                    | rd ← s32(rs1) + imm      |
++------------------+---------------------------------------+--------------------------+
+| SLLIW rd,rs1,imm | Shift Left Logical Immediate Word     | rd ← s32(u32(rs1) « imm) |
++------------------+---------------------------------------+--------------------------+
+| SRLIW rd,rs1,imm | Shift Right Logical Immediate Word    | rd ← s32(u32(rs1) » imm) |
++------------------+---------------------------------------+--------------------------+
+| SRAIW rd,rs1,imm | Shift Right Arithmetic Immediate Word | rd ← s32(rs1) » imm      |
++------------------+---------------------------------------+--------------------------+
+
+The codes @SLLI@, @SRLI@ and @SRAI@ are ommited since they are already
+covered in RV32I. The context will make clear the semantics of the
+instruction.
+-}
+
+data BinopI64
+  =  ADDIW   
+  | SLLIW   
+  | SRLIW   
+  | SRAIW
+
+{- |
+Integer Register-Register Instructions
+
++--------------------+------------------------------+--------------------------+
+|       Format       |             Name             |        Pseudocode        |
++====================+==============================+==========================+
+| ADDW rd,rs1,rs2    | Add Word                     | rd ← s32(rs1) + s32(rs2) |
++--------------------+------------------------------+--------------------------+
+| SUBW rd,rs1,rs2    | Subtract Word                | rd ← s32(rs1) - s32(rs2) |
++--------------------+------------------------------+--------------------------+
+| SLLW rd,rs1,rs2    | Shift Left Log Word          | rd ← s32(u32(rs1) « rs2) |
++--------------------+------------------------------+--------------------------+
+| SRLW rd,rs1,rs2    | Shift Right Log Word         | rd ← s32(u32(rs1) » rs2) |
++--------------------+------------------------------+--------------------------+
+| SRAW rd,rs1,rs2    | Shift Right Arith. Word      | rd ← s32(rs1) » rs2      |
++--------------------+------------------------------+--------------------------+
 --}
-  
-data InstrRV64I = Bogus64
+ 
+
+data Binop64
+  = ADDW       
+  | SUBW     
+  | SLLW     
+  | SRLW     
+  | SRAW    
 
 
-{-- $ExtM
+{- | $RV64I
+64bit Base Integer Instruction Set, Version 2.1
+-}
+data InstrRV64I 
+  = MemInstr64 MemOp64 Reg Offset Reg -- ^ Memory operations
+  | ImmBinop64 BinopI64 Reg Reg Imm  -- ^ Integer Register-Immediate Instructions
+  | RegBinop64 Binop64 Reg Reg Reg -- ^ Integer Register-Register Instructions
+     
+{- | $ExtM
 Standard Extension for Integer Multiplication and Division (Version 2.0)
+
++-------------------+-----------------------+---------------------------------+
+|      Format       |         Name          |           Pseudocode            |
++===================+=======================+=================================+
+| MUL rd,rs1,rs2    | Mult                  | rd ← ux(rs1) × ux(rs2)          |
++-------------------+-----------------------+---------------------------------+
+| MULH rd,rs1,rs2   | Mult High Sig. Sig.   | rd ← (sx(rs1) × sx(rs2)) » xlen |
++-------------------+-----------------------+---------------------------------+
+| MULHSU rd,rs1,rs2 | Mult High Sig. Unsig  | rd ← (sx(rs1) × ux(rs2)) » xlen |
++-------------------+-----------------------+---------------------------------+
+| MULHU rd,rs1,rs2  | Mult High Unsig Unsig | rd ← (ux(rs1) × ux(rs2)) » xlen |
++-------------------+-----------------------+---------------------------------+
+| DIV rd,rs1,rs2    | Divide Signed         | rd ← sx(rs1) ÷ sx(rs2)          |
++-------------------+-----------------------+---------------------------------+
+| DIVU rd,rs1,rs2   | Divide Unsigned       | rd ← ux(rs1) ÷ ux(rs2)          |
++-------------------+-----------------------+---------------------------------+
+| REM rd,rs1,rs2    | Remainder Signed      | rd ← sx(rs1) mod sx(rs2)        |
++-------------------+-----------------------+---------------------------------+
+| REMU rd,rs1,rs2   | Remainder Unsigned    | rd ← ux(rs1) mod ux(rs2)        |
++-------------------+-----------------------+---------------------------------+
 
 --}
   
