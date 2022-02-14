@@ -213,6 +213,60 @@ instance Arbitrary BranchCond where
     , BLTU
     , BGEU]
 
+
+{- | BinopI: Binary operations with immediates. Has no Sub. For substraction,
+ add a negative immediate. 
+-}
+data BinopI
+  = ADDI       
+  | SLTI       
+  | SLTIU      
+  | XORI       
+  | ORI        
+  | ANDI       
+  | SLLI       
+  | SRLI       
+  | SRAI
+  
+-- | Binop: Binary operations with two registers.
+data Binop
+  = ADD 
+  | SUB 
+  | SLL 
+  | SLT 
+  | SLTU
+  | XOR 
+  | SRL 
+  | SRA 
+  | OR
+  | AND 
+               
+data MemOp
+  = LB 
+  | LH 
+  | LW 
+  | LBU
+  | LHU
+  | SB 
+  | SH 
+  | SW
+  
+{- | Fences can optionally further restrict the predecessor set and/or
+the successor set to a smaller set of memory accesses in order to
+provide some speedup. Specifically, fences have PR, PW, SR, and SW
+bits which restrict the predecessor and/or successor sets. The
+predecessor set includes loads (resp. stores) if and only if PR
+(resp. PW) is set.
+-}
+data SetOrdering = SetOrdering
+  { predRead  :: Bool
+  , predWrite :: Bool
+  , succRead  :: Bool
+  , succWrite :: Bool
+  } deriving (Show, Eq, Ord)
+
+type Offset = Word
+
 {- | InstrRV32I
 
 [Reference](https://mark.theis.site/riscv/)
@@ -307,56 +361,6 @@ instance Arbitrary BranchCond where
 
 -}
 
--- BinopI Has no Sub. For substraction,
--- add a negative immediate. 
-data BinopI
-  = ADDI       
-  | SLTI       
-  | SLTIU      
-  | XORI       
-  | ORI        
-  | ANDI       
-  | SLLI       
-  | SRLI       
-  | SRAI
-
-data Binop
-  = ADD 
-  | SUB 
-  | SLL 
-  | SLT 
-  | SLTU
-  | XOR 
-  | SRL 
-  | SRA 
-  | OR
-  | AND 
-               
-data MemOp
-  = LB 
-  | LH 
-  | LW 
-  | LBU
-  | LHU
-  | SB 
-  | SH 
-  | SW
-  
-{- | Fences can optionally further restrict the predecessor set and/or
-the successor set to a smaller set of memory accesses in order to
-provide some speedup. Specifically, fences have PR, PW, SR, and SW
-bits which restrict the predecessor and/or successor sets. The
-predecessor set includes loads (resp. stores) if and only if PR
-(resp. PW) is set.
--}
-data SetOrdering = SetOrdering
-  { predRead  :: Bool
-  , predWrite :: Bool
-  , succRead  :: Bool
-  , succWrite :: Bool
-  } deriving (Show, Eq, Ord)
-
-type Offset = Word
 data InstrRV32I =
     -- | Jump Instructions
     JAL  Reg Offset
@@ -375,7 +379,7 @@ data InstrRV32I =
     -- | Integer Register-Register Instructions
   | RegBinop Binop Reg Reg Reg
   
-    -- | Fences
+    -- | Synchronisation Instructions (Fences)
   | FENCE SetOrdering
   | FENCEI            
 
