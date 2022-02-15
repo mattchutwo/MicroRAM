@@ -89,12 +89,13 @@ identifier = Tokens.identifier riscVLang
 whiteSpace :: Parsec String u ()
 whiteSpace = Tokens.whiteSpace riscVLang
 
+comma :: Parsec String u String
+comma = Tokens.comma riscVLang
+
 
 -- parsedInput = parse someParser "source name" "some input"
 test :: Stream s Identity t => Parsec s () a -> s -> Either ParseError a
 test p = parse p ""
-wordParser :: Parsec String st String
-wordParser = many $ noneOf [' ']
 
 -- | Read file
 readFileRV :: FilePath -> IO String
@@ -224,6 +225,8 @@ symbolParser' =
 
 instrParser :: Parsec String st Instr
 instrParser = Instr32I <$> parse32I
+              <|> InstrPseudo <$> parsePseudo
+              <?> "an instruction"
 
   
 {- | Immediates can be:
@@ -318,10 +321,11 @@ label ==> x = lexeme (string label *> pure x)
 {- Why can't I use a comma instead? -}
 infixl 4 <.>
 (<.>) :: forall st a b. Parsec String st (a -> b) -> Parsec String st a -> Parsec String st b
-(<.>) p1 p2 = p1 <* string ", " <* spaces <*> p2
+(<.>) p1 p2 = p1 <* comma <*> p2
 
--- slliParser :: Parsec String st RegisterImmediateInstr
--- slliParser = "slli" ==> (ShiftInstr SLLI) <*> regParser <.> regParser <.> immediateParser
+
+
+
 
 parse32I :: Parsec String st InstrRV32I
 parse32I = choiceTry
@@ -378,9 +382,66 @@ parse32I = choiceTry
 orderingParser :: Parsec String st SetOrdering
 orderingParser = undefined -- not needed?
 
+-- For some reason the parser is haveing trouble with these, reporting
+-- "Defined but not used:" when in use
+(∘∘) :: (c -> d) -> (a -> b -> c) -> (a -> b -> d)
+(f ∘∘ g) x y = f (g x y)
+(∘∘∘) :: (d -> e) -> (a -> b -> c -> d) -> (a -> b -> c -> e)
+(f ∘∘∘ g) x y z = f (g x y z)
 
-
-
+parsePseudo :: Parsec String st PseudoInstr
+parsePseudo = choiceTry
+      [ 
+      -- Function call/return instructions
+       "ret"    ==> RetPI
+      , "call"   ==> CallPI <*> offsetParser
+      , "tail"   ==> TailPI <*> offsetParser
+      -- Total Fence
+      , "fence"  ==> FencePI
+      -- Unary immediate
+      , "li"     ==> LiPI <*> regParser <.> immediateParser
+      -- nop
+      , "nop"    ==> NopPI
+      -- Absolute load/store
+      , "la"     ==> (AbsolutePI ∘∘ PseudoLA) <*> regParser <.> immediateParser
+      , "lla"    ==> (AbsolutePI ∘∘ PseudoLLA) <*> regParser <.> immediateParser
+      , "lb"     ==> (AbsolutePI ∘∘ PseudoLoad MemByte) <*> regParser <.> immediateParser
+      , "lh"     ==> (AbsolutePI ∘∘ PseudoLoad MemByte) <*> regParser <.> immediateParser
+      , "lw"     ==> (AbsolutePI ∘∘ PseudoLoad MemByte) <*> regParser <.> immediateParser
+      , "ld"     ==> (AbsolutePI ∘∘ PseudoLoad MemByte) <*> regParser <.> immediateParser
+      , "sb"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte) <*> regParser <.> immediateParser <.> regParser
+      , "sh"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte) <*> regParser <.> immediateParser <.> regParser
+      , "sw"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte) <*> regParser <.> immediateParser <.> regParser
+      , "sd"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte) <*> regParser <.> immediateParser <.> regParser
+      -- Unary register Pseudoinstructions
+      , "mov"    ==> UnaryPI MOV   <*> regParser <.> regParser
+      , "not"    ==> UnaryPI NOT   <*> regParser <.> regParser
+      , "neg"    ==> UnaryPI NEG   <*> regParser <.> regParser
+      , "negw"   ==> UnaryPI NEGW  <*> regParser <.> regParser
+      , "SEXTW"  ==> UnaryPI SEXTW <*> regParser <.> regParser
+      -- Conditional Moves
+      , "seqz"   ==> CMovPI SEQZ <*> regParser <.> regParser
+      , "snez"   ==> CMovPI SNEZ <*> regParser <.> regParser
+      , "sltz"   ==> CMovPI SLTZ <*> regParser <.> regParser
+      , "sgtz"   ==> CMovPI SGTZ <*> regParser <.> regParser
+      -- Alternative branches ZERO
+      , "beqz"   ==> BranchZPI BEQZ <*> regParser <.> offsetParser
+      , "bnez"   ==> BranchZPI BNEZ <*> regParser <.> offsetParser
+      , "blez"   ==> BranchZPI BLEZ <*> regParser <.> offsetParser
+      , "bgez"   ==> BranchZPI BGEZ <*> regParser <.> offsetParser
+      , "bltz"   ==> BranchZPI BLTZ <*> regParser <.> offsetParser
+      , "bgtz"   ==> BranchZPI BGTZ <*> regParser <.> offsetParser
+      -- Alternative branches ZERO
+      , "bgt"    ==> BranchPI BGT  <*> regParser <.> regParser <.> offsetParser
+      , "ble"    ==> BranchPI BLE  <*> regParser <.> regParser <.> offsetParser
+      , "bgtu"   ==> BranchPI BGTU <*> regParser <.> regParser <.> offsetParser
+      , "bleu"   ==> BranchPI BLEU <*> regParser <.> regParser <.> offsetParser
+      -- | Alternative Jumps
+      , "j"      ==> JmpImmPI JPseudo     <*> immediateParser
+      , "jal"    ==> JmpImmPI JLinkPseudo <*> immediateParser
+      , "jr"     ==> JmpRegPI JPseudo     <*> regParser
+      , "jalr"   ==> JmpRegPI JLinkPseudo <*> regParser
+      ]
 
 
 

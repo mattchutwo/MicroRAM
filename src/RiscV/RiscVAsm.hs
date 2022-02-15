@@ -265,10 +265,11 @@ data LineOfRiscV =
 
 
 data Instr
-  = Instr32I  InstrRV32I   -- ^ 32bit Base Integer Instruction Set
-  | Instr64I  InstrRV64I   -- ^ 64bit Base Integer Instruction Set
-  | Instr32M  InstrExt32M  -- ^ RV32M Standard Extension for Integer Multiply and Divide
-  | Instr64M  InstrExt64M  -- ^ RV64M Standard Extension for Integer Multiply and Divide
+  = Instr32I    InstrRV32I   -- ^ 32bit Base Integer Instruction Set
+  | Instr64I    InstrRV64I   -- ^ 64bit Base Integer Instruction Set
+  | Instr32M    InstrExt32M  -- ^ RV32M Standard Extension for Integer Multiply and Divide
+  | Instr64M    InstrExt64M  -- ^ RV64M Standard Extension for Integer Multiply and Divide
+  | InstrPseudo PseudoInstr  -- ^ Pseudoinstructions
   deriving (Show, Eq, Ord)
 
 
@@ -761,9 +762,9 @@ Unary register operations and @nop@.
 -}
 
 data UnaryPseudo
-  = MV 
+  = MOV 
   | NOT
-  | NEGE
+  | NEG
   | NEGW
   | SEXTW
   deriving (Show, Eq, Ord)
