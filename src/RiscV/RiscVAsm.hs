@@ -39,6 +39,17 @@ module RiscV.RiscVAsm
   -- ** RV64M
   -- $ext64M
   , InstrExt64M(..)
+
+  -- ** Pseudoinstructions
+  -- $pseudo
+  , AbsolutePseudo(..)
+  , MemOpKind(..)
+  , UnaryPseudo(..)
+  , CMovPseudo(..)
+  , BranchZPseudo(..)
+  , BranchPseudo(..)
+  , JumpPseudo(..)
+  , PseudoInstr(..)
    ) where
 
 -- import Data.Bits
@@ -649,7 +660,7 @@ data InstrExtM = InstrExtM MulOp Reg Reg Reg
 {- $ext64M
 RV64M Standard Extension for Integer Multiply and Divide
 
-+==================+=========================+============================+
++------------------+-------------------------+----------------------------+
 |      Format      |          Name           |         Pseudocode         |
 +==================+=========================+============================+
 | MULW rd,rs1,rs2  | Multiple Word           | rd ← u32(rs1) × u32(rs2)   |
@@ -672,3 +683,312 @@ data InstrExt64M
   | REMW    Reg Reg Reg
   | REMUW   Reg Reg Reg
   deriving (Show, Eq, Ord)
+
+
+
+{- $pseudo
+
+The tables show most the pseudoinstructions documented in the Instruction Set Manual, and marks the ones we support. 
+We do not yet support pseudoinstructions for control and status
+register (CSR) or single-precision operations over floats
+
+-}
+
+{- |
+
+Absolute instructions. The base instructions use pc-relative addressing, so the linker subtracts pc from symbol to get delta. The linker adds delta[11] to the 20-bit high part, counteracting sign extension of the 12-bit low part.
+
++-----------------------------+----------------------------------------+--------------------------------+-----------+
+|      pseudoinstruction      |           Base Instruction(s)          |             Meaning            | Supported |
++=============================+========================================+================================+===========+
+| @la rd, symbol (non-PIC)@   | @auipc rd, delta[31 : 12] + delta[11]@ | Load absolute address,         |           |
+|                             +----------------------------------------+                                |           |
+|                             | @addi rd, rd, delta[11:0]            @ | where delta = symbol − pc      |           |
++-----------------------------+----------------------------------------+--------------------------------+-----------+
+| @la rd, symbol (PIC)@       | @auipc rd, delta[31 : 12] + delta[11]@ | Load absolute address,         |           |
+|                             +----------------------------------------+                                |           |
+| .                           | @l{w|d} rd, rd, delta[11:0]          @ |                                |           |
++-----------------------------+----------------------------------------+--------------------------------+-----------+
+| @lla rd, symbol@            | @auipc rd, delta[31 : 12] + delta[11]@ | Load local address,            |           |
+|                             +----------------------------------------+                                |           |
+| .                           | @addi rd, rd, delta[11:0]            @ |                                |           |
++-----------------------------+----------------------------------------+--------------------------------+-----------+
+| @l{b|h|w|d} rd, symbol@     | @auipc rd, delta[31 : 12] + delta[11]@ | Load global                    |           |
+|                             +----------------------------------------+                                |           |
+| .                           | @l{b|h|w|d} rd, delta[11:0](rd)      @ |                                |           |
++-----------------------------+----------------------------------------+--------------------------------+-----------+
+| @s{b|h|w|d} rd, symbol, rt@ | @s{b|h|w|d} rd, delta[11:0](rt)@       | Store global                   |           |
+|                             +----------------------------------------+                                |           |
+| .                           | @auipc rt, delta[31 : 12] + delta[11]@ |                                |           |
++-----------------------------+----------------------------------------+--------------------------------+-----------+
+| @fl{w|d} rd, symbol, rt@    | @auipc rt, delta[31 : 12] + delta[11]@ | Floating-point load global     |   No      |
+|                             +----------------------------------------+                                |           |
+| .                           | @fl{w|d} rd, delta[11:0](rt)         @ |                                |           |
++-----------------------------+----------------------------------------+--------------------------------+-----------+
+| @fs{w|d} rd, symbol, rt@    | @auipc rt, delta[31 : 12] + delta[11]@ | Floating-point store global    |   No      |
+|                             +----------------------------------------+                                |           |
+|                             | @fs{w|d} rd, delta[11:0](rt)         @ |                                |           |
++-----------------------------+----------------------------------------+--------------------------------+-----------+
+-}
+
+data AbsolutePseudo
+  = PseudoLA Reg Imm
+  | PseudoLLA Reg Imm
+  | PseudoLoad MemOpKind Reg Imm 
+  | PseudoStore MemOpKind Reg Imm Reg
+  deriving (Show, Eq, Ord)
+
+data MemOpKind = MemByte | MemHalf | MemWord | MemDouble
+  deriving (Show, Eq, Ord)
+
+{- |
+Unary register operations and @nop@.
+
++---------------------+---------------------+----------------------------+-----------+
+|  pseudoinstruction  | Base Instruction(s) |          Meaning           | Supported |
++=====================+=====================+============================+===========+
+| mv rd, rs           | addi rd, rs, 0      | Copy register              |           |
++---------------------+---------------------+----------------------------+-----------+
+| not rd, rs          | xori rd, rs, -1     | One’s complement           |           |
++---------------------+---------------------+----------------------------+-----------+
+| neg rd, rs          | sub rd, x0, rs      | Two’s complement           |           |
++---------------------+---------------------+----------------------------+-----------+
+| negw rd, rs         | subw rd, x0, rs     | Two’s complement word      |           |
++---------------------+---------------------+----------------------------+-----------+
+| sext.w rd, rs       | addiw rd, rs, 0     | Sign extend word           |           |
++---------------------+---------------------+----------------------------+-----------+
+
+-}
+
+data UnaryPseudo
+  = MV 
+  | NOT
+  | NEGE
+  | NEGW
+  | SEXTW
+  deriving (Show, Eq, Ord)
+
+{- |
+Conditional move instructions
+
++---------------------+---------------------+----------------------------+-----------+
+|  pseudoinstruction  | Base Instruction(s) |          Meaning           | Supported |
++=====================+=====================+============================+===========+
+| seqz rd, rs         | sltiu rd, rs, 1     | Set if = zero              |           |
++---------------------+---------------------+----------------------------+-----------+
+| snez rd, rs         | sltu rd, x0, rs     | Set if <> zero             |           |
++---------------------+---------------------+----------------------------+-----------+
+| sltz rd, rs         | slt rd, rs, x0      | Set if < zero              |           |
++---------------------+---------------------+----------------------------+-----------+
+| sgtz rd, rs         | slt rd, x0, rs      | Set if > zero              |           |
++---------------------+---------------------+----------------------------+-----------+
+
+-}
+
+
+data CMovPseudo
+  = SEQZ -- ^ @sltiu rd, rs, 1@      Set if = zero 
+  | SNEZ -- ^ @sltu rd, x0, rs@      Set if <> zero
+  | SLTZ -- ^ @slt rd, rs, x0@       Set if < zero 
+  | SGTZ -- ^ @slt rd, x0, rs@       Set if > zero 
+  deriving (Show, Eq, Ord)
+
+{- |
+Alternative Branching with zero
+
++---------------------+---------------------+----------------------------+-----------+
+|  pseudoinstruction  | Base Instruction(s) |          Meaning           | Supported |
++=====================+=====================+============================+===========+
+| beqz rs, offset     | beq rs, x0, offset  | Branch if = zero           |           |
++---------------------+---------------------+----------------------------+-----------+
+| bnez rs, offset     | bne rs, x0, offset  | Branch if <> zero          |           |
++---------------------+---------------------+----------------------------+-----------+
+| blez rs, offset     | bge x0, rs, offset  | Branch if ≤ zero           |           |
++---------------------+---------------------+----------------------------+-----------+
+| bgez rs, offset     | bge rs, x0, offset  | Branch if ≥ zero           |           |
++---------------------+---------------------+----------------------------+-----------+
+| bltz rs, offset     | blt rs, x0, offset  | Branch if < zero           |           |
++---------------------+---------------------+----------------------------+-----------+
+| bgtz rs, offset     | blt x0, rs, offset  | Branch if > zero           |           |
++---------------------+---------------------+----------------------------+-----------+
+
+-}
+
+
+data BranchZPseudo
+  = BEQZ -- ^ @beq rs, x0, offset @   Branch if = zero        
+  | BNEZ -- ^ @bne rs, x0, offset @    Branch if <> zero      
+  | BLEZ -- ^ @bge x0, rs, offset @    Branch if ≤ zero       
+  | BGEZ -- ^ @bge rs, x0, offset @    Branch if ≥ zero       
+  | BLTZ -- ^ @blt rs, x0, offset @    Branch if < zero       
+  | BGTZ -- ^ @blt x0, rs, offset @    Branch if > zero
+  deriving (Show, Eq, Ord)
+
+{- |
+Alternative Branching
+
++---------------------+---------------------+----------------------------+-----------+
+|  pseudoinstruction  | Base Instruction(s) |          Meaning           | Supported |
++=====================+=====================+============================+===========+
+| bgt rs, rt, offset  | blt rt, rs, offset  | Branch if >                |           |
++---------------------+---------------------+----------------------------+-----------+
+| ble rs, rt, offset  | bge rt, rs, offset  | Branch if ≤                |           |
++---------------------+---------------------+----------------------------+-----------+
+| bgtu rs, rt, offset | bltu rt, rs, offset | Branch if >, unsigned      |           |
++---------------------+---------------------+----------------------------+-----------+
+| bleu rs, rt, offset | bgeu rt, rs, offset | Branch if ≤, unsigned      |           |
++---------------------+---------------------+----------------------------+-----------+
+
+-}
+  
+data BranchPseudo
+  = BGT  -- ^ @blt rt, rs, offset @    Branch if >            
+  | BLE  -- ^ @bge rt, rs, offset @    Branch if ≤            
+  | BGTU -- ^ @bltu rt, rs, offset@    Branch if >, unsigned  
+  | BLEU -- ^ @bgeu rt, rs, offset@    Branch if ≤, unsigned  
+  deriving (Show, Eq, Ord)
+
+
+{- | Alternative jump instructions. We only distinguish jump and link or
+just jump. Both variants are implemented in `PseudoInstr` @ret@,
+@call@ and @tail@ are implemented directly in `PseudoInstr`
+
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| pseudoinstruction | Base Instruction(s)                     | Meaning                            | Supported |
++===================+=========================================+====================================+===========+
+| j offset          | jal x0, offset                          | Jump                               |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| jal offset        | jal x1, offset                          | Jump and link                      |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| jr rs             | jalr x0, 0(rs)                          | Jump register                      |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| jalr rs           | jalr x1, 0(rs)                          | Jump and link register             |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+
+
+-}
+
+data JumpPseudo
+  = JPseudo       -- ^ Just jump
+  | JLinkPseudo   -- ^ Jump and link
+  
+  deriving (Show, Eq, Ord)
+
+{- |
+
+Function call/return, total fence, @nop@ and unary immediate
+
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| pseudoinstruction | Base Instruction(s)                     | Meaning                            | Supported |
++===================+=========================================+====================================+===========+
+| ret               | jalr x0, 0(x1)                          | Return from subroutine             |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+|                   | auipc x1, offset[31 : 12] + offset[11]  |                                    |           |
+|                   +-----------------------------------------+                                    +-----------+
+| call offset       | jalr x1, offset[11:0](x1)               | Call far-away subroutine           |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+|                   | auipc x6, offset[31 : 12] + offset[11]  | Tail call far-away subroutine      |           |
+|                   +-----------------------------------------+                                    +-----------+
+| tail offset       | jalr x0, offset[11:0](x6)               |                                    |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| fence             | fence iorw, iorw                        | Fence on all memory and I/O        |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| nop               | addi x0, x0, 0                          | No operation                       |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| li rd, immediate  | Myriad sequences [sic]                  | Load immediate                     |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+
+-}
+
+data PseudoInstr
+  -- | Function call/return instructions
+  = RetPI
+  | CallPI Offset
+  | TailPI Offset
+  -- | Total Fence
+  | FencePI
+  -- | Unary immediate
+  | LiPI Reg Imm
+  -- | nop
+  | NopPI
+  -- | Absolute load/store
+  | AbsolutePI AbsolutePseudo
+  -- | Unary register Pseudoinstructions
+  | UnaryPI UnaryPseudo Reg Reg
+  -- | Conditional Moves
+  | CMovPI CMovPseudo Reg Reg
+  -- | Alternative branches
+  | BranchZPI BranchZPseudo Reg Offset
+  | BranchPI BranchPseudo Reg Reg Offset
+  -- | Alternative Jumps
+  | JmpImmPI JumpPseudo Offset
+  | JmpRegPI JumpPseudo Reg
+  deriving (Show, Eq, Ord)
+
+
+
+
+{-
+
+Tables for pseudoinstructions not supported.
+
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| pseudoinstruction | Base Instruction(s)                     | Meaning                            | Supported |
++===================+=========================================+====================================+===========+
+| rdinstret[h] rd   | csrrs rd, instret[h], x0                | Read instructions-retired counter  |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| rdcycle[h] rd     | csrrs rd, cycle[h], x0                  | Read cycle counter                 |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| rdtime[h] rd      | csrrs rd, time[h], x0                   | Read real-time clock               |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| csrr rd, csr      | csrrs rd, csr, x0                       | Read CSR                           |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| csrw csr, rs      | csrrw x0, csr, rs                       | Write CSR                          |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| csrs csr, rs      | csrrs x0, csr, rs                       | Set bits in CSR                    |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| csrc csr, rs      | csrrc x0, csr, rs                       | Clear bits in CSR                  |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| csrwi csr, imm    | csrrwi x0, csr, imm                     | Write CSR, immediate               |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| csrsi csr, imm    | csrrsi x0, csr, imm                     | Set bits in CSR, immediate         |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| csrci csr, imm    | csrrci x0, csr, imm                     | Clear bits in CSR, immediate       |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| frcsr rd          | csrrs rd, fcsr, x0                      | Read FP control/status register    |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| fscsr rd, rs      | csrrw rd, fcsr, rs                      | Swap FP control/status register    |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| fscsr rs          | csrrw x0, fcsr, rs                      | Write FP control/status register   |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| frrm rd           | csrrs rd, frm, x0                       | Read FP rounding mode              |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| fsrm rd, rs       | csrrw rd, frm, rs                       | Swap FP rounding mode              |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| fsrm rs           | csrrw x0, frm, rs                       | Write FP rounding mode             |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| frflags rd        | csrrs rd, fflags,                       | Read FP exception flags            |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| fsflags rd, rs    | csrrw rd, fflags,                       | Swap FP exception flags            |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+| fsflags rs        | csrrw x0, fflags,                       | Write FP exception flags           |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
+
+
++---------------------+---------------------+----------------------------+-----------+
+|  pseudoinstruction  | Base Instruction(s) |          Meaning           | Supported |
++=====================+=====================+============================+===========+
+| fmv.s rd, rs        | fsgnj.s rd, rs,     | Copy single-precision reg  |           |
++---------------------+---------------------+----------------------------+-----------+
+| fabs.s rd, rs       | fsgnjx.s rd, rs, rs | Single-precision abs value |           |
++---------------------+---------------------+----------------------------+-----------+
+| fneg.s rd, rs       | fsgnjn.s rd, rs, rs | Single-precision negate    |           |
++---------------------+---------------------+----------------------------+-----------+
+| fmv.d rd, rs        | fsgnj.d rd, rs, rs  | Copy double-precision reg  |           |
++---------------------+---------------------+----------------------------+-----------+
+| fabs.d rd, rs       | fsgnjx.d rd, rs, rs | Double-precision abs value |           |
++---------------------+---------------------+----------------------------+-----------+
+| fneg.d rd, rs       | fsgnjn.d rd, rs, rs | Double-precision negate    |           |
++---------------------+---------------------+----------------------------+-----------+
+
+-}
