@@ -405,14 +405,14 @@ parsePseudo = choiceTry
       -- Absolute load/store
       , "la"     ==> (AbsolutePI ∘∘ PseudoLA) <*> regParser <.> immediateParser
       , "lla"    ==> (AbsolutePI ∘∘ PseudoLLA) <*> regParser <.> immediateParser
-      , "lb"     ==> (AbsolutePI ∘∘ PseudoLoad MemByte) <*> regParser <.> immediateParser
-      , "lh"     ==> (AbsolutePI ∘∘ PseudoLoad MemByte) <*> regParser <.> immediateParser
-      , "lw"     ==> (AbsolutePI ∘∘ PseudoLoad MemByte) <*> regParser <.> immediateParser
-      , "ld"     ==> (AbsolutePI ∘∘ PseudoLoad MemByte) <*> regParser <.> immediateParser
-      , "sb"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte) <*> regParser <.> immediateParser <.> regParser
-      , "sh"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte) <*> regParser <.> immediateParser <.> regParser
-      , "sw"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte) <*> regParser <.> immediateParser <.> regParser
-      , "sd"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte) <*> regParser <.> immediateParser <.> regParser
+      , "lb"     ==> (AbsolutePI ∘∘ PseudoLoad MemByte)   <*> regParser <.> immediateParser
+      , "lh"     ==> (AbsolutePI ∘∘ PseudoLoad MemHalf)   <*> regParser <.> immediateParser
+      , "lw"     ==> (AbsolutePI ∘∘ PseudoLoad MemWord)   <*> regParser <.> immediateParser
+      , "ld"     ==> (AbsolutePI ∘∘ PseudoLoad MemDouble) <*> regParser <.> immediateParser
+      , "sb"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte)   <*> regParser <.> immediateParser <.> regParser
+      , "sh"     ==> (AbsolutePI ∘∘∘ PseudoStore MemHalf)   <*> regParser <.> immediateParser <.> regParser
+      , "sw"     ==> (AbsolutePI ∘∘∘ PseudoStore MemWord)   <*> regParser <.> immediateParser <.> regParser
+      , "sd"     ==> (AbsolutePI ∘∘∘ PseudoStore MemDouble) <*> regParser <.> immediateParser <.> regParser
       -- Unary register Pseudoinstructions
       , "mov"    ==> UnaryPI MOV   <*> regParser <.> regParser
       , "not"    ==> UnaryPI NOT   <*> regParser <.> regParser
