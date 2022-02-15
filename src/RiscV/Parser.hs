@@ -3,82 +3,115 @@
 module RiscV.Parser where
 
 -- import Data.Bits
-import Data.Word (Word64)
+--import Data.Word (Word64)
 import RiscV.RiscVAsm
 
 -- import Data.Char (Char)
 import Text.Parsec
-import Text.Parsec.Language (haskell)
+import qualified Text.Parsec.Language as Lang 
 import qualified Text.Parsec.Expr as Expr
 import qualified Text.Parsec.Token as Tokens
 import Data.Maybe (catMaybes)
 import Control.Monad (mzero)
+import Data.Functor.Identity (Identity)
 
 import Debug.Trace
 
 -- Borrow some definitions from haskell
+riscVLang :: Tokens.GenTokenParser String u Identity
+riscVLang = Tokens.makeTokenParser riscVLangDef
+
+riscVLangDef :: Lang.LanguageDef u
+riscVLangDef = Tokens.LanguageDef
+  {
+    -- RiscV Assembly has no multiline comment 
+    Tokens.commentStart = ""
+  , Tokens.commentEnd = ""
+  , Tokens.commentLine = "#"
+  , Tokens.nestedComments = False
+  -- | Symbol names begin with a letter or with one of ‘._’. On most
+  -- machines, you can also use $ in symbol names; exceptions are
+  -- noted in Machine Dependencies. Symbol names do not start with a
+  -- digit. An exception to this rule is made for Local Labels, but we
+  -- don't yet support it.
+  , Tokens.identStart = letter <|> oneOf "._$"
+  -- | That character may be followed by any string of digits,
+  -- letters, dollar signs (unless otherwise noted for a particular
+  -- target machine), and underscores.  We do not yet support qutoed
+  -- symbols names by ‘"’ or multibyte characters.
+  , Tokens.identLetter = alphaNum <|> oneOf "$_"
+
+  -- | No operators in this language
+  , Tokens.opStart        = parserFail "Attempt to read an operands"
+  , Tokens.opLetter       = parserFail "Attempt to read an operands"
+
+  -- | No reserved names 
+  , Tokens.reservedNames   = []
+  , Tokens.reservedOpNames = []
+  , Tokens.caseSensitive   = True
+  }
+  
 parens, lexeme
   :: Parsec String u a
      -> Parsec String u a
 -- Lexeme parser parens p parses p enclosed in parenthesis, returning the value of p.
-parens = Tokens.parens haskell
+parens = Tokens.parens riscVLang
 -- lexeme p first applies parser p and then the whiteSpace parser, returning the value of p.
-lexeme = Tokens.lexeme haskell
+lexeme = Tokens.lexeme riscVLang
 -- This lexeme parser parses an integer (a whole number). 
 integerParser :: Parsec String u Integer
-integerParser = Tokens.integer haskell
+integerParser = Tokens.integer riscVLang
 -- | Lexeme parser symbol s parses string s and skips trailing white space.
-symbolParser' = Tokens.symbol haskell 
+symbolParser
+  :: String -> Parsec String u String
+symbolParser = Tokens.symbol riscVLang
+identifier
+  :: Parsec String u String
+identifier = Tokens.identifier riscVLang
+whiteSpace :: Parsec String u ()
+whiteSpace = Tokens.whiteSpace riscVLang
 
 
 -- parsedInput = parse someParser "source name" "some input"
+test :: Stream s Identity t => Parsec s () a -> s -> Either ParseError a
 test p = parse p ""
-wordParser:: Parsec String st String
+wordParser :: Parsec String st String
 wordParser = many $ noneOf [' ']
 
-secondWordParser:: Parsec String st String
-secondWordParser = wordParser *> (char ' ')  *> wordParser
-
-twoWordsParser:: Parsec String st [String]
-twoWordsParser = listfy <$> wordParser <*>  ((char ' ') *> wordParser)
-                   where listfy a b = [a, b]
-csvParser:: Parsec String st [[String]]
-csvParser = lineParser `endBy` newline <* eof
-              where lineParser = cellParser `sepBy` (char ',')
-                    cellParser = many $ noneOf ",\n"
-
-
--- | Read LLVM file
+-- | Read file
 readFileRV :: FilePath -> IO String
 readFileRV file = do
   contents <- readFile file
   return contents
 
-
+-- Risk Parser
 
 data LineOfRiskV =
     Comment     String
   | EmptyLn
-  | LabelLn       String
+  | LabelLn     String
   | Directive   String
   | Instruction Instr
   deriving (Show, Eq, Ord)
 
-riscvParser :: Parsec String st [LineOfRiskV]
-riscvParser = catMaybes <$> (lineParser `sepBy` newline <* eof)
+riscvParser :: String -> String -> Either ParseError [LineOfRiskV]
+riscvParser rvFileName rvFile = catMaybes <$> mapM (parse riscvLnParser rvFileName) (lines rvFile)
+
+riscvLnParser :: Parsec String st (Maybe LineOfRiskV)
+riscvLnParser = try labelLnParse
+                <|> try drctvLnParse
+                <|> try instrLnParse
+                <|> try emptyLnParse 
+                <?> "Line of RiscV Assembly"
   where
-    lineParser,commentLnParse,emptyLnParse,instrLnParse,labelLnParse:: Parsec String st (Maybe LineOfRiskV)
-    lineParser = commentLnParse
-                 <|> try drctvLnParse
-                 <|> try instrLnParse
-                 <|> labelLnParse
-                 <|> try emptyLnParse 
-                 <?> "Line of risk file"
-    commentLnParse = (char '#' *> textParse) >> pure Nothing
-    drctvLnParse  =  Just . Directive <$> (tabParse *> char '.' *> textParse)
+    emptyLnParse,instrLnParse,labelLnParse:: Parsec String st (Maybe LineOfRiskV)
+    -- Empty line, possibly with comments and or spaces/tabs, etc.  
+    emptyLnParse = whiteSpace >> eof *> return Nothing
+
+    drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> textParse)
     instrLnParse   = Just . Instruction <$> (tabParse *> instrParser)
-    labelLnParse   = Just . LabelLn <$> ((:) <$> noneOf " \n" <*> textParse)
-    emptyLnParse   = many (char ' ') >> pure Nothing-- empty line possibly with spaces
+    labelLnParse   = Just . LabelLn     <$> identifier
+
     textParse    = many (noneOf ['\n'])
     tabParse     = string "    " <|> string "\t" <?> "alignemnt"
 
@@ -163,8 +196,8 @@ regParser = (parseFromPairs registerABInames) <?> "a register"
      Symbol names do not start with a digit. An exception to this rule
      is made for Local Labels, but we don't yet support it.
 -}
-symbolParser :: Parsec String st String
-symbolParser =
+symbolParser' :: Parsec String st String
+symbolParser' =
   -- | Names start with a letter, underscore or period
   (letter <|> oneOf "._$")
   -- | Then any letter, number or underscore
@@ -175,10 +208,10 @@ symbolParser =
 
 newtype Label = Label String
 labelParser :: Parsec String st Label
-labelParser =  Label <$> symbolParser
+labelParser =  Label <$> symbolParser' -- should it be symbolParser, without '
 
 instrParser :: Parsec String st Instr
-instrParser = undefined
+instrParser = Instr32I <$> parse32I
 
   
 {- | Immediates can be:
@@ -195,15 +228,17 @@ instrParser = undefined
   
 -- Infix parser.
 
+infix_ :: String -> (a -> a -> a) -> Expr.Operator String u Identity a
 infix_ operator func =
-  Expr.Infix (symbolParser' operator >> return func) Expr.AssocLeft
+  Expr.Infix (symbolParser operator >> return func) Expr.AssocLeft
 
 
 
+immediateParser :: ParsecT String u Identity Imm
 immediateParser = Expr.buildExpressionParser operands immTerm <?> "an immediate"
   where
     immTerm = parens immediateParser
-              <|> ImmSymbol <$> lexeme symbolParser
+              <|> ImmSymbol <$> lexeme identifier
               <|> ImmNumber <$> fromInteger <$> lexeme integerParser
               <|> modParse <*> parens immediateParser
     operands =
@@ -227,7 +262,7 @@ immediateParser' :: Parsec String st Imm
 immediateParser' = 
   (modParse
   <|> trace "binop" (try binopParse)
-  <|> trace "symbol" (ImmSymbol <$> symbolParser)
+  <|> trace "symbol" (ImmSymbol <$> identifier)
   <|> trace "number" (ImmNumber <$> toEnum <$> intParse)
   <?> "an immediate")
   where
@@ -251,8 +286,7 @@ immediateParser' =
       ("hi", ModHi)
       , ("lo", ModLo)
       ]
-    opParse = undefined
-  
+    
 {- | Offsets.  Offsets are differnt from Immediates. First of all,
 bounded by a smaller number (2^12 I think?). Second, they accept no
 symbols or modifiers (I think).
@@ -284,51 +318,52 @@ parse32I = choiceTry
         "jal"    ==> JAL    <*> regParser <.> offsetParser
       , "jalr"   ==> JALR   <*> regParser <.> regParser <.> offsetParser
         -- Branch instructions @br r1, r2, offset@
-      , "beq"  ==> (BranchInstr BEQ ) <*> regParser <.> regParser <.> offsetParser
-      , "bne"  ==> (BranchInstr BNE ) <*> regParser <.> regParser <.> offsetParser
-      , "blt"  ==> (BranchInstr BLT ) <*> regParser <.> regParser <.> offsetParser
-      , "bge"  ==> (BranchInstr BGE ) <*> regParser <.> regParser <.> offsetParser
-      , "bltu" ==> (BranchInstr BLTU) <*> regParser <.> regParser <.> offsetParser
-      , "bgeu" ==> (BranchInstr BGEU) <*> regParser <.> regParser <.> offsetParser
+      , "beq"  ==> BranchInstr BEQ  <*> regParser <.> regParser <.> offsetParser
+      , "bne"  ==> BranchInstr BNE  <*> regParser <.> regParser <.> offsetParser
+      , "blt"  ==> BranchInstr BLT  <*> regParser <.> regParser <.> offsetParser
+      , "bge"  ==> BranchInstr BGE  <*> regParser <.> regParser <.> offsetParser
+      , "bltu" ==> BranchInstr BLTU <*> regParser <.> regParser <.> offsetParser
+      , "bgeu" ==> BranchInstr BGEU <*> regParser <.> regParser <.> offsetParser
       -- Memory instructions @memop r1, offset(r2)@
-      , "lb"  ==> (MemInstr32 LB ) <*> regParser <.> offsetParser <* char '(' <*> regParser  <* char ')'
-      , "lh"  ==> (MemInstr32 LH ) <*> regParser <.> offsetParser <* char '(' <*> regParser  <* char ')'
-      , "lw"  ==> (MemInstr32 LW ) <*> regParser <.> offsetParser <* char '(' <*> regParser  <* char ')'
-      , "lbu" ==> (MemInstr32 LBU) <*> regParser <.> offsetParser <* char '(' <*> regParser  <* char ')'
-      , "lhu" ==> (MemInstr32 LHU) <*> regParser <.> offsetParser <* char '(' <*> regParser  <* char ')'
-      , "sb"  ==> (MemInstr32 SB ) <*> regParser <.> offsetParser <* char '(' <*> regParser  <* char ')'
-      , "sh"  ==> (MemInstr32 SH ) <*> regParser <.> offsetParser <* char '(' <*> regParser  <* char ')'
-      , "sw"  ==> (MemInstr32 SW ) <*> regParser <.> offsetParser <* char '(' <*> regParser  <* char ')'
+      , "lb"   ==> MemInstr32 LB  <*> regParser <.> offsetParser <*> parens regParser
+      , "lh"   ==> MemInstr32 LH  <*> regParser <.> offsetParser <*> parens regParser
+      , "lw"   ==> MemInstr32 LW  <*> regParser <.> offsetParser <*> parens regParser
+      , "lbu"  ==> MemInstr32 LBU <*> regParser <.> offsetParser <*> parens regParser
+      , "lhu"  ==> MemInstr32 LHU <*> regParser <.> offsetParser <*> parens regParser
+      , "sb"   ==> MemInstr32 SB  <*> regParser <.> offsetParser <*> parens regParser
+      , "sh"   ==> MemInstr32 SH  <*> regParser <.> offsetParser <*> parens regParser
+      , "sw"   ==> MemInstr32 SW  <*> regParser <.> offsetParser <*> parens regParser
       -- unary instructions
-      , "lui"    ==> LUI    <*> regParser <.> immediateParser
-      , "auipc"  ==> AUIPC  <*> regParser <.> offsetParser
+      , "lui"   ==> LUI    <*> regParser <.> immediateParser
+      , "auipc" ==> AUIPC  <*> regParser <.> offsetParser
       -- Binary Integer Register-Immediate Instructions
-      , "addi"   ==> (ImmBinop32 ADDI ) <*> regParser <.> regParser <.> immediateParser       
-      , "slti"   ==> (ImmBinop32 SLTI ) <*> regParser <.> regParser <.> immediateParser      
-      , "sltiu"  ==> (ImmBinop32 SLTIU) <*> regParser <.> regParser <.> immediateParser      
-      , "xori"   ==> (ImmBinop32 XORI ) <*> regParser <.> regParser <.> immediateParser      
-      , "ori"    ==> (ImmBinop32 ORI  ) <*> regParser <.> regParser <.> immediateParser      
-      , "andi"   ==> (ImmBinop32 ANDI ) <*> regParser <.> regParser <.> immediateParser      
-      , "slli"   ==> (ImmBinop32 SLLI ) <*> regParser <.> regParser <.> immediateParser      
-      , "srli"   ==> (ImmBinop32 SRLI ) <*> regParser <.> regParser <.> immediateParser      
-      , "srai"   ==> (ImmBinop32 SRAI ) <*> regParser <.> regParser <.> immediateParser      
+      , "addi"  ==> ImmBinop32 ADDI  <*> regParser <.> regParser <.> immediateParser       
+      , "slti"  ==> ImmBinop32 SLTI  <*> regParser <.> regParser <.> immediateParser      
+      , "sltiu" ==> ImmBinop32 SLTIU <*> regParser <.> regParser <.> immediateParser      
+      , "xori"  ==> ImmBinop32 XORI  <*> regParser <.> regParser <.> immediateParser      
+      , "ori"   ==> ImmBinop32 ORI   <*> regParser <.> regParser <.> immediateParser      
+      , "andi"  ==> ImmBinop32 ANDI  <*> regParser <.> regParser <.> immediateParser      
+      , "slli"  ==> ImmBinop32 SLLI  <*> regParser <.> regParser <.> immediateParser      
+      , "srli"  ==> ImmBinop32 SRLI  <*> regParser <.> regParser <.> immediateParser      
+      , "srai"  ==> ImmBinop32 SRAI  <*> regParser <.> regParser <.> immediateParser      
       -- Integer Register-Register Instructions
-      , "add"   ==> (RegBinop32 ADD ) <*> regParser <.> regParser <.> regParser
-      , "sub"   ==> (RegBinop32 SUB ) <*> regParser <.> regParser <.> regParser
-      , "sll"   ==> (RegBinop32 SLL ) <*> regParser <.> regParser <.> regParser
-      , "slt"   ==> (RegBinop32 SLT ) <*> regParser <.> regParser <.> regParser
-      , "sltu"  ==> (RegBinop32 SLTU) <*> regParser <.> regParser <.> regParser
-      , "xor"   ==> (RegBinop32 XOR ) <*> regParser <.> regParser <.> regParser
-      , "srl"   ==> (RegBinop32 SRL ) <*> regParser <.> regParser <.> regParser
-      , "sra"   ==> (RegBinop32 SRA ) <*> regParser <.> regParser <.> regParser
-      , "or"    ==> (RegBinop32 OR  ) <*> regParser <.> regParser <.> regParser
-      , "and"   ==> (RegBinop32 AND ) <*> regParser <.> regParser <.> regParser
+      , "add"   ==> RegBinop32 ADD  <*> regParser <.> regParser <.> regParser
+      , "sub"   ==> RegBinop32 SUB  <*> regParser <.> regParser <.> regParser
+      , "sll"   ==> RegBinop32 SLL  <*> regParser <.> regParser <.> regParser
+      , "slt"   ==> RegBinop32 SLT  <*> regParser <.> regParser <.> regParser
+      , "sltu"  ==> RegBinop32 SLTU <*> regParser <.> regParser <.> regParser
+      , "xor"   ==> RegBinop32 XOR  <*> regParser <.> regParser <.> regParser
+      , "srl"   ==> RegBinop32 SRL  <*> regParser <.> regParser <.> regParser
+      , "sra"   ==> RegBinop32 SRA  <*> regParser <.> regParser <.> regParser
+      , "or"    ==> RegBinop32 OR   <*> regParser <.> regParser <.> regParser
+      , "and"   ==> RegBinop32 AND  <*> regParser <.> regParser <.> regParser
       -- fence instructions
       , "fance"    ==> FENCE    <*> orderingParser
       , "fence.i"  ==> FENCEI ]
     
 
 -- | Memory ordering for fences
+orderingParser :: Parsec String st SetOrdering
 orderingParser = undefined -- not needed?
 
 
