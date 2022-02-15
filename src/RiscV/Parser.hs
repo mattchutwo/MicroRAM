@@ -1,6 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
-module RiscV.Parser where
+module RiscV.Parser (
+  riscvParseFile, riscvParser
+  )where
 
 -- import Data.Bits
 --import Data.Word (Word64)
@@ -21,6 +23,20 @@ import Debug.Trace
 riscVLang :: Tokens.GenTokenParser String u Identity
 riscVLang = Tokens.makeTokenParser riscVLangDef
 
+{- | The RiscV Assembly has the follwoing properties:
+
+* Symbol names begin with a letter or with one of ‘._’. On most
+machines, you can also use $ in symbol names; exceptions are
+noted in Machine Dependencies. Symbol names do not start with a
+digit. An exception to this rule is made for Local Labels, but we
+don't yet support it.
+
+* That character may be followed by any string of digits,
+letters, dollar signs (unless otherwise noted for a particular
+target machine), and underscores.  We do not yet support qutoed
+symbols names by ‘"’ or multibyte characters.
+
+-}
 riscVLangDef :: Lang.LanguageDef u
 riscVLangDef = Tokens.LanguageDef
   {
@@ -28,24 +44,26 @@ riscVLangDef = Tokens.LanguageDef
     Tokens.commentStart = ""
   , Tokens.commentEnd = ""
   , Tokens.commentLine = "#"
-  , Tokens.nestedComments = False
-  -- | Symbol names begin with a letter or with one of ‘._’. On most
+  , Tokens.nestedComments = False,
+
+  -- Symbol names begin with a letter or with one of ‘._’. On most
   -- machines, you can also use $ in symbol names; exceptions are
   -- noted in Machine Dependencies. Symbol names do not start with a
   -- digit. An exception to this rule is made for Local Labels, but we
   -- don't yet support it.
-  , Tokens.identStart = letter <|> oneOf "._$"
-  -- | That character may be followed by any string of digits,
+  Tokens.identStart = letter <|> oneOf "._$"
+
+  -- That character may be followed by any string of digits,
   -- letters, dollar signs (unless otherwise noted for a particular
   -- target machine), and underscores.  We do not yet support qutoed
   -- symbols names by ‘"’ or multibyte characters.
   , Tokens.identLetter = alphaNum <|> oneOf "$_"
 
-  -- | No operators in this language
+  -- No operators in this language
   , Tokens.opStart        = parserFail "Attempt to read an operands"
   , Tokens.opLetter       = parserFail "Attempt to read an operands"
 
-  -- | No reserved names 
+  -- No reserved names 
   , Tokens.reservedNames   = []
   , Tokens.reservedOpNames = []
   , Tokens.caseSensitive   = True
@@ -84,16 +102,14 @@ readFileRV file = do
   contents <- readFile file
   return contents
 
--- Risk Parser
+-- | Parse RiscV directly from file
+riscvParseFile :: String -> IO (Either ParseError [LineOfRiskV])
+riscvParseFile fileName = do
+  fileContent <- readFileRV fileName
+  return $ riscvParser fileName fileContent 
 
-data LineOfRiskV =
-    Comment     String
-  | EmptyLn
-  | LabelLn     String
-  | Directive   String
-  | Instruction Instr
-  deriving (Show, Eq, Ord)
-
+-- | Parse RiscV given the name of the file (only used for errors) and
+-- a RiscV assembly program.
 riscvParser :: String -> String -> Either ParseError [LineOfRiskV]
 riscvParser rvFileName rvFile = catMaybes <$> mapM (parse riscvLnParser rvFileName) (lines rvFile)
 
@@ -110,7 +126,7 @@ riscvLnParser = try labelLnParse
 
     drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> textParse)
     instrLnParse   = Just . Instruction <$> (tabParse *> instrParser)
-    labelLnParse   = Just . LabelLn     <$> identifier
+    labelLnParse   = Just . Label       <$> identifier
 
     textParse    = many (noneOf ['\n'])
     tabParse     = string "    " <|> string "\t" <?> "alignemnt"
@@ -149,26 +165,26 @@ parseFromPairs pairs = choiceTry $ parseFromPair <$> pairs
 regParser :: Parsec String st Reg
 regParser = (parseFromPairs registerABInames) <?> "a register"
   where registerABInames = [
-          ("zero",  X0)  -- ^ hardwired zero      
-          ,("ra",   X1)  -- ^ return address     
-          ,("sp",   X2)  -- ^ stack pointer      
-          ,("gp",   X3)  -- ^ global pointer     
-          ,("tp",   X4)  -- ^ thread pointer     
-          ,("t0",   X5)  -- ^ temporary registers
+          ("zero",  X0)  -- hardwired zero      
+          ,("ra",   X1)  -- return address     
+          ,("sp",   X2)  -- stack pointer      
+          ,("gp",   X3)  -- global pointer     
+          ,("tp",   X4)  -- thread pointer     
+          ,("t0",   X5)  -- temporary registers
           ,("t1",   X6)  
           ,("t2",   X7)
-          ,("fp",   X8)  -- ^ frame pointer (same as s0)
-          ,("s0",   X8)  -- ^ saved register (s0=fp)
+          ,("fp",   X8)  -- frame pointer (same as s0)
+          ,("s0",   X8)  -- saved register (s0=fp)
           ,("s1",   X9)
-          ,("a0",   X10) -- ^ function arguments / return values
+          ,("a0",   X10) -- function arguments / return values
           ,("a1",   X11)
-          ,("a2",   X12) -- ^ function arguments
+          ,("a2",   X12) -- function arguments
           ,("a3",   X13)
           ,("a4",   X14)
           ,("a5",   X15)
           ,("a6",   X16)
           ,("a7",   X17)
-          ,("s2",   X18) -- ^ saved registers
+          ,("s2",   X18) -- saved registers
           ,("s3",   X19)
           ,("s4",   X20)
           ,("s5",   X21)
@@ -178,7 +194,7 @@ regParser = (parseFromPairs registerABInames) <?> "a register"
           ,("s9",   X25)
           ,("s10",  X26)
           ,("s11",  X27)
-          ,("t3",   X28) -- ^ temporary registers
+          ,("t3",   X28) -- temporary registers
           ,("t4",   X29)
           ,("t5",   X30)
           ,("t6",   X31)
@@ -198,17 +214,13 @@ regParser = (parseFromPairs registerABInames) <?> "a register"
 -}
 symbolParser' :: Parsec String st String
 symbolParser' =
-  -- | Names start with a letter, underscore or period
+  -- Names start with a letter, underscore or period
   (letter <|> oneOf "._$")
-  -- | Then any letter, number or underscore
+  -- Then any letter, number or underscore
   <:>  many (alphaNum <|> oneOf "$_")
   where
     (<:>) :: Applicative f => f a -> f [a] -> f [a]
     (<:>) a b = (:) <$> a <*> b
-
-newtype Label = Label String
-labelParser :: Parsec String st Label
-labelParser =  Label <$> symbolParser' -- should it be symbolParser, without '
 
 instrParser :: Parsec String st Instr
 instrParser = Instr32I <$> parse32I

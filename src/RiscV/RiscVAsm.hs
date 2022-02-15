@@ -1,18 +1,53 @@
-module RiscV.RiscVAsm where
+module RiscV.RiscVAsm
+  ( 
+  -- * Operators
+  -- ** Immediates
+  -- $immediate
+    Imm (..)
+  , ImmOp (..)
+  , Modifier (..)
+  -- ** Offsets
+  , Offset
+  -- ** Registers
+  , Reg (..)
+
+  -- * Risc V Assembly
+  -- $instr
+  , LineOfRiskV(..)
+  , Instr (..)
+
+  -- ** RV32I
+  -- $rv32i
+  , BranchCond (..)
+  , Binop32I(..)
+  , Binop32(..)
+  , MemOp32(..)
+  , SetOrdering(..)
+  , InstrRV32I(..)
+
+  -- ** RV64I
+  -- $rv64i
+  , MemOp64(..)
+  , Binop64I(..)
+  , Binop64(..)
+  , InstrRV64I(..)
+
+  -- ** RV32M
+  -- $ext32M
+  , InstrExt32M(..)
+
+  -- ** RV64M
+  -- $ext64M
+  , InstrExt64M(..)
+   ) where
 
 -- import Data.Bits
 import Data.Word (Word64)
 import Test.QuickCheck (Arbitrary, arbitrary, oneof)
 
-
-data Instr
-  = Instr32I  InstrRV32I -- ^ 32bit Base Integer Instruction Set
-  | Instr64I  InstrRV64I -- ^ 64bit Base Integer Instruction Set
-  | Instr32M  InstrExt32M  -- ^ RV32M Standard Extension for Integer Multiply and Divide
-  | Instr64M  InstrExt64M  -- ^ RV64M Standard Extension for Integer Multiply and Divide
-  deriving (Show, Eq, Ord)
-
-{- | Modifiers: The RISC-V assembler supports following modifiers for relocatable addresses used in RISC-V instruction operands. These expressions should be resolved during linking.
+{- | The RISC-V assembler supports following modifiers for relocatable
+   addresses used in RISC-V instruction operands. These expressions
+   should be resolved during linking. [Reference](https://sourceware.org/binutils/docs/as/RISC_002dV_002dModifiers.html)
 -}
 data Modifier =
   ModLo                -- ^ @%lo(symbol)@ The low 12 bits of absolute
@@ -59,11 +94,30 @@ instance Arbitrary Modifier where
       , ModTls_ie_pcrel_hi
       , ModTls_gd_pcrel_hi]
 
-{-- RiscV Assembly accepts arbitrary operations on immediates, to be resolved at link time. Normally these expressions are small with, at most, a modifier, a binary operation a symbola and a constant: e.g. @%hi(__iob+8)@
 
---}
+{- $immediate
+   RiscV Assembly accepts some operations on immediates to be
+   resolved at link time. As far as I can tell, these expressions are
+   not well documented. Normally these expressions are small with, at
+   most, a modifier, a binary operation a symbol and a constant:
+   e.g. @%hi(__iob+8)@.
+-}
+
+{- | We allow arbitrary expressions for Immediates, including any number
+   of modifiers and binary operators constants and variables. This is
+   more permissive than most programs I have seen, but sice I haven't
+   found standards for these expressions i chose to do the most
+   general.
+-}
+data Imm =
+  ImmNumber Word64
+  | ImmSymbol String
+  | ImmMod Modifier Imm
+  | ImmBinOp ImmOp Imm Imm 
+  deriving (Show, Eq, Ord)
+
 data ImmOp =
-  ImmAnd
+  ImmAnd     
   | ImmOr
   | ImmAdd
   | ImmMinus
@@ -82,12 +136,7 @@ instance Arbitrary ImmOp where
     -- , ImmDiv
     ]
   
-data Imm =
-  ImmNumber Word64
-  | ImmSymbol String
-  | ImmMod Modifier Imm
-  | ImmBinOp ImmOp Imm Imm 
-  deriving (Show, Eq, Ord)
+
 
 instance Arbitrary Imm where
   arbitrary = oneof $ 
@@ -96,7 +145,7 @@ instance Arbitrary Imm where
     , ImmMod     <$> arbitrary <*> arbitrary
     , ImmBinOp   <$> arbitrary <*> arbitrary <*> arbitrary ]
   
-{-- $regs
+{- |
 Registers:
 
 +----------+------------------------------------+--------+
@@ -126,7 +175,7 @@ Registers:
 +----------+------------------------------------+--------+
 | x28-31   | temporary registers                | Caller |
 +----------+------------------------------------+--------+
---}
+-}
 data Reg
   = X0   -- ^ hardwired zero     
   | X1   -- ^ return address     
@@ -169,9 +218,55 @@ instance Arbitrary Reg where
      X12, X13, X14, X15, X16, X17, X18, X19, X20, X21, X22,
      X23, X24, X25, X26, X27, X28, X29, X30, X31 ]
 
-{-- $RV32I
-32 bit Base Integer Instruction Set, Version 2.1
---}
+
+{- | Offsets are just a wrapper for `Imm`. However, in RiscV, they are
+   used in different contexts and have different sizes. For example,
+   some instructions accept offsets and others immediates. We don't
+   check for the size difference and only enforce the context by using
+   a type synonym.
+-}
+type Offset = Imm
+
+
+
+{- $instr
+The RiscV Assembly Language presented here supports the following modules:
+
+1. 32bit Base Integer Instruction Set                      
+2. 64bit Base Integer Instruction Set                      
+3. RV32M Standard Extension for Integer Multiply and Divide
+4. RV64M Standard Extension for Integer Multiply and Divide
+
+We also support all pseudoinstructions defined in the Set Manual.
+
+The RISC-V Instruction Set Manual ( [Version 20191213, December 13, 2019]("https://riscv.org/wp-content/uploads/2017/05/riscv-spec-v2.2.pdf") ).
+
+-}
+
+{- | An RiscV assembly file contains labels, directives and instructions. We ignore comments and empty lines.
+
+-}
+data LineOfRiskV =
+    Label       String
+  | Directive   String
+  | Instruction Instr
+  deriving (Show, Eq, Ord)
+
+
+data Instr
+  = Instr32I  InstrRV32I   -- ^ 32bit Base Integer Instruction Set
+  | Instr64I  InstrRV64I   -- ^ 64bit Base Integer Instruction Set
+  | Instr32M  InstrExt32M  -- ^ RV32M Standard Extension for Integer Multiply and Divide
+  | Instr64M  InstrExt64M  -- ^ RV64M Standard Extension for Integer Multiply and Divide
+  deriving (Show, Eq, Ord)
+
+
+
+
+{- $rv32i
+RV32I 32 bit Base Integer Instruction Set, Version 2.1
+
+-}
 
 {- | Branch conditions
 
@@ -213,7 +308,7 @@ instance Arbitrary BranchCond where
     , BGEU]
 
 
-{- | Binop32I: Binary operations with immediates. Has no @SUB@. For substraction,
+{- | Binary operations with immediates. Has no @SUB@. For substraction,
  add a negative immediate.
 
 Integer Register-Immediate Instructions
@@ -240,6 +335,16 @@ Integer Register-Immediate Instructions
 +---------------------+-----------------------+------------------------------+
 | SRAI rd,rs1,imm     | Shift Right Arith Imm | rd ← sx(rs1) » ux(imm)       |
 +---------------------+-----------------------+------------------------------+
+
+* @sx@ = Signed Extension
+
+* @ux@ = Unsigned Extension
+
+* @imm@ are immediate
+
+* @rs1@, @rs2@ are read registers
+
+* @rd@ is the return register
 
 @LUI@ and @AUIPC@ are not binary and are defined directly in 'InstrRV32I'
 
@@ -330,25 +435,10 @@ data MemOp32
   | SW
   deriving (Show, Eq, Ord)
 
-{- | Fences can optionally further restrict the predecessor set and/or
-the successor set to a smaller set of memory accesses in order to
-provide some speedup. Specifically, fences have PR, PW, SR, and SW
-bits which restrict the predecessor and/or successor sets. The
-predecessor set includes loads (resp. stores) if and only if PR
-(resp. PW) is set.
--}
-data SetOrdering = SetOrdering
-  { predRead  :: Bool
-  , predWrite :: Bool
-  , succRead  :: Bool
-  , succWrite :: Bool
-  } deriving (Show, Eq, Ord)
 
-type Offset = Imm
+{- | 
 
-{- | InstrRV32I
-
-[Reference](https://mark.theis.site/riscv/)
+The entire list of instructions can be found in this [reference](https://mark.theis.site/riscv/)
 
 
 === Jump Instructions
@@ -420,6 +510,27 @@ data InstrRV32I =
 
 -}
 
+
+{- | Fences can optionally further restrict the predecessor set and/or
+the successor set to a smaller set of memory accesses in order to
+provide some speedup. Specifically, fences have PR, PW, SR, and SW
+bits which restrict the predecessor and/or successor sets. The
+predecessor set includes loads (resp. stores) if and only if PR
+(resp. PW) is set.
+-}
+data SetOrdering = SetOrdering
+  { predRead  :: Bool
+  , predWrite :: Bool
+  , succRead  :: Bool
+  , succWrite :: Bool
+  } deriving (Show, Eq, Ord)
+
+
+{- $rv64i
+RV64I Base Integer Instruction Set
+-}
+
+
 data MemOp64
  = LWU | LD | SD
  deriving (Show, Eq, Ord)
@@ -464,7 +575,7 @@ data Binop64I
 +--------------------+------------------------------+--------------------------+
 | SRAW rd,rs1,rs2    | Shift Right Arith. Word      | rd ← s32(rs1) » rs2      |
 +--------------------+------------------------------+--------------------------+
---}
+-}
  
 
 data Binop64
@@ -483,7 +594,8 @@ data InstrRV64I
   | ImmBinop64 Binop64I Reg Reg Imm  -- ^ Integer Register-Immediate Instructions
   | RegBinop64 Binop64 Reg Reg Reg -- ^ Integer Register-Register Instructions
   deriving (Show, Eq, Ord)
-{- | $ExtM (32)
+
+{- $ext32M
 RV32M Standard Extension for Integer Multiply and Divide (Version 2.0)
 
 +-------------------+-----------------------+---------------------------------+
@@ -506,7 +618,7 @@ RV32M Standard Extension for Integer Multiply and Divide (Version 2.0)
 | REMU rd,rs1,rs2   | Remainder Unsigned    | rd ← ux(rs1) mod ux(rs2)        |
 +-------------------+-----------------------+---------------------------------+
 
---}
+-}
   
 data InstrExt32M
   = MUL    Reg Reg Reg
@@ -534,7 +646,8 @@ data InstrExtM = InstrExtM MulOp Reg Reg Reg
 -}
 
 
-{- | RV64M Standard Extension for Integer Multiply and Divide
+{- $ext64M
+RV64M Standard Extension for Integer Multiply and Divide
 
 +==================+=========================+============================+
 |      Format      |          Name           |         Pseudocode         |
