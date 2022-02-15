@@ -103,24 +103,24 @@ readFileRV file = do
   return contents
 
 -- | Parse RiscV directly from file
-riscvParseFile :: String -> IO (Either ParseError [LineOfRiskV])
+riscvParseFile :: String -> IO (Either ParseError [LineOfRiscV])
 riscvParseFile fileName = do
   fileContent <- readFileRV fileName
   return $ riscvParser fileName fileContent 
 
 -- | Parse RiscV given the name of the file (only used for errors) and
 -- a RiscV assembly program.
-riscvParser :: String -> String -> Either ParseError [LineOfRiskV]
+riscvParser :: String -> String -> Either ParseError [LineOfRiscV]
 riscvParser rvFileName rvFile = catMaybes <$> mapM (parse riscvLnParser rvFileName) (lines rvFile)
 
-riscvLnParser :: Parsec String st (Maybe LineOfRiskV)
+riscvLnParser :: Parsec String st (Maybe LineOfRiscV)
 riscvLnParser = try labelLnParse
                 <|> try drctvLnParse
                 <|> try instrLnParse
                 <|> try emptyLnParse 
                 <?> "Line of RiscV Assembly"
   where
-    emptyLnParse,instrLnParse,labelLnParse:: Parsec String st (Maybe LineOfRiskV)
+    emptyLnParse,instrLnParse,labelLnParse:: Parsec String st (Maybe LineOfRiscV)
     -- Empty line, possibly with comments and or spaces/tabs, etc.  
     emptyLnParse = whiteSpace >> eof *> return Nothing
 

@@ -13,7 +13,7 @@ module RiscV.RiscVAsm
 
   -- * Risc V Assembly
   -- $instr
-  , LineOfRiskV(..)
+  , LineOfRiscV(..)
   , Instr (..)
 
   -- ** RV32I
@@ -257,7 +257,7 @@ The RISC-V Instruction Set Manual ( [Version 20191213, December 13, 2019]("https
 {- | An RiscV assembly file contains labels, directives and instructions. We ignore comments and empty lines.
 
 -}
-data LineOfRiskV =
+data LineOfRiscV =
     Label       String
   | Directive   String
   | Instruction Instr
