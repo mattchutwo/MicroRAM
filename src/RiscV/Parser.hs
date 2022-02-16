@@ -238,6 +238,7 @@ symbolParser' =
 
 instrParser :: Parsec String st Instr
 instrParser = Instr32I <$> parse32I
+              <|> Instr64I <$> parse64I
               <|> InstrPseudo <$> parsePseudo
               <?> "an instruction"
 
@@ -391,6 +392,29 @@ parse32I = choiceTry
 -- | Memory ordering for fences
 orderingParser :: Parsec String st SetOrdering
 orderingParser = undefined -- not needed?
+
+parse64I :: Parsec String st InstrRV64I
+parse64I = choiceTry
+      [
+        -- Mem instructions
+        "lwu"    ==> MemInstr64 LWU <*> regParser <.> offsetParser <*> parens regParser
+      , "ld"     ==> MemInstr64 LD  <*> regParser <.> offsetParser <*> parens regParser
+      , "sd"     ==> MemInstr64 SD  <*> regParser <.> offsetParser <*> parens regParser
+        -- Integer Register-Immediate Instructions 
+      , "addiw"  ==> ImmBinop64 ADDIW <*> regParser <.> regParser <.> immediateParser
+      , "slliw"  ==> ImmBinop64 SLLIW <*> regParser <.> regParser <.> immediateParser
+      , "srliw"  ==> ImmBinop64 SRLIW <*> regParser <.> regParser <.> immediateParser
+      , "sraiw"  ==> ImmBinop64 SRAIW <*> regParser <.> regParser <.> immediateParser
+      -- Integer Register-Register Instructions
+      , "addw"  ==> RegBinop64 ADDW <*> regParser <.> regParser <.> regParser
+      , "subw"  ==> RegBinop64 SUBW <*> regParser <.> regParser <.> regParser
+      , "sllw"  ==> RegBinop64 SLLW <*> regParser <.> regParser <.> regParser
+      , "srlw"  ==> RegBinop64 SRLW <*> regParser <.> regParser <.> regParser
+      , "sraw"  ==> RegBinop64 SRAW <*> regParser <.> regParser <.> regParser
+      ]
+
+
+
 
 -- For some reason the parser is haveing trouble with these, reporting
 -- "Defined but not used:" when in use
