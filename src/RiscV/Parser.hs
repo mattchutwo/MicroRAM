@@ -614,6 +614,65 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , ( "Tag_RISCV_priv_spec_revision" , Tag_RISCV_priv_spec_revision )
       ] <|> (Tag_number <$> integer)
 
+
+directiveCFIParse :: Parsec String st CFIDirectives
+directiveCFIParse =
+  choiceTry 
+  [ "cfi_sections"          ==> CFI_SECTIONS  <*> scfiSecOptParse
+  , "cfi_startproc"         ==> CFI_STARTPROC <*> (try (string "simpl" >> pure True) <|> pure False )
+  , "cfi_endproc"           ==> CFI_ENDPROC
+  , "cfi_personality"       ==> CFI_PERSONALITY <*> numParser <.> encodingParser
+  , "cfi_personality_id"    ==> CFI_PERSONALITY_ID <*>identifier
+  , "cfi_fde_data"          ==> CFI_FDE_DATA    <*> pure [] -- Not supported yet
+  , "cfi_lsda"              ==> CFI_LSDA        <*> numParser  <.> encodingParser
+  , "cfi_inline_lsda"       ==> CFI_INLINE_LSDA <*> intParser
+  , "cfi_def_cfa"           ==> CFI_DEF_CFA <*> regParser <.> numParser 
+  , "cfi_def_cfa_register"  ==> CFI_DEF_CFA_REGISTER <*> regParser
+  , "cfi_def_cfa_offset"    ==> CFI_DEF_CFA_OFFSET <*> numParser
+  , "cfi_adjust_cfa_offset" ==> CFI_ADJUST_CFA_OFFSET <*> numParser
+  , "cfi_offset"            ==> CFI_OFFSET        <*> regParser <.> numParser
+  , "cfi_val_offset"        ==> CFI_VAL_OFFSET    <*> regParser <.> numParser
+  , "cfi_rel_offset"        ==> CFI_REL_OFFSET    <*> regParser <.> numParser
+  , "cfi_register"          ==> CFI_REGISTER      <*> regParser <.> regParser
+  , "cfi_restore"           ==> CFI_RESTORE       <*> regParser
+  , "cfi_undefined"         ==> CFI_UNDEFINED     <*> regParser
+  , "cfi_same_value"        ==> CFI_SAME_VALUE    <*> regParser
+  , "cfi_remember_state"    ==> CFI_REMEMBER_STATE
+  , "cfi_restore_state"     ==> CFI_RESTORE_STATE
+  , "cfi_return_column"     ==> CFI_RETURN_COLUMN <*> regParser
+  , "cfi_signal_frame"      ==> CFI_SIGNAL_FRAME
+  , "cfi_window_save"       ==> CFI_WINDOW_SAVE
+  , "cfi_escape"            ==> CFI_ESCAPE        <*> encodingParser
+  , "cfi_val_encoded_addr"  ==> CFI_VAL_ENCODED_ADDR <*> regParser <.> encodingParser <.> identifier
+  ]
+  where
+    encodingParser :: Num n =>  Parsec String st (Either n String)
+    encodingParser = numStrParser
+                     
+    opcodesParser :: Parsec String st [Opcodes]
+    opcodesParser  = pure [OCNotSupported]
+
+    scfiSecOptParse :: Parsec String st CFIsectionOpt
+    scfiSecOptParse =
+      try     (string ".eh_frame" *> comma *> string ".debug_frame" *> pure (CFIsectionOpt True True  ))
+      <|> try (string ".eh_frame" >>                                   pure (CFIsectionOpt True False ))
+      <|> try (                               string ".debug_frame" >> pure (CFIsectionOpt False True ))
+      <|>     (                                                        pure (CFIsectionOpt False False))
+      
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 filterDirs :: [LineOfRiscV] -> [Directive]
 filterDirs instrs = catMaybes $ filterDir <$> instrs
   where

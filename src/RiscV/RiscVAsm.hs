@@ -528,7 +528,7 @@ data CFIDirectives =
     -- the .gnu.extab section otherwise. Only valid when generating
     -- compact EH frames (i.e. with .cfi_sections eh_frame_entry.
   
-  | CFI_LSDA String (Either Int String)
+  | CFI_LSDA Word8 (Either Int String)
     -- ^ .cfi_lsda defines LSDA and its encoding. encoding must be a
     -- constant determining how the LSDA should be encoded. If it is 255
     -- (DW_EH_PE_omit), the second argument is not present, otherwise the
@@ -1491,3 +1491,5 @@ Manual)](https://github.com/riscv-non-isa/riscv-asm-manual/blob/master/riscv-asm
 data AliasInstr
   = UNIMPC | UNIMP
   deriving (Show, Eq, Ord)
+
+
