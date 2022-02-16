@@ -11,6 +11,10 @@ module RiscV.RiscVAsm
   -- ** Registers
   , Reg (..)
 
+  -- * Directives
+  -- $directives
+  , Directives(..)
+  
   -- * Risc V Assembly
   -- $instr
   , LineOfRiscV(..)
@@ -241,6 +245,226 @@ instance Arbitrary Reg where
    a type synonym.
 -}
 type Offset = Imm
+
+
+
+{- $directives
+Assembler directives are directions to the assembler to take some action or change a setting
+
++--------------+--------------------------------+------------------------------------+
+| Directive    | Arguments                      | Description                        |
++==============+================================+====================================+
+| .align       | integer                        | align to power of 2                |
+|              |                                | (alias for .p2align)               |
++--------------+--------------------------------+------------------------------------+
+| .file        | filename                       | emit filename FILE                 |
+|              |                                | LOCAL symbol table                 |
++--------------+--------------------------------+------------------------------------+
+| .globl       | symbol_name                    | emit symbol_name to symbol         |
+|              |                                | table (scope GLOBAL)               |
++--------------+--------------------------------+------------------------------------+
+| .local       | symbol_name                    | emit symbol_name to symbol         |
+|              |                                | table (scope LOCAL)                |
++--------------+--------------------------------+------------------------------------+
+| .comm        | symbol_name,size,align         | emit common object to .bss section |
++--------------+--------------------------------+------------------------------------+
+| .common      | symbol_name,size,align         | emit common object to .bss section |
++--------------+--------------------------------+------------------------------------+
+| .ident       | string                         | accepted for source compatibility  |
++--------------+--------------------------------+------------------------------------+
+| .section     | [{.text,.data,.rodata,.bss}]   | emit section (if not present,      |
+|              |                                | default .text) and make current    |
++--------------+--------------------------------+------------------------------------+
+| .size        | symbol, symbol                 | accepted for source compatibility  |
++--------------+--------------------------------+------------------------------------+
+| .text        |                                | emit .text section (if not         |
+|              |                                | present) and make current          |
++--------------+--------------------------------+------------------------------------+
+| .data        |                                | emit .data section (if not         |
+|              |                                | present) and make current          |
++--------------+--------------------------------+------------------------------------+
+| .rodata      |                                | emit .rodata section (if not       |
+|              |                                | present) and make current          |
++--------------+--------------------------------+------------------------------------+
+| .bss         |                                | emit .bss section (if not          |
+|              |                                | present) and make current          |
++--------------+--------------------------------+------------------------------------+
+| .string      | string                         | emit string                        |
++--------------+--------------------------------+------------------------------------+
+| .asciz       | string                         | emit string (alias for .string)    |
++--------------+--------------------------------+------------------------------------+
+| .equ         | name, value                    | constant definition                |
++--------------+--------------------------------+------------------------------------+
+| .macro       | name arg1 [, argn]             | begin macro definition             |
+|              |                                | \argname to substitute             |
++--------------+--------------------------------+------------------------------------+
+| .endm        |                                | end macro definition               |
++--------------+--------------------------------+------------------------------------+
+| .type        | symbol, @function              | accepted for source compat.        |
++--------------+--------------------------------+------------------------------------+
+| .option      | {rvc,norvc,pic,nopic,push,pop} | RISC-V options                     |
++--------------+--------------------------------+------------------------------------+
+| .p2align     | p2,[pad_val=0],max             | align to power of 2                |
++--------------+--------------------------------+------------------------------------+
+| .balign      | b,[pad_val=0]                  | byte align                         |
++--------------+--------------------------------+------------------------------------+
+| .zero        | integer                        | zero bytes                         |
++--------------+--------------------------------+------------------------------------+
+| .variant_cc  | symbol_name                    | annotate the symbol with           |
+|              |                                | variant calling convention         |
++--------------+--------------------------------+------------------------------------+
+
+
+The following directives are not yet supported: @byte@, @2byte@,
+@half@, @short@, @4byte@, @word@, @long@, @8byte@, @dword@, @quad@,
+@dtprelword@, @dtpreldword@, @sleb128@, and @uleb128@.
+
+-}
+
+{- |
+
+The directive @type@ is always followed by "@function" and there are
+no other types, so it is omitted here.
+
+-}
+data Directives
+  = ALIGN       Int             -- ^ align to power of 2 (alias for .p2align)
+  | FILE        String          -- ^ emit filename FILE LOCAL symbol table
+  | GLOBL       String          -- ^ emit symbol_name to symbol table (scope GLOBAL)
+  | LOCAL       String          -- ^ emit symbol_name to symbol table (scope LOCAL)
+  | COMM        String Int Int  -- ^ emit common object to .bss section
+  | COMMON      String Int Int  -- ^ emit common object to .bss section
+  | IDENT       String          -- ^ accepted for source compatibility
+  | SECTION     String [Flag]   -- ^ emit section (if not present, default .text) and make current
+  | SIZE        String String   -- ^ accepted for source compatibility
+  | TEXT                        -- ^ emit .text section (if not present) and make current
+  | DATA                        -- ^ emit .data section (if not present) and make current
+  | RODATA                      -- ^ emit .rodata section (if not present) and make current
+  | BSS                         -- ^ emit .bss section (if not present) and make current
+  | STRING      String          -- ^ emit string
+  | ASCIZ       String          -- ^ emit string (alias for .string)
+  | EQU         String Word     -- ^ constant definition
+  | TYPE        String          -- ^ accepted for source compatibility
+  | OPTION      Option          -- ^ RISC-V options
+  | BALIGN      Int (Maybe Int) -- ^ byte align
+  | ZERO        Int             -- ^ zero bytes
+  | VARIANT_CC  String          -- ^ annotate the symbol with variant calling convention
+  | MACRO       String String [String] -- ^ begin macro definition \argname to substitute
+  | ENDM                               -- ^ end macro definition
+  | P2ALIGN
+    Int          -- ^ align to this power of 2
+    (Maybe Int)  -- ^ padding value (default 0 or nop)
+    (Maybe Int)  -- ^ Max number of padding (no padding if exceeded)
+  deriving (Show, Eq, Ord)
+
+
+-- | Modifies RISC-V specific assembler options inline with the
+-- assembly code. This is used when particular instruction sequences
+-- must be assembled with a specific set of options.
+data Option 
+  -- | Enables or disables the generation of compressed
+  -- instructions. Instructions are opportunistically compressed by
+  -- the RISC-V assembler when possible, but sometimes this behavior
+  -- is not desirable, especially when handling alignments.
+  = RVC | NORVC
+
+  -- | Enables or disables position-independent code
+  -- generation. Unless you really know what you’re doing, this should
+  -- only be at the top of a file.
+  | PIC | NOPIC
+  
+  -- | Pushes or pops the current option stack. These should be used
+  -- whenever changing an option in line with assembly code in order
+  -- to ensure the user’s command-line options are respected for the
+  -- bulk of the file being assembled.
+  | PUSH | POP
+  
+  -- | Enables or disables relaxation. The RISC-V assembler and linker
+  -- opportunistically relax some code sequences, but sometimes this
+  -- behavior is not desirable.
+  | RELAX | NORELAX
+  deriving (Show, Eq, Ord)
+
+-- | Use the .section directive to assemble the following code into a
+-- section named name.This directive is only supported for targets
+-- that actually support arbitrarily named sections; on a.out targets,
+-- for example, it is not accepted, even with a standard a.out section
+-- name.
+data Flag
+  = FlagB -- ^ bss section (uninitialized data)
+  | FlagN -- ^ section is not loaded
+  | FlagW -- ^ writable section
+  | FlagD -- ^ data section
+  | FlagE -- ^ exclude section from linking
+  | FlagR -- ^ read-only section
+  | FlagX -- ^ executable section
+  | FlagS -- ^ shared section (meaningful for PE targets)
+  | FlagA -- ^ ignored. (For compatibility with the ELF version)
+  | FlagY -- ^ section is not readable (meaningful for PE targets)
+  | FlagAlign Int -- ^ single-digit power-of-two section alignment (GNU extension)
+  deriving (Show, Eq, Ord)
+
+
+
+{- Unsuported directives
+
+
++--------------+--------------------------------+------------------------------------+
+| Directive    | Arguments                      | Description                        |
++==============+================================+====================================+
+| .byte        | expression [, expression]*     | 8-bit comma separated words        |
++--------------+--------------------------------+------------------------------------+
+| .2byte       | expression [, expression]*     | 16-bit comma separated words       |
++--------------+--------------------------------+------------------------------------+
+| .half        | expression [, expression]*     | 16-bit comma separated words       |
++--------------+--------------------------------+------------------------------------+
+| .short       | expression [, expression]*     | 16-bit comma separated words       |
++--------------+--------------------------------+------------------------------------+
+| .4byte       | expression [, expression]*     | 32-bit comma separated words       |
++--------------+--------------------------------+------------------------------------+
+| .word        | expression [, expression]*     | 32-bit comma separated words       |
++--------------+--------------------------------+------------------------------------+
+| .long        | expression [, expression]*     | 32-bit comma separated words       |
++--------------+--------------------------------+------------------------------------+
+| .8byte       | expression [, expression]*     | 64-bit comma separated words       |
++--------------+--------------------------------+------------------------------------+
+| .dword       | expression [, expression]*     | 64-bit comma separated words       |
++--------------+--------------------------------+------------------------------------+
+| .quad        | expression [, expression]*     | 64-bit comma separated words       |
++--------------+--------------------------------+------------------------------------+
+| .dtprelword  | expression [, expression]*     | 32-bit thread local word           |
++--------------+--------------------------------+------------------------------------+
+| .dtpreldword | expression [, expression]*     | 64-bit thread local word           |
++--------------+--------------------------------+------------------------------------+
+| .sleb128     | expression                     | signed little endian base 128      |
+|              |                                | , DWARF                            |
++--------------+--------------------------------+------------------------------------+
+| .uleb128     | expression                     | unsigned little endian             |
+|              |                                | base 128, DWARF                    |
++--------------+--------------------------------+------------------------------------+
+
+
+date UnsuportedDirectives =
+  | BYTE        Expr [Expr]                 8-bit comma separated words
+  | 2BYTE       Expr [Expr]                 16-bit comma separated words
+  | HALF        Expr [Expr]                 16-bit comma separated words
+  | SHORT       Expr [Expr]                 16-bit comma separated words
+  | 4BYTE       Expr [Expr]                 32-bit comma separated words
+  | WORD        Expr [Expr]                 32-bit comma separated words
+  | LONG        Expr [Expr]                 32-bit comma separated words
+  | 8BYTE       Expr [Expr]                 64-bit comma separated words
+  | DWORD       Expr [Expr]                 64-bit comma separated words
+  | QUAD        Expr [Expr]                 64-bit comma separated words
+  | DTPRELWORD  Expr [Expr]                 32-bit thread local word
+  | DTPRELDWORD Expr [Expr]                 64-bit thread local word
+  | SLEB128     Expr                        signed little endian base 128, DWARF
+  | ULEB128     Expr                        unsigned little endian base 128, DWARF
+
+-}    
+
+
+
+
 
 
 
