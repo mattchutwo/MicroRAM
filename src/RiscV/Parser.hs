@@ -533,20 +533,41 @@ directiveParse = choiceTry
       , ("norelax",NORELAX)
       ]
 
+    tagParser = parseFromPairs
+      [ ( "Tag_RISCV_arch"               , Tag_RISCV_arch               )
+      , ( "Tag_RISCV_stack_align"        , Tag_RISCV_stack_align        )
+      , ( "Tag_RISCV_unaligned_access"   , Tag_RISCV_unaligned_access   )
+      , ( "Tag_RISCV_priv_spec"          , Tag_RISCV_priv_spec          )
+      , ( "Tag_RISCV_priv_spec_minor"    , Tag_RISCV_priv_spec_minor    )
+      , ( "Tag_RISCV_priv_spec_revision" , Tag_RISCV_priv_spec_revision )
+      ] <|> (Tag_number <$> integer)
 
+filterDirs :: [LineOfRiscV] -> [Directive]
+filterDirs instrs = catMaybes $ filterDir <$> instrs
+  where
+    filterDir :: LineOfRiscV -> Maybe Directive
+    filterDir (Directive dir) = Just dir
+    filterDir _ = Nothing
 
--- filterDirs :: [LineOfRiscV] -> [String]
--- filterDirs instrs = catMaybes $ filterDir <$> instrs
---   where
---     filterDir :: LineOfRiscV -> Maybe String
---     filterDir (Directive dir) = Just dir
---     filterDir _ = Nothing
+test = do
+  code <- readFileRV "src/RiscV/grit-rv64-20211105.s"
+  let codeLns = lines code
+  let enumLn = zip codeLns [1..]
+  mapUntilM testLn $ enumLn
+  where
+    testLn :: (String, Int) -> IO Bool
+    testLn (ln, lnN) = do
+      case parse riscvLnParser "" $ ln of
+        Right _ -> return True
+        Left e  -> do
+          putStrLn $ "Line number " <> show lnN <> " : " <> show e
+          return False
 
--- test = do
---   code <- riscvParseFile "src/RiscV/grit-rv64-20211105.s"
---   let dirs = filterDirs <$> code
---   case dirs of
---     Left e -> putStr $ show e
---     Right dirs' -> do
---       let dirs_first = (head . words) <$> dirs'
---       mapM_ putStrLn dirs_first
+mapUntilM :: (Monad m) => (a -> m Bool) -> [a] -> m ()
+mapUntilM f ls =
+  case ls of
+    [] -> return ()
+    x:ls' -> do
+      result <- f x
+      if result then mapUntilM f ls' else return ()
+      
