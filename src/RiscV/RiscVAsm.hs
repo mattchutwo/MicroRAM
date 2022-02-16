@@ -19,6 +19,9 @@ module RiscV.RiscVAsm
   , CFIsectionOpt(..)
   , Opcodes(..)
   , CFIDirectives(..)
+  , Flag(..)
+  , SectionType(..)
+  , FlagArg
   
   -- * Risc V Assembly
   -- $instr
@@ -66,7 +69,7 @@ module RiscV.RiscVAsm
    ) where
 
 -- import Data.Bits
-import Data.Word (Word64, Word8)
+import Data.Word (Word8, Word16, Word64)
 import Test.QuickCheck (Arbitrary, arbitrary, oneof)
 
 {- | The RISC-V assembler supports following modifiers for relocatable
@@ -277,8 +280,9 @@ Assembler directives are directions to the assembler to take some action or chan
 +--------------+--------------------------------+------------------------------------+
 | .ident       | string                         | accepted for source compatibility  |
 +--------------+--------------------------------+------------------------------------+
-| .section     | [{.text,.data,.rodata,.bss}]   | emit section (if not present,      |
+| .section     | name [flags] [type][flag_args] | emit section (if not present,      |
 |              |                                | default .text) and make current    |
+|              |                                |(format specific to ELF Version)    |
 +--------------+--------------------------------+------------------------------------+
 | .size        | symbol, symbol                 | accepted for source compatibility  |
 +--------------+--------------------------------+------------------------------------+
@@ -342,7 +346,6 @@ data Directive
   | COMM        String Integer Integer  -- ^ Emit common object to .bss section
   | COMMON      String Integer Integer  -- ^ Emit common object to .bss section
   | IDENT       String                  -- ^ Accepted for source compatibility
-  | SECTION     String [Flag]           -- ^ Emit section (if not present, default .text) and make current
   | SIZE        String String           -- ^ Accepted for source compatibility
   | TEXT                                -- ^ Emit .text section (if not present) and make current
   | DATA                                -- ^ Emit .data section (if not present) and make current
@@ -363,7 +366,12 @@ data Directive
     Integer                             -- ^ Align to this power of 2
     (Maybe Integer)                     -- ^ Padding value (default 0 or nop)
     (Maybe Integer)                     -- ^ Max number of padding (no padding if exceeded)
-
+  
+  | SECTION                             -- ^ Emit section (if not present, default .text) and make current
+    String
+    [Flag]
+    (Maybe SectionType)
+    [FlagArg]           
   | CFIDirectives CFIDirectives         -- ^ Control Flow Integrity
   deriving (Show, Eq, Ord)
 
@@ -412,24 +420,40 @@ data Option
 -- for example, it is not accepted, even with a standard a.out section
 -- name.
 data Flag
-  = FlagB -- ^ bss section (uninitialized data)
-  | FlagN -- ^ section is not loaded
-  | FlagW -- ^ writable section
-  | FlagD -- ^ data section
-  | FlagE -- ^ exclude section from linking
-  | FlagR -- ^ read-only section
-  | FlagX -- ^ executable section
-  | FlagS -- ^ shared section (meaningful for PE targets)
-  | FlagA -- ^ ignored. (For compatibility with the ELF version)
-  | FlagY -- ^ section is not readable (meaningful for PE targets)
-  | FlagAlign Int -- ^ single-digit power-of-two section alignment (GNU extension)
+  = Flag_a   -- ^ is allocatable
+  | Flag_d   -- ^ is a GNU_MBIND section
+  | Flag_e   -- ^ is excluded from executable and shared library.
+  | Flag_o   -- ^ references a symbol defined in another section (the linked-to section) in the same file.
+  | Flag_w   -- ^ is writable
+  | Flag_x   -- ^ is executable
+  | Flag_M   -- ^ is mergeable
+  | Flag_S   -- ^ contains zero terminated strings
+  | Flag_G   -- ^ is a member of a section group
+  | Flag_T   -- ^ is used for thread-local-storage
+  | Flag_QM  -- ^ is a member of the previously-current section’s group, if any
+  | Flag_R   -- ^ retained section (apply SHF_GNU_RETAIN to prevent linker garbage collection, GNU ELF extension)
+  | Flag_number Word8 -- ^ a numeric value indicating the bits to be set in the ELF section header’s flags field. Note - if one or more of the alphabetic characters described above is also included in the flags field, their bit values will be ORed into the resulting value.
+
+  -- - |Flat_target TargetFlag -- ^ some targets extend this list with their own flag characters
   deriving (Show, Eq, Ord)
 
 
+{- | The optional type argument may contain one of the following constants:
+-}
+data SectionType
+  = PROGBITS              -- ^ contains data
+  | NOBITS                -- ^ does not contain data (i.e., section only occupies space)
+  | NOTE                  -- ^ contains data which is used by things other than the program
+  | INIT_ARRAY            -- ^ contains an array of pointers to init functions
+  | FINI_ARRAY            -- ^ contains an array of pointers to finish functions
+  | PREINIT_ARRAY         -- ^ contains an array of pointers to pre-init functions
+  | TypeNum Word8         -- ^ a numeric value to be set as the ELF section header’s type field.
+  
+  -- -| TargetType TargetType -- ^ some targets extend this list with their own types
+  deriving (Show, Eq, Ord)
 
-
-
-
+type FlagArg = Either Word16 String
+  
 -- | If section_list is .eh_frame, .eh_frame is emitted, if
 -- section_list is .debug_frame, .debug_frame is emitted. To emit both
 -- use .eh_frame, .debug_frame. The default if this directive is not
@@ -481,7 +505,7 @@ data CFIDirectives =
     -- its unwind entry previously opened by .cfi_startproc, and emits it
     -- to .eh_frame.
   
-  | CFI_PERSONALITY Word8 Word8 (Either Word8 String)
+  | CFI_PERSONALITY Word8 (Either Word8 String)
     -- ^ .cfi_personality defines personality routine and its
     -- encoding. encoding must be a constant determining how the
     -- personality should be encoded. If it is 255 (DW_EH_PE_omit),

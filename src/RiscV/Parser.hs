@@ -10,6 +10,7 @@ import RiscV.RiscVAsm
 
 -- import Data.Char (Char)
 import Text.Parsec
+import Text.Parsec.Combinator (sepBy)
 import qualified Text.Parsec.Language as Lang 
 import qualified Text.Parsec.Expr as Expr
 import qualified Text.Parsec.Token as Tokens
@@ -96,6 +97,16 @@ comma :: Parsec String u String
 comma = Tokens.comma riscVLang
 integer :: Parsec String u Integer
 integer = Tokens.integer riscVLang
+intParser  :: Parsec String u Int
+intParser = fromInteger <$> integer 
+numParser  :: Num n => Parsec String u n
+numParser = fromInteger <$> integer 
+numStrParser :: Num n =>  Parsec String st (Either n String)
+numStrParser = try (Right  <$>     identifier)
+                     <|> try (Left   <$> numParser)
+                     <?> "encoding"
+    
+
 
 -- | Read file
 readFileRV :: FilePath -> IO String
@@ -477,15 +488,74 @@ parsePseudo = choiceTry
       , "jalr"   ==> JmpRegPI JLinkPseudo <*> regParser
       ]
 
-{- Some directives we are not supporting yet:
 
-      , "section"       ==> SECTION    <*> textParse <.> textParse
 
+
+{- | This is one of the ELF section stack manipulation directives. The
+   others are .subsection (see SubSection), .pushsection (see
+   PushSection), .popsection (see PopSection), and .previous (see
+   Previous).
+
+   For ELF targets, the .section directive is used like this:
+
+   @.section name [, "flags"[, @type[,flag_specific_arguments]]]@
+
+   The documentation claims "iIf one or more of the alphabetic
+   characters described above is also included in the flags field,
+   their bit values will be ORed into the resulting value."
+   I'm not sure if that has implications for parsing. Does it?
 
 -}
+sectionParser :: Parsec String st Directive
+sectionParser = SECTION
+  <$> identifier
+  <*> (try (comma *> flags)            <|> pure [])
+  <*> (try (comma *> (Just <$> secType))  <|> pure Nothing)
+  <*> (try (comma *> flagArgs)         <|> pure [])
+  where
+    -- a string with all the flags
+    flags :: Parsec String st [Flag]
+    flags = quoted . many $
+            (parseFromPairs
+             [ ("a" , Flag_a)   
+             , ("d" , Flag_d)   
+             , ("e" , Flag_e)   
+             , ("o" , Flag_o)   
+             , ("w" , Flag_w)   
+             , ("x" , Flag_x)   
+             , ("M" , Flag_M)   
+             , ("S" , Flag_S)   
+             , ("G" , Flag_G)   
+             , ("T" , Flag_T)   
+             , ("?" , Flag_QM)  
+             , ("R" , Flag_R) ]
+             <|> try (Flag_number <$> numParser))
+
+    quoted :: Parsec String st a -> Parsec String st a
+    quoted p = (char '"' *> p <* char '"')
+
+    -- Section types
+    secType ::  Parsec String st SectionType
+    secType =
+      -- Parse a numeric section header
+      try (char '@' >> TypeNum <$> numParser) <|>
+      parseFromPairs
+      [ ("@progbits"      , PROGBITS     )   
+      , ("@nobits"        , NOBITS       )   
+      , ("@note"          , NOTE         )   
+      , ("@init_array"    , INIT_ARRAY   )   
+      , ("@fini_array"    , FINI_ARRAY   )   
+      , ("@preinit_array" , PREINIT_ARRAY)
+      ]
+
+    flagArgs :: Parsec String st [FlagArg]
+    flagArgs = (lexeme numStrParser) `sepBy` comma
+      
+      
+
 directiveParse :: Parsec String st Directive
-directiveParse = choiceTry 
-      -- Function call/return instructions
+directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
+  choiceTry 
       [ "align"         ==> ALIGN      <*> integer
       , "file"          ==> FILE       <*> textParse
       , "globl"         ==> GLOBL      <*> identifier
@@ -493,6 +563,7 @@ directiveParse = choiceTry
       , "comm"          ==> COMM       <*> textParse <.> integer   <.> integer
       , "common"        ==> COMMON     <*> textParse <.> integer   <.> integer
       , "ident"         ==> IDENT      <*> textParse
+      , lexeme(lexeme (string "section") >> sectionParser)
       , "size"          ==> SIZE       <*> identifier <.> identifier
       , "text"          ==> TEXT   
       , "data"          ==> DATA   
@@ -518,7 +589,8 @@ directiveParse = choiceTry
       , "p2align"       ==> P2ALIGN    <*> integer    <.> (Just <$> integer) <*> (return Nothing)
       , "p2align"       ==> P2ALIGN    <*> integer    <*> (return Nothing)   <*> (return Nothing)
       ]
-  where 
+  where
+    
     -- Doesn't admit escaped quotations. Everything insie the two quotations is the text
     textParse    = char '"' *> many (noneOf ['"']) <* char '"'
     --
