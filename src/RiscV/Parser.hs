@@ -471,7 +471,8 @@ parsePseudo = choiceTry
       [ 
       -- Function call/return instructions
        "ret"    ==> RetPI
-      , "call"   ==> CallPI <*> offsetParser
+      , "call"   ==> CallPI <*> (Just <$> regParser) <.> immediateParser
+      , "call"   ==> CallPI     Nothing              <*> offsetParser
       , "tail"   ==> TailPI <*> offsetParser
       -- Total Fence
       , "fence"  ==> FencePI
