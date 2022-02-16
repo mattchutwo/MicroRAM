@@ -77,6 +77,9 @@ parens, lexeme
 parens = Tokens.parens riscVLang
 -- lexeme p first applies parser p and then the whiteSpace parser, returning the value of p.
 lexeme = Tokens.lexeme riscVLang
+lexchar :: Char -> Parsec String u Char
+lexchar c = lexeme $ char c
+
 -- This lexeme parser parses an integer (a whole number). 
 integerParser :: Parsec String u Integer
 integerParser = Tokens.integer riscVLang
@@ -89,14 +92,8 @@ identifier
 identifier = Tokens.identifier riscVLang
 whiteSpace :: Parsec String u ()
 whiteSpace = Tokens.whiteSpace riscVLang
-
 comma :: Parsec String u String
 comma = Tokens.comma riscVLang
-
-
--- parsedInput = parse someParser "source name" "some input"
-test :: Stream s Identity t => Parsec s () a -> s -> Either ParseError a
-test p = parse p ""
 
 -- | Read file
 readFileRV :: FilePath -> IO String
@@ -143,8 +140,6 @@ riscvLnParser = (try labelLnParse
 
     textParse    = many (noneOf ['\n'])
     tabParse     = string "    " <|> string "\t" <?> "alignemnt"
-
-lexchar c = lexeme $ char c
 
 choiceTry :: [ParsecT s u m a] -> ParsecT s u m a
 choiceTry ps           = foldr ((<|>) . try) mzero ps
@@ -230,16 +225,6 @@ regParser = parseFromPairs registerABInames <?> "a register"
      Symbol names do not start with a digit. An exception to this rule
      is made for Local Labels, but we don't yet support it.
 -}
-symbolParser' :: Parsec String st String
-symbolParser' =
-  -- Names start with a letter, underscore or period
-  (letter <|> oneOf "._$")
-  -- Then any letter, number or underscore
-  <:>  many (alphaNum <|> oneOf "$_")
-  where
-    (<:>) :: Applicative f => f a -> f [a] -> f [a]
-    (<:>) a b = (:) <$> a <*> b
-
 instrParser :: Parsec String st Instr
 instrParser = Instr32I <$> parse32I
               <|> Instr64I <$> parse64I
@@ -262,14 +247,6 @@ instrParser = Instr32I <$> parse32I
   are just constant expressions, which we don't support
  -}
   
--- Infix parser.
-
-infix_ :: String -> (a -> a -> a) -> Expr.Operator String u Identity a
-infix_ operator func =
-  Expr.Infix (symbolParser operator >> return func) Expr.AssocLeft
-
-
-
 immediateParser :: ParsecT String u Identity Imm
 immediateParser = Expr.buildExpressionParser operands immTerm <?> "an immediate"
   where
@@ -291,41 +268,16 @@ immediateParser = Expr.buildExpressionParser operands immTerm <?> "an immediate"
       ("hi", ModHi)
       , ("lo", ModLo)
       ]
-               
-    
-  
-immediateParser' :: Parsec String st Imm
-immediateParser' = 
-  (modParse
-  <|> trace "binop" (try binopParse)
-  <|> trace "symbol" (ImmSymbol <$> identifier)
-  <|> trace "number" (ImmNumber <$> toEnum <$> intParse)
-  <?> "an immediate")
-  where
-    binopParse :: Parsec String st Imm
-    binopParse = undefined
-      -- ImmBinOp <$>
-      -- immediateParser' <*>
-      -- (spaces *> opParse <*) spaces <*>
-      -- immediateParser
-  
-    modParse :: Parsec String st Imm
-    modParse = char '%' *> pure ImmMod
-               <*> parseFromPairs mods
-               <* char '('
-               <*> immediateParser
-               <* char ')'
-    intParse :: Parsec String st Int
-    intParse = read <$> many digit
-    mods :: [(String, Modifier)]
-    mods = [
-      ("hi", ModHi)
-      , ("lo", ModLo)
-      ]
+           
+    infix_ :: String -> (a -> a -> a) -> Expr.Operator String u Identity a
+    infix_ operator func =
+      Expr.Infix (symbolParser operator >> return func) Expr.AssocLeft
     
 {- | Offsets.  Offsets are differnt from Immediates. First of all,
 bounded by a smaller number (2^12 I think?). Second, they accept no
 symbols or modifiers (I think).
+
+We distinguish them at the type level, but we don't add bound checks.
  -}
 offsetParser :: Parsec String st Offset
 offsetParser = immediateParser -- read <$> many digit 
@@ -339,7 +291,7 @@ infixl 9 ==>
 (==>) :: String -> a -> Parsec String st a
 label ==> x = lexeme (string label *> pure x)
 
-{- Why can't I use a comma instead? -}
+{- Would be better if I could use `<,>` but Haskell won't let me use commas! -}
 infixl 4 <.>
 (<.>) :: forall st a b. Parsec String st (a -> b) -> Parsec String st a -> Parsec String st b
 (<.>) p1 p2 = p1 <* comma <*> p2
@@ -523,14 +475,3 @@ parsePseudo = choiceTry
       , "jr"     ==> JmpRegPI JPseudo     <*> regParser
       , "jalr"   ==> JmpRegPI JLinkPseudo <*> regParser
       ]
-
-
-
-
-
-
-rotate :: [Char]
-rotate =
-  "# Collection of rotation examples\n#\n# Shows how to bit-rotate registers in the absence of RISC-V Bitmanip (\"B\")\n# extension.\n#\n# As of 2020, the \"B\" extension has draft status. However, it already\n# includes the ror/rol/rori/rorw/rolw/roriw instructions.\n#\n# cf. https://stackoverflow.com/a/60138854/427158\n#\n# 2020, Georg Sauthoff <mail@gms.tf>\n\n    .text\n    .balign 4\n    .global rotl3\nrotl3:\n    slli a2, a0,  3\n    srli a3, a0, 61\n    or   a0, a2, a3\n    ret\n    .global rotr3\nrotr3:\n    srli a2, a0,  3\n    slli a3, a0, 61\n    or   a0, a2, a3\n    ret\n    .global rotl\nrotl:\n    sll  a2,   a0, a1\n    sub  a4, zero, a1\n    srl  a3,   a0, a4\n    or   a0,   a2, a3\n    ret\n    .global rotr\nrotr:\n    srl  a2,   a0, a1\n    sub  a4, zero, a1\n    sll  a3,   a0, a4\n    or   a0,   a2, a3\n    ret\n"
-
-
