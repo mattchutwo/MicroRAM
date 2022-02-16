@@ -176,7 +176,10 @@ parseFromPairs pairs = choiceTry $ parseFromPair <$> pairs
     parseFromPair ::  (String,b) -> Parsec String st b
     parseFromPair (a,b) = string a *> pure b
 
-                              
+-- The list has to start with the longer registers so they will be
+-- parsed first. For example "s10" has to appear before "s1" otherwise
+-- "s10" will be parsed as "s1" and and the parser will choke on the
+-- trailing "0".
 regParser :: Parsec String st Reg
 regParser = parseFromPairs registerABInames <?> "a register"
   where registerABInames =
