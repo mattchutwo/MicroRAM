@@ -50,6 +50,10 @@ module RiscV.RiscVAsm
   , BranchPseudo(..)
   , JumpPseudo(..)
   , PseudoInstr(..)
+
+  -- ** Aliases
+  -- $alias
+  , AliasInstr(..)
    ) where
 
 -- import Data.Bits
@@ -250,7 +254,9 @@ The RiscV Assembly Language presented here supports the following modules:
 
 We also support all pseudoinstructions defined in the Set Manual.
 
-The RISC-V Instruction Set Manual ( [Version 20191213, December 13, 2019]("https://riscv.org/wp-content/uploads/2017/05/riscv-spec-v2.2.pdf") ).
+Refrences: 
+* [The RISC-V Assembly Programmer's Manual](https://github.com/riscv-non-isa/riscv-asm-manual/blob/master/riscv-asm.md#risc-v-assembly-programmers-manual) (Recovered Feb 2022)
+* The RISC-V Instruction Set Manual ( [Version 20191213, December 13, 2019]("https://riscv.org/wp-content/uploads/2017/05/riscv-spec-v2.2.pdf") ).
 
 -}
 
@@ -270,6 +276,7 @@ data Instr
   | Instr32M    InstrExt32M  -- ^ RV32M Standard Extension for Integer Multiply and Divide
   | Instr64M    InstrExt64M  -- ^ RV64M Standard Extension for Integer Multiply and Divide
   | InstrPseudo PseudoInstr  -- ^ Pseudoinstructions
+  | InstrAlias  AliasInstr   -- ^ Instruction Aliases
   deriving (Show, Eq, Ord)
 
 
@@ -1003,3 +1010,31 @@ Tables for pseudoinstructions not supported.
 +---------------------+---------------------+----------------------------+-----------+
 
 -}
+
+
+
+{- $alias
+
+When a program flow reaches an unexpected location, you can use
+@unimp@ to signal an unreachable program instruction.  the @UNIMP@
+pseudo-instruction, should trap in nearly all systems. The de facto
+standard implementation of this instruction is:
+
+* @C.UNIMP@: @0000@. The all-zeroes pattern is not a valid
+  instruction. Any system which traps on invalid instructions will
+  thus trap on this UNIMP instruction form.
+
+* @UNIMP@ : @C0001073@. This is an alias for @CSRRW x0, cycle,
+  x0@. Since cycle is a read-only CSR, this instruction should trap
+  (even is CSR is not implemented). This 32-bit form of UNIMP is
+  emitted when targeting a system without the C extension, or when the
+  .option norvc directive is used.
+
+Reference: [Instruction Aliases (RISC-V Assembly Programmer's
+Manual)](https://github.com/riscv-non-isa/riscv-asm-manual/blob/master/riscv-asm.md#instruction-aliases)
+
+-}
+
+data AliasInstr
+  = UNIMPC | UNIMP
+  deriving (Show, Eq, Ord)

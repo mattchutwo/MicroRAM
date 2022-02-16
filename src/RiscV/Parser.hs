@@ -240,6 +240,9 @@ symbolParser' =
 instrParser :: Parsec String st Instr
 instrParser = Instr32I <$> parse32I
               <|> Instr64I <$> parse64I
+              <|> Instr32M <$> parse32M
+              <|> Instr64M <$> parse64M
+              <|> InstrAlias <$> parseAlias
               <|> InstrPseudo <$> parsePseudo
               <?> "an instruction"
 
@@ -434,6 +437,27 @@ parse32M = choiceTry
 
 
 
+parse64M :: Parsec String st InstrExt64M
+parse64M = choiceTry
+      [ "mulw"  ==> MULW  <*> regParser <.> regParser <.> regParser
+      , "divw"  ==> DIVW  <*> regParser <.> regParser <.> regParser
+      , "divuw" ==> DIVUW <*> regParser <.> regParser <.> regParser
+      , "remw"  ==> REMW  <*> regParser <.> regParser <.> regParser
+      , "remuw" ==> REMUW <*> regParser <.> regParser <.> regParser
+      ]
+
+
+
+
+
+parseAlias :: Parsec String st AliasInstr
+parseAlias = choiceTry
+      [ 
+       "unimp.c"    ==> UNIMPC
+      , "unimp"   ==> UNIMP
+      ]
+
+
 
 -- For some reason the parser is haveing trouble with these, reporting
 -- "Defined but not used:" when in use
@@ -495,6 +519,9 @@ parsePseudo = choiceTry
       , "jr"     ==> JmpRegPI JPseudo     <*> regParser
       , "jalr"   ==> JmpRegPI JLinkPseudo <*> regParser
       ]
+
+
+
 
 
 
