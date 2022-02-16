@@ -488,12 +488,12 @@ directiveParse = choiceTry
       -- Function call/return instructions
       [ "align"         ==> ALIGN      <*> integer
       , "file"          ==> FILE       <*> textParse
-      , "globl"         ==> GLOBL      <*> textParse
+      , "globl"         ==> GLOBL      <*> identifier
       , "local"         ==> LOCAL      <*> textParse
       , "comm"          ==> COMM       <*> textParse <.> integer   <.> integer
       , "common"        ==> COMMON     <*> textParse <.> integer   <.> integer
       , "ident"         ==> IDENT      <*> textParse
-      , "size"          ==> SIZE       <*> textParse <.> textParse
+      , "size"          ==> SIZE       <*> identifier <.> identifier
       , "text"          ==> TEXT   
       , "data"          ==> DATA   
       , "rodata"        ==> RODATA 
@@ -501,7 +501,7 @@ directiveParse = choiceTry
       , "string"        ==> STRING     <*> textParse
       , "asciz"         ==> ASCIZ      <*> textParse
       , "equ"           ==> EQU        <*> identifier <.> (fromInteger <$> integer)
-      , "type"          ==> TYPE       <*> identifier
+      , "type"          ==> TYPE       <*> identifier <* comma <* string "@function"
       , "option"        ==> OPTION     <*> optParser
       , "balign"        ==> BALIGN     <*> integer <.> (Just <$> integer)
       , "balign"        ==> BALIGN     <*> integer <.> (return Nothing)
@@ -509,10 +509,14 @@ directiveParse = choiceTry
       , "variant_cc"    ==> VARIANT_CC <*> identifier
       , "macro"         ==> MACRO      <*> identifier <.> identifier <.> (return [])
       , "endm"          ==> ENDM
+
+      , "attribute"       ==> ATTRIBUTE    <*> tagParser    <.> (Right  <$> textParse )
+      , "attribute"       ==> ATTRIBUTE    <*> tagParser    <.> (Left   <$> integer   )
+      
       , "p2align"       ==> P2ALIGN    <*> integer    <.> (Just <$> integer) <.> (Just <$> integer)
       , "p2align"       ==> P2ALIGN    <*> integer    <.> (return Nothing)   <.> (Just <$> integer)
-      , "p2align"       ==> P2ALIGN    <*> integer    <.> (Just <$> integer) <.> (return Nothing)
-      , "p2align"       ==> P2ALIGN    <*> integer    <.> (return Nothing)   <.> (return Nothing)
+      , "p2align"       ==> P2ALIGN    <*> integer    <.> (Just <$> integer) <*> (return Nothing)
+      , "p2align"       ==> P2ALIGN    <*> integer    <*> (return Nothing)   <*> (return Nothing)
       ]
   where 
     -- Doesn't admit escaped quotations. Everything insie the two quotations is the text

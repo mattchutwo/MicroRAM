@@ -314,6 +314,9 @@ Assembler directives are directions to the assembler to take some action or chan
 | .variant_cc  | symbol_name                    | annotate the symbol with           |
 |              |                                | variant calling convention         |
 +--------------+--------------------------------+------------------------------------+
+| .attribute   | tag, vaslue                    | Set the object attribute           |
+|              |                                | tag to value.                      |
++--------------+--------------------------------+------------------------------------+
 
 The following directives are not yet supported: @byte@, @2byte@,
 @half@, @short@, @4byte@, @word@, @long@, @8byte@, @dword@, @quad@,
@@ -351,11 +354,25 @@ data Directive
   | VARIANT_CC  String                  -- ^ Annotate the symbol with variant calling convention
   | MACRO       String String [String]  -- ^ Begin macro definition \argname to substitute
   | ENDM                                -- ^ End macro definition
+  | ATTRIBUTE   AttTag  (Either Integer String) 
   | P2ALIGN
     Integer                             -- ^ Align to this power of 2
     (Maybe Integer)                     -- ^ Padding value (default 0 or nop)
     (Maybe Integer)                     -- ^ Max number of padding (no padding if exceeded)
+
+  | CFIDirectives CFIDirectives         -- ^ Control Flow Integrity
   deriving (Show, Eq, Ord)
+
+data AttTag
+  = Tag_RISCV_arch
+  | Tag_RISCV_stack_align
+  | Tag_RISCV_unaligned_access
+  | Tag_RISCV_priv_spec
+  | Tag_RISCV_priv_spec_minor
+  | Tag_RISCV_priv_spec_revision
+  | Tag_number Integer
+  deriving (Show, Eq, Ord)
+
 
 
 -- | Modifies RISC-V specific assembler options inline with the
