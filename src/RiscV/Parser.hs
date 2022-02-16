@@ -17,7 +17,7 @@ import Data.Maybe (catMaybes)
 import Control.Monad (mzero)
 import Data.Functor.Identity (Identity)
 
-import Debug.Trace
+--import Debug.Trace
 
 -- Borrow some definitions from haskell
 riscVLang :: Tokens.GenTokenParser String u Identity
@@ -35,7 +35,7 @@ don't yet support it.
 dollar signs (unless otherwise noted for a particular target machine),
 and underscores.  We do not yet support qutoed symbols names by ‘"’ or
 multibyte characters. Although, not documented, symbold can also have
-internal periods "."
+internal periods "." and dashes "-"
 
 -}
 riscVLangDef :: Lang.LanguageDef u
@@ -58,7 +58,7 @@ riscVLangDef = Tokens.LanguageDef
   -- letters, dollar signs (unless otherwise noted for a particular
   -- target machine), and underscores.  We do not yet support qutoed
   -- symbols names by ‘"’ or multibyte characters.
-  , Tokens.identLetter = alphaNum <|> oneOf "._$"
+  , Tokens.identLetter = alphaNum <|> oneOf "._$-"
 
   -- No operators in this language
   , Tokens.opStart        = parserFail "Attempt to read an operands"
@@ -94,6 +94,8 @@ whiteSpace :: Parsec String u ()
 whiteSpace = Tokens.whiteSpace riscVLang
 comma :: Parsec String u String
 comma = Tokens.comma riscVLang
+integer :: Parsec String u Integer
+integer = Tokens.integer riscVLang
 
 -- | Read file
 readFileRV :: FilePath -> IO String
@@ -134,11 +136,10 @@ riscvLnParser = (try labelLnParse
     -- Empty line, possibly with comments and or spaces/tabs, etc.  
     emptyLnParse = whiteSpace >> eof *> return Nothing
 
-    drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> textParse)
+    drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> directiveParse)
     instrLnParse   = Just . Instruction <$> (tabParse *> instrParser)
     labelLnParse   = Just . Label       <$> identifier <* lexchar ':'
 
-    textParse    = many (noneOf ['\n'])
     tabParse     = string "    " <|> string "\t" <?> "alignemnt"
 
 choiceTry :: [ParsecT s u m a] -> ParsecT s u m a
@@ -475,3 +476,73 @@ parsePseudo = choiceTry
       , "jr"     ==> JmpRegPI JPseudo     <*> regParser
       , "jalr"   ==> JmpRegPI JLinkPseudo <*> regParser
       ]
+
+{- Some directives we are not supporting yet:
+
+      , "section"       ==> SECTION    <*> textParse <.> textParse
+
+
+-}
+directiveParse :: Parsec String st Directive
+directiveParse = choiceTry 
+      -- Function call/return instructions
+      [ "align"         ==> ALIGN      <*> integer
+      , "file"          ==> FILE       <*> textParse
+      , "globl"         ==> GLOBL      <*> textParse
+      , "local"         ==> LOCAL      <*> textParse
+      , "comm"          ==> COMM       <*> textParse <.> integer   <.> integer
+      , "common"        ==> COMMON     <*> textParse <.> integer   <.> integer
+      , "ident"         ==> IDENT      <*> textParse
+      , "size"          ==> SIZE       <*> textParse <.> textParse
+      , "text"          ==> TEXT   
+      , "data"          ==> DATA   
+      , "rodata"        ==> RODATA 
+      , "bss"           ==> BSS    
+      , "string"        ==> STRING     <*> textParse
+      , "asciz"         ==> ASCIZ      <*> textParse
+      , "equ"           ==> EQU        <*> identifier <.> (fromInteger <$> integer)
+      , "type"          ==> TYPE       <*> identifier
+      , "option"        ==> OPTION     <*> optParser
+      , "balign"        ==> BALIGN     <*> integer <.> (Just <$> integer)
+      , "balign"        ==> BALIGN     <*> integer <.> (return Nothing)
+      , "zero"          ==> ZERO       <*> integer
+      , "variant_cc"    ==> VARIANT_CC <*> identifier
+      , "macro"         ==> MACRO      <*> identifier <.> identifier <.> (return [])
+      , "endm"          ==> ENDM
+      , "p2align"       ==> P2ALIGN    <*> integer    <.> (Just <$> integer) <.> (Just <$> integer)
+      , "p2align"       ==> P2ALIGN    <*> integer    <.> (return Nothing)   <.> (Just <$> integer)
+      , "p2align"       ==> P2ALIGN    <*> integer    <.> (Just <$> integer) <.> (return Nothing)
+      , "p2align"       ==> P2ALIGN    <*> integer    <.> (return Nothing)   <.> (return Nothing)
+      ]
+  where 
+    -- Doesn't admit escaped quotations. Everything insie the two quotations is the text
+    textParse    = char '"' *> many (noneOf ['"']) <* char '"'
+    --
+    optParser    = parseFromPairs
+      [ ("rvc",    RVC    )
+      , ("norvc",  NORVC  )  
+      , ("pic",    PIC    )
+      , ("nopic",  NOPIC  )  
+      , ("push",   PUSH   )
+      , ("pop",    POP    )
+      , ("relax",  RELAX  )
+      , ("norelax",NORELAX)
+      ]
+
+
+
+-- filterDirs :: [LineOfRiscV] -> [String]
+-- filterDirs instrs = catMaybes $ filterDir <$> instrs
+--   where
+--     filterDir :: LineOfRiscV -> Maybe String
+--     filterDir (Directive dir) = Just dir
+--     filterDir _ = Nothing
+
+-- test = do
+--   code <- riscvParseFile "src/RiscV/grit-rv64-20211105.s"
+--   let dirs = filterDirs <$> code
+--   case dirs of
+--     Left e -> putStr $ show e
+--     Right dirs' -> do
+--       let dirs_first = (head . words) <$> dirs'
+--       mapM_ putStrLn dirs_first

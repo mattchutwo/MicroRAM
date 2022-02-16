@@ -13,7 +13,8 @@ module RiscV.RiscVAsm
 
   -- * Directives
   -- $directives
-  , Directives(..)
+  , Directive(..)
+  , Option(..)
   
   -- * Risc V Assembly
   -- $instr
@@ -314,7 +315,6 @@ Assembler directives are directions to the assembler to take some action or chan
 |              |                                | variant calling convention         |
 +--------------+--------------------------------+------------------------------------+
 
-
 The following directives are not yet supported: @byte@, @2byte@,
 @half@, @short@, @4byte@, @word@, @long@, @8byte@, @dword@, @quad@,
 @dtprelword@, @dtpreldword@, @sleb128@, and @uleb128@.
@@ -327,34 +327,34 @@ The directive @type@ is always followed by "@function" and there are
 no other types, so it is omitted here.
 
 -}
-data Directives
-  = ALIGN       Int             -- ^ align to power of 2 (alias for .p2align)
-  | FILE        String          -- ^ emit filename FILE LOCAL symbol table
-  | GLOBL       String          -- ^ emit symbol_name to symbol table (scope GLOBAL)
-  | LOCAL       String          -- ^ emit symbol_name to symbol table (scope LOCAL)
-  | COMM        String Int Int  -- ^ emit common object to .bss section
-  | COMMON      String Int Int  -- ^ emit common object to .bss section
-  | IDENT       String          -- ^ accepted for source compatibility
-  | SECTION     String [Flag]   -- ^ emit section (if not present, default .text) and make current
-  | SIZE        String String   -- ^ accepted for source compatibility
-  | TEXT                        -- ^ emit .text section (if not present) and make current
-  | DATA                        -- ^ emit .data section (if not present) and make current
-  | RODATA                      -- ^ emit .rodata section (if not present) and make current
-  | BSS                         -- ^ emit .bss section (if not present) and make current
-  | STRING      String          -- ^ emit string
-  | ASCIZ       String          -- ^ emit string (alias for .string)
-  | EQU         String Word     -- ^ constant definition
-  | TYPE        String          -- ^ accepted for source compatibility
-  | OPTION      Option          -- ^ RISC-V options
-  | BALIGN      Int (Maybe Int) -- ^ byte align
-  | ZERO        Int             -- ^ zero bytes
-  | VARIANT_CC  String          -- ^ annotate the symbol with variant calling convention
-  | MACRO       String String [String] -- ^ begin macro definition \argname to substitute
-  | ENDM                               -- ^ end macro definition
+data Directive
+  = ALIGN       Integer                 -- ^ Align to power of 2 (alias for .p2align)
+  | FILE        String                  -- ^ Emit filename FILE LOCAL symbol table
+  | GLOBL       String                  -- ^ Emit symbol_name to symbol table (scope GLOBAL)
+  | LOCAL       String                  -- ^ Emit symbol_name to symbol table (scope LOCAL)
+  | COMM        String Integer Integer  -- ^ Emit common object to .bss section
+  | COMMON      String Integer Integer  -- ^ Emit common object to .bss section
+  | IDENT       String                  -- ^ Accepted for source compatibility
+  | SECTION     String [Flag]           -- ^ Emit section (if not present, default .text) and make current
+  | SIZE        String String           -- ^ Accepted for source compatibility
+  | TEXT                                -- ^ Emit .text section (if not present) and make current
+  | DATA                                -- ^ Emit .data section (if not present) and make current
+  | RODATA                              -- ^ Emit .rodata section (if not present) and make current
+  | BSS                                 -- ^ Emit .bss section (if not present) and make current
+  | STRING      String                  -- ^ Emit string
+  | ASCIZ       String                  -- ^ Emit string (alias for .string)
+  | EQU         String Word             -- ^ Constant definition
+  | TYPE        String                  -- ^ Accepted for source compatibility
+  | OPTION      Option                  -- ^ RISC-V options
+  | BALIGN      Integer (Maybe Integer) -- ^ Byte align
+  | ZERO        Integer                 -- ^ Zero bytes
+  | VARIANT_CC  String                  -- ^ Annotate the symbol with variant calling convention
+  | MACRO       String String [String]  -- ^ Begin macro definition \argname to substitute
+  | ENDM                                -- ^ End macro definition
   | P2ALIGN
-    Int          -- ^ align to this power of 2
-    (Maybe Int)  -- ^ padding value (default 0 or nop)
-    (Maybe Int)  -- ^ Max number of padding (no padding if exceeded)
+    Integer                             -- ^ Align to this power of 2
+    (Maybe Integer)                     -- ^ Padding value (default 0 or nop)
+    (Maybe Integer)                     -- ^ Max number of padding (no padding if exceeded)
   deriving (Show, Eq, Ord)
 
 
@@ -489,7 +489,7 @@ Refrences:
 -}
 data LineOfRiscV =
     Label       String
-  | Directive   String
+  | Directive   Directive
   | Instruction Instr
   deriving (Show, Eq, Ord)
 
