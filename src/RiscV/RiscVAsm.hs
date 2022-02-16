@@ -468,10 +468,11 @@ The entire list of instructions can be found in this [reference](https://mark.th
 +---------------------+-----------------------+------------------------------+
 |       Format        |         Name          |          Pseudocode          |
 +=====================+=======================+==============================+
-| LUI rd,imm          | Load Upper Immediate  | rd ← imm                     |
+| LUI rd, imm         | Load Upper Immediate  | rd ← imm                     |
 +---------------------+-----------------------+------------------------------+
 | AUIPC rd,offset     | Add Upper Imm. to PC  | rd ← pc + offset             |
 +---------------------+-----------------------+------------------------------+
+
 
 === Fences
 +---------------------+-----------------------+------------------------------+
@@ -891,6 +892,10 @@ Function call/return, total fence, @nop@ and unary immediate
 |                   +-----------------------------------------+                                    +-----------+
 | call offset       | jalr x1, offset[11:0](x1)               | Call far-away subroutine           |           |
 +-------------------+-----------------------------------------+------------------------------------+-----------+
+|                   | ????                                    | Call far-away subroutine           |           |
+|                   +-----------------------------------------+                                    +-----------+
+| call rd offset    | ????                                    |  With return                       |           |
++-------------------+-----------------------------------------+------------------------------------+-----------+
 |                   | auipc x6, offset[31 : 12] + offset[11]  | Tail call far-away subroutine      |           |
 |                   +-----------------------------------------+                                    +-----------+
 | tail offset       | jalr x0, offset[11:0](x6)               |                                    |           |
@@ -902,12 +907,14 @@ Function call/return, total fence, @nop@ and unary immediate
 | li rd, immediate  | Myriad sequences [sic]                  | Load immediate                     |           |
 +-------------------+-----------------------------------------+------------------------------------+-----------+
 
+@call rd offset@ is defined in the [RiscV Asm Manual](https://github.com/riscv-non-isa/riscv-asm-manual/blob/master/riscv-asm.md#function-calls) , but no semantics are given. 
+
 -}
 
 data PseudoInstr
   -- | Function call/return instructions
   = RetPI
-  | CallPI Offset
+  | CallPI (Maybe Reg) Offset
   | TailPI Offset
   -- | Total Fence
   | FencePI

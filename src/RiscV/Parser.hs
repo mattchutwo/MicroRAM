@@ -31,10 +31,11 @@ noted in Machine Dependencies. Symbol names do not start with a
 digit. An exception to this rule is made for Local Labels, but we
 don't yet support it.
 
-* That character may be followed by any string of digits,
-letters, dollar signs (unless otherwise noted for a particular
-target machine), and underscores.  We do not yet support qutoed
-symbols names by ‘"’ or multibyte characters.
+* That character may be followed by any string of digits, letters,
+dollar signs (unless otherwise noted for a particular target machine),
+and underscores.  We do not yet support qutoed symbols names by ‘"’ or
+multibyte characters. Although, not documented, symbold can also have
+internal periods "."
 
 -}
 riscVLangDef :: Lang.LanguageDef u
@@ -57,7 +58,7 @@ riscVLangDef = Tokens.LanguageDef
   -- letters, dollar signs (unless otherwise noted for a particular
   -- target machine), and underscores.  We do not yet support qutoed
   -- symbols names by ‘"’ or multibyte characters.
-  , Tokens.identLetter = alphaNum <|> oneOf "$_"
+  , Tokens.identLetter = alphaNum <|> oneOf "._$"
 
   -- No operators in this language
   , Tokens.opStart        = parserFail "Attempt to read an operands"
@@ -177,41 +178,41 @@ parseFromPairs pairs = choiceTry $ parseFromPair <$> pairs
 
                               
 regParser :: Parsec String st Reg
-regParser = (parseFromPairs registerABInames) <?> "a register"
-  where registerABInames = [
-          ("zero",  X0)  -- hardwired zero      
-          ,("ra",   X1)  -- return address     
-          ,("sp",   X2)  -- stack pointer      
-          ,("gp",   X3)  -- global pointer     
-          ,("tp",   X4)  -- thread pointer     
-          ,("t0",   X5)  -- temporary registers
-          ,("t1",   X6)  
-          ,("t2",   X7)
-          ,("fp",   X8)  -- frame pointer (same as s0)
-          ,("s0",   X8)  -- saved register (s0=fp)
-          ,("s1",   X9)
-          ,("a0",   X10) -- function arguments / return values
-          ,("a1",   X11)
-          ,("a2",   X12) -- function arguments
-          ,("a3",   X13)
-          ,("a4",   X14)
-          ,("a5",   X15)
-          ,("a6",   X16)
-          ,("a7",   X17)
-          ,("s2",   X18) -- saved registers
-          ,("s3",   X19)
-          ,("s4",   X20)
-          ,("s5",   X21)
-          ,("s6",   X22)
-          ,("s7",   X23)
-          ,("s8",   X24)
-          ,("s9",   X25)
-          ,("s10",  X26)
-          ,("s11",  X27)
-          ,("t3",   X28) -- temporary registers
-          ,("t4",   X29)
+regParser = parseFromPairs registerABInames <?> "a register"
+  where registerABInames =
+          [("t6",   X31) -- temporary registers
           ,("t5",   X30)
-          ,("t6",   X31)
+          ,("t4",   X29)
+          ,("t3",   X28)
+          ,("s11",  X27) -- saved registers
+          ,("s10",  X26)
+          ,("s9",   X25)
+          ,("s8",   X24)
+          ,("s7",   X23)
+          ,("s6",   X22)
+          ,("s5",   X21)
+          ,("s4",   X20)
+          ,("s3",   X19)
+          ,("s2",   X18)
+          ,("a7",   X17) -- function arguments
+          ,("a6",   X16)
+          ,("a5",   X15)
+          ,("a4",   X14)
+          ,("a3",   X13)
+          ,("a2",   X12)
+          ,("a1",   X11) -- function arguments / return values
+          ,("a0",   X10) 
+          ,("s1",   X9)
+          ,("s0",   X8)  -- saved register (s0=fp)
+          ,("fp",   X8)  -- frame pointer (same as s0)
+          ,("t2",   X7)  -- temporary registers
+          ,("t1",   X6)
+          ,("t0",   X5)  
+          ,("tp",   X4)  -- thread pointer
+          ,("gp",   X3)  -- global pointer
+          ,("sp",   X2)  -- stack pointer
+          ,("ra",   X1)  -- return address
+          ,("zero",  X0)  -- hardwired zero
           ]
 
 {- | Symbols:
@@ -362,7 +363,7 @@ parse32I = choiceTry
       , "sw"   ==> MemInstr32 SW  <*> regParser <.> offsetParser <*> parens regParser
       -- unary instructions
       , "lui"   ==> LUI    <*> regParser <.> immediateParser
-      , "auipc" ==> AUIPC  <*> regParser <.> offsetParser
+      , "auipc" ==> AUIPC  <*> regParser <.> immediateParser
       -- Binary Integer Register-Immediate Instructions
       , "addi"  ==> ImmBinop32 ADDI  <*> regParser <.> regParser <.> immediateParser       
       , "slti"  ==> ImmBinop32 SLTI  <*> regParser <.> regParser <.> immediateParser      
@@ -412,6 +413,24 @@ parse64I = choiceTry
       , "srlw"  ==> RegBinop64 SRLW <*> regParser <.> regParser <.> regParser
       , "sraw"  ==> RegBinop64 SRAW <*> regParser <.> regParser <.> regParser
       ]
+
+
+
+
+parse32M :: Parsec String st InstrExt32M
+parse32M = choiceTry
+      [ "mul"    ==> MUL    <*> regParser <.> regParser <.> regParser
+      , "mulh"   ==> MULH   <*> regParser <.> regParser <.> regParser
+      , "mulhsu" ==> MULHSU <*> regParser <.> regParser <.> regParser
+      , "mulhu " ==> MULHU  <*> regParser <.> regParser <.> regParser
+      , "div"    ==> DIV    <*> regParser <.> regParser <.> regParser
+      , "divu"   ==> DIVU   <*> regParser <.> regParser <.> regParser
+      , "rem"    ==> REM    <*> regParser <.> regParser <.> regParser
+      , "remu"   ==> REMU   <*> regParser <.> regParser <.> regParser
+      ]
+
+
+
 
 
 
@@ -470,7 +489,7 @@ parsePseudo = choiceTry
       , "ble"    ==> BranchPI BLE  <*> regParser <.> regParser <.> offsetParser
       , "bgtu"   ==> BranchPI BGTU <*> regParser <.> regParser <.> offsetParser
       , "bleu"   ==> BranchPI BLEU <*> regParser <.> regParser <.> offsetParser
-      -- | Alternative Jumps
+      --  Alternative Jumps
       , "j"      ==> JmpImmPI JPseudo     <*> immediateParser
       , "jal"    ==> JmpImmPI JLinkPseudo <*> immediateParser
       , "jr"     ==> JmpRegPI JPseudo     <*> regParser
