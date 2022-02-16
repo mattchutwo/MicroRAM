@@ -114,12 +114,23 @@ riscvParseFile fileName = do
 riscvParser :: String -> String -> Either ParseError [LineOfRiscV]
 riscvParser rvFileName rvFile = catMaybes <$> mapM (parse riscvLnParser rvFileName) (lines rvFile)
 
+-- The Tokens library in Parsec doesn't deal well with end of
+-- lines. Most commands (all the `lexeme` ones) consume "empty" space,
+-- but the end of line is considered empty space and there is no way
+-- to change that. I found it easier to just parse line by line. Since
+-- there are no multi level comments (or anything really) this is ok.
+--
+-- We lose the traceback location of errors, the parser will always
+-- report an error in line 1. Later, with some unwrapping of the error
+-- we can fix that.
+
+
 riscvLnParser :: Parsec String st (Maybe LineOfRiscV)
-riscvLnParser = try labelLnParse
+riscvLnParser = (try labelLnParse
                 <|> try drctvLnParse
                 <|> try instrLnParse
                 <|> try emptyLnParse 
-                <?> "Line of RiscV Assembly"
+                <?> "Line of RiscV Assembly") <* eof
   where
     emptyLnParse,instrLnParse,labelLnParse:: Parsec String st (Maybe LineOfRiscV)
     -- Empty line, possibly with comments and or spaces/tabs, etc.  
@@ -127,10 +138,12 @@ riscvLnParser = try labelLnParse
 
     drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> textParse)
     instrLnParse   = Just . Instruction <$> (tabParse *> instrParser)
-    labelLnParse   = Just . Label       <$> identifier
+    labelLnParse   = Just . Label       <$> identifier <* lexchar ':'
 
     textParse    = many (noneOf ['\n'])
     tabParse     = string "    " <|> string "\t" <?> "alignemnt"
+
+lexchar c = lexeme $ char c
 
 choiceTry :: [ParsecT s u m a] -> ParsecT s u m a
 choiceTry ps           = foldr ((<|>) . try) mzero ps
@@ -324,9 +337,6 @@ infixl 4 <.>
 (<.>) p1 p2 = p1 <* comma <*> p2
 
 
-
-
-
 parse32I :: Parsec String st InstrRV32I
 parse32I = choiceTry
       [
@@ -405,20 +415,20 @@ parsePseudo = choiceTry
       -- Absolute load/store
       , "la"     ==> (AbsolutePI ∘∘ PseudoLA) <*> regParser <.> immediateParser
       , "lla"    ==> (AbsolutePI ∘∘ PseudoLLA) <*> regParser <.> immediateParser
-      , "lb"     ==> (AbsolutePI ∘∘ PseudoLoad MemByte)   <*> regParser <.> immediateParser
-      , "lh"     ==> (AbsolutePI ∘∘ PseudoLoad MemHalf)   <*> regParser <.> immediateParser
-      , "lw"     ==> (AbsolutePI ∘∘ PseudoLoad MemWord)   <*> regParser <.> immediateParser
-      , "ld"     ==> (AbsolutePI ∘∘ PseudoLoad MemDouble) <*> regParser <.> immediateParser
+      , "lb"    ==> (AbsolutePI ∘∘∘ PseudoLoad MemByte)   <*> regParser <.> offsetParser <*> parens regParser
+      , "lh"     ==> (AbsolutePI ∘∘∘ PseudoLoad MemHalf)   <*> regParser <.> offsetParser <*> parens regParser
+      , "lw"     ==> (AbsolutePI ∘∘∘ PseudoLoad MemWord)   <*> regParser <.> offsetParser <*> parens regParser
+      , "ld"     ==> (AbsolutePI ∘∘∘ PseudoLoad MemDouble) <*> regParser <.> offsetParser <*> parens regParser
       , "sb"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte)   <*> regParser <.> immediateParser <.> regParser
       , "sh"     ==> (AbsolutePI ∘∘∘ PseudoStore MemHalf)   <*> regParser <.> immediateParser <.> regParser
       , "sw"     ==> (AbsolutePI ∘∘∘ PseudoStore MemWord)   <*> regParser <.> immediateParser <.> regParser
       , "sd"     ==> (AbsolutePI ∘∘∘ PseudoStore MemDouble) <*> regParser <.> immediateParser <.> regParser
       -- Unary register Pseudoinstructions
-      , "mov"    ==> UnaryPI MOV   <*> regParser <.> regParser
+      , "mv"    ==> UnaryPI MOV   <*> regParser <.> regParser
       , "not"    ==> UnaryPI NOT   <*> regParser <.> regParser
       , "neg"    ==> UnaryPI NEG   <*> regParser <.> regParser
       , "negw"   ==> UnaryPI NEGW  <*> regParser <.> regParser
-      , "SEXTW"  ==> UnaryPI SEXTW <*> regParser <.> regParser
+      , "sext.w"  ==> UnaryPI SEXTW <*> regParser <.> regParser
       -- Conditional Moves
       , "seqz"   ==> CMovPI SEQZ <*> regParser <.> regParser
       , "snez"   ==> CMovPI SNEZ <*> regParser <.> regParser

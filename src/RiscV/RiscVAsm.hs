@@ -567,7 +567,7 @@ instruction.
 -}
 
 data Binop64I
-  =  ADDIW   
+  = ADDIW   
   | SLLIW   
   | SRLIW   
   | SRAIW
@@ -714,7 +714,7 @@ Absolute instructions. The base instructions use pc-relative addressing, so the 
 |                             +----------------------------------------+                                |           |
 | .                           | @addi rd, rd, delta[11:0]            @ |                                |           |
 +-----------------------------+----------------------------------------+--------------------------------+-----------+
-| @l{b|h|w|d} rd, symbol@     | @auipc rd, delta[31 : 12] + delta[11]@ | Load global                    |           |
+| @l{b|h|w|d} rd, symbol(r1)@ | @auipc rd, delta[31 : 12] + delta[11]@ | Load global                    |           |
 |                             +----------------------------------------+                                |           |
 | .                           | @l{b|h|w|d} rd, delta[11:0](rd)      @ |                                |           |
 +-----------------------------+----------------------------------------+--------------------------------+-----------+
@@ -730,12 +730,15 @@ Absolute instructions. The base instructions use pc-relative addressing, so the 
 |                             +----------------------------------------+                                |           |
 |                             | @fs{w|d} rd, delta[11:0](rt)         @ |                                |           |
 +-----------------------------+----------------------------------------+--------------------------------+-----------+
+
+* Note: in the reference, @l{b|h|w|d}@ was only applied to a register and a symbol when it should be applied to a register, and offset and a register @l{b|h|w|d} rd, symbol(r1)@. Perhaps their interpretation of symbol is differetn, but @s{b|h|w|d}@ are correct.
+
 -}
 
 data AbsolutePseudo
   = PseudoLA Reg Imm
   | PseudoLLA Reg Imm
-  | PseudoLoad MemOpKind Reg Imm 
+  | PseudoLoad MemOpKind Reg Imm Reg 
   | PseudoStore MemOpKind Reg Imm Reg
   deriving (Show, Eq, Ord)
 
