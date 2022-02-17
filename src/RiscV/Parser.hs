@@ -738,14 +738,8 @@ directiveCFIParse =
 
 
 
-
-
-_filterDirs :: [LineOfRiscV] -> [Directive]
-_filterDirs instrs = catMaybes $ filterDir <$> instrs
-  where
-    filterDir :: LineOfRiscV -> Maybe Directive
-    filterDir (Directive dir) = Just dir
-    filterDir _ = Nothing
+-- The following functions have been very useful for testing.
+-- Let's keep them while we debug the parser.
 
 _test :: Int -> IO ()
 _test n = do
