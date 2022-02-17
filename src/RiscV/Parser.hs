@@ -24,19 +24,27 @@ import Data.Functor.Identity (Identity)
 riscVLang :: Tokens.GenTokenParser String u Identity
 riscVLang = Tokens.makeTokenParser riscVLangDef
 
-{- | The RiscV Assembly has the follwoing properties:
+{- | The RiscV Assembly calls "Symbols" any identifier. 
 
 * Symbol names begin with a letter or with one of ‘._’. On most
-machines, you can also use $ in symbol names; exceptions are
-noted in Machine Dependencies. Symbol names do not start with a
-digit. An exception to this rule is made for Local Labels, but we
-don't yet support it.
+  machines, you can also use $ in symbol names. Symbol names do not
+  start with a digit. An exception to this rule is made for Local
+  Labels, but we don't yet support it.
 
 * That character may be followed by any string of digits, letters,
-dollar signs (unless otherwise noted for a particular target machine),
-and underscores.  We do not yet support qutoed symbols names by ‘"’ or
-multibyte characters. Although, not documented, symbold can also have
-internal periods "."
+  dollar signs (unless otherwise noted for a particular target
+  machine), and underscores.  We do not yet support qutoed symbols
+  names by ‘"’ or multibyte characters. Although, not documented,
+  symbold can also have internal periods "."
+
+* Symbol names may also be enclosed in double quote " characters. In
+  such cases any characters are allowed, except for the NUL
+  character. If a double quote character is to be included in the
+  symbol name it must be preceded by a backslash \ character. For
+  these quoted characters we can use Tokens.stringLiteral.
+
+From this point on, we will use identifiers, and reserve "symbols" for
+things like "+" or "<$>" as it is common in Haskell.
 
 -}
 riscVLangDef :: Lang.LanguageDef u
@@ -85,12 +93,20 @@ lexchar c = lexeme $ char c
 integerParser :: Parsec String u Integer
 integerParser = Tokens.integer riscVLang
 -- | Lexeme parser symbol s parses string s and skips trailing white space.
+-- Here symbol refers to things like "+" or "<$>"
 symbolParser
   :: String -> Parsec String u String
 symbolParser = Tokens.symbol riscVLang
-identifier
+
+-- | Identifiers are the RiscV names for variables, sections, etc They
+-- can be alphanumeric strings that include "." and "_" or they cna
+-- be arbitrary strings if they are quoted.
+identifier, textParser
   :: Parsec String u String
-identifier = Tokens.identifier riscVLang
+textParser = Tokens.stringLiteral riscVLang
+identifier = Tokens.identifier riscVLang <|>
+             Tokens.stringLiteral riscVLang
+
 whiteSpace :: Parsec String u ()
 whiteSpace = Tokens.whiteSpace riscVLang
 comma :: Parsec String u String
@@ -114,7 +130,9 @@ readFileRV file = do
   contents <- readFile file
   return contents
 
--- | Parse RiscV directly from file
+{- | Parse RiscV directly from file 
+-} 
+
 riscvParseFile :: String -> IO (Either ParseError [LineOfRiscV])
 riscvParseFile fileName = do
   fileContent <- readFileRV fileName
@@ -125,16 +143,25 @@ riscvParseFile fileName = do
 riscvParser :: String -> String -> Either ParseError [LineOfRiscV]
 riscvParser rvFileName rvFile = catMaybes <$> mapM (parse riscvLnParser rvFileName) (lines rvFile)
 
--- The Tokens library in Parsec doesn't deal well with end of
--- lines. Most commands (all the `lexeme` ones) consume "empty" space,
--- but the end of line is considered empty space and there is no way
--- to change that. I found it easier to just parse line by line. Since
--- there are no multi level comments (or anything really) this is ok.
---
--- We lose the traceback location of errors, the parser will always
--- report an error in line 1. Later, with some unwrapping of the error
--- we can fix that.
 
+{- RiscV assembly file contains labels, directives and instructions. We
+   ignore comments and empty lines. Strictly speaking, any statement
+   can begin with a label ([See
+   documentation](https://sourceware.org/binutils/docs/as/Statements.html#Statements))
+   . However, as far as I can tell, Clang always sets labels in
+   separated lines
+
+   The Tokens library in Parsec doesn't deal well with end of
+   lines. Most commands (all the `lexeme` ones) consume "empty" space,
+   but the end of line is considered empty space and there is no way
+   to change that. I found it easier to just parse line by line. Since
+   there are no multi level comments (or anything really) this is ok.
+
+   We lose the traceback location of errors, the parser will always
+   report an error in line 1. Later, with some unwrapping of the error
+   we can fix that.
+
+-}
 
 riscvLnParser :: Parsec String st (Maybe LineOfRiscV)
 riscvLnParser = (try labelLnParse
@@ -505,6 +532,22 @@ parsePseudo = choiceTry
    their bit values will be ORed into the resulting value."
    I'm not sure if that has implications for parsing. Does it?
 
+   For some reason clang emits instructions with the name in quotes
+   and sometimes without the quotes.
+   @@
+	.section	.gcc_except_table,"a",@progbits
+   @@
+
+   or
+
+   @@
+	.section	".note.GNU-stack","",@progbits
+   @@
+
+   The latter is used when the name is not a valid identifier name
+   (e.g. ".note.GNU-stack" is not valid because identifiers can't have
+   dashes "-")
+
 -}
 sectionParser :: Parsec String st Directive
 sectionParser = SECTION
@@ -557,7 +600,7 @@ directiveParse :: Parsec String st Directive
 directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
   choiceTry 
       [ "align"         ==> ALIGN      <*> integer
-      , "file"          ==> FILE       <*> textParse
+      , "file"          ==> FILE       <*> textParser
       -- Symbol tables and visibility
       , "globl"         ==> Visibility GLOBL     <*> identifier
       , "local"         ==> Visibility LOCAL     <*> identifier
@@ -567,15 +610,15 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "protected"     ==> Visibility PROTECTED <*> identifier
       , "comm"          ==> COMM       <*> identifier <.> integer   <.> integer
       , "common"        ==> COMMON     <*> identifier <.> integer   <.> integer
-      , "ident"         ==> IDENT      <*> textParse
+      , "ident"         ==> IDENT      <*> textParser
       , lexeme(lexeme (string "section") >> sectionParser)
       , "size"          ==> SIZE       <*> identifier <.> immediateParser
       , "text"          ==> TEXT   
       , "data"          ==> DATA   
       , "rodata"        ==> RODATA 
       , "bss"           ==> BSS    
-      , "string"        ==> STRING     <*> textParse
-      , "asciz"         ==> ASCIZ      <*> textParse
+      , "string"        ==> STRING     <*> textParser
+      , "asciz"         ==> ASCIZ      <*> textParser
       , "equ"           ==> EQU        <*> identifier <.> (fromInteger <$> integer)
       , "type"          ==> TYPE       <*> identifier <.> typeParser
       , "option"        ==> OPTION     <*> optParser
@@ -622,8 +665,6 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
                   [ ("function", DTFUNCTION)
                   , ("object",   DTOBJECT)
                   ]
-    -- Doesn't admit escaped quotations. Everything insie the two quotations is the text
-    textParse    = char '"' *> many (noneOf ['"']) <* char '"'
     --
     optParser    = parseFromPairs
       [ ("rvc",    RVC    )
@@ -644,6 +685,11 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , ( "Tag_RISCV_priv_spec_minor"    , Tag_RISCV_priv_spec_minor    )
       , ( "Tag_RISCV_priv_spec_revision" , Tag_RISCV_priv_spec_revision )
       ] <|> (Tag_number <$> integer)
+
+-- Doesn't admit escaped quotations. Everything insie the two quotations is the text
+textParse :: Parsec String u String
+textParse    = char '"' *> many (noneOf ['"']) <* char '"'
+    
 
 
 directiveCFIParse :: Parsec String st CFIDirectives

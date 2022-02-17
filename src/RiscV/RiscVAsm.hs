@@ -1,8 +1,11 @@
 module RiscV.RiscVAsm
   ( 
-  -- * Operators
+  -- * Operands
+  -- $operands
+    
   -- ** Immediates
   -- $immediate
+    
     Imm (..)
   , ImmOp (..)
   , Modifier (..)
@@ -11,7 +14,15 @@ module RiscV.RiscVAsm
   -- ** Registers
   , Reg (..)
 
-  -- * Directives
+  
+  -- * Assembler Directives
+  -- ** Sections
+  -- $section
+  , Flag(..)
+  , SectionType(..)
+  , FlagArg
+
+  -- ** Directives
   -- $directives
   , Directive(..)
   , VisibilityDir(..)
@@ -21,9 +32,6 @@ module RiscV.RiscVAsm
   , CFIsectionOpt(..)
   , Opcodes(..)
   , CFIDirectives(..)
-  , Flag(..)
-  , SectionType(..)
-  , FlagArg
   , EmitDir(..)
   
   -- * Risc V Assembly
@@ -124,21 +132,39 @@ instance Arbitrary Modifier where
       , ModTls_ie_pcrel_hi
       , ModTls_gd_pcrel_hi]
 
+{- $operands
+
+   An expression specifies an address or numeric value using
+   operands. Whitespace may precede and/or follow an expression.
+
+   The result of an expression must be an absolute number, or else an
+   offset into a particular section. If an expression is not absolute,
+   and there is not enough information when as sees the expression to
+   know its section, a second pass over the source program might be
+   necessary to interpret the expression—but the second pass is
+   currently not implemented. as aborts with an error message in this
+   situation.
+
+-}
 
 {- $immediate
-   RiscV Assembly accepts some operations on immediates to be
-   resolved at link time. As far as I can tell, these expressions are
-   not well documented. Normally these expressions are small with, at
-   most, a modifier, a binary operation a symbol and a constant:
-   e.g. @%hi(__iob+8)@.
+
+   Immediates are expressions that can be resolved to
+   constatnts after linking
 -}
 
-{- | We allow arbitrary expressions for Immediates, including any number
-   of modifiers and binary operators constants and variables. This is
-   more permissive than most programs I have seen, but sice I haven't
-   found standards for these expressions i chose to do the most
-   general.
+{- | RiscV Assembly accepts some operations. Normally these expressions
+   are small with, at most, a modifier, a binary operation a symbol
+   and a constant: e.g. @%hi(__iob+8)@.
+
+   We will allow arbitrary expressions for Immediates, including any
+   number of modifiers and binary operands constants and
+   variables. This is more permissive than most programs I have seen,
+   but sice I haven't found standards for these expressions, we might
+   as well support all of them
+
 -}
+
 data Imm =
   ImmNumber Word64
   | ImmSymbol String
@@ -151,8 +177,6 @@ data ImmOp =
   | ImmOr
   | ImmAdd
   | ImmMinus
-  --- | ImmMult
-  --- | ImmDiv
   deriving (Show, Eq, Ord)
 
 instance Arbitrary ImmOp where
@@ -165,8 +189,6 @@ instance Arbitrary ImmOp where
     -- , ImmMult
     -- , ImmDiv
     ]
-  
-
 
 instance Arbitrary Imm where
   arbitrary = oneof $ 
@@ -174,9 +196,23 @@ instance Arbitrary Imm where
     , ImmSymbol  <$> arbitrary
     , ImmMod     <$> arbitrary <*> arbitrary
     , ImmBinOp   <$> arbitrary <*> arbitrary <*> arbitrary ]
-  
-{- |
-Registers:
+
+{- $registers
+
+RISC-V has 32 (or 16 in the embedded variant) integer registers. For
+now, we only support the 32 variant, but expect to support the 16
+variant and, perhaps, a variable option soon.
+
+The first integer register is a zero register, and the remainder are
+general-purpose registers. A store to the zero register has no effect,
+and a read always provides 0. Using the zero register as a placeholder
+makes for a simpler instruction set.
+
+Control and status registers exist, but user-mode programs can access
+only those used for performance measurement and floating-point
+management.
+
+Register table:
 
 +----------+------------------------------------+--------+
 | Register |            Description             | Saver  |
@@ -206,6 +242,8 @@ Registers:
 | x28-31   | temporary registers                | Caller |
 +----------+------------------------------------+--------+
 -}
+
+
 data Reg
   = X0   -- ^ hardwired zero     
   | X1   -- ^ return address     
@@ -251,15 +289,16 @@ instance Arbitrary Reg where
 
 {- | Offsets are just a wrapper for `Imm`. However, in RiscV, they are
    used in different contexts and have different sizes. For example,
-   some instructions accept offsets and others immediates. We don't
-   check for the size difference and only enforce the context by using
-   a type synonym.
+   some instructions accept offsets and others immediates, some take
+   one byte, others can take full words. We don't check for the size
+   difference and only enforce the context by using a type synonym.
 -}
 type Offset = Imm
 
 
 
 {- $directives
+
 Assembler directives are directions to the assembler to take some action or change a setting
 
 +--------------+--------------------------------+------------------------------------+
@@ -384,7 +423,6 @@ data Directive
   | CFIDirectives CFIDirectives         -- ^ Control Flow Integrity
   deriving (Show, Eq, Ord)
 
--- | Section names can be identifiers or strings
 
 data AttTag
   = Tag_RISCV_arch
@@ -460,11 +498,39 @@ data Option
   | RELAX | NORELAX
   deriving (Show, Eq, Ord)
 
--- | Use the .section directive to assemble the following code into a
--- section named name.This directive is only supported for targets
--- that actually support arbitrarily named sections; on a.out targets,
--- for example, it is not accepted, even with a standard a.out section
--- name.
+{- $section
+   Roughly, a section is a range of addresses, with no gaps;
+   all data “in” those addresses is treated the same for some
+   particular purpose. For example there may be a “read only” section.
+   
+   The linker @ld@ reads many object files (partial programs) and
+   combines their contents to form a runnable program. When as emits
+   an object file, the partial program is assumed to start at address
+   0. ld assigns the final addresses for the partial program, so that
+   different partial programs do not overlap. This is actually an
+   oversimplification, but it suffices to explain how as uses
+   sections.
+   
+   @ld@ moves blocks of bytes of your program to their run-time
+   addresses. These blocks slide to their run-time addresses as rigid
+   units; their length does not change and neither does the order of
+   bytes within them. Such a rigid unit is called a section. Assigning
+   run-time addresses to sections is called relocation. It includes
+   the task of adjusting mentions of object-file addresses so they
+   refer to the proper run-time addresses. For the H8/300, and for the
+   Renesas / SuperH SH, as pads sections if needed to ensure they end
+   on a word (sixteen bit) boundary.
+   
+   An object file written by as has at least three sections, any of
+   which may be empty. These are named text, data and bss sections.
+
+   Use the .section directive to assemble the following code into a
+   section named name. This directive is only supported for targets
+   that actually support arbitrarily named sections; on a.out targets,
+   for example, it is not accepted, even with a standard a.out section
+   name.
+-}
+
 data Flag
   = Flag_a   -- ^ is allocatable
   | Flag_d   -- ^ is a GNU_MBIND section
@@ -753,6 +819,8 @@ Refrences:
 -}
 
 {- | An RiscV assembly file contains labels, directives and instructions. We ignore comments and empty lines.
+
+Strictly speaking, any statement can begin with a label ( [See documentation](https://sourceware.org/binutils/docs/as/Statements.html#Statements) ) . However, as far as I can tell, Clang always sets labels in separated lines
 
 -}
 data LineOfRiscV =
