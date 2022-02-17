@@ -10,12 +10,12 @@ import RiscV.RiscVAsm
 
 -- import Data.Char (Char)
 import Text.Parsec
-import Text.Parsec.Combinator (sepBy)
+-- import Text.Parsec.Combinator (sepBy, sepBy1)
 import qualified Text.Parsec.Language as Lang 
 import qualified Text.Parsec.Expr as Expr
 import qualified Text.Parsec.Token as Tokens
 import Data.Maybe (catMaybes)
-import Control.Monad (mzero)
+import Control.Monad (mzero, when)
 import Data.Functor.Identity (Identity)
 
 --import Debug.Trace
@@ -36,7 +36,7 @@ don't yet support it.
 dollar signs (unless otherwise noted for a particular target machine),
 and underscores.  We do not yet support qutoed symbols names by ‘"’ or
 multibyte characters. Although, not documented, symbold can also have
-internal periods "." and dashes "-"
+internal periods "."
 
 -}
 riscVLangDef :: Lang.LanguageDef u
@@ -59,7 +59,7 @@ riscVLangDef = Tokens.LanguageDef
   -- letters, dollar signs (unless otherwise noted for a particular
   -- target machine), and underscores.  We do not yet support qutoed
   -- symbols names by ‘"’ or multibyte characters.
-  , Tokens.identLetter = alphaNum <|> oneOf "._$-"
+  , Tokens.identLetter = alphaNum <|> oneOf "._$"
 
   -- No operators in this language
   , Tokens.opStart        = parserFail "Attempt to read an operands"
