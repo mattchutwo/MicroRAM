@@ -578,6 +578,8 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "balign"        ==> BALIGN     <*> integer <.> (return Nothing)
       , "zero"          ==> ZERO       <*> integer
       , "variant_cc"    ==> VARIANT_CC <*> identifier
+      , "sleb128"       ==> SLEB128    <*> numStrParser
+      , "uleb128"       ==> ULEB128    <*> numStrParser
       , "macro"         ==> MACRO      <*> identifier <.> identifier <.> (return [])
       , "endm"          ==> ENDM
 

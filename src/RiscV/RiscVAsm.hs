@@ -325,6 +325,12 @@ Assembler directives are directions to the assembler to take some action or chan
 | .attribute   | tag, vaslue                    | Set the object attribute           |
 |              |                                | tag to value.                      |
 +--------------+--------------------------------+------------------------------------+
+| .sleb128     | expression                     | signed little endian base 128      |
+|              |                                | , DWARF                            |
++--------------+--------------------------------+------------------------------------+
+| .uleb128     | expression                     | unsigned little endian             |
+|              |                                | base 128, DWARF                    |
++--------------+--------------------------------+------------------------------------+
 
 The following directives are not yet supported: @byte@, @2byte@,
 @half@, @short@, @4byte@, @word@, @long@, @8byte@, @dword@, @quad@,
@@ -359,6 +365,8 @@ data Directive
   | BALIGN      Integer (Maybe Integer) -- ^ Byte align
   | ZERO        Integer                 -- ^ Zero bytes
   | VARIANT_CC  String                  -- ^ Annotate the symbol with variant calling convention
+  | SLEB128     (Either Integer String) -- ^ signed little endian base 128, DWARF
+  | ULEB128     (Either Integer String) -- ^ unsigned little endian base 128, DWARF
   | MACRO       String String [String]  -- ^ Begin macro definition \argname to substitute
   | ENDM                                -- ^ End macro definition
   | ATTRIBUTE   AttTag  (Either Integer String) 
@@ -664,12 +672,6 @@ data CFIDirectives =
 | .dtprelword  | expression [, expression]*     | 32-bit thread local word           |
 +--------------+--------------------------------+------------------------------------+
 | .dtpreldword | expression [, expression]*     | 64-bit thread local word           |
-+--------------+--------------------------------+------------------------------------+
-| .sleb128     | expression                     | signed little endian base 128      |
-|              |                                | , DWARF                            |
-+--------------+--------------------------------+------------------------------------+
-| .uleb128     | expression                     | unsigned little endian             |
-|              |                                | base 128, DWARF                    |
 +--------------+--------------------------------+------------------------------------+
 
 
