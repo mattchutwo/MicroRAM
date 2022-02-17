@@ -1257,15 +1257,19 @@ data InstrExt64M
 
 {- $pseudo
 
-The tables show most the pseudoinstructions documented in the Instruction Set Manual, and marks the ones we support. 
-We do not yet support pseudoinstructions for control and status
-register (CSR) or single-precision operations over floats
+The tables show most the pseudoinstructions documented in the
+Instruction Set Manual, and marks the ones we support.  We do not yet
+support pseudoinstructions for control and status register (CSR) or
+single-precision operations over floats
 
 -}
 
 {- |
 
-Absolute instructions. The base instructions use pc-relative addressing, so the linker subtracts pc from symbol to get delta. The linker adds delta[11] to the 20-bit high part, counteracting sign extension of the 12-bit low part.
+Absolute instructions. The base instructions use pc-relative
+addressing, so the linker subtracts pc from symbol to get delta. The
+linker adds delta[11] to the 20-bit high part, counteracting sign
+extension of the 12-bit low part.
 
 +-----------------------------+----------------------------------------+--------------------------------+-----------+
 |      pseudoinstruction      |           Base Instruction(s)          |             Meaning            | Supported |
