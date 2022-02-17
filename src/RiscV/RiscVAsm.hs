@@ -14,6 +14,8 @@ module RiscV.RiscVAsm
   -- * Directives
   -- $directives
   , Directive(..)
+  , VisibilityDir(..)
+  , DirTypes(..)
   , Option(..)
   , AttTag(..)
   , CFIsectionOpt(..)
@@ -268,12 +270,6 @@ Assembler directives are directions to the assembler to take some action or chan
 | .file        | filename                       | emit filename FILE                 |
 |              |                                | LOCAL symbol table                 |
 +--------------+--------------------------------+------------------------------------+
-| .globl       | symbol_name                    | emit symbol_name to symbol         |
-|              |                                | table (scope GLOBAL)               |
-+--------------+--------------------------------+------------------------------------+
-| .local       | symbol_name                    | emit symbol_name to symbol         |
-|              |                                | table (scope LOCAL)                |
-+--------------+--------------------------------+------------------------------------+
 | .comm        | symbol_name,size,align         | emit common object to .bss section |
 +--------------+--------------------------------+------------------------------------+
 | .common      | symbol_name,size,align         | emit common object to .bss section |
@@ -284,7 +280,7 @@ Assembler directives are directions to the assembler to take some action or chan
 |              |                                | default .text) and make current    |
 |              |                                |(format specific to ELF Version)    |
 +--------------+--------------------------------+------------------------------------+
-| .size        | symbol, symbol                 | accepted for source compatibility  |
+| .size        | symbol, expression             | accepted for source compatibility  |
 +--------------+--------------------------------+------------------------------------+
 | .text        |                                | emit .text section (if not         |
 |              |                                | present) and make current          |
@@ -332,27 +328,30 @@ Assembler directives are directions to the assembler to take some action or chan
 |              |                                | base 128, DWARF                    |
 +--------------+--------------------------------+------------------------------------+
 
-The following directives are not yet supported: @byte@, @2byte@,
-@half@, @short@, @4byte@, @word@, @long@, @8byte@, @dword@, @quad@,
-@dtprelword@, @dtpreldword@, @sleb128@, and @uleb128@.
-
 -}
 
 {- |
 
-The directive @type@ is always followed by "@function" and there are
-no other types, so it is omitted here.
+The directive @type@ is always followed by "@function" or "@object"
 
 -}
+
+data DirTypes
+  = DTFUNCTION
+  | DTOBJECT
+  deriving (Show, Eq, Ord)
+
+
+
+
 data Directive
   = ALIGN       Integer                 -- ^ Align to power of 2 (alias for .p2align)
   | FILE        String                  -- ^ Emit filename FILE LOCAL symbol table
-  | GLOBL       String                  -- ^ Emit symbol_name to symbol table (scope GLOBAL)
-  | LOCAL       String                  -- ^ Emit symbol_name to symbol table (scope LOCAL)
+  | Visibility  VisibilityDir String    -- ^ Emit symbol_name to symbol table or overrides it's visibility
   | COMM        String Integer Integer  -- ^ Emit common object to .bss section
   | COMMON      String Integer Integer  -- ^ Emit common object to .bss section
   | IDENT       String                  -- ^ Accepted for source compatibility
-  | SIZE        String String           -- ^ Accepted for source compatibility
+  | SIZE        String Imm              -- ^ Accepted for source compatibility
   | TEXT                                -- ^ Emit .text section (if not present) and make current
   | DATA                                -- ^ Emit .data section (if not present) and make current
   | RODATA                              -- ^ Emit .rodata section (if not present) and make current
@@ -393,6 +392,41 @@ data AttTag
   | Tag_number Integer
   deriving (Show, Eq, Ord)
 
+
+{- | Visibility directives
+
++--------------+--------------------------------+------------------------------------+
+| Directive    | Arguments                      | Description                        |
++==============+================================+====================================+
+| .globl       | symbol_name                    | emit symbol_name to symbol         |
+|              |                                | table (scope GLOBAL)               |
++--------------+--------------------------------+------------------------------------+
+| .local       | symbol_name                    | emit symbol_name to symbol         |
+|              |                                | table (scope LOCAL)                |
++--------------+--------------------------------+------------------------------------+
+| .weak        | symbol_name                    | emit symbol_name to symbol         |
+|              |                                | table (visibility WEAK)            |
++--------------+--------------------------------+------------------------------------+
+| .hidden      | symbol_name                    | This directive overrides the       |
+|              |                                | named symbols default visibility   |
++--------------+--------------------------------+------------------------------------+
+| .internal    | symbol_name                    | This directive overrides the       |
+|              |                                | named symbols default visibility   |
++--------------+--------------------------------+------------------------------------+
+| .protected   | symbol_name                    | This directive overrides the       |
+|              |                                | named symbols default visibility   |
++--------------+--------------------------------+------------------------------------+
+
+-}
+
+data VisibilityDir
+  = GLOBL    
+  | LOCAL    
+  | WEAK     
+  | HIDDEN   
+  | INTERNAL 
+  | PROTECTED
+ deriving (Show, Eq, Ord)
 
 
 -- | Modifies RISC-V specific assembler options inline with the
@@ -643,8 +677,7 @@ data CFIDirectives =
 
 
 
-{- Unsuported directives
-
+{- | Emits a value at the current position.
 
 +--------------+--------------------------------+------------------------------------+
 | Directive    | Arguments                      | Description                        |

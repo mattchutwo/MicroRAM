@@ -558,13 +558,18 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
   choiceTry 
       [ "align"         ==> ALIGN      <*> integer
       , "file"          ==> FILE       <*> textParse
-      , "globl"         ==> GLOBL      <*> identifier
-      , "local"         ==> LOCAL      <*> textParse
-      , "comm"          ==> COMM       <*> textParse <.> integer   <.> integer
-      , "common"        ==> COMMON     <*> textParse <.> integer   <.> integer
+      -- Symbol tables and visibility
+      , "globl"         ==> Visibility GLOBL     <*> identifier
+      , "local"         ==> Visibility LOCAL     <*> identifier
+      , "weak"          ==> Visibility WEAK      <*> identifier
+      , "hidden"        ==> Visibility HIDDEN    <*> identifier
+      , "internal"      ==> Visibility INTERNAL  <*> identifier
+      , "protected"     ==> Visibility PROTECTED <*> identifier
+      , "comm"          ==> COMM       <*> identifier <.> integer   <.> integer
+      , "common"        ==> COMMON     <*> identifier <.> integer   <.> integer
       , "ident"         ==> IDENT      <*> textParse
       , lexeme(lexeme (string "section") >> sectionParser)
-      , "size"          ==> SIZE       <*> identifier <.> identifier
+      , "size"          ==> SIZE       <*> identifier <.> immediateParser
       , "text"          ==> TEXT   
       , "data"          ==> DATA   
       , "rodata"        ==> RODATA 
