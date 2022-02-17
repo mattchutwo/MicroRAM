@@ -577,14 +577,14 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "string"        ==> STRING     <*> textParse
       , "asciz"         ==> ASCIZ      <*> textParse
       , "equ"           ==> EQU        <*> identifier <.> (fromInteger <$> integer)
-      , "type"          ==> TYPE       <*> identifier <* comma <* string "@function"
+      , "type"          ==> TYPE       <*> identifier <.> typeParser
       , "option"        ==> OPTION     <*> optParser
       , "balign"        ==> BALIGN     <*> integer <.> (Just <$> integer)
       , "balign"        ==> BALIGN     <*> integer <.> (return Nothing)
       , "zero"          ==> ZERO       <*> integer
       , "variant_cc"    ==> VARIANT_CC <*> identifier
-      , "sleb128"       ==> SLEB128    <*> numStrParser
-      , "uleb128"       ==> ULEB128    <*> numStrParser
+      , "sleb128"       ==> SLEB128    <*> immediateParser
+      , "uleb128"       ==> ULEB128    <*> immediateParser
       , "macro"         ==> MACRO      <*> identifier <.> identifier <.> (return [])
       , "endm"          ==> ENDM
 
@@ -595,9 +595,33 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "p2align"       ==> P2ALIGN    <*> integer    <.> (return Nothing)   <.> (Just <$> integer)
       , "p2align"       ==> P2ALIGN    <*> integer    <.> (Just <$> integer) <*> (return Nothing)
       , "p2align"       ==> P2ALIGN    <*> integer    <*> (return Nothing)   <*> (return Nothing)
+      
+      -- Emit
+      , "byte"              ==> DirEmit BYTE        <*> immList
+      , "byte2"             ==> DirEmit BYTE2       <*> immList
+      , "half"              ==> DirEmit HALF        <*> immList
+      , "short"             ==> DirEmit SHORT       <*> immList
+      , "byte4"             ==> DirEmit BYTE4       <*> immList
+      , "word"              ==> DirEmit WORD        <*> immList
+      , "long"              ==> DirEmit LONG        <*> immList
+      , "byte8"             ==> DirEmit BYTE8       <*> immList
+      , "dword"             ==> DirEmit DWORD       <*> immList
+      , "quad"              ==> DirEmit QUAD        <*> immList
+      , "dtprelword"        ==> DirEmit DTPRELWORD  <*> immList
+      , "dtpreldword"       ==> DirEmit DTPRELDWORD <*> immList
       ]
   where
-    
+    -- Parses a non-empty list of comma separated immediates
+    immList :: Parsec String st [Imm]
+    immList = immediateParser `sepBy1` comma
+  
+    -- Types are @function and @object
+    typeParser :: Parsec String st DirTypes
+    typeParser  = lexeme $ char '@' *>
+                  parseFromPairs
+                  [ ("function", DTFUNCTION)
+                  , ("object",   DTOBJECT)
+                  ]
     -- Doesn't admit escaped quotations. Everything insie the two quotations is the text
     textParse    = char '"' *> many (noneOf ['"']) <* char '"'
     --
@@ -656,8 +680,8 @@ directiveCFIParse =
     encodingParser :: Num n =>  Parsec String st (Either n String)
     encodingParser = numStrParser
                      
-    opcodesParser :: Parsec String st [Opcodes]
-    opcodesParser  = pure [OCNotSupported]
+    --opcodesParser :: Parsec String st [Opcodes]
+    --opcodesParser  = pure [OCNotSupported]
 
     scfiSecOptParse :: Parsec String st CFIsectionOpt
     scfiSecOptParse =
@@ -672,40 +696,38 @@ directiveCFIParse =
 
 
 
-
-
-
-
-
-
-
-
-filterDirs :: [LineOfRiscV] -> [Directive]
-filterDirs instrs = catMaybes $ filterDir <$> instrs
+_filterDirs :: [LineOfRiscV] -> [Directive]
+_filterDirs instrs = catMaybes $ filterDir <$> instrs
   where
     filterDir :: LineOfRiscV -> Maybe Directive
     filterDir (Directive dir) = Just dir
     filterDir _ = Nothing
 
-test = do
+_test :: Int -> IO ()
+_test n = do
   code <- readFileRV "src/RiscV/grit-rv64-20211105.s"
-  let codeLns = lines code
+  let codeLns = if n>0 then
+                  take n $ lines code
+                else
+                  lines code
   let enumLn = zip codeLns [1..]
-  mapUntilM testLn $ enumLn
+  _mapUntilM testLn $ enumLn
   where
     testLn :: (String, Int) -> IO Bool
     testLn (ln, lnN) = do
       case parse riscvLnParser "" $ ln of
-        Right _ -> return True
+        Right (Just e) -> do
+          when (n>0) $ putStrLn $ show lnN <> ". " <> show e
+          return True
+        Right Nothing -> return True
         Left e  -> do
           putStrLn $ "Line number " <> show lnN <> " : " <> show e
           return False
 
-mapUntilM :: (Monad m) => (a -> m Bool) -> [a] -> m ()
-mapUntilM f ls =
+_mapUntilM :: (Monad m) => (a -> m Bool) -> [a] -> m ()
+_mapUntilM f ls =
   case ls of
     [] -> return ()
     x:ls' -> do
       result <- f x
-      if result then mapUntilM f ls' else return ()
-      
+      if result then _mapUntilM f ls' else return ()

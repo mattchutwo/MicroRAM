@@ -24,6 +24,7 @@ module RiscV.RiscVAsm
   , Flag(..)
   , SectionType(..)
   , FlagArg
+  , EmitDir(..)
   
   -- * Risc V Assembly
   -- $instr
@@ -359,13 +360,13 @@ data Directive
   | STRING      String                  -- ^ Emit string
   | ASCIZ       String                  -- ^ Emit string (alias for .string)
   | EQU         String Word             -- ^ Constant definition
-  | TYPE        String                  -- ^ Accepted for source compatibility
+  | TYPE        String DirTypes         -- ^ Accepted for source compatibility
   | OPTION      Option                  -- ^ RISC-V options
   | BALIGN      Integer (Maybe Integer) -- ^ Byte align
   | ZERO        Integer                 -- ^ Zero bytes
   | VARIANT_CC  String                  -- ^ Annotate the symbol with variant calling convention
-  | SLEB128     (Either Integer String) -- ^ signed little endian base 128, DWARF
-  | ULEB128     (Either Integer String) -- ^ unsigned little endian base 128, DWARF
+  | SLEB128     Imm                     -- ^ signed little endian base 128, DWARF
+  | ULEB128     Imm                     -- ^ unsigned little endian base 128, DWARF
   | MACRO       String String [String]  -- ^ Begin macro definition \argname to substitute
   | ENDM                                -- ^ End macro definition
   | ATTRIBUTE   AttTag  (Either Integer String) 
@@ -378,9 +379,12 @@ data Directive
     String
     [Flag]
     (Maybe SectionType)
-    [FlagArg]           
+    [FlagArg]
+  | DirEmit EmitDir [Imm]               -- ^ Emits a value at the current position
   | CFIDirectives CFIDirectives         -- ^ Control Flow Integrity
   deriving (Show, Eq, Ord)
+
+-- | Section names can be identifiers or strings
 
 data AttTag
   = Tag_RISCV_arch
@@ -707,24 +711,24 @@ data CFIDirectives =
 | .dtpreldword | expression [, expression]*     | 64-bit thread local word           |
 +--------------+--------------------------------+------------------------------------+
 
+-}
 
-date UnsuportedDirectives =
-  | BYTE        Expr [Expr]                 8-bit comma separated words
-  | 2BYTE       Expr [Expr]                 16-bit comma separated words
-  | HALF        Expr [Expr]                 16-bit comma separated words
-  | SHORT       Expr [Expr]                 16-bit comma separated words
-  | 4BYTE       Expr [Expr]                 32-bit comma separated words
-  | WORD        Expr [Expr]                 32-bit comma separated words
-  | LONG        Expr [Expr]                 32-bit comma separated words
-  | 8BYTE       Expr [Expr]                 64-bit comma separated words
-  | DWORD       Expr [Expr]                 64-bit comma separated words
-  | QUAD        Expr [Expr]                 64-bit comma separated words
-  | DTPRELWORD  Expr [Expr]                 32-bit thread local word
-  | DTPRELDWORD Expr [Expr]                 64-bit thread local word
-  | SLEB128     Expr                        signed little endian base 128, DWARF
-  | ULEB128     Expr                        unsigned little endian base 128, DWARF
+data EmitDir
+  = BYTE        -- ^  8-bit comma separated words
+  | BYTE2       -- ^  16-bit comma separated words
+  | HALF        -- ^  16-bit comma separated words
+  | SHORT       -- ^  16-bit comma separated words
+  | BYTE4       -- ^  32-bit comma separated words
+  | WORD        -- ^  32-bit comma separated words
+  | LONG        -- ^  32-bit comma separated words
+  | BYTE8       -- ^  64-bit comma separated words
+  | DWORD       -- ^  64-bit comma separated words
+  | QUAD        -- ^  64-bit comma separated words
+  | DTPRELWORD  -- ^  32-bit thread local word
+  | DTPRELDWORD -- ^  64-bit thread local word
+  deriving (Show, Eq, Ord)
 
--}    
+    
 
 
 
