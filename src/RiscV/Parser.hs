@@ -121,9 +121,7 @@ numStrParser :: Num n =>  Parsec String st (Either n String)
 numStrParser = try (Right  <$>     identifier)
                      <|> try (Left   <$> numParser)
                      <?> "encoding"
-    
-
-
+               
 -- | Read file
 readFileRV :: FilePath -> IO String
 readFileRV file = do
@@ -331,57 +329,57 @@ infixl 9 ==>
 label ==> x = lexeme (string label *> pure x)
 
 {- Would be better if I could use `<,>` but Haskell won't let me use commas! -}
-infixl 4 <.>
-(<.>) :: forall st a b. Parsec String st (a -> b) -> Parsec String st a -> Parsec String st b
-(<.>) p1 p2 = p1 <* comma <*> p2
+infixl 4 <:>
+(<:>) :: forall st a b. Parsec String st (a -> b) -> Parsec String st a -> Parsec String st b
+(<:>) p1 p2 = p1 <* comma <*> p2
 
 
 parse32I :: Parsec String st InstrRV32I
 parse32I = choiceTry
       [
         -- Jump instructions
-        "jal"    ==> JAL    <*> regParser <.> offsetParser
-      , "jalr"   ==> JALR   <*> regParser <.> regParser <.> offsetParser
+        "jal"    ==> JAL    <*> regParser <:> offsetParser
+      , "jalr"   ==> JALR   <*> regParser <:> regParser <:> offsetParser
         -- Branch instructions @br r1, r2, offset@
-      , "beq"  ==> BranchInstr BEQ  <*> regParser <.> regParser <.> offsetParser
-      , "bne"  ==> BranchInstr BNE  <*> regParser <.> regParser <.> offsetParser
-      , "blt"  ==> BranchInstr BLT  <*> regParser <.> regParser <.> offsetParser
-      , "bge"  ==> BranchInstr BGE  <*> regParser <.> regParser <.> offsetParser
-      , "bltu" ==> BranchInstr BLTU <*> regParser <.> regParser <.> offsetParser
-      , "bgeu" ==> BranchInstr BGEU <*> regParser <.> regParser <.> offsetParser
+      , "beq"  ==> BranchInstr BEQ  <*> regParser <:> regParser <:> offsetParser
+      , "bne"  ==> BranchInstr BNE  <*> regParser <:> regParser <:> offsetParser
+      , "blt"  ==> BranchInstr BLT  <*> regParser <:> regParser <:> offsetParser
+      , "bge"  ==> BranchInstr BGE  <*> regParser <:> regParser <:> offsetParser
+      , "bltu" ==> BranchInstr BLTU <*> regParser <:> regParser <:> offsetParser
+      , "bgeu" ==> BranchInstr BGEU <*> regParser <:> regParser <:> offsetParser
       -- Memory instructions @memop r1, offset(r2)@
-      , "lb"   ==> MemInstr32 LB  <*> regParser <.> offsetParser <*> parens regParser
-      , "lh"   ==> MemInstr32 LH  <*> regParser <.> offsetParser <*> parens regParser
-      , "lw"   ==> MemInstr32 LW  <*> regParser <.> offsetParser <*> parens regParser
-      , "lbu"  ==> MemInstr32 LBU <*> regParser <.> offsetParser <*> parens regParser
-      , "lhu"  ==> MemInstr32 LHU <*> regParser <.> offsetParser <*> parens regParser
-      , "sb"   ==> MemInstr32 SB  <*> regParser <.> offsetParser <*> parens regParser
-      , "sh"   ==> MemInstr32 SH  <*> regParser <.> offsetParser <*> parens regParser
-      , "sw"   ==> MemInstr32 SW  <*> regParser <.> offsetParser <*> parens regParser
+      , "lb"   ==> MemInstr32 LB  <*> regParser <:> offsetParser <*> parens regParser
+      , "lh"   ==> MemInstr32 LH  <*> regParser <:> offsetParser <*> parens regParser
+      , "lw"   ==> MemInstr32 LW  <*> regParser <:> offsetParser <*> parens regParser
+      , "lbu"  ==> MemInstr32 LBU <*> regParser <:> offsetParser <*> parens regParser
+      , "lhu"  ==> MemInstr32 LHU <*> regParser <:> offsetParser <*> parens regParser
+      , "sb"   ==> MemInstr32 SB  <*> regParser <:> offsetParser <*> parens regParser
+      , "sh"   ==> MemInstr32 SH  <*> regParser <:> offsetParser <*> parens regParser
+      , "sw"   ==> MemInstr32 SW  <*> regParser <:> offsetParser <*> parens regParser
       -- unary instructions
-      , "lui"   ==> LUI    <*> regParser <.> immediateParser
-      , "auipc" ==> AUIPC  <*> regParser <.> immediateParser
+      , "lui"   ==> LUI    <*> regParser <:> immediateParser
+      , "auipc" ==> AUIPC  <*> regParser <:> immediateParser
       -- Binary Integer Register-Immediate Instructions
-      , "addi"  ==> ImmBinop32 ADDI  <*> regParser <.> regParser <.> immediateParser       
-      , "slti"  ==> ImmBinop32 SLTI  <*> regParser <.> regParser <.> immediateParser      
-      , "sltiu" ==> ImmBinop32 SLTIU <*> regParser <.> regParser <.> immediateParser      
-      , "xori"  ==> ImmBinop32 XORI  <*> regParser <.> regParser <.> immediateParser      
-      , "ori"   ==> ImmBinop32 ORI   <*> regParser <.> regParser <.> immediateParser      
-      , "andi"  ==> ImmBinop32 ANDI  <*> regParser <.> regParser <.> immediateParser      
-      , "slli"  ==> ImmBinop32 SLLI  <*> regParser <.> regParser <.> immediateParser      
-      , "srli"  ==> ImmBinop32 SRLI  <*> regParser <.> regParser <.> immediateParser      
-      , "srai"  ==> ImmBinop32 SRAI  <*> regParser <.> regParser <.> immediateParser      
+      , "addi"  ==> ImmBinop32 ADDI  <*> regParser <:> regParser <:> immediateParser       
+      , "slti"  ==> ImmBinop32 SLTI  <*> regParser <:> regParser <:> immediateParser      
+      , "sltiu" ==> ImmBinop32 SLTIU <*> regParser <:> regParser <:> immediateParser      
+      , "xori"  ==> ImmBinop32 XORI  <*> regParser <:> regParser <:> immediateParser      
+      , "ori"   ==> ImmBinop32 ORI   <*> regParser <:> regParser <:> immediateParser      
+      , "andi"  ==> ImmBinop32 ANDI  <*> regParser <:> regParser <:> immediateParser      
+      , "slli"  ==> ImmBinop32 SLLI  <*> regParser <:> regParser <:> immediateParser      
+      , "srli"  ==> ImmBinop32 SRLI  <*> regParser <:> regParser <:> immediateParser      
+      , "srai"  ==> ImmBinop32 SRAI  <*> regParser <:> regParser <:> immediateParser      
       -- Integer Register-Register Instructions
-      , "add"   ==> RegBinop32 ADD  <*> regParser <.> regParser <.> regParser
-      , "sub"   ==> RegBinop32 SUB  <*> regParser <.> regParser <.> regParser
-      , "sll"   ==> RegBinop32 SLL  <*> regParser <.> regParser <.> regParser
-      , "slt"   ==> RegBinop32 SLT  <*> regParser <.> regParser <.> regParser
-      , "sltu"  ==> RegBinop32 SLTU <*> regParser <.> regParser <.> regParser
-      , "xor"   ==> RegBinop32 XOR  <*> regParser <.> regParser <.> regParser
-      , "srl"   ==> RegBinop32 SRL  <*> regParser <.> regParser <.> regParser
-      , "sra"   ==> RegBinop32 SRA  <*> regParser <.> regParser <.> regParser
-      , "or"    ==> RegBinop32 OR   <*> regParser <.> regParser <.> regParser
-      , "and"   ==> RegBinop32 AND  <*> regParser <.> regParser <.> regParser
+      , "add"   ==> RegBinop32 ADD  <*> regParser <:> regParser <:> regParser
+      , "sub"   ==> RegBinop32 SUB  <*> regParser <:> regParser <:> regParser
+      , "sll"   ==> RegBinop32 SLL  <*> regParser <:> regParser <:> regParser
+      , "slt"   ==> RegBinop32 SLT  <*> regParser <:> regParser <:> regParser
+      , "sltu"  ==> RegBinop32 SLTU <*> regParser <:> regParser <:> regParser
+      , "xor"   ==> RegBinop32 XOR  <*> regParser <:> regParser <:> regParser
+      , "srl"   ==> RegBinop32 SRL  <*> regParser <:> regParser <:> regParser
+      , "sra"   ==> RegBinop32 SRA  <*> regParser <:> regParser <:> regParser
+      , "or"    ==> RegBinop32 OR   <*> regParser <:> regParser <:> regParser
+      , "and"   ==> RegBinop32 AND  <*> regParser <:> regParser <:> regParser
       -- fence instructions
       , "fance"    ==> FENCE    <*> orderingParser
       , "fence.i"  ==> FENCEI ]
@@ -395,20 +393,20 @@ parse64I :: Parsec String st InstrRV64I
 parse64I = choiceTry
       [
         -- Mem instructions
-        "lwu"    ==> MemInstr64 LWU <*> regParser <.> offsetParser <*> parens regParser
-      , "ld"     ==> MemInstr64 LD  <*> regParser <.> offsetParser <*> parens regParser
-      , "sd"     ==> MemInstr64 SD  <*> regParser <.> offsetParser <*> parens regParser
+        "lwu"    ==> MemInstr64 LWU <*> regParser <:> offsetParser <*> parens regParser
+      , "ld"     ==> MemInstr64 LD  <*> regParser <:> offsetParser <*> parens regParser
+      , "sd"     ==> MemInstr64 SD  <*> regParser <:> offsetParser <*> parens regParser
         -- Integer Register-Immediate Instructions 
-      , "addiw"  ==> ImmBinop64 ADDIW <*> regParser <.> regParser <.> immediateParser
-      , "slliw"  ==> ImmBinop64 SLLIW <*> regParser <.> regParser <.> immediateParser
-      , "srliw"  ==> ImmBinop64 SRLIW <*> regParser <.> regParser <.> immediateParser
-      , "sraiw"  ==> ImmBinop64 SRAIW <*> regParser <.> regParser <.> immediateParser
+      , "addiw"  ==> ImmBinop64 ADDIW <*> regParser <:> regParser <:> immediateParser
+      , "slliw"  ==> ImmBinop64 SLLIW <*> regParser <:> regParser <:> immediateParser
+      , "srliw"  ==> ImmBinop64 SRLIW <*> regParser <:> regParser <:> immediateParser
+      , "sraiw"  ==> ImmBinop64 SRAIW <*> regParser <:> regParser <:> immediateParser
       -- Integer Register-Register Instructions
-      , "addw"  ==> RegBinop64 ADDW <*> regParser <.> regParser <.> regParser
-      , "subw"  ==> RegBinop64 SUBW <*> regParser <.> regParser <.> regParser
-      , "sllw"  ==> RegBinop64 SLLW <*> regParser <.> regParser <.> regParser
-      , "srlw"  ==> RegBinop64 SRLW <*> regParser <.> regParser <.> regParser
-      , "sraw"  ==> RegBinop64 SRAW <*> regParser <.> regParser <.> regParser
+      , "addw"  ==> RegBinop64 ADDW <*> regParser <:> regParser <:> regParser
+      , "subw"  ==> RegBinop64 SUBW <*> regParser <:> regParser <:> regParser
+      , "sllw"  ==> RegBinop64 SLLW <*> regParser <:> regParser <:> regParser
+      , "srlw"  ==> RegBinop64 SRLW <*> regParser <:> regParser <:> regParser
+      , "sraw"  ==> RegBinop64 SRAW <*> regParser <:> regParser <:> regParser
       ]
 
 
@@ -416,14 +414,14 @@ parse64I = choiceTry
 
 parse32M :: Parsec String st InstrExt32M
 parse32M = choiceTry
-      [ "mul"    ==> MUL    <*> regParser <.> regParser <.> regParser
-      , "mulh"   ==> MULH   <*> regParser <.> regParser <.> regParser
-      , "mulhsu" ==> MULHSU <*> regParser <.> regParser <.> regParser
-      , "mulhu " ==> MULHU  <*> regParser <.> regParser <.> regParser
-      , "div"    ==> DIV    <*> regParser <.> regParser <.> regParser
-      , "divu"   ==> DIVU   <*> regParser <.> regParser <.> regParser
-      , "rem"    ==> REM    <*> regParser <.> regParser <.> regParser
-      , "remu"   ==> REMU   <*> regParser <.> regParser <.> regParser
+      [ "mul"    ==> MUL    <*> regParser <:> regParser <:> regParser
+      , "mulh"   ==> MULH   <*> regParser <:> regParser <:> regParser
+      , "mulhsu" ==> MULHSU <*> regParser <:> regParser <:> regParser
+      , "mulhu " ==> MULHU  <*> regParser <:> regParser <:> regParser
+      , "div"    ==> DIV    <*> regParser <:> regParser <:> regParser
+      , "divu"   ==> DIVU   <*> regParser <:> regParser <:> regParser
+      , "rem"    ==> REM    <*> regParser <:> regParser <:> regParser
+      , "remu"   ==> REMU   <*> regParser <:> regParser <:> regParser
       ]
 
 
@@ -433,11 +431,11 @@ parse32M = choiceTry
 
 parse64M :: Parsec String st InstrExt64M
 parse64M = choiceTry
-      [ "mulw"  ==> MULW  <*> regParser <.> regParser <.> regParser
-      , "divw"  ==> DIVW  <*> regParser <.> regParser <.> regParser
-      , "divuw" ==> DIVUW <*> regParser <.> regParser <.> regParser
-      , "remw"  ==> REMW  <*> regParser <.> regParser <.> regParser
-      , "remuw" ==> REMUW <*> regParser <.> regParser <.> regParser
+      [ "mulw"  ==> MULW  <*> regParser <:> regParser <:> regParser
+      , "divw"  ==> DIVW  <*> regParser <:> regParser <:> regParser
+      , "divuw" ==> DIVUW <*> regParser <:> regParser <:> regParser
+      , "remw"  ==> REMW  <*> regParser <:> regParser <:> regParser
+      , "remuw" ==> REMUW <*> regParser <:> regParser <:> regParser
       ]
 
 
@@ -465,49 +463,49 @@ parsePseudo = choiceTry
       [ 
       -- Function call/return instructions
        "ret"    ==> RetPI
-      , "call"   ==> CallPI <*> (Just <$> regParser) <.> immediateParser
+      , "call"   ==> CallPI <*> (Just <$> regParser) <:> immediateParser
       , "call"   ==> CallPI     Nothing              <*> offsetParser
       , "tail"   ==> TailPI <*> offsetParser
       -- Total Fence
       , "fence"  ==> FencePI
       -- Unary immediate
-      , "li"     ==> LiPI <*> regParser <.> immediateParser
+      , "li"     ==> LiPI <*> regParser <:> immediateParser
       -- nop
       , "nop"    ==> NopPI
       -- Absolute load/store
-      , "la"     ==> (AbsolutePI ∘∘ PseudoLA) <*> regParser <.> immediateParser
-      , "lla"    ==> (AbsolutePI ∘∘ PseudoLLA) <*> regParser <.> immediateParser
-      , "lb"    ==> (AbsolutePI ∘∘∘ PseudoLoad MemByte)   <*> regParser <.> offsetParser <*> parens regParser
-      , "lh"     ==> (AbsolutePI ∘∘∘ PseudoLoad MemHalf)   <*> regParser <.> offsetParser <*> parens regParser
-      , "lw"     ==> (AbsolutePI ∘∘∘ PseudoLoad MemWord)   <*> regParser <.> offsetParser <*> parens regParser
-      , "ld"     ==> (AbsolutePI ∘∘∘ PseudoLoad MemDouble) <*> regParser <.> offsetParser <*> parens regParser
-      , "sb"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte)   <*> regParser <.> immediateParser <.> regParser
-      , "sh"     ==> (AbsolutePI ∘∘∘ PseudoStore MemHalf)   <*> regParser <.> immediateParser <.> regParser
-      , "sw"     ==> (AbsolutePI ∘∘∘ PseudoStore MemWord)   <*> regParser <.> immediateParser <.> regParser
-      , "sd"     ==> (AbsolutePI ∘∘∘ PseudoStore MemDouble) <*> regParser <.> immediateParser <.> regParser
+      , "la"     ==> (AbsolutePI ∘∘ PseudoLA) <*> regParser <:> immediateParser
+      , "lla"    ==> (AbsolutePI ∘∘ PseudoLLA) <*> regParser <:> immediateParser
+      , "lb"    ==> (AbsolutePI ∘∘∘ PseudoLoad MemByte)   <*> regParser <:> offsetParser <*> parens regParser
+      , "lh"     ==> (AbsolutePI ∘∘∘ PseudoLoad MemHalf)   <*> regParser <:> offsetParser <*> parens regParser
+      , "lw"     ==> (AbsolutePI ∘∘∘ PseudoLoad MemWord)   <*> regParser <:> offsetParser <*> parens regParser
+      , "ld"     ==> (AbsolutePI ∘∘∘ PseudoLoad MemDouble) <*> regParser <:> offsetParser <*> parens regParser
+      , "sb"     ==> (AbsolutePI ∘∘∘ PseudoStore MemByte)   <*> regParser <:> immediateParser <:> regParser
+      , "sh"     ==> (AbsolutePI ∘∘∘ PseudoStore MemHalf)   <*> regParser <:> immediateParser <:> regParser
+      , "sw"     ==> (AbsolutePI ∘∘∘ PseudoStore MemWord)   <*> regParser <:> immediateParser <:> regParser
+      , "sd"     ==> (AbsolutePI ∘∘∘ PseudoStore MemDouble) <*> regParser <:> immediateParser <:> regParser
       -- Unary register Pseudoinstructions
-      , "mv"    ==> UnaryPI MOV   <*> regParser <.> regParser
-      , "not"    ==> UnaryPI NOT   <*> regParser <.> regParser
-      , "neg"    ==> UnaryPI NEG   <*> regParser <.> regParser
-      , "negw"   ==> UnaryPI NEGW  <*> regParser <.> regParser
-      , "sext.w"  ==> UnaryPI SEXTW <*> regParser <.> regParser
+      , "mv"    ==> UnaryPI MOV   <*> regParser <:> regParser
+      , "not"    ==> UnaryPI NOT   <*> regParser <:> regParser
+      , "neg"    ==> UnaryPI NEG   <*> regParser <:> regParser
+      , "negw"   ==> UnaryPI NEGW  <*> regParser <:> regParser
+      , "sext.w"  ==> UnaryPI SEXTW <*> regParser <:> regParser
       -- Conditional Moves
-      , "seqz"   ==> CMovPI SEQZ <*> regParser <.> regParser
-      , "snez"   ==> CMovPI SNEZ <*> regParser <.> regParser
-      , "sltz"   ==> CMovPI SLTZ <*> regParser <.> regParser
-      , "sgtz"   ==> CMovPI SGTZ <*> regParser <.> regParser
+      , "seqz"   ==> CMovPI SEQZ <*> regParser <:> regParser
+      , "snez"   ==> CMovPI SNEZ <*> regParser <:> regParser
+      , "sltz"   ==> CMovPI SLTZ <*> regParser <:> regParser
+      , "sgtz"   ==> CMovPI SGTZ <*> regParser <:> regParser
       -- Alternative branches ZERO
-      , "beqz"   ==> BranchZPI BEQZ <*> regParser <.> offsetParser
-      , "bnez"   ==> BranchZPI BNEZ <*> regParser <.> offsetParser
-      , "blez"   ==> BranchZPI BLEZ <*> regParser <.> offsetParser
-      , "bgez"   ==> BranchZPI BGEZ <*> regParser <.> offsetParser
-      , "bltz"   ==> BranchZPI BLTZ <*> regParser <.> offsetParser
-      , "bgtz"   ==> BranchZPI BGTZ <*> regParser <.> offsetParser
+      , "beqz"   ==> BranchZPI BEQZ <*> regParser <:> offsetParser
+      , "bnez"   ==> BranchZPI BNEZ <*> regParser <:> offsetParser
+      , "blez"   ==> BranchZPI BLEZ <*> regParser <:> offsetParser
+      , "bgez"   ==> BranchZPI BGEZ <*> regParser <:> offsetParser
+      , "bltz"   ==> BranchZPI BLTZ <*> regParser <:> offsetParser
+      , "bgtz"   ==> BranchZPI BGTZ <*> regParser <:> offsetParser
       -- Alternative branches ZERO
-      , "bgt"    ==> BranchPI BGT  <*> regParser <.> regParser <.> offsetParser
-      , "ble"    ==> BranchPI BLE  <*> regParser <.> regParser <.> offsetParser
-      , "bgtu"   ==> BranchPI BGTU <*> regParser <.> regParser <.> offsetParser
-      , "bleu"   ==> BranchPI BLEU <*> regParser <.> regParser <.> offsetParser
+      , "bgt"    ==> BranchPI BGT  <*> regParser <:> regParser <:> offsetParser
+      , "ble"    ==> BranchPI BLE  <*> regParser <:> regParser <:> offsetParser
+      , "bgtu"   ==> BranchPI BGTU <*> regParser <:> regParser <:> offsetParser
+      , "bleu"   ==> BranchPI BLEU <*> regParser <:> regParser <:> offsetParser
       --  Alternative Jumps
       , "j"      ==> JmpImmPI JPseudo     <*> immediateParser
       , "jal"    ==> JmpImmPI JLinkPseudo <*> immediateParser
@@ -608,35 +606,35 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "hidden"        ==> Visibility HIDDEN    <*> identifier
       , "internal"      ==> Visibility INTERNAL  <*> identifier
       , "protected"     ==> Visibility PROTECTED <*> identifier
-      , "comm"          ==> COMM       <*> identifier <.> integer   <.> integer
-      , "common"        ==> COMMON     <*> identifier <.> integer   <.> integer
+      , "comm"          ==> COMM       <*> identifier <:> integer   <:> integer
+      , "common"        ==> COMMON     <*> identifier <:> integer   <:> integer
       , "ident"         ==> IDENT      <*> textParser
       , lexeme(lexeme (string "section") >> sectionParser)
-      , "size"          ==> SIZE       <*> identifier <.> immediateParser
+      , "size"          ==> SIZE       <*> identifier <:> immediateParser
       , "text"          ==> TEXT   
       , "data"          ==> DATA   
       , "rodata"        ==> RODATA 
       , "bss"           ==> BSS    
       , "string"        ==> STRING     <*> textParser
       , "asciz"         ==> ASCIZ      <*> textParser
-      , "equ"           ==> EQU        <*> identifier <.> (fromInteger <$> integer)
-      , "type"          ==> TYPE       <*> identifier <.> typeParser
+      , "equ"           ==> EQU        <*> identifier <:> (fromInteger <$> integer)
+      , "type"          ==> TYPE       <*> identifier <:> typeParser
       , "option"        ==> OPTION     <*> optParser
-      , "balign"        ==> BALIGN     <*> integer <.> (Just <$> integer)
-      , "balign"        ==> BALIGN     <*> integer <.> (return Nothing)
+      , "balign"        ==> BALIGN     <*> integer <:> (Just <$> integer)
+      , "balign"        ==> BALIGN     <*> integer <:> (return Nothing)
       , "zero"          ==> ZERO       <*> integer
       , "variant_cc"    ==> VARIANT_CC <*> identifier
       , "sleb128"       ==> SLEB128    <*> immediateParser
       , "uleb128"       ==> ULEB128    <*> immediateParser
-      , "macro"         ==> MACRO      <*> identifier <.> identifier <.> (return [])
+      , "macro"         ==> MACRO      <*> identifier <:> identifier <:> (return [])
       , "endm"          ==> ENDM
 
-      , "attribute"       ==> ATTRIBUTE    <*> tagParser    <.> (Right  <$> textParse )
-      , "attribute"       ==> ATTRIBUTE    <*> tagParser    <.> (Left   <$> integer   )
+      , "attribute"       ==> ATTRIBUTE    <*> tagParser    <:> (Right  <$> textParse )
+      , "attribute"       ==> ATTRIBUTE    <*> tagParser    <:> (Left   <$> integer   )
       
-      , "p2align"       ==> P2ALIGN    <*> integer    <.> (Just <$> integer) <.> (Just <$> integer)
-      , "p2align"       ==> P2ALIGN    <*> integer    <.> (return Nothing)   <.> (Just <$> integer)
-      , "p2align"       ==> P2ALIGN    <*> integer    <.> (Just <$> integer) <*> (return Nothing)
+      , "p2align"       ==> P2ALIGN    <*> integer    <:> (Just <$> integer) <:> (Just <$> integer)
+      , "p2align"       ==> P2ALIGN    <*> integer    <:> (return Nothing)   <:> (Just <$> integer)
+      , "p2align"       ==> P2ALIGN    <*> integer    <:> (Just <$> integer) <*> (return Nothing)
       , "p2align"       ==> P2ALIGN    <*> integer    <*> (return Nothing)   <*> (return Nothing)
       
       -- Emit
@@ -698,19 +696,19 @@ directiveCFIParse =
   [ "cfi_sections"          ==> CFI_SECTIONS  <*> scfiSecOptParse
   , "cfi_startproc"         ==> CFI_STARTPROC <*> (try (string "simpl" >> pure True) <|> pure False )
   , "cfi_endproc"           ==> CFI_ENDPROC
-  , "cfi_personality"       ==> CFI_PERSONALITY <*> numParser <.> encodingParser
+  , "cfi_personality"       ==> CFI_PERSONALITY <*> numParser <:> encodingParser
   , "cfi_personality_id"    ==> CFI_PERSONALITY_ID <*>identifier
   , "cfi_fde_data"          ==> CFI_FDE_DATA    <*> pure [] -- Not supported yet
-  , "cfi_lsda"              ==> CFI_LSDA        <*> numParser  <.> encodingParser
+  , "cfi_lsda"              ==> CFI_LSDA        <*> numParser  <:> encodingParser
   , "cfi_inline_lsda"       ==> CFI_INLINE_LSDA <*> intParser
-  , "cfi_def_cfa"           ==> CFI_DEF_CFA <*> regParser <.> numParser 
+  , "cfi_def_cfa"           ==> CFI_DEF_CFA <*> regParser <:> numParser 
   , "cfi_def_cfa_register"  ==> CFI_DEF_CFA_REGISTER <*> regParser
   , "cfi_def_cfa_offset"    ==> CFI_DEF_CFA_OFFSET <*> numParser
   , "cfi_adjust_cfa_offset" ==> CFI_ADJUST_CFA_OFFSET <*> numParser
-  , "cfi_offset"            ==> CFI_OFFSET        <*> regParser <.> numParser
-  , "cfi_val_offset"        ==> CFI_VAL_OFFSET    <*> regParser <.> numParser
-  , "cfi_rel_offset"        ==> CFI_REL_OFFSET    <*> regParser <.> numParser
-  , "cfi_register"          ==> CFI_REGISTER      <*> regParser <.> regParser
+  , "cfi_offset"            ==> CFI_OFFSET        <*> regParser <:> numParser
+  , "cfi_val_offset"        ==> CFI_VAL_OFFSET    <*> regParser <:> numParser
+  , "cfi_rel_offset"        ==> CFI_REL_OFFSET    <*> regParser <:> numParser
+  , "cfi_register"          ==> CFI_REGISTER      <*> regParser <:> regParser
   , "cfi_restore"           ==> CFI_RESTORE       <*> regParser
   , "cfi_undefined"         ==> CFI_UNDEFINED     <*> regParser
   , "cfi_same_value"        ==> CFI_SAME_VALUE    <*> regParser
@@ -720,7 +718,7 @@ directiveCFIParse =
   , "cfi_signal_frame"      ==> CFI_SIGNAL_FRAME
   , "cfi_window_save"       ==> CFI_WINDOW_SAVE
   , "cfi_escape"            ==> CFI_ESCAPE        <*> encodingParser
-  , "cfi_val_encoded_addr"  ==> CFI_VAL_ENCODED_ADDR <*> regParser <.> encodingParser <.> identifier
+  , "cfi_val_encoded_addr"  ==> CFI_VAL_ENCODED_ADDR <*> regParser <:> encodingParser <:> identifier
   ]
   where
     encodingParser :: Num n =>  Parsec String st (Either n String)
