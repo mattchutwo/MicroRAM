@@ -600,6 +600,7 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       [ "align"         ==> ALIGN      <*> integer
       , "file"          ==> FILE       <*> textParser
       -- Symbol tables and visibility
+      , "global"        ==> Visibility GLOBL     <*> identifier
       , "globl"         ==> Visibility GLOBL     <*> identifier
       , "local"         ==> Visibility LOCAL     <*> identifier
       , "weak"          ==> Visibility WEAK      <*> identifier
@@ -621,7 +622,7 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "type"          ==> TYPE       <*> identifier <:> typeParser
       , "option"        ==> OPTION     <*> optParser
       , "balign"        ==> BALIGN     <*> integer <:> (Just <$> integer)
-      , "balign"        ==> BALIGN     <*> integer <:> (return Nothing)
+      , "balign"        ==> BALIGN     <*> integer <*> (return Nothing)
       , "zero"          ==> ZERO       <*> integer
       , "variant_cc"    ==> VARIANT_CC <*> identifier
       , "sleb128"       ==> SLEB128    <*> immediateParser
