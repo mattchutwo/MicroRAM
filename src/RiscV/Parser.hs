@@ -15,7 +15,6 @@ import Text.Parsec
 import qualified Text.Parsec.Language as Lang  
 import qualified Text.Parsec.Expr as Expr
 import qualified Text.Parsec.Token as Token
-import Data.Maybe (catMaybes)
 import Control.Monad (mzero, when, void)
 import Data.Functor.Identity (Identity)
 
@@ -179,8 +178,9 @@ riscvLnParser = (try labelLnParse
     tabParse       = try (string "        ") <|> string "    " <|> string "\t" <?> "alignemnt"
 
 -- | Consumes trailing space and comments, then any empty lines, including comments
+emptyLine, emptyLines :: ParsecT String u Identity ()
 emptyLine = whiteSpace <* newline
-emptyLines = many $ try $ emptyLine
+emptyLines = void $ many $ try emptyLine
 
 choiceTry :: [ParsecT s u m a] -> ParsecT s u m a
 choiceTry ps           = foldr ((<|>) . try) mzero ps
@@ -330,7 +330,7 @@ offsetParser = immediateParser -- read <$> many digit
 -}
 infixl 9 ==>
 (==>) :: String -> a -> Parsec String st a
-label ==> x = lexeme (string label *> pure x)
+lbl ==> x = lexeme (string lbl *> pure x)
 
 {- Would be better if I could use `<,>` but Haskell won't let me use commas! -}
 infixl 4 <:>
@@ -774,17 +774,13 @@ _mapUntilM f ls =
       result <- f x
       if result then _mapUntilM f ls' else return ()
 
--- test :: Int -> IO (Hopefully [String])
-test n = do
+_test' :: IO (Either CmplError ([Section], [Section]))
+_test' = do
   code <- readFile "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
   let parsedCode = parseToComplError $ riscvParser "" code
   let sections = separateSections =<< parsedCode
   return $ sections -- both (map secInfo) <$> sections
-  where secInfo sec = (secName sec,  flag_exec sec)
-
-both :: (a -> b) -> (a, a) -> (b, b)
-both f (x,y) = (f x, f y)
-
+  where _secInfo sec = (secName sec,  flag_exec sec)
   
 parseToComplError :: Show x => Either x a -> Hopefully a
 parseToComplError (Right a) = Right a
