@@ -12,19 +12,19 @@ import RiscV.RiscVAsm
 -- import Data.Char (Char)
 import Text.Parsec
 -- import Text.Parsec.Combinator (sepBy, sepBy1)
-import qualified Text.Parsec.Language as Lang 
+import qualified Text.Parsec.Language as Lang  
 import qualified Text.Parsec.Expr as Expr
-import qualified Text.Parsec.Token as Tokens
+import qualified Text.Parsec.Token as Token
 import Data.Maybe (catMaybes)
-import Control.Monad (mzero, when)
+import Control.Monad (mzero, when, void)
 import Data.Functor.Identity (Identity)
 
 import Compiler.Errors
 --import Debug.Trace
 
 -- Borrow some definitions from haskell
-riscVLang :: Tokens.GenTokenParser String u Identity
-riscVLang = Tokens.makeTokenParser riscVLangDef
+riscVLang :: Token.GenTokenParser String u Identity
+riscVLang = Token.makeTokenParser riscVLangDef
 
 {- | The RiscV Assembly calls "Symbols" any identifier. 
 
@@ -43,78 +43,84 @@ riscVLang = Tokens.makeTokenParser riscVLangDef
   such cases any characters are allowed, except for the NUL
   character. If a double quote character is to be included in the
   symbol name it must be preceded by a backslash \ character. For
-  these quoted characters we can use Tokens.stringLiteral.
+  these quoted characters we can use Token.stringLiteral.
 
 From this point on, we will use identifiers, and reserve "symbols" for
 things like "+" or "<$>" as it is common in Haskell.
 
 -}
 riscVLangDef :: Lang.LanguageDef u
-riscVLangDef = Tokens.LanguageDef
+riscVLangDef = Token.LanguageDef
   {
     -- RiscV Assembly has no multiline comment 
-    Tokens.commentStart = ""
-  , Tokens.commentEnd = ""
-  , Tokens.commentLine = "#"
-  , Tokens.nestedComments = False,
+    Token.commentStart = ""
+  , Token.commentEnd = ""
+  , Token.commentLine = "#"
+  , Token.nestedComments = False,
 
   -- Symbol names begin with a letter or with one of ‘._’. On most
   -- machines, you can also use $ in symbol names; exceptions are
   -- noted in Machine Dependencies. Symbol names do not start with a
   -- digit. An exception to this rule is made for Local Labels, but we
   -- don't yet support it.
-  Tokens.identStart = letter <|> oneOf "._$"
+  Token.identStart = letter <|> oneOf "._$"
 
   -- That character may be followed by any string of digits,
   -- letters, dollar signs (unless otherwise noted for a particular
   -- target machine), and underscores.  We do not yet support qutoed
   -- symbols names by ‘"’ or multibyte characters.
-  , Tokens.identLetter = alphaNum <|> oneOf "._$"
+  , Token.identLetter = alphaNum <|> oneOf "._$"
 
   -- No operators in this language
-  , Tokens.opStart        = parserFail "Attempt to read an operands"
-  , Tokens.opLetter       = parserFail "Attempt to read an operands"
+  , Token.opStart        = parserFail "Attempt to read an operands"
+  , Token.opLetter       = parserFail "Attempt to read an operands"
 
   -- No reserved names 
-  , Tokens.reservedNames   = []
-  , Tokens.reservedOpNames = []
-  , Tokens.caseSensitive   = True
+  , Token.reservedNames   = []
+  , Token.reservedOpNames = []
+  , Token.caseSensitive   = True
+  -- We change the space function so it doesn't consume end of lines
+  -- \n and \r
+  , Token.isSpace = isSpaceNotLineBreak
   }
+  where isSpaceNotLineBreak c =
+          c `elem` "\t\f\v "
+    
   
 parens, lexeme
   :: Parsec String u a
      -> Parsec String u a
 -- Lexeme parser parens p parses p enclosed in parenthesis, returning the value of p.
-parens = Tokens.parens riscVLang
+parens = Token.parens riscVLang
 -- lexeme p first applies parser p and then the whiteSpace parser, returning the value of p.
-lexeme = Tokens.lexeme riscVLang
+lexeme = Token.lexeme riscVLang
 lexchar :: Char -> Parsec String u Char
 lexchar c = lexeme $ char c
 
 -- This lexeme parser parses an integer (a whole number). 
 integerParser :: Parsec String u Integer
-integerParser = Tokens.integer riscVLang
+integerParser = Token.integer riscVLang
 -- | Lexeme parser symbol s parses string s and skips trailing white space.
 -- Here symbol refers to things like "+" or "<$>"
 symbolParser
   :: String -> Parsec String u String
-symbolParser = Tokens.symbol riscVLang
+symbolParser = Token.symbol riscVLang
 
 -- | Identifiers are the RiscV names for variables, sections, etc They
 -- can be alphanumeric strings that include "." and "_" or they cna
 -- be arbitrary strings if they are quoted.
 identifier, textParser
   :: Parsec String u String
-textParser = Tokens.stringLiteral riscVLang
-identifier = Tokens.identifier riscVLang <|>
-             Tokens.stringLiteral riscVLang
+textParser = Token.stringLiteral riscVLang
+identifier = Token.identifier riscVLang <|>
+             Token.stringLiteral riscVLang
 
 whiteSpace :: Parsec String u ()
-whiteSpace = Tokens.whiteSpace riscVLang
+whiteSpace = Token.whiteSpace riscVLang
 comma :: Parsec String u String
-comma = Tokens.comma riscVLang
+comma = Token.comma riscVLang
 integer :: Parsec String u Integer
-integer = Tokens.integer riscVLang
+integer = Token.integer riscVLang
 intParser  :: Parsec String u Int
 intParser = fromInteger <$> integer 
 numParser  :: Num n => Parsec String u n
@@ -125,7 +131,7 @@ numStrParser = try (Right  <$>     identifier)
                      <?> "encoding"
                
 -- | Read file
-readFileRV :: FilePath -> IO String
+readFileRV :: FilePath -> IO String 
 readFileRV file = do
   contents <- readFile file
   return contents
@@ -141,45 +147,46 @@ riscvParseFile fileName = do
 -- | Parse RiscV given the name of the file (only used for errors) and
 -- a RiscV assembly program.
 riscvParser :: String -> String -> Either ParseError [LineOfRiscV]
-riscvParser rvFileName rvFile = catMaybes <$> mapM (parse riscvLnParser rvFileName) (lines rvFile)
+riscvParser rvFileName rvFile = parse (begin >> riscvLnParser `endBy` sepOrEnd) rvFileName rvFile
+  where
+    -- Remove starting and trailing space, empty lines and comments
+    eol = many1 $ try emptyLine
+    sepOrEnd =
+      -- End of the file (whith some empty lines/ comments)
+      try (emptyLines >> whiteSpace >> eof)
+      -- Or just end of line
+      <|> void eol
+    begin = emptyLines
 
 
-{- RiscV assembly file contains labels, directives and instructions. We
-   ignore comments and empty lines. Strictly speaking, any statement
-   can begin with a label ([See
+{- RiscV assembly file contains labels, directives and instructions.
+   Strictly speaking, any statement can begin with a label ([See
    documentation](https://sourceware.org/binutils/docs/as/Statements.html#Statements))
    . However, as far as I can tell, Clang always sets labels in
-   separated lines
+   separated lines.
 
-   The Tokens library in Parsec doesn't deal well with end of
-   lines. Most commands (all the `lexeme` ones) consume "empty" space,
-   but the end of line is considered empty space and there is no way
-   to change that. I found it easier to just parse line by line. Since
-   there are no multi level comments (or anything really) this is ok.
-
-   We lose the traceback location of errors, the parser will always
-   report an error in line 1. Later, with some unwrapping of the error
-   we can fix that.
-
+   This function assumes it is parsind at the beggining of a line
 -}
 
-riscvLnParser :: Parsec String st (Maybe LineOfRiscV)
+riscvLnParser :: Parsec String st LineOfRiscV
 riscvLnParser = (try labelLnParse
                 <|> try drctvLnParse
                 <|> try instrLnParse
-                <|> try emptyLnParse 
-                <?> "Line of RiscV Assembly") <* eof
+                <?> "Line of RiscV Assembly")
   where
-    emptyLnParse,instrLnParse,labelLnParse:: Parsec String st (Maybe LineOfRiscV)
+    instrLnParse,labelLnParse:: Parsec String st LineOfRiscV
     -- Empty line, possibly with comments and or spaces/tabs, etc.  
-    emptyLnParse = whiteSpace >> eof *> return Nothing
-
-    drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> directiveParse)
-    instrLnParse   = Just . Instruction <$> (tabParse *> instrParser)
-    labelLnParse   = Just . LabelLn       <$> identifier <* lexchar ':'
+    
+    drctvLnParse   = Directive   <$> (tabParse *> char '.' *> directiveParse)
+    instrLnParse   = Instruction <$> (tabParse *> instrParser)
+    labelLnParse   = LabelLn       <$> identifier <* lexchar ':'
 
     tabParse :: Parsec String u String
-    tabParse     = string "        " <|> string "    " <|> string "\t" <?> "alignemnt"
+    tabParse       = try (string "        ") <|> string "    " <|> string "\t" <?> "alignemnt"
+
+-- | Consumes trailing space and comments, then any empty lines, including comments
+emptyLine = whiteSpace <* newline
+emptyLines = many $ try $ emptyLine
 
 choiceTry :: [ParsecT s u m a] -> ParsecT s u m a
 choiceTry ps           = foldr ((<|>) . try) mzero ps
@@ -758,10 +765,9 @@ _test n = do
     testLn :: (String, Int) -> IO Bool
     testLn (ln, lnN) = do
       case parse riscvLnParser "" $ ln of
-        Right (Just e) -> do
+        Right e -> do
           when (n>0) $ putStrLn $ show lnN <> ". " <> show e
           return True
-        Right Nothing -> return True
         Left e  -> do
           putStrLn $ "Line number " <> show lnN <> " : " <> show e
           return False
@@ -777,12 +783,7 @@ _mapUntilM f ls =
 -- test :: Int -> IO (Hopefully [String])
 test n = do
   code <- readFileRV "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
-  let codeLns = if n>0 then
-                  take n $ lines code
-                else
-                  lines code
-  let enumLn = zip codeLns [1..]
-  let parsedCode = parseToComplError $ catMaybes <$> mapM (parse riscvLnParser "") codeLns
+  let parsedCode = parseToComplError $ riscvParser "" code
   let sections = separateSections =<< parsedCode
   return $ sections -- both (map secInfo) <$> sections
   where secInfo sec = (secName sec,  flag_exec sec)
