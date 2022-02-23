@@ -824,7 +824,7 @@ Strictly speaking, any statement can begin with a label ( [See documentation](ht
 
 -}
 data LineOfRiscV =
-    Label       String
+    LabelLn       String
   | Directive   Directive
   | Instruction Instr
   deriving (Show, Eq, Ord)

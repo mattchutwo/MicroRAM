@@ -3,6 +3,7 @@
 module RiscV.Parser (
   riscvParseFile, riscvParser
   )where
+import RiscV.Transpiler
 
 -- import Data.Bits
 --import Data.Word (Word64)
@@ -18,6 +19,7 @@ import Data.Maybe (catMaybes)
 import Control.Monad (mzero, when)
 import Data.Functor.Identity (Identity)
 
+import Compiler.Errors
 --import Debug.Trace
 
 -- Borrow some definitions from haskell
@@ -174,9 +176,10 @@ riscvLnParser = (try labelLnParse
 
     drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> directiveParse)
     instrLnParse   = Just . Instruction <$> (tabParse *> instrParser)
-    labelLnParse   = Just . Label       <$> identifier <* lexchar ':'
+    labelLnParse   = Just . LabelLn       <$> identifier <* lexchar ':'
 
-    tabParse     = string "    " <|> string "\t" <?> "alignemnt"
+    tabParse :: Parsec String u String
+    tabParse     = string "        " <|> string "    " <|> string "\t" <?> "alignemnt"
 
 choiceTry :: [ParsecT s u m a] -> ParsecT s u m a
 choiceTry ps           = foldr ((<|>) . try) mzero ps
@@ -744,7 +747,7 @@ directiveCFIParse =
 
 _test :: Int -> IO ()
 _test n = do
-  code <- readFileRV "src/RiscV/grit-rv64-20211105.s"
+  code <- readFileRV "src/RiscV/square.s" -- "src/RiscV/rotate.s" -- "src/RiscV/grit-rv64-20211105.s"
   let codeLns = if n>0 then
                   take n $ lines code
                 else
@@ -770,3 +773,24 @@ _mapUntilM f ls =
     x:ls' -> do
       result <- f x
       if result then _mapUntilM f ls' else return ()
+
+-- test :: Int -> IO (Hopefully [String])
+test n = do
+  code <- readFileRV "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
+  let codeLns = if n>0 then
+                  take n $ lines code
+                else
+                  lines code
+  let enumLn = zip codeLns [1..]
+  let parsedCode = parseToComplError $ catMaybes <$> mapM (parse riscvLnParser "") codeLns
+  let sections = separateSections =<< parsedCode
+  return $ sections -- both (map secInfo) <$> sections
+  where secInfo sec = (secName sec,  flag_exec sec)
+
+both :: (a -> b) -> (a, a) -> (b, b)
+both f (x,y) = (f x, f y)
+
+  
+parseToComplError :: Show x => Either x a -> Hopefully a
+parseToComplError (Right a) = Right a
+parseToComplError (Left x) = otherError $ "Parse failed:" <> show x

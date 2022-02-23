@@ -22,7 +22,7 @@ module Compiler.Errors
       describeError,
 
       tag, tagState, tagPass,
-      handleErrorWith
+      handleErrorWith, isError
 
     ) where
 
@@ -82,3 +82,8 @@ handleErrorWith (Left e) = do
   hPutStr stderr ("Backend compilation error: " ++ describeError e)
   exitWith (ExitFailure 1)
 handleErrorWith (Right a) = return a
+
+-- | Check if something is an error
+isError :: Hopefully a -> Bool
+isError (Left _) = True
+isError (Right _) = False
