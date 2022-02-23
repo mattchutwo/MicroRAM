@@ -129,19 +129,13 @@ numStrParser :: Num n =>  Parsec String st (Either n String)
 numStrParser = try (Right  <$>     identifier)
                      <|> try (Left   <$> numParser)
                      <?> "encoding"
-               
--- | Read file
-readFileRV :: FilePath -> IO String 
-readFileRV file = do
-  contents <- readFile file
-  return contents
 
 {- | Parse RiscV directly from file 
 -} 
 
 riscvParseFile :: String -> IO (Either ParseError [LineOfRiscV])
 riscvParseFile fileName = do
-  fileContent <- readFileRV fileName
+  fileContent <- readFile fileName
   return $ riscvParser fileName fileContent 
 
 -- | Parse RiscV given the name of the file (only used for errors) and
@@ -754,7 +748,7 @@ directiveCFIParse =
 
 _test :: Int -> IO ()
 _test n = do
-  code <- readFileRV "src/RiscV/square.s" -- "src/RiscV/rotate.s" -- "src/RiscV/grit-rv64-20211105.s"
+  code <- readFile "src/RiscV/square.s" -- "src/RiscV/rotate.s" -- "src/RiscV/grit-rv64-20211105.s"
   let codeLns = if n>0 then
                   take n $ lines code
                 else
@@ -782,7 +776,7 @@ _mapUntilM f ls =
 
 -- test :: Int -> IO (Hopefully [String])
 test n = do
-  code <- readFileRV "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
+  code <- readFile "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
   let parsedCode = parseToComplError $ riscvParser "" code
   let sections = separateSections =<< parsedCode
   return $ sections -- both (map secInfo) <$> sections
