@@ -163,7 +163,7 @@ riscvParser rvFileName rvFile = parse (begin >> riscvLnParser `endBy` sepOrEnd) 
       -- Or just end of line
       <|> void eol
     begin :: Stream st Identity Char
-          => Parsec st u m
+          => Parsec st u ()
     begin = emptyLines
 
 
@@ -176,25 +176,28 @@ riscvParser rvFileName rvFile = parse (begin >> riscvLnParser `endBy` sepOrEnd) 
    This function assumes it is parsind at the beggining of a line
 -}
 
-riscvLnParser :: Parsec s u LineOfRiscV
+riscvLnParser :: Stream s Identity Char
+              => Parsec s u LineOfRiscV
 riscvLnParser = (try labelLnParse
                 <|> try drctvLnParse
                 <|> try instrLnParse
                 <?> "Line of RiscV Assembly")
   where
-    instrLnParse,labelLnParse:: Parsec s u LineOfRiscV
+    instrLnParse,labelLnParse :: Stream s Identity Char
+                              => Parsec s u LineOfRiscV
     -- Empty line, possibly with comments and or spaces/tabs, etc.  
     
     drctvLnParse   = Directive   <$> (tabParse *> char '.' *> directiveParse)
     instrLnParse   = Instruction <$> (tabParse *> instrParser)
     labelLnParse   = LabelLn       <$> identifier <* lexchar ':'
 
-    tabParse :: Parsec st u String
+    tabParse :: Stream st Identity Char
+             => Parsec st u String
     tabParse       = try (string "        ") <|> string "    " <|> string "\t" <?> "alignemnt"
 
 -- | Consumes trailing space and comments, then any empty lines, including comments
-emptyLine, emptyLines :: Stream st m Char
-                      => ParsecT st u m ()
+emptyLine, emptyLines :: Stream st Identity Char
+                      => Parsec st u ()
 emptyLine = whiteSpace <* newline
 emptyLines = void $ many $ try emptyLine
 
@@ -222,17 +225,20 @@ choiceTry ps           = foldr ((<|>) . try) mzero ps
 
 -}
 
-parseFromPairs ::  [(String,b)] -> Parsec s u b
+parseFromPairs :: Stream s Identity Char
+               =>  [(String,b)] -> Parsec s u b
 parseFromPairs pairs = choiceTry $ parseFromPair <$> pairs
   where
-    parseFromPair ::  (String,b) -> Parsec s u b
+    parseFromPair :: Stream s Identity Char
+                  => (String,b) -> Parsec s u b
     parseFromPair (a,b) = string a *> pure b
 
 -- The list has to start with the longer registers so they will be
 -- parsed first. For example "s10" has to appear before "s1" otherwise
 -- "s10" will be parsed as "s1" and and the parser will choke on the
 -- trailing "0".
-regParser :: Parsec s u Reg
+regParser :: Stream s Identity Char
+          => Parsec s u Reg
 regParser = parseFromPairs registerABInames <?> "a register"
   where registerABInames =
           [("t6",   X31) -- temporary registers
@@ -282,7 +288,8 @@ regParser = parseFromPairs registerABInames <?> "a register"
      Symbol names do not start with a digit. An exception to this rule
      is made for Local Labels, but we don't yet support it.
 -}
-instrParser :: Parsec s u Instr
+instrParser :: Stream s Identity Char
+            => Parsec s u Instr
 instrParser = Instr32I <$> parse32I
               <|> Instr64I <$> parse64I
               <|> Instr32M <$> parse32M
@@ -304,20 +311,26 @@ instrParser = Instr32I <$> parse32I
   are just constant expressions, which we don't support
  -}
   
-immediateParser :: ParsecT String u Identity Imm
+immediateParser :: Stream s Identity Char
+                => Parsec s u Imm
 immediateParser = Expr.buildExpressionParser operands immTerm <?> "an immediate"
   where
+    immTerm :: Stream s Identity Char
+            => Parsec s u Imm
     immTerm = parens immediateParser
               <|> ImmSymbol <$> lexeme identifier
               <|> ImmNumber <$> fromInteger <$> lexeme integerParser
               <|> modParse <*> parens immediateParser
+    operands :: Stream s Identity Char
+             => Expr.OperatorTable s u Identity Imm 
     operands =
       [ [infix_ "&" (ImmBinOp ImmAnd  ) ]
       , [infix_ "|" (ImmBinOp ImmOr   ) ]
       , [infix_ "+" (ImmBinOp ImmAdd  ) ]
       , [infix_ "-" (ImmBinOp ImmMinus) ]
       , [Expr.Prefix modParse]]
-    modParse :: Parsec s u (Imm -> Imm)
+    modParse :: Stream s Identity Char
+             => Parsec s u (Imm -> Imm)
     modParse = lexeme $
                char '%' *> pure ImmMod
                <*> parseFromPairs mods
@@ -326,7 +339,8 @@ immediateParser = Expr.buildExpressionParser operands immTerm <?> "an immediate"
       , ("lo", ModLo)
       ]
            
-    infix_ :: String -> (a -> a -> a) -> Expr.Operator String u Identity a
+    infix_ :: Stream st Identity Char
+           => String -> (a -> a -> a) -> Expr.Operator st u Identity a
     infix_ operator func =
       Expr.Infix (symbolParser operator >> return func) Expr.AssocLeft
     
@@ -336,7 +350,8 @@ symbols or modifiers (I think).
 
 We distinguish them at the type level, but we don't add bound checks.
  -}
-offsetParser :: Parsec s u Offset
+offsetParser :: Stream s Identity Char
+             => Parsec s u Offset
 offsetParser = immediateParser -- read <$> many digit 
 
 {- | Notation.
@@ -345,16 +360,19 @@ offsetParser = immediateParser -- read <$> many digit
 
 -}
 infixl 9 ==>
-(==>) :: String -> a -> Parsec s u a
+(==>) :: Stream s Identity Char
+      => String -> a -> Parsec s u a
 lbl ==> x = lexeme (string lbl *> pure x)
 
 {- Would be better if I could use `<,>` but Haskell won't let me use commas! -}
 infixl 4 <:>
-(<:>) :: forall s u a b. Parsec s u (a -> b) -> Parsec s u a -> Parsec s u b
+(<:>) :: Stream s Identity Char
+      => forall u a b. Parsec s u (a -> b) -> Parsec s u a -> Parsec s u b
 (<:>) p1 p2 = p1 <* comma <*> p2
 
 
-parse32I :: Parsec s u InstrRV32I
+parse32I :: Stream s Identity Char
+         => Parsec s u InstrRV32I
 parse32I = choiceTry
       [
         -- Jump instructions
@@ -409,7 +427,8 @@ parse32I = choiceTry
 orderingParser :: Parsec s u SetOrdering
 orderingParser = undefined -- not needed?
 
-parse64I :: Parsec s u InstrRV64I
+parse64I :: Stream s Identity Char
+         => Parsec s u InstrRV64I
 parse64I = choiceTry
       [
         -- Mem instructions
@@ -432,7 +451,8 @@ parse64I = choiceTry
 
 
 
-parse32M :: Parsec s u InstrExt32M
+parse32M :: Stream s Identity Char
+         => Parsec s u InstrExt32M
 parse32M = choiceTry
       [ "mul"    ==> MUL    <*> regParser <:> regParser <:> regParser
       , "mulh"   ==> MULH   <*> regParser <:> regParser <:> regParser
@@ -449,7 +469,8 @@ parse32M = choiceTry
 
 
 
-parse64M :: Parsec s u InstrExt64M
+parse64M :: Stream s Identity Char
+         => Parsec s u InstrExt64M
 parse64M = choiceTry
       [ "mulw"  ==> MULW  <*> regParser <:> regParser <:> regParser
       , "divw"  ==> DIVW  <*> regParser <:> regParser <:> regParser
@@ -462,7 +483,8 @@ parse64M = choiceTry
 
 
 
-parseAlias :: Parsec s u AliasInstr
+parseAlias :: Stream s Identity Char
+         => Parsec s u AliasInstr
 parseAlias = choiceTry
       [ 
        "unimp.c"    ==> UNIMPC
@@ -478,7 +500,8 @@ parseAlias = choiceTry
 (∘∘∘) :: (d -> e) -> (a -> b -> c -> d) -> (a -> b -> c -> e)
 (f ∘∘∘ g) x y z = f (g x y z)
 
-parsePseudo :: Parsec s u PseudoInstr
+parsePseudo :: Stream s Identity Char
+         => Parsec s u PseudoInstr
 parsePseudo = choiceTry
       [ 
       -- Function call/return instructions
@@ -567,7 +590,8 @@ parsePseudo = choiceTry
    dashes "-")
 
 -}
-sectionParser :: Parsec s u Directive
+sectionParser :: Stream s Identity Char
+         => Parsec s u Directive
 sectionParser = SECTION
   <$> identifier
   <*> (try (comma *> flags)            <|> pure [])
@@ -575,7 +599,8 @@ sectionParser = SECTION
   <*> (try (comma *> flagArgs)         <|> pure [])
   where
     -- a string with all the flags
-    flags :: Parsec s u [Flag]
+    flags :: Stream s Identity Char
+         => Parsec s u [Flag]
     flags = quoted . many $
             (parseFromPairs
              [ ("a" , Flag_a)   
@@ -592,11 +617,13 @@ sectionParser = SECTION
              , ("R" , Flag_R) ]
              <|> try (Flag_number <$> numParser))
 
-    quoted :: Parsec s u a -> Parsec s u a
+    quoted :: Stream s Identity Char
+         => Parsec s u a -> Parsec s u a
     quoted p = (char '"' *> p <* char '"')
 
     -- Section types
-    secType ::  Parsec s u SectionType
+    secType ::  Stream s Identity Char
+         => Parsec s u SectionType
     secType =
       -- Parse a numeric section header
       try (char '@' >> TypeNum <$> numParser) <|>
@@ -609,12 +636,14 @@ sectionParser = SECTION
       , ("@preinit_array" , PREINIT_ARRAY)
       ]
 
-    flagArgs :: Parsec s u [FlagArg]
+    flagArgs :: Stream s Identity Char
+         => Parsec s u [FlagArg]
     flagArgs = (lexeme numStrParser) `sepBy` comma
       
       
 
-directiveParse :: Parsec s u Directive
+directiveParse :: Stream s Identity Char
+         => Parsec s u Directive
 directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
   choiceTry 
       [ "align"         ==> ALIGN      <*> integer
@@ -674,11 +703,13 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       ]
   where
     -- Parses a non-empty list of comma separated immediates
-    immList :: Parsec s u [Imm]
+    immList :: Stream s Identity Char
+         => Parsec s u [Imm]
     immList = immediateParser `sepBy1` comma
   
     -- Types are @function and @object
-    typeParser :: Parsec s u DirTypes
+    typeParser :: Stream s Identity Char
+         => Parsec s u DirTypes
     typeParser  = lexeme $ char '@' *>
                   parseFromPairs
                   [ ("function", DTFUNCTION)
@@ -706,12 +737,14 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       ] <|> (Tag_number <$> integer)
 
 -- Doesn't admit escaped quotations. Everything insie the two quotations is the text
-textParse :: Parsec st u String
+textParse :: Stream s Identity Char
+          => Parsec s u String
 textParse    = char '"' *> many (noneOf ['"']) <* char '"'
     
 
 
-directiveCFIParse :: Parsec s u CFIDirectives
+directiveCFIParse :: Stream s Identity Char
+                  => Parsec s u CFIDirectives
 directiveCFIParse =
   choiceTry 
   [ "cfi_sections"          ==> CFI_SECTIONS  <*> scfiSecOptParse
@@ -742,13 +775,15 @@ directiveCFIParse =
   , "cfi_val_encoded_addr"  ==> CFI_VAL_ENCODED_ADDR <*> regParser <:> encodingParser <:> identifier
   ]
   where
-    encodingParser :: Num n =>  Parsec s u (Either n String)
+    encodingParser :: (Num n, Stream s Identity Char)
+                   => Parsec s u (Either n String)
     encodingParser = numStrParser
                      
     --opcodesParser :: Parsec s u [Opcodes]
     --opcodesParser  = pure [OCNotSupported]
 
-    scfiSecOptParse :: Parsec s u CFIsectionOpt
+    scfiSecOptParse :: Stream s Identity Char
+                    => Parsec s u CFIsectionOpt
     scfiSecOptParse =
       try     (string ".eh_frame" *> comma *> string ".debug_frame" *> pure (CFIsectionOpt True True  ))
       <|> try (string ".eh_frame" >>                                   pure (CFIsectionOpt True False ))
