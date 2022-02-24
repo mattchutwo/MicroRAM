@@ -5,14 +5,9 @@ module RiscV.Parser (
   )where
 import RiscV.Transpiler
 
--- import Data.Bits
---import Data.Word (Word64)
 import RiscV.RiscVAsm
 
--- import Data.Char (Char)
 import Text.Parsec
--- import Text.Parsec.Combinator (sepBy, sepBy1)
-import qualified Text.Parsec.Language as Lang  
 import qualified Text.Parsec.Expr as Expr
 import qualified Text.Parsec.Token as Token
 import Control.Monad (mzero, when, void)
