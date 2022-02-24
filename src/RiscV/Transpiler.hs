@@ -214,7 +214,7 @@ transpileInstr md instr = undefined
                     
 -- | Translates sections of data into a list of global variables
 transpileData :: [Section] -> Hopefully [GlobalVariable MWord]
-transpileData = return [] -- undefined
+transpileData _ = return [] -- undefined
 
 
 -- # Code cleanup
