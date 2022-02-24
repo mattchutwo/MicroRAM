@@ -1,3 +1,0 @@
-[submodule "deps/parsec"]
-	path = deps/parsec
-	url = https://gitlab-ext.galois.com/fromager/cheesecloth/parsec.git
