@@ -670,7 +670,10 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "uleb128"       ==> ULEB128    <*> immediateParser
       , "macro"         ==> MACRO      <*> identifier <:> identifier <:> (return [])
       , "endm"          ==> ENDM
-
+      
+      , "addrsig_sym"   ==> ADDRSIG_SYM <*> immediateParser
+      , "addrsig"       ==> ADDRSIG     
+      
       , "attribute"       ==> ATTRIBUTE    <*> tagParser    <:> (Right  <$> textParse )
       , "attribute"       ==> ATTRIBUTE    <*> tagParser    <:> (Left   <$> integer   )
       
@@ -818,8 +821,8 @@ _mapUntilM f ls =
       result <- f x
       if result then _mapUntilM f ls' else return ()
 
-_test' n = do
-  code <- readFile "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
+_test' n name = do
+  code <- readFile name -- "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
   let codeLns = if n>0 then
                   take n $ lines code
                 else
