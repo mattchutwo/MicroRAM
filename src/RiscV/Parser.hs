@@ -8,8 +8,11 @@ import RiscV.Transpiler
 import RiscV.RiscVAsm
 
 import Text.Parsec
+-- import Text.Parsec.Combinator (sepBy, sepBy1)
+import qualified Text.Parsec.Language as Lang 
 import qualified Text.Parsec.Expr as Expr
 import qualified Text.Parsec.Token as Token
+import Data.Maybe (catMaybes)
 import Control.Monad (mzero, when, void)
 import Data.Functor.Identity (Identity)
 
@@ -75,13 +78,7 @@ riscVLangDef = Token.LanguageDef
   , Token.reservedNames   = []
   , Token.reservedOpNames = []
   , Token.caseSensitive   = True
-  -- We change the space function so it doesn't consume end of lines
-  -- \n and \r
-  , Token.isSpace = isSpaceNotLineBreak
   }
-  where isSpaceNotLineBreak c =
-          c `elem` "\t\f\v "
-    
   
 parens, lexeme
   :: Stream st Identity Char
@@ -148,47 +145,47 @@ riscvParseFile fileName = do
 -- | Parse RiscV given the name of the file (only used for errors) and
 -- a RiscV assembly program.
 riscvParser :: String -> String -> Either ParseError [LineOfRiscV]
-riscvParser rvFileName rvFile = parse (begin >> riscvLnParser `endBy` sepOrEnd) rvFileName rvFile
-  where
-    -- Remove starting and trailing space, empty lines and comments
-    eol = many1 $ try emptyLine
-    sepOrEnd =
-      -- End of the file (whith some empty lines/ comments)
-      try (emptyLines >> whiteSpace >> eof)
-      -- Or just end of line
-      <|> void eol
-    begin :: Stream st Identity Char
-          => Parsec st u ()
-    begin = emptyLines
+riscvParser rvFileName rvFile = catMaybes <$> mapM (parse riscvLnParser rvFileName) (lines rvFile)
 
-
-{- RiscV assembly file contains labels, directives and instructions.
-   Strictly speaking, any statement can begin with a label ([See
+{- RiscV assembly file contains labels, directives and instructions. We
+   ignore comments and empty lines. Strictly speaking, any statement
+   can begin with a label ([See
    documentation](https://sourceware.org/binutils/docs/as/Statements.html#Statements))
    . However, as far as I can tell, Clang always sets labels in
-   separated lines.
+   separated lines
 
-   This function assumes it is parsind at the beggining of a line
+   The Token library in Parsec doesn't deal well with end of
+   lines. Most commands (all the `lexeme` ones) consume "empty" space,
+   but the end of line is considered empty space and there is no way
+   to change that. I found it easier to just parse line by line. Since
+   there are no multi level comments (or anything really) this is ok.
+
+   We lose the traceback location of errors, the parser will always
+   report an error in line 1. Later, with some unwrapping of the error
+   we can fix that.
+
 -}
 
 riscvLnParser :: Stream s Identity Char
-              => Parsec s u LineOfRiscV
+              => Parsec s u (Maybe LineOfRiscV)
 riscvLnParser = (try labelLnParse
                 <|> try drctvLnParse
                 <|> try instrLnParse
-                <?> "Line of RiscV Assembly")
+                <|> try emptyLnParse 
+                <?> "Line of RiscV Assembly") <* eof
   where
-    instrLnParse,labelLnParse :: Stream s Identity Char
-                              => Parsec s u LineOfRiscV
-    -- Empty line, possibly with comments and or spaces/tabs, etc.  
-    
-    drctvLnParse   = Directive   <$> (tabParse *> char '.' *> directiveParse)
-    instrLnParse   = Instruction <$> (tabParse *> instrParser)
-    labelLnParse   = LabelLn       <$> identifier <* lexchar ':'
+    emptyLnParse,instrLnParse,labelLnParse :: Stream s Identity Char
+                                           => Parsec s u  (Maybe LineOfRiscV)
+      -- Empty line, possibly with comments and or spaces/tabs, etc.  
+    emptyLnParse = whiteSpace >> eof *> return Nothing
+  
+    drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> directiveParse)
+    instrLnParse   = Just . Instruction <$> (tabParse *> instrParser)
+    labelLnParse   = Just . LabelLn       <$> identifier <* lexchar ':'
 
     tabParse :: Stream st Identity Char
              => Parsec st u String
-    tabParse       = try (string "        ") <|> string "    " <|> string "\t" <?> "alignemnt"
+    tabParse     = try (string "        ") <|> string "    " <|> string "\t" <?> "alignemnt"
 
 -- | Consumes trailing space and comments, then any empty lines, including comments
 emptyLine, emptyLines :: Stream st Identity Char
@@ -673,7 +670,10 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "uleb128"       ==> ULEB128    <*> immediateParser
       , "macro"         ==> MACRO      <*> identifier <:> identifier <:> (return [])
       , "endm"          ==> ENDM
-
+      
+      , "addrsig_sym"   ==> ADDRSIG_SYM <*> immediateParser
+      , "addrsig"       ==> ADDRSIG     
+      
       , "attribute"       ==> ATTRIBUTE    <*> tagParser    <:> (Right  <$> textParse )
       , "attribute"       ==> ATTRIBUTE    <*> tagParser    <:> (Left   <$> integer   )
       
@@ -792,9 +792,9 @@ directiveCFIParse =
 -- The following functions have been very useful for testing.
 -- Let's keep them while we debug the parser.
 
-_test :: Int -> IO ()
-_test n = do
-  code <- readFile "src/RiscV/square.s" -- "src/RiscV/rotate.s" -- "src/RiscV/grit-rv64-20211105.s"
+_test :: Int -> String -> IO ()
+_test n file = do
+  code <- readFile file -- "src/RiscV/square.s" -- "src/RiscV/rotate.s" -- "src/RiscV/grit-rv64-20211105.s"
   let codeLns = if n>0 then
                   take n $ lines code
                 else
@@ -805,9 +805,10 @@ _test n = do
     testLn :: (String, Int) -> IO Bool
     testLn (ln, lnN) = do
       case parse riscvLnParser "" $ ln of
-        Right e -> do
+        Right (Just e) -> do
           when (n>0) $ putStrLn $ show lnN <> ". " <> show e
           return True
+        Right Nothing -> return True
         Left e  -> do
           putStrLn $ "Line number " <> show lnN <> " : " <> show e
           return False
@@ -820,10 +821,14 @@ _mapUntilM f ls =
       result <- f x
       if result then _mapUntilM f ls' else return ()
 
-_test' :: IO (Either CmplError ([Section], [Section]))
-_test' = do
-  code <- readFile "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
-  let parsedCode = parseToComplError $ riscvParser "" code
+_test' n name = do
+  code <- readFile name -- "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
+  let codeLns = if n>0 then
+                  take n $ lines code
+                else
+                  lines code
+  let enumLn = zip codeLns [1..]
+  let parsedCode = parseToComplError $ catMaybes <$> mapM (parse riscvLnParser "") codeLns
   let sections = separateSections =<< parsedCode
   return $ sections -- both (map secInfo) <$> sections
   where _secInfo sec = (secName sec,  flag_exec sec)

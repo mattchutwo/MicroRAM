@@ -408,6 +408,11 @@ data Directive
   | ULEB128     Imm                     -- ^ unsigned little endian base 128, DWARF
   | MACRO       String String [String]  -- ^ Begin macro definition \argname to substitute
   | ENDM                                -- ^ End macro definition
+  | ADDRSIG                             -- ^ This section is used to
+                                        --   mark symbols as
+                                        --   address-significant. [See
+                                        --   reference](https://llvm.org/docs/Extensions.html#sht-llvm-addrsig-section-address-significance-table)
+  | ADDRSIG_SYM Imm
   | ATTRIBUTE   AttTag  (Either Integer String) 
   | P2ALIGN
     Integer                             -- ^ Align to this power of 2
