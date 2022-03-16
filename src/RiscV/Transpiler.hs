@@ -1,13 +1,13 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module RiscV.Transpiler where -- (transpiler)
 
-import Control.Monad (when)
 import Control.Monad.State
 import Data.Default (def)
 import           Data.Sequence (Seq(..))
 import qualified Data.Sequence as Seq
-import Data.Maybe (listToMaybe, mapMaybe, fromMaybe)
+import Data.Maybe (listToMaybe, mapMaybe, fromMaybe, isJust)
 import Data.Foldable (toList)
 -- import Test.QuickCheck (Arbitrary, arbitrary, oneof)
 import Compiler.IRs
@@ -26,8 +26,7 @@ import Debug.Trace (trace)
 
 import RiscV.RiscVAsm
 
-import Control.Lens (makeLenses, ix, at, to, (^.), (.=), (%=), (?=), use, over, Lens', _1, _2, _3)
-
+import Control.Lens (makeLenses, ix, at, to, (^.), (.=), (%=), (?=), _Just, use, over, Lens')
 
 
 -- | Option
@@ -99,11 +98,12 @@ data TPState = TPState
   , _currFunctionTP :: String
   , _currBlockTP    :: String
   , _currBlockContentTP :: Seq.Seq (MAInstruction Int MWord, Metadata)
+  , _commitedBlocksTP :: [NamedBlock Metadata Int MWord]
   , _sectionsTP :: Map.Map String Section
     
   -- Memory
-  , _curObject :: GlobalVariable MWord
-  , _denvTP :: GEnv MWord
+  , _curObject :: Maybe (GlobalVariable MWord)
+  , _genvTP :: GEnv MWord
 
   -- Markers
   , _atFuncStartTP :: Bool -- ^ If the next instruction needs to be marked as function start
@@ -119,16 +119,18 @@ makeLenses ''TPState
 
 initStateTP :: TPState
 initStateTP = TPState
-  { _currSectionTP      =  readSection {_secName = "NoneInit" }
+  { _currSectionTP      = readSection { _secName = "initSection"}
   , _currFunctionTP     = "NoneInit"
   , _currBlockTP        = "NoneInit"
   , _currBlockContentTP = Seq.empty
+  , _commitedBlocksTP   = [] 
   , _sectionsTP         = Map.empty
+  , _curObject          = Nothing
+  , _genvTP             = []
   , _atFuncStartTP      = False -- An instruction type needs to be found first.
   , _afterFuncCallTP    = False
+  , _symbolTableTP    = Map.empty
   }
-cunitFromState :: TPState -> CompilationUnit (GEnv MWord) (MAProgram Metadata regT MWord)
-cunitFromState = undefined
 
   
 type Statefully = StateT TPState Hopefully
@@ -144,32 +146,58 @@ transpiler rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initSt
 
     codeLbl,memLbl :: String -> Statefully ()
     codeLbl lbl = do
-      whenL atFuncStartTP (currFunctionTP .= lbl)
-      currBlockTP .= lbl 
-    memLbl lbl =
-      curObject %= (\obj -> obj {globName = quickName lbl})
+      -- Commit current block
+      commitBlock
+      -- Start a new block
+      currBlockTP .= lbl
+      -- If entering a function...
+      lblTyp <- _symType <<$>> use (symbolTableTP . at lbl)
+      case lblTyp of
+        (Just (Just DTFUNCTION)) -> do
+          -- Set the current Function
+          currFunctionTP .= lbl
+          -- Set function start (will mark the frist instruction's
+          -- metadata)
+          atFuncStartTP .= True
+        _ -> return ()
+    memLbl lbl = do
+      -- Store current object
+      saveObject
+      -- Start a new object
+      curObject . _Just %= (\obj -> obj {globName = quickName lbl})
+
+
+
+saveObject :: Statefully ()
+saveObject = do
+  -- Get the current obejct
+  curObj <- use $ curObject
+  -- add it to the list of globals
+  mapM (\x -> genvTP %= (:) x) curObj
+  -- Clear current obje
+  curObject .= Nothing
 
 transpileDir :: Directive -> Statefully ()
 transpileDir dir =
   case dir of
     -- Ignored 
     ALIGN _         -> ignoreDire -- We are ignoring alignment
-    P2ALIGN a val m -> ignoreDire -- We are ignoring alignment
+    P2ALIGN _a _v _m-> ignoreDire -- We are ignoring alignment
     BALIGN _ _      -> ignoreDire -- We are ignoring alignment
     FILE _          -> ignoreDire
     IDENT _         -> ignoreDire  -- just places tags in object files
     ADDRSIG         -> ignoreDire -- We ignore address-significance 
-    ADDRSIG_SYM nm  -> ignoreDire -- We ignore address-significance 
+    ADDRSIG_SYM _nm -> ignoreDire -- We ignore address-significance 
     CFIDirectives _ -> ignoreDire -- ignore control-flow integrity
     -- Currently unimplemented 
     Visibility _ _ -> unimplementedDir -- Not in binutils. Remove?
-    STRING st      -> unimplementedDir
-    ASCIZ  st      -> unimplementedDir
-    EQU st val     -> unimplementedDir
-    OPTION opt     -> unimplementedDir -- Rarely used
-    VARIANT_CC st  -> unimplementedDir -- Not in binutils. Remove?
-    SLEB128 val    -> unimplementedDir -- How do we do this?
-    ULEB128 val    -> unimplementedDir -- How do we do this?
+    STRING _st     -> unimplementedDir
+    ASCIZ  _st     -> unimplementedDir
+    EQU _st _val   -> unimplementedDir
+    OPTION _opt    -> unimplementedDir -- Rarely used
+    VARIANT_CC _st -> unimplementedDir -- Not in binutils. Remove?
+    SLEB128 _val   -> unimplementedDir -- How do we do this?
+    ULEB128 _val   -> unimplementedDir -- How do we do this?
     MACRO _ _ _    -> unimplementedDir -- No macros.
     ENDM           -> unimplementedDir
     -- Implemented
@@ -185,10 +213,10 @@ transpileDir dir =
     BSS     ->                       setSection "bss"    []    Nothing []
     SECTION nm flags typ flagArgs -> setSection nm       flags typ     flagArgs
     -- ## Attributes (https://sourceware.org/binutils/docs/as/RISC_002dV_002dATTRIBUTE.html)
-    ATTRIBUTE tag val -> ignoreDire -- We ignore for now, but it has some alignment infomrations 
+    ATTRIBUTE _tag _val -> ignoreDire -- We ignore for now, but it has some alignment infomrations 
     -- ## Emit data
-    DirEmit emit val  -> undefined
-    ZERO size         -> undefined
+    DirEmit typ val  -> mapM_ (emitValue $ emitSize typ) val
+    ZERO size        -> emitValue size (ImmNumber 0)
 
     where
       ignoreDire = return ()
@@ -213,33 +241,146 @@ transpileDir dir =
               }
         symbolTableTP . at name ?= symbol'
 
-      -- | Creates a section if it doens't exists and starts appending at the end of it
-      setSection :: String                     -- ^ Name
-                -> [Flag]                      -- ^ 
-                -> (Maybe SectionType)         -- ^ 
-                -> [FlagArg]                   -- ^ 
-                -> Statefully ()               -- ^
-      setSection = undefined -- TODO
-
-      
+      -- | Write some values to the current object in memory.
+      --
+      -- Note: the problem here is that RISCV emits values in
+      -- unaligned chunks of 1 to 8 bytes. While MRAM stores
+      -- everything in Words.
+      emitValue :: Integer -> Imm -> Statefully ()
+      emitValue = undefined
 
 
-        
-        -- Map.findWithDefault (defaultSym name) name <$> use 
-        return ()
-     
-                
+      -- | The number of bytes produced by each directive. We follow the
+      -- Manual set for loads and stores: "The SD, SW, SH, and SB
+      -- instructions store 64-bit, 32-bit, 16-bit, and 8-bit values
+      -- from the low bits of register rs2 to memory respectively."
+      emitSize :: EmitDir -> Integer
+      emitSize emitTyp =
+        case emitTyp of
+          BYTE        -> 1 
+          BYTE2       -> 2
+          HALF        -> 2
+          SHORT       -> 2 -- short is a 16-bit unsigned integer 
+          BYTE4       -> 4
+          WORD        -> 4
+          LONG        -> 8 -- Or 4 in RV32I
+          BYTE8       -> 8
+          DWORD       -> 8
+          QUAD        -> 8 -- it emits an 8-byte integer. If the
+                           -- bignum won’t fit in 8 bytes, it prints a
+                           -- warning message; and just takes the
+                           -- lowest order 8 bytes of the bignum.
+          DTPRELWORD  -> 4 -- dtp relative word, probably shouldn't show up 
+          DTPRELDWORD -> 8
+
+
+
+-- | Creates a section if it doens't exists and starts appending at
+-- the end of it This also saves the current section back into the
+-- map by calling `saveSection`.
+--
+-- We don't check if the existing section matches the settings given.
+setSection :: String                     -- ^ Name
+          -> [Flag]                      -- ^ 
+          -> (Maybe SectionType)         -- ^ 
+          -> [FlagArg]                   -- ^ 
+          -> Statefully ()               -- ^
+setSection name flags secTyp flagArgs = do
+  -- Save the current section
+  saveSection
+  -- Create ampty section in case it doesn't exist
+  let initSection = makeInitsection name flags secTyp flagArgs
+  --
+  theSection <- fromMaybe initSection <$> use (sectionsTP . at name)
+  currSectionTP .= theSection
+
+  where
+    makeInitsection :: String -> [Flag] -> (Maybe SectionType) -> [FlagArg] -> Section
+    makeInitsection name flag secTyp _flagArgs =
+      Section { _secName = name
+              , _flag_exec = Flag_x `elem` flag -- Must we check that 'e'
+                                             -- is not a flag? What
+                                             -- are excluded sections?
+              , _flag_write = Flag_w `elem` flag
+              , _secType = secTyp
+              , _secContent = Seq.empty
+              }
+  
+-- | Save current section into the sections map.
+saveSection :: Statefully ()
+saveSection = do
+  currSec :: Section <- use $ currSectionTP
+  let name = (_secName currSec)
+  sectionsTP . at name ?= currSec 
+  return ()
+
+
+
+
+
+
+
+
     
 transpileInstr :: Instr -> Statefully ()
-transpileInstr = undefined
+transpileInstr instr = do
+  let instrs = case instr of
+                 Instr32I instrRV32I     -> transpileInstr32I instrRV32I     
+                 Instr64I instrRV64I     -> transpileInstr64I instrRV64I   
+                 Instr32M instrExt32M    -> transpileInstr32M instrExt32M  
+                 Instr64M instrExt64M    -> transpileInstr64M instrExt64M  
+                 InstrPseudo pseudoInstr -> transpileInstrPseudo pseudoInstr
+                 InstrAlias aliasInstr   -> transpileInstralias aliasInstr
+  instrMD <- addMetadata instrs
+  currBlockContentTP %= mappend instrMD
+    where
+      addMetadata :: Seq (MAInstruction Int MWord)
+                  -> Statefully (Seq (MAInstruction Int MWord, Metadata))
+      addMetadata = undefined            
+      transpileInstr64I    :: InstrRV64I  -> Seq (MAInstruction Int MWord) 
+      transpileInstr32M    :: InstrExt32M -> Seq (MAInstruction Int MWord) 
+      transpileInstr64M    :: InstrExt64M -> Seq (MAInstruction Int MWord) 
+      transpileInstrPseudo :: PseudoInstr -> Seq (MAInstruction Int MWord) 
+      transpileInstralias  :: AliasInstr  -> Seq (MAInstruction Int MWord)
 
+      transpileInstr32I :: InstrRV32I
+                        -> Seq (MAInstruction Int MWord) 
+      transpileInstr32I instr = undefined
+        -- case instr of
+        --   JAL reg off -> MicroRAM.Ijmp operand2
+        --   JALR reg1 reg2 off
+        --   BranchInstr BranchCond reg1 reg2 off
+        --   MemInstr32 MemOp32 reg1 off reg2
+        --   LUI reg imm
+        --   AUIPC reg off
+        --   ImmBinop32 Binop32I reg1 reg2 imm
+        --   RegBinop32 Binop32 reg1 reg2 reg3
+        --   FENCE SetOrdering
+        --   FENCEI
+      transpileInstr64I    instr = undefined
+      transpileInstr32M    instr = undefined
+      transpileInstr64M    instr = undefined
+      transpileInstrPseudo instr = undefined
+      transpileInstralias  instr = undefined
+      
+      
 
 -- Utility functions for the transpiler
 
 finalizeTP :: Statefully (CompilationUnit (GEnv MWord) (MAProgram Metadata regT MWord))
 finalizeTP = undefined
-    
 
+-- Finalize current block and commit it
+-- i.e. add it to the list.
+commitBlock :: Statefully ()
+commitBlock = do
+  contnt <- use currBlockContentTP
+  currBlockContentTP .= mempty
+  name <- use currBlockTP
+  let block = NBlock (Just $ quickName name) $ toList contnt
+  commitedBlocksTP %= (:) block
+  return ()
+  
 -- Monadic stuff
 ifM :: Monad m => m Bool -> m a -> m a -> m a
 ifM b t f = do b <- b; if b then t else f
@@ -252,6 +393,8 @@ firstJust :: Maybe a -> Maybe a -> Maybe a
 firstJust (Just a) _ = Just a
 firstJust _ x = x
 
+(<<$>>) :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
+(<<$>>) = fmap . fmap
 
 
 
@@ -262,8 +405,9 @@ firstJust _ x = x
 
 
 
--- Old version
-
+---------------                                                   
+-- Old Version
+---------------
 
 -- | Translating compiler from RiscV Assembly to MicroAssembly
 transpiler' :: [LineOfRiscV] -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata regT MWord))
