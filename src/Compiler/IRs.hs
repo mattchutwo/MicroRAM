@@ -23,7 +23,7 @@ module Compiler.IRs(
   -- * Backend languages
   -- ** MicroAssembly
   -- $MA
-  MAOperand(..),
+  MAOperand(..), hereLabel,
   MAProgram,
   AnnotatedProgram,
   MA2Instruction,
@@ -82,8 +82,11 @@ data MAOperand regT wrdT where
   AReg :: regT -> MAOperand regT wrdT    -- ^ Assembly register 
   LImm :: LazyConst wrdT -> MAOperand regT wrdT    -- ^ lazy immidiates
   Label :: Name -> MAOperand regT wrdT -- 
-  HereLabel :: MAOperand regT wrdT
   deriving (Show)
+
+-- New: Label and HereLabel are absorbed in LazyConstants
+hereLabel :: MAOperand regT wrdT
+hereLabel = LImm (mkLazy pcName)
 
 
 
