@@ -52,7 +52,6 @@ readRegistersOperand :: Ord reg => MAOperand reg wrdT -> Set reg
 readRegistersOperand (AReg r) = Set.singleton r
 readRegistersOperand (LImm _w) = mempty
 readRegistersOperand (Label _s) = mempty
-readRegistersOperand HereLabel = mempty
 
 
 -- Substitute registers in an instruction.
@@ -79,5 +78,4 @@ substituteOperand :: Ord reg => Map reg reg -> MAOperand reg wrdT -> MAOperand r
 substituteOperand substs (AReg r)   = AReg (substituteRegister substs r)
 substituteOperand _      (LImm w) = LImm w
 substituteOperand _      (Label s) = Label s
-substituteOperand _      HereLabel = HereLabel
 

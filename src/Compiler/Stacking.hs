@@ -167,7 +167,7 @@ funCallInstructions md _ ret f _typs _args =
   addMD md 
   (
   -- Push return addres
-    [Imov ax HereLabel,
+    [Imov ax hereLabel,
      Iadd ax ax (LImm 8) -- FIXME: The compiler should do this addition
     ] ++ push ax ++
     -- push the old base pointer, and move the base pointer to the sp

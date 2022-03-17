@@ -101,7 +101,6 @@ instance (Pretty (PrettyPrintWrapper reg), Pretty wrd) => Pretty (PrettyPrintWra
   pretty (PPW (AReg reg)) = pretty $ PPW reg
   pretty (PPW (LImm lc)) = pretty lc
   pretty (PPW (Label l)) = "@" <> pretty l
-  pretty (PPW (HereLabel)) = "@here"
 
 instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (MIRInstruction mdata reg wrd) where
   pretty (MirM i _mdata) = pretty i -- <> " // " <> pretty mdata

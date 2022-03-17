@@ -68,6 +68,7 @@ import qualified MicroRAM as MRAM
 import Compiler.LazyConstants
 
 import Compiler.Errors
+import Compiler.Name (pcName)
 import Compiler.Common (Name, Ty, TypeEnv, GEnv)
 import Util.Util
 

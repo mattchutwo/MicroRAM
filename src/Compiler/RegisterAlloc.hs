@@ -326,7 +326,6 @@ applyColoring coloring = mapM applyBasicBlock
     applyOperand (AReg r)   = AReg <$> applyReg r
     applyOperand (LImm w) = return $ LImm w
     applyOperand (Label s) = return $ Label s
-    applyOperand HereLabel = return $ HereLabel
 
 
 -- Each returned basic block will have one instruction. 

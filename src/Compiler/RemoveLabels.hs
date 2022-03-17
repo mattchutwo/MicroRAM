@@ -12,14 +12,14 @@ Stability   : experimental
 This module compiles Translates MicroASM to MicroRAM.
 
 MicroASM is different to MicrRAM in that it allows the operands
-`Label` and `HereLabel`. The assembler will replace those labels
+`Label` and lazy constants. The assembler will replace those labels
 with the actual instruction numbers to obtain MicroRAM. In particular
 a MicroASM program can be "partial" and needs to be linked to another part
 that contains some of the labels (this allows some simple separta compilation.
 
 Note: This module is completly parametric over the machine register type.
 
-The assembler translates all `Label` and `HereLabel` to the actual
+The assembler translates all `Label` and lazy constants to the actual
 instruction number to produce well formed MicroRAM. It does so in three passes:
  
 1) Create a label map, mapping names -> instruction
@@ -132,10 +132,12 @@ flattenBlocks lm bs = snd $ foldr goBlock (totalBlockSize, []) bs
 
     goOperand :: MWord -> MAOperand regT MWord -> Operand regT MWord
     goOperand _ (AReg r) = Reg r
-    goOperand _ (LImm lc) = Const $ makeConcreteConst lmFunc lc
+    goOperand addr (LImm lc) = Const $ makeConcreteConst (lmFuncWithPc addr) lc
     goOperand _ (Label name) = Const $ lmFunc name
-    goOperand addr HereLabel = Const addr
-
+    
+    -- Add the current pc address to the map (replaces the old
+    -- HereLabel)
+    lmFuncWithPc pcAddress = getOrZero $ Map.insert pcName pcAddress lm
     lmFunc = getOrZero lm
 
 flattenGlobals ::

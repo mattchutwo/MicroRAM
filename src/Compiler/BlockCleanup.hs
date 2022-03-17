@@ -130,10 +130,13 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
     globalMap = Map.fromList $ map (\g -> (globName g, g)) globals
     progSeq = Seq.fromList prog
 
-    indexedProg = zip [0..] prog
+    reservedIndices = [(pcName, 0)]
+    firstFree:: Int  
+    firstFree = maximum (map snd reservedIndices)  
+    indexedProg = zip [firstFree..] prog
 
     nameMap :: Map.Map Name Int
-    nameMap = Map.fromList [(name, i) | (i, NBlock (Just name) _) <- indexedProg]
+    nameMap = Map.fromList $ reservedIndices ++ [(name, i) | (i, NBlock (Just name) _) <- indexedProg]
 
     premainIndex = Map.findWithDefault (error "unreachable: block for premain not found") premainName nameMap
 
@@ -172,7 +175,6 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
         opDep (Label l) = Set.singleton $ nameToIndex l
         opDep (LImm li) = lazyDeps li
         opDep (AReg _) = mempty
-        opDep HereLabel = mempty
 
         fallthroughDep = case instrs of
           [] -> mempty
