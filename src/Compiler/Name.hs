@@ -6,6 +6,7 @@ module Compiler.Name (
   Name(..),
   short2string, string2short,
   defaultName, premainName, mainName,
+  pcName,
   va_startName,
   firstUnusedName,
 
@@ -65,19 +66,20 @@ instance Regs Name where
   toWord (Name n _) = n
   
 -- | Reserved names.
-spName, bpName, axName :: Name 
+spName, bpName, axName, pcName :: Name 
 spName = Name 0 "sp"
 bpName = Name 1 "bp"
 axName = Name 2 "ax"
+pcName = Name 3 "pc"
 defaultName, premainName, mainName, va_startName :: Name
-defaultName  = Name 3 "DefaultName" -- Can appear in metadata.
-premainName  = Name 4 "premain"
-mainName     = Name 5 "main"
-va_startName = Name 6 "__cc_va_start"
+defaultName  = Name 4 "DefaultName" -- Can appear in metadata.
+premainName  = Name 5 "premain"
+mainName     = Name 6 "main"
+va_startName = Name 7 "__cc_va_start"
 
 -- | Bound for reserved names. 
 firstUnusedName :: Word
-firstUnusedName = 7
+firstUnusedName = 8
 -- ^ TODO: ad the number of reserved names grows,
 -- one might easily forget to update `firstUnusedName`.
 -- We should create a set or a map with all the reserved names
