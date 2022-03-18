@@ -41,8 +41,8 @@ data LazyConst wrdT =
       (Set Name)                -- ^ Names referenced by this constant
   | SConst wrdT   -- ^ Static constant, allows optimizations/folding upstream and debugging
 
-mkLazy :: Name -> LazyConst wrdT
-mkLazy name = LConst (\ge -> ge name) (Set.singleton name)
+lazyAddrOf :: Name -> LazyConst wrdT
+lazyAddrOf name = LConst (\ge -> ge name) (Set.singleton name)
 
 makeConcreteConst :: GlobMap wrdT -> LazyConst wrdT -> wrdT
 makeConcreteConst gmap (LConst lw _) = lw gmap

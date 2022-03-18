@@ -87,7 +87,7 @@ data MAOperand regT wrdT where
 
 -- New: Label and HereLabel are absorbed in LazyConstants
 hereLabel :: MAOperand regT wrdT
-hereLabel = LImm (mkLazy pcName)
+hereLabel = LImm (lazyAddrOf pcName)
 
 
 

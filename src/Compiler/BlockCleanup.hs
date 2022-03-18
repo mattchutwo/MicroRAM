@@ -160,8 +160,7 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
       Just j -> Right j
       Nothing -> if Set.member n reservedNames || Map.member n globalMap then
           Left n
-        else
-                   
+        else       
           error $ "no definition for name " ++ show n
 
     blockDeps :: Int -> Set.Set (Either Name Int)
