@@ -13,14 +13,17 @@ import Data.Foldable (toList)
 import Compiler.IRs
 import Compiler.Metadata
 import Compiler.Errors
-import MicroRAM (MWord)
+import MicroRAM (MWord, Instruction'(..))
 import Compiler.Common
 import Compiler.Registers (RegisterData( NumRegisters ))
 -- import Compiler.Analysis (AnalysisData)
 import Compiler.CompilationUnit
+import Compiler.IRs(lazyPc, hereLabel)
+import Compiler.LazyConstants
 
 import qualified Data.List as List (partition)
 import qualified Data.Map as Map
+import  Data.Bits (shiftL, (.|.),(.&.))
 
 import Debug.Trace (trace)
 
@@ -318,10 +321,67 @@ saveSection = do
 
 
 
+-- ## Registers
+
+tpReg :: Reg -> Int
+tpReg = fromEnum
+
+-- We need an extra register, to translate RISCV to MRAMAsm
+newReg :: Int
+newReg = 1 + (fromEnum $ (maxBound::Reg)::Int)
 
 
-
+-- ## Immediates
+tpImm :: Imm -> LazyConst MWord
+tpImm imm = case imm of
+              ImmNumber c -> SConst c
+              ImmSymbol str -> lazyAddrOf $ quickName str         
+              ImmMod mod imm1 ->
+                let lc = tpImm imm1 in lazyUop (modifierFunction mod) lc
+              ImmBinOp immop imm1 imm2 ->
+                let lc1 = tpImm imm1 in
+                  let lc2 = tpImm imm2 in
+                    lazyBop (tpImmBop immop) lc1 lc2
+  where
+    tpImmBop :: ImmOp -> MWord -> MWord -> MWord
+    tpImmBop bop =
+      case bop of
+        ImmAnd   -> (.&.)
+        ImmOr    -> (.|.)
+        ImmAdd   -> (+)
+        ImmMinus -> (-)
     
+    modifierFunction :: Modifier -> MWord -> MWord
+    modifierFunction mod _ =
+      case mod of
+        ModLo              -> undefined
+        ModHi              -> undefined
+        ModPcrel_lo        -> undefined
+        ModPcrel_hi        -> undefined
+        ModGot_pcrel_hi    -> undefined
+        ModTprel_add       -> undefined
+        ModTprel_lo        -> undefined
+        ModTprel_hi        -> undefined
+        ModTls_ie_pcrel_hi -> undefined
+        ModTls_gd_pcrel_hi -> undefined
+
+addrRelativeToAbsolute :: Imm -> MAOperand Int MWord
+addrRelativeToAbsolute off = let off' = tpImm off in
+  LImm $ lazyPc + off'
+
+pcPlus :: MWord -> MAOperand Int MWord
+pcPlus off = LImm $ lazyPc + SConst off
+
+-- batch conversion of arguemtns (looks cleaner)
+tpRegImm :: Reg -> Imm -> (Int, LazyConst MWord)
+tpRegImm r1 imm = (tpReg r1, tpImm imm)
+tpRegRegImm :: Reg -> Reg -> Imm -> (Int, Int, LazyConst MWord)
+tpRegRegImm r1 r2 imm = (tpReg r1, tpReg r2, tpImm imm)
+_tpRegRegReg :: Reg -> Reg -> Reg -> (Int, Int, Int)
+_tpRegRegReg r1 r2 r3 = (tpReg r1, tpReg r2, tpReg r3)
+
+
+-- ## Instructions
 transpileInstr :: Instr -> Statefully ()
 transpileInstr instr = do
   let instrs = case instr of
@@ -343,20 +403,55 @@ transpileInstr instr = do
       transpileInstrPseudo :: PseudoInstr -> Seq (MAInstruction Int MWord) 
       transpileInstralias  :: AliasInstr  -> Seq (MAInstruction Int MWord)
 
+ 
+      
+
       transpileInstr32I :: InstrRV32I
                         -> Seq (MAInstruction Int MWord) 
-      transpileInstr32I instr = undefined
-        -- case instr of
-        --   JAL reg off -> MicroRAM.Ijmp operand2
-        --   JALR reg1 reg2 off
-        --   BranchInstr BranchCond reg1 reg2 off
-        --   MemInstr32 MemOp32 reg1 off reg2
-        --   LUI reg imm
-        --   AUIPC reg off
-        --   ImmBinop32 Binop32I reg1 reg2 imm
-        --   RegBinop32 Binop32 reg1 reg2 reg3
-        --   FENCE SetOrdering
-        --   FENCEI
+      transpileInstr32I instr = -- undefined
+        Seq.fromList $
+        case instr of
+          JAL rd off -> let (rd',_off') = tpRegImm rd off in 
+                          [Imov rd' (pcPlus 2),
+                           Ijmp $ addrRelativeToAbsolute off] -- Is our instruction numbering compatible?
+          JALR rd rs1 off -> let (rd',rs1',off') = tpRegRegImm rd rs1 off in 
+                              [Imov rd' (pcPlus 3),
+                               Iadd newReg rs1' (LImm off'),
+                               Ijmp $ AReg newReg] -- Is our instruction numbering compatible?
+          BranchInstr cond src1 src2 off -> let (src1',src2',off') = tpRegRegImm src1 src2 off in
+                                              let (computCond, negate) = condition cond src1' src2' in
+                                                computCond : [(if negate then Icnjmp newReg else Icjmp newReg) 
+                                                              $ addrRelativeToAbsolute off]
+          MemInstr32 memOp32 reg1 off reg2  -> undefined
+          LUI reg imm -> let (reg',imm') = tpRegImm reg imm in 
+            [Imov reg' (LImm $ lazyUop luiFunc imm')]
+          AUIPC reg off -> let (reg',off') = tpRegImm reg off in 
+                             [Imov reg' (LImm $ lazyPc + lazyUop luiFunc off')]
+          ImmBinop32 binop32I reg1 reg2 imm -> undefined
+          RegBinop32 binop32 reg1 reg2 reg3 -> undefined
+          FENCE setOrdering                 -> undefined -- Probably a noop?
+          FENCEI                            -> undefined -- Probably a noop?
+        where
+          -- build 32-bit constants and uses the U-type format. LUI
+          -- places the U-immediate value in the top 20 bits of the
+          -- destination register rd, filling in the lowest 12 bits
+          -- with zeros. (We don't cehck the immediate for overflow,
+          -- but it could technically be larger than 20bits)
+          luiFunc :: MWord -> MWord
+          luiFunc w = shiftL w 12 
+          -- Returns an instruction that computes the condition and
+          -- a boolean describing if the result should be negated.
+          -- (MRAM doens't have BNE, but has `Icnjmp` to negate `Icmpe`).
+          condition cond r1 r2 =
+            case cond of
+                  BEQ -> (Icmpe newReg r1 (AReg r2), False)
+                  BNE -> (Icmpe newReg r1 (AReg r2), True)
+                  BLT -> (Icmpa newReg r1 (AReg r2), True)
+                  BGE -> (Icmpa newReg r1 (AReg r2), False)
+                  BLTU-> (Icmpg newReg r1 (AReg r2), True)
+                  BGEU-> (Icmpg newReg r1 (AReg r2), False)                      
+
+              
       transpileInstr64I    instr = undefined
       transpileInstr32M    instr = undefined
       transpileInstr64M    instr = undefined

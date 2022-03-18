@@ -277,7 +277,7 @@ data Reg
   | X29
   | X30
   | X31
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Enum, Bounded)
 
 instance Arbitrary Reg where
   arbitrary =
