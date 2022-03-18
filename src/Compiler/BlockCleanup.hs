@@ -130,13 +130,11 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
     globalMap = Map.fromList $ map (\g -> (globName g, g)) globals
     progSeq = Seq.fromList prog
 
-    reservedIndices = [(pcName, 0)]
-    firstFree:: Int  
-    firstFree = maximum (map snd reservedIndices)  
-    indexedProg = zip [firstFree..] prog
+    reservedNames = Set.fromList [pcName]
+    indexedProg = zip [0..] prog
 
     nameMap :: Map.Map Name Int
-    nameMap = Map.fromList $ reservedIndices ++ [(name, i) | (i, NBlock (Just name) _) <- indexedProg]
+    nameMap = Map.fromList $ [(name, i) | (i, NBlock (Just name) _) <- indexedProg]
 
     premainIndex = Map.findWithDefault (error "unreachable: block for premain not found") premainName nameMap
 
@@ -150,6 +148,8 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
     globalDeps n | Just g <- Map.lookup n globalMap = case initializer g of
       Nothing -> mempty
       Just is -> Set.unions $ map lazyDeps is
+    -- As a special case, reserved names have no dependencies
+    globalDeps n | Set.member n reservedNames = mempty
     globalDeps n = error $ "no global for name " <> show n
 
     lazyDeps :: LazyConst a -> Set.Set (Either Name Int)
@@ -158,9 +158,10 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
 
     nameToIndex n = case Map.lookup n nameMap of
       Just j -> Right j
-      Nothing -> if Map.member n globalMap then
+      Nothing -> if Set.member n reservedNames || Map.member n globalMap then
           Left n
         else
+                   
           error $ "no definition for name " ++ show n
 
     blockDeps :: Int -> Set.Set (Either Name Int)
