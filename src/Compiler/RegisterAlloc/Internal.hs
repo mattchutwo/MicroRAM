@@ -38,8 +38,14 @@ readRegisters (MRI inst _mdata) = readRegistersMRIInstruction inst
 readRegisters (IRI inst _mdata) = readRegistersLTLInstruction inst
 
 readRegistersMRIInstruction :: Ord reg => MAInstruction reg wrdT -> Set reg
-readRegistersMRIInstruction instr = MRAM.foldInstr (const mempty) Set.singleton readRegistersOperand  instr
+readRegistersMRIInstruction instr = MRAM.foldInstr returnReg Set.singleton readRegistersOperand  instr
+  where  -- For Icmov, the return register is live (think of 'cmov a b c'  as `a <- b ? a : c`)
+         -- For all other instructions the return register is not live (unless it is used as an operand too)
+    returnReg = case instr of
+      MRAM.Icmov {} -> Set.singleton
+      _ -> const mempty
 
+      
 readRegistersLTLInstruction :: Ord reg => LTLInstr' reg mdata (MAOperand reg wrdT) -> Set reg
 readRegistersLTLInstruction (Lgetstack _ _ _ _) = mempty
 readRegistersLTLInstruction (Lsetstack r1 _ _ _) = Set.singleton r1

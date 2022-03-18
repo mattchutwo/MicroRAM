@@ -81,17 +81,17 @@ main = do
           giveInfo fr "Running the compiler backend..."
           -- Retrieve program from file
           llvmModule <- llvmParse $ llvmFile fr
+          -- compiler options
+          let options = CompilerOptions
+                { verb = verbose fr
+                , allowUndefFun = allowUndefFunctions fr
+                , spars = sparsNum fr
+                , tainted = modeLeakTainted fr
+                , skipRegisterAllocation = skipRegAlloc fr
+                , numberRegs = numberRegsFr fr
+                } in 
           -- Then compile
-          handleErrorWith (compile
-                            (verbose fr)
-                            undefinedFunctions
-                            (modeLeakTainted fr)
-                            (skipRegisterAllocation fr)
-                            trLength
-                            llvmModule
-                            (spars fr)
-                          )
-            where undefinedFunctions = allowUndefFun fr
+            handleErrorWith (compile options trLength llvmModule)
 
 
         saveMramProgram :: Show a => FlagRecord -> a -> IO ()
@@ -174,6 +174,7 @@ data Flag
    | PrettyPrint
    | PubSegMode String
    | ModeFlag Mode
+   | NumberRegs Word
    | SkipRegisterAllocation
    -- Interpreter flags
    | VerifierMode
@@ -204,12 +205,13 @@ data FlagRecord = FlagRecord
   , trLen :: Maybe Word
   , llvmFile :: String -- Defaults to a temporary one if not wanted.
   , mramFile :: Maybe String
-  , spars :: Maybe Int
-  , allowUndefFun:: Bool
+  , sparsNum :: Maybe Int
+  , allowUndefFunctions:: Bool
   , ppMRAM :: Bool
   , pubSegMode :: PublicSegmentMode
   , modeLeakTainted :: Bool
-  , skipRegisterAllocation :: Bool
+  , numberRegsFr :: Maybe Word
+  , skipRegAlloc :: Bool
   -- Interpreter
   , verifierMode :: Bool -- VerifierMode
   , fileOut :: Maybe String
@@ -235,12 +237,13 @@ defaultFlags name len =
   , trLen     = len
   , llvmFile  = "temp/temp.ll"
   , mramFile  = Nothing
-  , spars     = Just 2
-  , allowUndefFun = False
+  , sparsNum     = Just 2
+  , allowUndefFunctions = False
   , ppMRAM = False
   , pubSegMode = PsmFunctionCalls
   , modeLeakTainted = False
-  , skipRegisterAllocation = False
+  , numberRegsFr = Nothing
+  , skipRegAlloc = False
   -- Interpreter
   , verifierMode = False
   , fileOut   = Nothing
@@ -263,15 +266,16 @@ parseFlag flag fr =
     PrivSegs numSegs ->        fr {privSegs = Just numSegs}
     JustLLVM ->                fr {end = max LLVMLang $ end fr}
     JustMRAM ->                fr {end = max MRAMLang $ end fr}
-    MemSparsity s ->           fr {spars = Just s}
-    AllowUndefFun ->           fr {allowUndefFun = True}
+    MemSparsity s ->           fr {sparsNum = Just s}
+    AllowUndefFun ->           fr {allowUndefFunctions = True}
     PrettyPrint ->             fr {ppMRAM = True}
     PubSegMode "none" ->       fr {pubSegMode = PsmNone}
     PubSegMode "function-calls" -> fr {pubSegMode = PsmFunctionCalls}
     PubSegMode "abs-int" ->    fr {pubSegMode = PsmAbsInt}
     PubSegMode x ->            error $ "unsupported public segment mode: " ++ show x
     ModeFlag LeakTaintedMode -> fr {modeLeakTainted = True}
-    SkipRegisterAllocation ->   fr {skipRegisterAllocation = True}
+    NumberRegs n ->             fr {numberRegsFr = Just n}
+    SkipRegisterAllocation ->   fr {skipRegAlloc = True}
     -- Interpreter flags
     FromMRAM ->                 fr {beginning = MRAMLang} -- In this case we are reading the fileIn
     MRAMout (Just outFile) ->   fr {mramFile = Just outFile}
@@ -306,11 +310,12 @@ options =
   , Option []    ["pretty-hex"]  (NoArg PrettyHex)                 "Pretty print the CBOR output. Won't work if writting to file. "
   , Option []    ["flat-hex"]    (NoArg FlatFormat)                "Output in flat CBOR format. Won't work if writting to file. "
   , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
-  , Option ['s'] ["sparsity"]    (ReqArg (\s -> MemSparsity $ read s) "MEM SARSITY")               "check the result"
+  , Option ['s'] ["sparsity"]    (ReqArg (MemSparsity . read) "MEM SARSITY")               "check the result"
   , Option []    ["allow-undef"] (NoArg AllowUndefFun)             "Allow declared functions with no body."
   , Option []    ["pretty-print"] (NoArg PrettyPrint)              "Pretty print the MicroRAM program with metadata."
   , Option []    ["pub-seg-mode"] (ReqArg PubSegMode "MODE")       "Public segment generation mode, one of: none, function-calls, abs-int"
-  , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")              "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
+  , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")          "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
+  , Option ['r'] ["regs"]         (ReqArg (NumberRegs . read) "n")    "Define the number of registers."
   , Option []    ["debug-skip-register-allocation"]   (NoArg SkipRegisterAllocation)    "Skip register allocation. Should only be used while debugging."
   ]
   where readOpimisation Nothing = Optimisation 1

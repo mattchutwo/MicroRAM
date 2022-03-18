@@ -391,8 +391,7 @@ jpProgComp'
   :: Word -> IO (CompilationResult (AnnotatedProgram Metadata AReg MWord))
 jpProgComp' len = do
   m <- fromLLVMFile "test/programs/varArgs.ll"
-  return $ either (error . show) id $
-    compile False False False False len m Nothing
+  return $ either (error . show) id $ compile defOptions len m
 
 -- printProg (fmap lowProg p)
 -- let t = run $ fmap (fmap $ fmap $ fmap fst) p
