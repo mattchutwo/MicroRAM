@@ -297,9 +297,9 @@ stackFunction (LFunction name _retT _argT _argN size code) = do
         markFunStart blocks =
           -- Find the first instruction and add 'mdFunctionStart = True'
           case blocks of
-            [] -> [] -- ^ If the funciton is empty, it has no start
+            [] -> [] -- If the funciton is empty, it has no start
             NBlock (Just name) [] : bbs -> NBlock (Just name) [] : markFunStart bbs
-            bb : bbs -> (markFunStartBlock bb) : bbs -- ^ guarantees that bb is not empty
+            bb : bbs -> (markFunStartBlock bb) : bbs -- guarantees that bb is not empty
         -- Assumes the block is not empty
         markFunStartBlock :: NamedBlock Metadata mreg MWord -> NamedBlock Metadata mreg MWord
         markFunStartBlock  (NBlock (Just name) (firstInst : insts)) =

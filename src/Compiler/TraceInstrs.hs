@@ -26,8 +26,9 @@ maybeTrace name ops = [MRAM.Iext (MRAM.XTrace (Text.pack $ name) ops)]
 maybeTraceIR :: md -> String -> [MAOperand VReg w] -> [MIRInstr md w]
 maybeTraceIR md name ops = map (\i -> MirM i md) $ maybeTrace name ops
 
+-- | Debug name is lost. Text names were never supported.
 regName :: VReg -> MAOperand VReg MWord
-regName (Name w _) = LImm $ SConst $ fromIntegral w  -- ^ Debug name is lost. Text names were never supported.
+regName (Name w _) = LImm $ SConst $ fromIntegral w 
 
 optRegName :: Maybe VReg -> MAOperand VReg MWord
 optRegName (Just r) = regName r

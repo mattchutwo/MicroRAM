@@ -151,7 +151,7 @@ name2name sigil nm = do
 
 getConstant :: Env -> LLVM.Constant.Constant -> Statefully $ MAOperand VReg MWord
 getConstant env (LLVM.Constant.GlobalReference ty name) | itIsFunctionType ty = do
-  _ <- lift $ checkName (globs env) name -- ^ check it's a global variable
+  _ <- lift $ checkName (globs env) name -- check it's a global variable
   Label <$> globalName name
 
   where

@@ -45,7 +45,7 @@ data Segment reg wrd = Segment
     , toNetwork :: Bool } deriving (Eq, Show, Generic)
 -- | Constraints for the segment
 data Constraints =
-  PcConst MWord -- | Pc constraints indicate a public segment.
+  PcConst MWord -- ^ Pc constraints indicate a public segment.
   deriving (Eq, Show, Generic)
   
 
@@ -89,7 +89,8 @@ appendSegments :: Seq.Seq (Segment reg wrd) -> Seq.Seq (Segment reg wrd) -> Seq.
 appendSegments accumulated funSegments =
   let lenAcc = length accumulated in 
     accumulated Seq.>< (shiftSegment lenAcc  <$> funSegments)
-  where -- | Shifts the successors 
+  where
+    -- | Shifts the successors 
     shiftSegment :: Int -> Segment reg wrd -> Segment reg wrd
     shiftSegment len seg = seg {segSuc = map (+ len) $ segSuc seg}
           
@@ -174,7 +175,7 @@ cut2segment (Cut _funName instrs pc len) succs toNet =
         , constraints = [PcConst pc]
         , segLen = len
         , segSuc = succs
-        , fromNetwork = fromNet  -- ^ From network can change later.
+        , fromNetwork = fromNet  -- From network can change later.
         , toNetwork = toNet } in
     ret --if fromNet then T.trace ("Segmetn to net: " <> (show $ constraints ret)) ret else ret
   where fromNet = case instrs of

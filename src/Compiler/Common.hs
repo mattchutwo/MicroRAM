@@ -111,7 +111,7 @@ data GlobalVariable wrdT = GlobalVariable
     -- attributes.
   , secret :: Bool
   , gvHeapInit :: Bool
-    -- | If set, this is a heap-init global variable, which is placed at a
+    -- ^ If set, this is a heap-init global variable, which is placed at a
     -- special address and doesn't influence the initial stack pointer.
   } deriving (Show)
 type GEnv wrdT = [GlobalVariable wrdT] -- Maybe better as a map:: Name -> "gvar description"
