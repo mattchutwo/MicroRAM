@@ -13,13 +13,14 @@ import Data.Foldable (toList)
 import Compiler.IRs
 import Compiler.Metadata
 import Compiler.Errors
-import MicroRAM (MWord, Instruction'(..))
+import MicroRAM (MWord, Instruction'(..), MemWidth(..))
 import Compiler.Common
 import Compiler.Registers (RegisterData( NumRegisters ))
 -- import Compiler.Analysis (AnalysisData)
 import Compiler.CompilationUnit
 import Compiler.IRs(lazyPc, hereLabel)
 import Compiler.LazyConstants
+import Compiler.Analysis (AnalysisData(..))
 
 import qualified Data.List as List (partition)
 import qualified Data.Map as Map
@@ -138,7 +139,7 @@ initStateTP = TPState
   
 type Statefully = StateT TPState Hopefully
 
-transpiler :: [LineOfRiscV] -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata regT MWord))
+transpiler :: [LineOfRiscV] -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord))
 transpiler rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initStateTP
   where 
     transpilerLine :: LineOfRiscV -> Statefully ()
@@ -223,7 +224,8 @@ transpileDir dir =
 
     where
       ignoreDire = return ()
-      unimplementedDir = implError $ "Directive not yet implemented: " <> show dir
+      -- TODO: for testing we allow unimplemented directives.
+      unimplementedDir = ignoreDire -- implError $ "Directive not yet implemented: " <> show dir
 
       -- | Creates a symbol if it doens't exists and modifies the
       -- attributers provided
@@ -250,7 +252,7 @@ transpileDir dir =
       -- unaligned chunks of 1 to 8 bytes. While MRAM stores
       -- everything in Words.
       emitValue :: Integer -> Imm -> Statefully ()
-      emitValue = undefined
+      emitValue _ _ = return () -- TODO fix (temp. fix for debugging)
 
 
       -- | The number of bytes produced by each directive. We follow the
@@ -369,6 +371,9 @@ addrRelativeToAbsolute :: Imm -> MAOperand Int MWord
 addrRelativeToAbsolute off = let off' = tpImm off in
   LImm $ lazyPc + off'
 
+tpAddress :: Imm  -> MAOperand Int MWord
+tpAddress address = LImm $ tpImm address
+
 pcPlus :: MWord -> MAOperand Int MWord
 pcPlus off = LImm $ lazyPc + SConst off
 
@@ -377,8 +382,8 @@ tpRegImm :: Reg -> Imm -> (Int, LazyConst MWord)
 tpRegImm r1 imm = (tpReg r1, tpImm imm)
 tpRegRegImm :: Reg -> Reg -> Imm -> (Int, Int, LazyConst MWord)
 tpRegRegImm r1 r2 imm = (tpReg r1, tpReg r2, tpImm imm)
-_tpRegRegReg :: Reg -> Reg -> Reg -> (Int, Int, Int)
-_tpRegRegReg r1 r2 r3 = (tpReg r1, tpReg r2, tpReg r3)
+tpRegRegReg :: Reg -> Reg -> Reg -> (Int, Int, Int)
+tpRegRegReg r1 r2 r3 = (tpReg r1, tpReg r2, tpReg r3)
 
 
 -- ## Instructions
@@ -391,79 +396,344 @@ transpileInstr instr = do
                  Instr64M instrExt64M    -> transpileInstr64M instrExt64M  
                  InstrPseudo pseudoInstr -> transpileInstrPseudo pseudoInstr
                  InstrAlias aliasInstr   -> transpileInstralias aliasInstr
-  instrMD <- addMetadata instrs
-  currBlockContentTP %= mappend instrMD
+  instrMD <- traverse addMetadata instrs
+  currBlockContentTP %= flip mappend instrMD -- Instructions are added at the end.
     where
-      addMetadata :: Seq (MAInstruction Int MWord)
-                  -> Statefully (Seq (MAInstruction Int MWord, Metadata))
-      addMetadata = undefined            
-      transpileInstr64I    :: InstrRV64I  -> Seq (MAInstruction Int MWord) 
+      addMetadata :: MAInstruction Int MWord
+                  -> Statefully (MAInstruction Int MWord, Metadata)
+      addMetadata instr = do
+        funName <- use currFunctionTP
+        blockName <- use currBlockTP
+        line <- return 0 -- Bogus
+        return (instr, Metadata (quickName funName) (quickName blockName) line False False False False)
+               
       transpileInstr32M    :: InstrExt32M -> Seq (MAInstruction Int MWord) 
       transpileInstr64M    :: InstrExt64M -> Seq (MAInstruction Int MWord) 
-      transpileInstrPseudo :: PseudoInstr -> Seq (MAInstruction Int MWord) 
       transpileInstralias  :: AliasInstr  -> Seq (MAInstruction Int MWord)
-
- 
-      
-
-      transpileInstr32I :: InstrRV32I
-                        -> Seq (MAInstruction Int MWord) 
-      transpileInstr32I instr = -- undefined
-        Seq.fromList $
-        case instr of
-          JAL rd off -> let (rd',_off') = tpRegImm rd off in 
-                          [Imov rd' (pcPlus 2),
-                           Ijmp $ addrRelativeToAbsolute off] -- Is our instruction numbering compatible?
-          JALR rd rs1 off -> let (rd',rs1',off') = tpRegRegImm rd rs1 off in 
-                              [Imov rd' (pcPlus 3),
-                               Iadd newReg rs1' (LImm off'),
-                               Ijmp $ AReg newReg] -- Is our instruction numbering compatible?
-          BranchInstr cond src1 src2 off -> let (src1',src2',off') = tpRegRegImm src1 src2 off in
-                                              let (computCond, negate) = condition cond src1' src2' in
-                                                computCond : [(if negate then Icnjmp newReg else Icjmp newReg) 
-                                                              $ addrRelativeToAbsolute off]
-          MemInstr32 memOp32 reg1 off reg2  -> undefined
-          LUI reg imm -> let (reg',imm') = tpRegImm reg imm in 
-            [Imov reg' (LImm $ lazyUop luiFunc imm')]
-          AUIPC reg off -> let (reg',off') = tpRegImm reg off in 
-                             [Imov reg' (LImm $ lazyPc + lazyUop luiFunc off')]
-          ImmBinop32 binop32I reg1 reg2 imm -> undefined
-          RegBinop32 binop32 reg1 reg2 reg3 -> undefined
-          FENCE setOrdering                 -> undefined -- Probably a noop?
-          FENCEI                            -> undefined -- Probably a noop?
-        where
-          -- build 32-bit constants and uses the U-type format. LUI
-          -- places the U-immediate value in the top 20 bits of the
-          -- destination register rd, filling in the lowest 12 bits
-          -- with zeros. (We don't cehck the immediate for overflow,
-          -- but it could technically be larger than 20bits)
-          luiFunc :: MWord -> MWord
-          luiFunc w = shiftL w 12 
-          -- Returns an instruction that computes the condition and
-          -- a boolean describing if the result should be negated.
-          -- (MRAM doens't have BNE, but has `Icnjmp` to negate `Icmpe`).
-          condition cond r1 r2 =
-            case cond of
-                  BEQ -> (Icmpe newReg r1 (AReg r2), False)
-                  BNE -> (Icmpe newReg r1 (AReg r2), True)
-                  BLT -> (Icmpa newReg r1 (AReg r2), True)
-                  BGE -> (Icmpa newReg r1 (AReg r2), False)
-                  BLTU-> (Icmpg newReg r1 (AReg r2), True)
-                  BGEU-> (Icmpg newReg r1 (AReg r2), False)                      
-
-              
-      transpileInstr64I    instr = undefined
       transpileInstr32M    instr = undefined
       transpileInstr64M    instr = undefined
-      transpileInstrPseudo instr = undefined
       transpileInstralias  instr = undefined
+
+transpileInstrPseudo :: PseudoInstr -> Seq (MAInstruction Int MWord)  
+transpileInstrPseudo instr =
+  Seq.fromList $
+  case instr of 
+    RetPI -> [Ijmp . AReg $ tpReg X1]
+    CallPI Nothing off ->
+      -- MicroRam has no restriction on the size of offsets,
+      -- So there is no need to use `auipc`
+      [Imov (tpReg X1) (pcPlus 2),
+       Ijmp $ tpAddress off]
+    CallPI (Just rd) off -> 
+      -- MicroRam has no restriction on the size of offsets,
+      -- So there is no need to use `auipc`
+      [Imov (tpReg rd) (pcPlus 2),
+       Ijmp $ tpAddress off]
+    TailPI off ->
+      -- From the RiscV Manual, tail calls are just a call that uses
+      -- the X6 register (page 140 table 25.3)
+      [Imov (tpReg X1) (pcPlus 2),
+       Ijmp $ tpAddress off]
+    FencePI -> []
+    LiPI rd imm->
+      let (rd',imm') = tpRegImm rd imm in
+      -- MicroRam has no restriction on the size of offsets, so there
+      -- is no need to use 'lui, addi, slli, addi'. We can directly
+      -- mov the constant
+      [Imov rd' (LImm imm')]
+    NopPI ->
+      -- We are already changing the alignemnt.
+      -- can we ignore nop's (i.e. return [])
+      [Iadd (tpReg X0) (tpReg X0) (LImm 0) ]
+    AbsolutePI _ -> error "AbsolutePI" -- AbsolutePseudo
+    UnaryPI  unop reg1 reg2  -> unaryPseudo unop reg1 reg2  -- UnaryPseudo Reg Reg
+    CMovPI  _ _ _-> error "1" -- CMovPseudo Reg Reg
+    BranchZPI bsp rd off -> pseudoBranch bsp rd off  -- BranchZPseudo Reg Offset
+    BranchPI  _ _ _ _-> error "3" -- BranchPseudo Reg Reg Offset
+    JmpImmPI  JPseudo off -> [Ijmp . LImm $ tpImm off]
+    JmpImmPI  JLinkPseudo off -> [Imov (tpReg X1) (pcPlus 2),
+                                  Ijmp . LImm $ tpImm off]
+    JmpRegPI  _ _ -> error "5" -- JumpPseudo Reg
+  where
+    unaryPseudo :: UnaryPseudo -> Reg -> Reg  -> [MAInstruction Int MWord]
+    unaryPseudo unop reg1 reg2 =
+      let (rs1',rs2, _) = tpRegRegImm reg1 reg2 (ImmNumber 0) in
+        let rs2' = AReg rs2 in 
+          case unop of
+            MOV   -> [Imov rs1' rs2']  
+            NOT   -> [Inot rs1' rs2']
+            NEG   -> [Imov newReg (LImm 0), Isub rs1' newReg rs2']
+            NEGW  -> [Imov newReg (LImm 0), Isub rs1' newReg rs2']
+            SEXTW -> [Imov rs1' rs2'] <> restrictAndSignExtendResult rs1'
+        
+    
+    pseudoBranch :: BranchZPseudo ->  Reg ->  Offset -> [MAInstruction Int MWord]
+    pseudoBranch bsp rs1 off =
+      let (rs1',off') = tpRegImm rs1 off in
+        let (computCond, negate) = condition bsp rs1' in
+          computCond : [(if negate then Icnjmp newReg else Icjmp newReg) 
+                         $ tpAddress off]
+      
+
+    
+    -- Returns an instruction that computes the condition and
+    -- a boolean describing if the result should be negated.
+    -- (MRAM doens't have BNE, but has `Icnjmp` to negate `Icmpe`).
+    condition cond r1 =
+      case cond of  
+        BEQZ -> (Icmpe newReg r1 (LImm 0), False)
+        BNEZ -> (Icmpe newReg r1 (LImm 0), True)
+        BLTZ -> (Icmpge newReg r1 (LImm 0), True)
+        BLEZ -> (Icmpge newReg (tpReg X0) (AReg r1), False)   
+        BGEZ -> (Icmpge newReg r1 (LImm 0), False)    
+        BGTZ -> (Icmpge newReg (tpReg X0) (AReg r1), True)   
+
+
+-- | For operations over words (operands ending in 'W')
+-- The result ignores overflow and is signextended to 64bits. 
+restrictAndSignExtendResult :: Int -> [MAInstruction Int MWord]
+restrictAndSignExtendResult rd' =
+  [ -- restrict the result (Forget overflows)
+    Iand rd' rd' (LImm $ 2^32 - 1),
+    -- Sign extend
+    Ishr newReg rd' (LImm 31), -- sign
+    Imull newReg newReg (LImm $ 2^64-2^32), -- extension
+    Ior rd' newReg (AReg rd') -- set sign extension
+  ]
+
+transpileInstr64I    :: InstrRV64I  -> Seq (MAInstruction Int MWord) 
+transpileInstr64I    instr =
+  Seq.fromList $
+  case instr of
+    MemInstr64 mop r1 off r2 ->
+      memInstr64 mop r1 off r2  
+    ImmBinop64 binop64I reg1 reg2 imm  -> transpileImmBinop64I binop64I reg1 reg2 imm -- Binop64I Reg Reg Imm
+    RegBinop64 binop64  reg1 reg2 reg3 -> transpileRegBinop64I binop64  reg1 reg2 reg3 -- Binop64 Reg Reg Reg
+  where
+    transpileImmBinop64I :: Binop64I -> Reg -> Reg -> Imm -> [MAInstruction Int MWord]
+    transpileImmBinop64I binop64I reg1 reg2 imm =
+      let (rd',rs1',off'') = tpRegRegImm reg1 reg2 imm in
+        let off' = LImm off'' in
+          (case binop64I of
+            ADDIW -> [Iadd rd' rs1' off']
+            -- It should be true that the  'off' < 2^5'
+            -- but we do not check for it. 
+            SLLIW -> [Ishl rd' rs1' off']
+            SRLIW -> [Iand newReg rs1' (LImm $ 2^32 - 1),
+                      Ishr rd' rs1' off']
+            SRAIW -> error "Arithmetic right shift not implemented (64I)" -- TODO
+          ) <>
+          restrictAndSignExtendResult rd'
+      where
+        -- We assume, but don't check, that the immediate is less than 32bits long.
+        -- in fact, because of RiscV encoding it should be less than 12bits long.
+        wordRestricted
+          :: Int -> Int -> LazyConst MWord
+          -> (Int -> Int -> (MAOperand Int MWord) -> MAInstruction Int MWord)
+          -> [MAInstruction Int MWord]
+        wordRestricted rd' rs1' imm op =
+          [ -- Restrict the values to 32b
+            Ior newReg rs1' (LImm $ 2^32 - 1),
+            -- do the operation 
+            op rd' newReg (LImm imm)] <>
+          restrictAndSignExtendResult rd'
+      
+    transpileRegBinop64I :: Binop64  -> Reg -> Reg -> Reg -> [MAInstruction Int MWord]
+    transpileRegBinop64I binop32 reg1 reg2 reg3 =
+      let (rd',rs1',rs2') = tpRegRegReg reg1 reg2 reg3 in
+        (case binop32 of
+            ADDW -> [Iadd rd' rs1' (AReg rs2')]                                 
+            SUBW -> [Isub rd' rs1' (AReg rs2')]                                 
+            SLLW -> [Iand newReg rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
+                     Ishl rd' rs1' (AReg newReg)]                                 
+            SRLW -> [Iand newReg rs1' (LImm $ 2^32 - 1), -- restrict input to 32b
+                     Iand rd'    rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
+                     Ishr rd' newReg (AReg rd')]                                  
+            SRAW -> error "Arithmetic right shift not implemented" -- TODO
+            ) <>
+          restrictAndSignExtendResult rd'
+      where
+            
+            
+
+            
+        
+    memInstr64 :: MemOp64 -> Reg -> Offset -> Reg -> [MAInstruction Int MWord]
+    memInstr64  mop r1 off r2 =
+      let (rd',rs1',off'') = tpRegRegImm r1 r2 off in
+        let off' = LImm off'' in
+      case mop of
+        -- unsigned load
+        LWU -> [Iadd newReg rs1' off',
+                 Iload W1 rd' (AReg newReg)]
+        -- double mems
+        LD  -> [Iadd newReg rs1' off',
+                 Iload W1 rd' (AReg newReg)]
+        SD  -> [Iadd newReg rs1' off', 
+                     Istore W1 (AReg newReg) rd' ]
+      
+transpileInstr32I :: InstrRV32I -> Seq (MAInstruction Int MWord) 
+transpileInstr32I instr =
+  Seq.fromList $
+  case instr of
+    JAL rd off -> let (rd',_off') = tpRegImm rd off in 
+                    [Imov rd' (pcPlus 2), -- Or is it 8?
+                     Ijmp $ tpAddress off] -- Is our instruction numbering compatible?
+    JALR rd rs1 off -> let (rd',rs1',off') = tpRegRegImm rd rs1 off in 
+                        [Iadd newReg rs1' (LImm off'), -- this instruction must go first, in case rd=rs1
+                         Imov rd' (pcPlus 2), -- or is it 8? 
+                         Ijmp $ AReg newReg] -- Is our instruction numbering compatible?
+    BranchInstr cond src1 src2 off -> let (src1',src2',off') = tpRegRegImm src1 src2 off in
+                                        let (computCond, negate) = condition cond src1' src2' in
+                                          computCond : [(if negate then Icnjmp newReg else Icjmp newReg) 
+                                                        $ tpAddress off]
+    MemInstr32 memOp32 reg1 off reg2  -> memOp32Instr memOp32 reg1 off reg2 
+    LUI reg imm -> let (reg',imm') = tpRegImm reg imm in 
+      [Imov reg' (LImm $ lazyUop luiFunc imm')]
+    AUIPC reg off -> let (reg',off') = tpRegImm reg off in 
+                       [Imov reg' (LImm $ lazyPc + lazyUop luiFunc off')]
+    ImmBinop32 binop32I reg1 reg2 imm -> transpileImmBinop32I binop32I reg1 reg2 imm
+    RegBinop32 binop32 reg1 reg2 reg3 -> transpileRegBinop32I binop32  reg1 reg2 reg3
+    FENCE setOrdering                 -> undefined -- Probably a noop?
+    FENCEI                            -> undefined -- Probably a noop?
+  where
+    -- Memory operations
+    -- Big TODO TODO TODO
+    memOp32Instr :: MemOp32 -> Reg -> Offset -> Reg -> [MAInstruction Int MWord]
+    memOp32Instr memOp32 reg1 off reg2 =
+      let (rd',rs1',off'') = tpRegRegImm reg1 reg2 off in
+        let off' = LImm off'' in
+          case memOp32 of
+            -- Loads
+            -- Is there a better way to do sign extended loads?
+            LB  -> [Iadd rd' rs1' off', 
+                     Iload W1 rd' (AReg rd'),
+                     -- get the sign
+                     Ishr newReg rd' (LImm$ 8-1),
+                     -- make an extension mask (a prefix of o's or 1's)
+                     Imull newReg newReg (LImm $ (-1)),
+                     Iand newReg newReg (LImm $ 2^8-1),
+                     -- add the extension bits
+                     Ior  rd' newReg (AReg rd')
+                     ]    
+            LH  -> [Iadd newReg rs1' off', 
+                     Iload W2 rd' (AReg newReg),
+                     -- get the sign
+                     Ishr newReg rd' (LImm $ 16-1),
+                     -- make an extension mask (a prefix of o's or 1's)
+                     Imull newReg newReg (LImm (-1)),
+                     Iand newReg newReg (LImm $ 2^16-1),
+                     -- add the extension bits
+                     Ior  rd' newReg (AReg rd')]
+            LW  -> [Iadd newReg rs1' off', 
+                     Iload W4 rd' (AReg newReg),
+                     -- get the sign
+                     Ishr newReg rd' (LImm $ 32-1),
+                     -- make an extension mask (a prefix of o's or 1's)
+                     Imull newReg newReg (LImm $ (-1)),
+                     Iand newReg newReg (LImm $ 2^32-1),
+                     -- add the extension bits
+                     Ior  rd' newReg (AReg rd')]
+            -- Unsigned loads
+            LBU ->  [Iadd newReg rs1' off',
+                      Iload W1 rd' (AReg newReg)] 
+            LHU ->  [Iadd newReg rs1' off',
+                      Iload W2 rd' (AReg newReg)] 
+            -- Stores
+            SB  -> [Iadd newReg rs1' off', 
+                     Istore W1 (AReg newReg) rd' ] 
+            SH  -> [Iadd newReg rs1' off',
+                     Istore W2 (AReg newReg) rd' ] 
+            SW  -> [Iadd newReg rs1' off',
+                     Istore W4 (AReg newReg) rd' ] 
+    
+    -- transpileRegBinop32I
+    transpileRegBinop32I :: Binop32 -> Reg -> Reg -> Reg -> [MAInstruction Int MWord]
+    transpileRegBinop32I binop reg1 reg2 reg3 =
+      let (rd',rs1',rs2) = tpRegRegReg reg1 reg2 reg3 in
+        let rs2' = AReg rs2 in  
+          case binop of
+            ADD  -> [Iadd  rd' rs1' rs2']
+            SUB  -> [Isub  rd' rs1' rs2']
+            SLL  -> [Ishl  rd' rs1' rs2']
+            SLT  -> [Icmpg rd' rs1' rs2']
+            SLTU -> [Icmpa rd' rs1' rs2']
+            XOR  -> [Ixor rd' rs1' rs2']
+            SRL  -> [Ishr  rd' rs1' rs2']
+            SRA  -> error "Arithmetic right shift not implemented" -- TODO
+            OR   -> [Ior rd' rs1' rs2']
+            AND  -> [Iand rd' rs1' rs2']
+          
+
+          
+    -- transpileImmBinop32I
+    transpileImmBinop32I :: Binop32I -> Reg -> Reg -> Imm -> [MAInstruction Int MWord]
+    transpileImmBinop32I binop reg1 reg2 imm =
+      let (rd',rs1',off') = tpRegRegImm reg1 reg2 imm in
+        let off_imm = LImm off' in
+        case binop of
+          ADDI  -> [Iadd  rd' rs1' off_imm]
+          SLTI  -> [Imov newReg off_imm,
+                    Icmpg rd' newReg (AReg rs1')] -- Could we write this in one instruction?
+                                                  -- Perhaps we should flip MicroRAM cmpa-cmpg
+                                                  -- to match RiscV. 
+          SLTIU -> [Imov newReg off_imm,
+                    Icmpa rd' newReg (AReg rs1')]
+          XORI  -> [Ixor  rd' rs1' off_imm]
+          ORI   -> [Ior   rd' rs1' off_imm]
+          ANDI  -> [Iand  rd' rs1' off_imm]
+          SLLI  -> [Ishl  rd' rs1' off_imm]
+          SRLI  -> [Ishr  rd' rs1' off_imm]
+          SRAI  -> error "Arithmetic right shift not implemented" -- TODO
+      
+    
+    -- build 32-bit constants and uses the U-type format. LUI
+    -- places the U-immediate value in the top 20 bits of the
+    -- destination register rd, filling in the lowest 12 bits
+    -- with zeros. (We don't cehck the immediate for overflow,
+    -- but it could technically be larger than 20bits)
+    luiFunc :: MWord -> MWord
+    luiFunc w = shiftL w 12 
+    -- Returns an instruction that computes the condition and
+    -- a boolean describing if the result should be negated.
+    -- (MRAM doens't have BNE, but has `Icnjmp` to negate `Icmpe`).
+    condition cond r1 r2 =
+      case cond of
+            BEQ -> (Icmpe newReg r1 (AReg r2), False)
+            BNE -> (Icmpe newReg r1 (AReg r2), True)
+            BLT -> (Icmpge newReg r1 (AReg r2), True)
+            BGE -> (Icmpge newReg r1 (AReg r2), False)
+            BLTU-> (Icmpae newReg r1 (AReg r2), True)
+            BGEU-> (Icmpae newReg r1 (AReg r2), False)                      
+
+              
       
       
 
 -- Utility functions for the transpiler
 
-finalizeTP :: Statefully (CompilationUnit (GEnv MWord) (MAProgram Metadata regT MWord))
-finalizeTP = undefined
+finalizeTP :: Statefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord))
+finalizeTP = do
+  -- First commit the last section/block
+  _ <- commitBlock
+  -- Build program
+  prog <- use commitedBlocksTP
+  -- Build memory
+  (genv, mem) <- getMem
+  -- Then build the CompilationUnit
+  return $ CompUnit { programCU = ProgAndMem prog mem mempty,
+                      -- TraceLen is bogus
+                      traceLen = 0,
+                      -- We added one new register, which is now the largest
+                      regData = NumRegisters newReg,
+                      -- Analysis data is bogus
+                      aData = AnalysisData mempty mempty,
+                      -- Name bound is currently bogus, but we should fix it
+                      -- TODO: fix name bound.
+                      nameBound = 0,
+                      intermediateInfo = genv }
+  where getMem = return (mempty, mempty) -- Bogus for now TODO
+
 
 -- Finalize current block and commit it
 -- i.e. add it to the list.
@@ -695,3 +965,8 @@ spanMaybe p xs@(x:xs') = case p x of
 --   computes some expensive information that can be reused.
 firstJust' :: (a -> Maybe b) -> [a] -> Maybe b
 firstJust' f = listToMaybe . mapMaybe f
+
+
+
+
+--- Quick testing

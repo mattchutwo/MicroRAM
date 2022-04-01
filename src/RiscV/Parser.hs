@@ -16,8 +16,14 @@ import Data.Maybe (catMaybes)
 import Control.Monad (mzero, when, void)
 import Data.Functor.Identity (Identity)
 
+import Compiler.CompilationUnit
 import Compiler.Errors
---import Debug.Trace
+import Debug.Trace
+
+-- pretty print
+import Debug.PrettyPrint
+import Data.Text.Prettyprint.Doc (pretty)
+
 
 -- Borrow some definitions from haskell
 riscVLang :: Stream s m Char
@@ -794,7 +800,7 @@ directiveCFIParse =
 
 _test :: Int -> String -> IO ()
 _test n file = do
-  code <- readFile file -- "src/RiscV/square.s" -- "src/RiscV/rotate.s" -- "src/RiscV/grit-rv64-20211105.s"
+  code <- readFile file -- "programs/riscv/fib.s"  -- "programs/riscv/square.s" -- "programs/riscv/rotate.s" -- "programs/riscv/grit-rv64-20211105.s"
   let codeLns = if n>0 then
                   take n $ lines code
                 else
@@ -829,10 +835,17 @@ _test' n name = do
                   lines code
   let enumLn = zip codeLns [1..]
   let parsedCode = parseToComplError $ catMaybes <$> mapM (parse riscvLnParser "") codeLns
-  let sections = separateSections =<< parsedCode
-  return $ sections -- both (map secInfo) <$> sections
-  where _secInfo sec = (secName sec,  flag_exec sec)
+  let masm = (transpiler <$> parsedCode)
+  let prog = getProg masm
+  trace (show $ pretty prog) $ return ()
+
   
 parseToComplError :: Show x => Either x a -> Hopefully a
 parseToComplError (Right a) = Right a
 parseToComplError (Left x) = otherError $ "Parse failed:" <> show x
+
+getProg result =
+  case result of
+    Right (Right cunit) ->
+      Just $ pmProg $ programCU $ cunit
+    _ -> Nothing
