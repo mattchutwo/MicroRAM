@@ -23,6 +23,7 @@ import Debug.Trace
 -- pretty print
 import Debug.PrettyPrint
 import Data.Text.Prettyprint.Doc (pretty)
+import Compiler.RemoveLabels
 
 
 -- Borrow some definitions from haskell
@@ -836,16 +837,28 @@ _test' n name = do
   let enumLn = zip codeLns [1..]
   let parsedCode = parseToComplError $ catMaybes <$> mapM (parse riscvLnParser "") codeLns
   let masm = (transpiler <$> parsedCode)
-  let prog = getProg masm
-  trace (show $ pretty prog) $ return ()
-
+  let progmm = getProg masm
+  let mram = removeLabels False <$> (simplError masm)
+  let prog = getProg mram
+  trace ("MASM:\n----\n" <> (show $ pretty <$> progmm)) $ return ()
+  when (isLeft masm) $ trace ("Error was " <> (show masm)) return ()
+  trace ("MRAM:\n----\n" <> (show $ prettyAnn <$> prog)) $ return () -- pretty
+  when (isLeft mram) $ trace ("Error was " <> (show mram)) return ()
+  where isLeft either = case either of
+                          Left _ -> True
+                          Right _ -> False
   
 parseToComplError :: Show x => Either x a -> Hopefully a
 parseToComplError (Right a) = Right a
 parseToComplError (Left x) = otherError $ "Parse failed:" <> show x
+
 
 getProg result =
   case result of
     Right (Right cunit) ->
       Just $ pmProg $ programCU $ cunit
     _ -> Nothing
+
+simplError :: Hopefully (Hopefully x) -> Hopefully x
+simplError (Left e) = Left e
+simplError (Right x) = x

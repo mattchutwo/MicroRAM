@@ -86,6 +86,8 @@ makeLenses ''Section
 -- New Version
 ---------------
 
+      
+
 data SymbolTP = SymbolTP
   { _symbName  :: String                    
   , _symbSize  :: Maybe (Either Integer Imm)
@@ -115,7 +117,11 @@ data TPState = TPState
     
   -- Symbols
   , _symbolTableTP :: Map.Map String SymbolTP
-  
+
+  -- Name ID counter
+  -- All names must have a distinct ID number
+  , _nameIDTP :: Word
+  , _nameMap :: Map.Map String Name
   }
 
 makeLenses ''TPState
@@ -133,11 +139,33 @@ initStateTP = TPState
   , _genvTP             = []
   , _atFuncStartTP      = False -- An instruction type needs to be found first.
   , _afterFuncCallTP    = False
-  , _symbolTableTP    = Map.empty
+  , _symbolTableTP      = Map.empty
+  , _nameIDTP           = 0
+  , _nameMap            = Map.empty
   }
 
   
 type Statefully = StateT TPState Hopefully
+
+
+-- Bogus ID, for now
+quickName :: String -> Name
+quickName st =
+  trace "You are using quickName which gives bogus IDs which might overlap" $
+  Name 0 $ string2short st
+  
+-- Checks if the name already exist. Otherwise it creates a new one with unique ID
+getName :: String -> Statefully Name
+getName st = do
+  nmap <- use nameMap
+  nameRet <- case Map.lookup st nmap of
+               Just name -> return name
+               Nothing -> do uniqueID <- use nameIDTP
+                             nameIDTP %= (1 +)
+                             let nameRet = Name uniqueID $ string2short st
+                             nameMap .= Map.insert st nameRet nmap
+                             return $ nameRet
+  trace ("Got name " <> show nameRet) $ return nameRet
 
 transpiler :: [LineOfRiscV] -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord))
 transpiler rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initStateTP
@@ -168,7 +196,8 @@ transpiler rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initSt
       -- Store current object
       saveObject
       -- Start a new object
-      curObject . _Just %= (\obj -> obj {globName = quickName lbl})
+      lblName <- getName lbl
+      curObject . _Just %= (\obj -> obj {globName = lblName})
 
 
 
@@ -211,10 +240,10 @@ transpileDir dir =
     SIZE   nm size       -> setSymbol nm (Just $ Right size) Nothing        Nothing
     TYPE   nm typ        -> setSymbol nm Nothing             Nothing        (Just typ)
     -- ## Sections
-    TEXT    ->                       setSection "text"   []    Nothing []
-    DATA    ->                       setSection "data"   []    Nothing []
-    RODATA  ->                       setSection "rodata" []    Nothing []
-    BSS     ->                       setSection "bss"    []    Nothing []
+    TEXT    ->                       setSection "text"   [Flag_x]    Nothing []
+    DATA    ->                       setSection "data"   []          Nothing []
+    RODATA  ->                       setSection "rodata" []          Nothing []
+    BSS     ->                       setSection "bss"    []          Nothing []
     SECTION nm flags typ flagArgs -> setSection nm       flags typ     flagArgs
     -- ## Attributes (https://sourceware.org/binutils/docs/as/RISC_002dV_002dATTRIBUTE.html)
     ATTRIBUTE _tag _val -> ignoreDire -- We ignore for now, but it has some alignment infomrations 
@@ -334,16 +363,17 @@ newReg = 1 + (fromEnum $ (maxBound::Reg)::Int)
 
 
 -- ## Immediates
-tpImm :: Imm -> LazyConst MWord
+tpImm :: Imm -> Statefully (LazyConst MWord)
 tpImm imm = case imm of
-              ImmNumber c -> SConst c
-              ImmSymbol str -> lazyAddrOf $ quickName str         
-              ImmMod mod imm1 ->
-                let lc = tpImm imm1 in lazyUop (modifierFunction mod) lc
-              ImmBinOp immop imm1 imm2 ->
-                let lc1 = tpImm imm1 in
-                  let lc2 = tpImm imm2 in
-                    lazyBop (tpImmBop immop) lc1 lc2
+              ImmNumber c -> return $ SConst c
+              ImmSymbol str -> lazyAddrOf <$> getName str         
+              ImmMod mod imm1 -> do
+                lc <- tpImm imm1
+                return $ lazyUop (modifierFunction mod) lc
+              ImmBinOp immop imm1 imm2 -> do
+                lc1 <- tpImm imm1
+                lc2 <- tpImm imm2
+                return $ lazyBop (tpImmBop immop) lc1 lc2
   where
     tpImmBop :: ImmOp -> MWord -> MWord -> MWord
     tpImmBop bop =
@@ -354,10 +384,14 @@ tpImm imm = case imm of
         ImmMinus -> (-)
     
     modifierFunction :: Modifier -> MWord -> MWord
-    modifierFunction mod _ =
+    modifierFunction mod w =
       case mod of
-        ModLo              -> undefined
-        ModHi              -> undefined
+        -- The low 12 bits of absolute address for symbol.
+        ModLo              -> w .&. (2^12-1)
+        -- The high 20 bits of absolute address for symbol. This is
+        -- usually used with the %lo modifier to represent a 32-bit
+        -- absolute address.
+        ModHi              -> w .&. (2^32-2^12)
         ModPcrel_lo        -> undefined
         ModPcrel_hi        -> undefined
         ModGot_pcrel_hi    -> undefined
@@ -367,21 +401,26 @@ tpImm imm = case imm of
         ModTls_ie_pcrel_hi -> undefined
         ModTls_gd_pcrel_hi -> undefined
 
-addrRelativeToAbsolute :: Imm -> MAOperand Int MWord
-addrRelativeToAbsolute off = let off' = tpImm off in
-  LImm $ lazyPc + off'
+addrRelativeToAbsolute :: Imm -> Statefully (MAOperand Int MWord)
+addrRelativeToAbsolute off = do
+  off' <- tpImm off
+  return $ LImm $ lazyPc + off'
 
-tpAddress :: Imm  -> MAOperand Int MWord
-tpAddress address = LImm $ tpImm address
+tpAddress :: Imm  -> Statefully (MAOperand Int MWord)
+tpAddress address = LImm <$> tpImm address
 
 pcPlus :: MWord -> MAOperand Int MWord
 pcPlus off = LImm $ lazyPc + SConst off
 
 -- batch conversion of arguemtns (looks cleaner)
-tpRegImm :: Reg -> Imm -> (Int, LazyConst MWord)
-tpRegImm r1 imm = (tpReg r1, tpImm imm)
-tpRegRegImm :: Reg -> Reg -> Imm -> (Int, Int, LazyConst MWord)
-tpRegRegImm r1 r2 imm = (tpReg r1, tpReg r2, tpImm imm)
+tpRegImm :: Reg -> Imm -> Statefully (Int, LazyConst MWord)
+tpRegImm r1 imm = do
+  imm' <- tpImm imm 
+  return (tpReg r1, imm')
+tpRegRegImm :: Reg -> Reg -> Imm -> Statefully (Int, Int, LazyConst MWord)
+tpRegRegImm r1 r2 imm =  do
+  imm' <- tpImm imm
+  return (tpReg r1, tpReg r2, imm')
 tpRegRegReg :: Reg -> Reg -> Reg -> (Int, Int, Int)
 tpRegRegReg r1 r2 r3 = (tpReg r1, tpReg r2, tpReg r3)
 
@@ -389,23 +428,23 @@ tpRegRegReg r1 r2 r3 = (tpReg r1, tpReg r2, tpReg r3)
 -- ## Instructions
 transpileInstr :: Instr -> Statefully ()
 transpileInstr instr = do
-  let instrs = case instr of
-                 Instr32I instrRV32I     -> transpileInstr32I instrRV32I     
-                 Instr64I instrRV64I     -> transpileInstr64I instrRV64I   
-                 Instr32M instrExt32M    -> transpileInstr32M instrExt32M  
-                 Instr64M instrExt64M    -> transpileInstr64M instrExt64M  
-                 InstrPseudo pseudoInstr -> transpileInstrPseudo pseudoInstr
-                 InstrAlias aliasInstr   -> transpileInstralias aliasInstr
+  instrs <- case instr of
+              Instr32I instrRV32I     -> transpileInstr32I instrRV32I     
+              Instr64I instrRV64I     -> transpileInstr64I instrRV64I   
+              Instr32M instrExt32M    -> return $ transpileInstr32M instrExt32M  
+              Instr64M instrExt64M    -> return $ transpileInstr64M instrExt64M  
+              InstrPseudo pseudoInstr -> transpileInstrPseudo pseudoInstr
+              InstrAlias aliasInstr   -> return $ transpileInstralias aliasInstr
   instrMD <- traverse addMetadata instrs
   currBlockContentTP %= flip mappend instrMD -- Instructions are added at the end.
     where
       addMetadata :: MAInstruction Int MWord
                   -> Statefully (MAInstruction Int MWord, Metadata)
       addMetadata instr = do
-        funName <- use currFunctionTP
-        blockName <- use currBlockTP
+        funName <- getName =<< use currFunctionTP
+        blockName <- getName =<< use currBlockTP
         line <- return 0 -- Bogus
-        return (instr, Metadata (quickName funName) (quickName blockName) line False False False False)
+        return (instr, Metadata funName blockName line False False False False)
                
       transpileInstr32M    :: InstrExt32M -> Seq (MAInstruction Int MWord) 
       transpileInstr64M    :: InstrExt64M -> Seq (MAInstruction Int MWord) 
@@ -414,50 +453,57 @@ transpileInstr instr = do
       transpileInstr64M    instr = undefined
       transpileInstralias  instr = undefined
 
-transpileInstrPseudo :: PseudoInstr -> Seq (MAInstruction Int MWord)  
+transpileInstrPseudo :: PseudoInstr -> Statefully (Seq (MAInstruction Int MWord))  
 transpileInstrPseudo instr =
-  Seq.fromList $
+  Seq.fromList <$>
   case instr of 
-    RetPI -> [Ijmp . AReg $ tpReg X1]
-    CallPI Nothing off ->
+    RetPI -> return [Ijmp . AReg $ tpReg X1]
+    CallPI Nothing off -> do
+      off' <- tpAddress off
       -- MicroRam has no restriction on the size of offsets,
       -- So there is no need to use `auipc`
-      [Imov (tpReg X1) (pcPlus 2),
-       Ijmp $ tpAddress off]
-    CallPI (Just rd) off -> 
+      return [Imov (tpReg X1) (pcPlus 2),
+       Ijmp $ off']
+    CallPI (Just rd) off -> do
+      off' <- tpAddress off
       -- MicroRam has no restriction on the size of offsets,
       -- So there is no need to use `auipc`
-      [Imov (tpReg rd) (pcPlus 2),
-       Ijmp $ tpAddress off]
-    TailPI off ->
+      return [Imov (tpReg rd) (pcPlus 2),
+              Ijmp $ off']
+    TailPI off -> do
+      off' <- tpAddress off
       -- From the RiscV Manual, tail calls are just a call that uses
       -- the X6 register (page 140 table 25.3)
-      [Imov (tpReg X1) (pcPlus 2),
-       Ijmp $ tpAddress off]
-    FencePI -> []
-    LiPI rd imm->
-      let (rd',imm') = tpRegImm rd imm in
+      return [Imov (tpReg X1) (pcPlus 2),
+       Ijmp $ off']
+    FencePI -> return []
+    LiPI rd imm-> do
+      (rd',imm') <- tpRegImm rd imm
       -- MicroRam has no restriction on the size of offsets, so there
       -- is no need to use 'lui, addi, slli, addi'. We can directly
       -- mov the constant
-      [Imov rd' (LImm imm')]
+      return [Imov rd' (LImm imm')]
     NopPI ->
       -- We are already changing the alignemnt.
       -- can we ignore nop's (i.e. return [])
-      [Iadd (tpReg X0) (tpReg X0) (LImm 0) ]
+      return [Iadd (tpReg X0) (tpReg X0) (LImm 0) ]
     AbsolutePI _ -> error "AbsolutePI" -- AbsolutePseudo
-    UnaryPI  unop reg1 reg2  -> unaryPseudo unop reg1 reg2  -- UnaryPseudo Reg Reg
+    UnaryPI  unop reg1 reg2  -> return $ unaryPseudo unop reg1 reg2  -- UnaryPseudo Reg Reg
     CMovPI  _ _ _-> error "1" -- CMovPseudo Reg Reg
     BranchZPI bsp rd off -> pseudoBranch bsp rd off  -- BranchZPseudo Reg Offset
     BranchPI  _ _ _ _-> error "3" -- BranchPseudo Reg Reg Offset
-    JmpImmPI  JPseudo off -> [Ijmp . LImm $ tpImm off]
-    JmpImmPI  JLinkPseudo off -> [Imov (tpReg X1) (pcPlus 2),
-                                  Ijmp . LImm $ tpImm off]
+    JmpImmPI  JPseudo off -> do
+      off' <- tpImm off
+      return [Ijmp . LImm $ off']
+    JmpImmPI  JLinkPseudo off -> do
+      off' <- tpImm off
+      return [Imov (tpReg X1) (pcPlus 2),
+               Ijmp . LImm $ off']
     JmpRegPI  _ _ -> error "5" -- JumpPseudo Reg
   where
     unaryPseudo :: UnaryPseudo -> Reg -> Reg  -> [MAInstruction Int MWord]
-    unaryPseudo unop reg1 reg2 =
-      let (rs1',rs2, _) = tpRegRegImm reg1 reg2 (ImmNumber 0) in
+    unaryPseudo unop reg1 reg2 = 
+      let (rs1',rs2) = (tpReg reg1, tpReg reg2) in
         let rs2' = AReg rs2 in 
           case unop of
             MOV   -> [Imov rs1' rs2']  
@@ -467,12 +513,12 @@ transpileInstrPseudo instr =
             SEXTW -> [Imov rs1' rs2'] <> restrictAndSignExtendResult rs1'
         
     
-    pseudoBranch :: BranchZPseudo ->  Reg ->  Offset -> [MAInstruction Int MWord]
-    pseudoBranch bsp rs1 off =
-      let (rs1',off') = tpRegImm rs1 off in
-        let (computCond, negate) = condition bsp rs1' in
-          computCond : [(if negate then Icnjmp newReg else Icjmp newReg) 
-                         $ tpAddress off]
+    pseudoBranch :: BranchZPseudo ->  Reg ->  Offset -> Statefully [MAInstruction Int MWord]
+    pseudoBranch bsp rs1 off = do
+      (rs1',off') <- tpRegImm rs1 off
+      let (computCond, negate) = condition bsp rs1'
+      return $ computCond : [(if negate then Icnjmp newReg else Icjmp newReg) 
+                     $ LImm off']
       
 
     
@@ -501,29 +547,27 @@ restrictAndSignExtendResult rd' =
     Ior rd' newReg (AReg rd') -- set sign extension
   ]
 
-transpileInstr64I    :: InstrRV64I  -> Seq (MAInstruction Int MWord) 
+transpileInstr64I    :: InstrRV64I  -> Statefully (Seq (MAInstruction Int MWord)) 
 transpileInstr64I    instr =
-  Seq.fromList $
+  Seq.fromList <$>
   case instr of
-    MemInstr64 mop r1 off r2 ->
-      memInstr64 mop r1 off r2  
-    ImmBinop64 binop64I reg1 reg2 imm  -> transpileImmBinop64I binop64I reg1 reg2 imm -- Binop64I Reg Reg Imm
-    RegBinop64 binop64  reg1 reg2 reg3 -> transpileRegBinop64I binop64  reg1 reg2 reg3 -- Binop64 Reg Reg Reg
+    MemInstr64 mop r1 off r2 -> memInstr64 mop r1 off r2  
+    ImmBinop64 binop64I reg1 reg2 imm  -> transpileImmBinop64I binop64I reg1 reg2 imm
+    RegBinop64 binop64  reg1 reg2 reg3 -> return $ transpileRegBinop64I binop64  reg1 reg2 reg3
   where
-    transpileImmBinop64I :: Binop64I -> Reg -> Reg -> Imm -> [MAInstruction Int MWord]
-    transpileImmBinop64I binop64I reg1 reg2 imm =
-      let (rd',rs1',off'') = tpRegRegImm reg1 reg2 imm in
-        let off' = LImm off'' in
-          (case binop64I of
-            ADDIW -> [Iadd rd' rs1' off']
-            -- It should be true that the  'off' < 2^5'
-            -- but we do not check for it. 
-            SLLIW -> [Ishl rd' rs1' off']
-            SRLIW -> [Iand newReg rs1' (LImm $ 2^32 - 1),
-                      Ishr rd' rs1' off']
-            SRAIW -> error "Arithmetic right shift not implemented (64I)" -- TODO
-          ) <>
-          restrictAndSignExtendResult rd'
+    transpileImmBinop64I :: Binop64I -> Reg -> Reg -> Imm -> Statefully [MAInstruction Int MWord]
+    transpileImmBinop64I binop64I reg1 reg2 imm = do
+      (rd',rs1',off'') <- tpRegRegImm reg1 reg2 imm
+      let off' = LImm off''
+      return $ (case binop64I of
+                  ADDIW -> [Iadd rd' rs1' off']
+                  -- It should be true that the  'off' < 2^5'
+                  -- but we do not check for it. 
+                  SLLIW -> [Ishl rd' rs1' off']
+                  SRLIW -> [Iand newReg rs1' (LImm $ 2^32 - 1),
+                            Ishr rd' rs1' off']
+                  SRAIW -> error "Arithmetic right shift not implemented (64I)" -- TODO
+               ) <> restrictAndSignExtendResult rd'
       where
         -- We assume, but don't check, that the immediate is less than 32bits long.
         -- in fact, because of RiscV encoding it should be less than 12bits long.
@@ -558,11 +602,11 @@ transpileInstr64I    instr =
 
             
         
-    memInstr64 :: MemOp64 -> Reg -> Offset -> Reg -> [MAInstruction Int MWord]
-    memInstr64  mop r1 off r2 =
-      let (rd',rs1',off'') = tpRegRegImm r1 r2 off in
-        let off' = LImm off'' in
-      case mop of
+    memInstr64 :: MemOp64 -> Reg -> Offset -> Reg -> Statefully [MAInstruction Int MWord]
+    memInstr64  mop r1 off r2 = do
+      (rd',rs1',off'') <- tpRegRegImm r1 r2 off
+      let off' = LImm off''
+      return $ case mop of
         -- unsigned load
         LWU -> [Iadd newReg rs1' off',
                  Iload W1 rd' (AReg newReg)]
@@ -572,80 +616,85 @@ transpileInstr64I    instr =
         SD  -> [Iadd newReg rs1' off', 
                      Istore W1 (AReg newReg) rd' ]
       
-transpileInstr32I :: InstrRV32I -> Seq (MAInstruction Int MWord) 
+transpileInstr32I :: InstrRV32I -> Statefully (Seq (MAInstruction Int MWord)) 
 transpileInstr32I instr =
-  Seq.fromList $
+  Seq.fromList <$>
   case instr of
-    JAL rd off -> let (rd',_off') = tpRegImm rd off in 
-                    [Imov rd' (pcPlus 2), -- Or is it 8?
-                     Ijmp $ tpAddress off] -- Is our instruction numbering compatible?
-    JALR rd rs1 off -> let (rd',rs1',off') = tpRegRegImm rd rs1 off in 
-                        [Iadd newReg rs1' (LImm off'), -- this instruction must go first, in case rd=rs1
-                         Imov rd' (pcPlus 2), -- or is it 8? 
-                         Ijmp $ AReg newReg] -- Is our instruction numbering compatible?
-    BranchInstr cond src1 src2 off -> let (src1',src2',off') = tpRegRegImm src1 src2 off in
-                                        let (computCond, negate) = condition cond src1' src2' in
-                                          computCond : [(if negate then Icnjmp newReg else Icjmp newReg) 
-                                                        $ tpAddress off]
+    JAL rd off -> do
+      (rd', off') <- tpRegImm rd off 
+      return [Imov rd' (pcPlus 2), -- Or is it 8?
+               Ijmp $ LImm off'] -- Is our instruction numbering compatible?
+    JALR rd rs1 off -> do
+      (rd',rs1',off') <- tpRegRegImm rd rs1 off 
+      return [Iadd newReg rs1' (LImm off'), -- this instruction must go first, in case rd=rs1
+              Imov rd' (pcPlus 2), -- or is it 8? 
+              Ijmp $ AReg newReg] -- Is our instruction numbering compatible?
+    BranchInstr cond src1 src2 off -> do
+      (src1',src2',off') <- tpRegRegImm src1 src2 off
+      let (computCond, negate) = condition cond src1' src2'
+      return $ computCond : [(if negate then Icnjmp newReg else Icjmp newReg) 
+                             $ LImm off']
     MemInstr32 memOp32 reg1 off reg2  -> memOp32Instr memOp32 reg1 off reg2 
-    LUI reg imm -> let (reg',imm') = tpRegImm reg imm in 
-      [Imov reg' (LImm $ lazyUop luiFunc imm')]
-    AUIPC reg off -> let (reg',off') = tpRegImm reg off in 
-                       [Imov reg' (LImm $ lazyPc + lazyUop luiFunc off')]
+    LUI reg imm -> do
+      (reg',imm') <- tpRegImm reg imm 
+      return [Imov reg' (LImm $ lazyUop luiFunc imm')]
+    AUIPC reg off -> do
+      (reg',off') <- tpRegImm reg off 
+      return [Imov reg' (LImm $ lazyPc + lazyUop luiFunc off')]
     ImmBinop32 binop32I reg1 reg2 imm -> transpileImmBinop32I binop32I reg1 reg2 imm
-    RegBinop32 binop32 reg1 reg2 reg3 -> transpileRegBinop32I binop32  reg1 reg2 reg3
+    RegBinop32 binop32 reg1 reg2 reg3 -> return $ transpileRegBinop32I binop32  reg1 reg2 reg3
     FENCE setOrdering                 -> undefined -- Probably a noop?
     FENCEI                            -> undefined -- Probably a noop?
   where
     -- Memory operations
     -- Big TODO TODO TODO
-    memOp32Instr :: MemOp32 -> Reg -> Offset -> Reg -> [MAInstruction Int MWord]
-    memOp32Instr memOp32 reg1 off reg2 =
-      let (rd',rs1',off'') = tpRegRegImm reg1 reg2 off in
-        let off' = LImm off'' in
-          case memOp32 of
-            -- Loads
-            -- Is there a better way to do sign extended loads?
-            LB  -> [Iadd rd' rs1' off', 
-                     Iload W1 rd' (AReg rd'),
-                     -- get the sign
-                     Ishr newReg rd' (LImm$ 8-1),
-                     -- make an extension mask (a prefix of o's or 1's)
-                     Imull newReg newReg (LImm $ (-1)),
-                     Iand newReg newReg (LImm $ 2^8-1),
-                     -- add the extension bits
-                     Ior  rd' newReg (AReg rd')
-                     ]    
-            LH  -> [Iadd newReg rs1' off', 
-                     Iload W2 rd' (AReg newReg),
-                     -- get the sign
-                     Ishr newReg rd' (LImm $ 16-1),
-                     -- make an extension mask (a prefix of o's or 1's)
-                     Imull newReg newReg (LImm (-1)),
-                     Iand newReg newReg (LImm $ 2^16-1),
-                     -- add the extension bits
-                     Ior  rd' newReg (AReg rd')]
-            LW  -> [Iadd newReg rs1' off', 
-                     Iload W4 rd' (AReg newReg),
-                     -- get the sign
-                     Ishr newReg rd' (LImm $ 32-1),
-                     -- make an extension mask (a prefix of o's or 1's)
-                     Imull newReg newReg (LImm $ (-1)),
-                     Iand newReg newReg (LImm $ 2^32-1),
-                     -- add the extension bits
-                     Ior  rd' newReg (AReg rd')]
-            -- Unsigned loads
-            LBU ->  [Iadd newReg rs1' off',
-                      Iload W1 rd' (AReg newReg)] 
-            LHU ->  [Iadd newReg rs1' off',
-                      Iload W2 rd' (AReg newReg)] 
-            -- Stores
-            SB  -> [Iadd newReg rs1' off', 
-                     Istore W1 (AReg newReg) rd' ] 
-            SH  -> [Iadd newReg rs1' off',
-                     Istore W2 (AReg newReg) rd' ] 
-            SW  -> [Iadd newReg rs1' off',
-                     Istore W4 (AReg newReg) rd' ] 
+    memOp32Instr :: MemOp32 -> Reg -> Offset -> Reg -> Statefully [MAInstruction Int MWord]
+    memOp32Instr memOp32 reg1 off reg2 = do
+      (rd',rs1',off'') <- tpRegRegImm reg1 reg2 off
+      let off' = LImm off''
+      return $ case memOp32 of
+        -- Loads
+        -- Is there a better way to do sign extended loads?
+        LB  -> [Iadd rd' rs1' off', 
+                 Iload W1 rd' (AReg rd'),
+                 -- get the sign
+                 Ishr newReg rd' (LImm$ 8-1),
+                 -- make an extension mask (a prefix of o's or 1's)
+                 Imull newReg newReg (LImm $ (-1)),
+                 Iand newReg newReg (LImm $ 2^8-1),
+                 -- add the extension bits
+                 Ior  rd' newReg (AReg rd')
+                 ]    
+        LH  -> [Iadd newReg rs1' off', 
+                 Iload W2 rd' (AReg newReg),
+                 -- get the sign
+                 Ishr newReg rd' (LImm $ 16-1),
+                 -- make an extension mask (a prefix of o's or 1's)
+                 Imull newReg newReg (LImm (-1)),
+                 Iand newReg newReg (LImm $ 2^16-1),
+                 -- add the extension bits
+                 Ior  rd' newReg (AReg rd')]
+        LW  -> [Iadd newReg rs1' off', 
+                 Iload W4 rd' (AReg newReg),
+                 -- get the sign
+                 Ishr newReg rd' (LImm $ 32-1),
+                 -- make an extension mask (a prefix of o's or 1's)
+                 Imull newReg newReg (LImm $ (-1)),
+                 Iand newReg newReg (LImm $ 2^32-1),
+                 -- add the extension bits
+                 Ior  rd' newReg (AReg rd')]
+        -- Unsigned loads
+        LBU ->  [Iadd newReg rs1' off',
+                  Iload W1 rd' (AReg newReg)] 
+        LHU ->  [Iadd newReg rs1' off',
+                  Iload W2 rd' (AReg newReg)] 
+        -- Stores
+        SB  -> [Iadd newReg rs1' off', 
+                 Istore W1 (AReg newReg) rd' ] 
+        SH  -> [Iadd newReg rs1' off',
+                 Istore W2 (AReg newReg) rd' ] 
+        SW  -> [Iadd newReg rs1' off',
+                 Istore W4 (AReg newReg) rd' ] 
     
     -- transpileRegBinop32I
     transpileRegBinop32I :: Binop32 -> Reg -> Reg -> Reg -> [MAInstruction Int MWord]
@@ -667,24 +716,24 @@ transpileInstr32I instr =
 
           
     -- transpileImmBinop32I
-    transpileImmBinop32I :: Binop32I -> Reg -> Reg -> Imm -> [MAInstruction Int MWord]
-    transpileImmBinop32I binop reg1 reg2 imm =
-      let (rd',rs1',off') = tpRegRegImm reg1 reg2 imm in
-        let off_imm = LImm off' in
-        case binop of
-          ADDI  -> [Iadd  rd' rs1' off_imm]
-          SLTI  -> [Imov newReg off_imm,
-                    Icmpg rd' newReg (AReg rs1')] -- Could we write this in one instruction?
-                                                  -- Perhaps we should flip MicroRAM cmpa-cmpg
-                                                  -- to match RiscV. 
-          SLTIU -> [Imov newReg off_imm,
-                    Icmpa rd' newReg (AReg rs1')]
-          XORI  -> [Ixor  rd' rs1' off_imm]
-          ORI   -> [Ior   rd' rs1' off_imm]
-          ANDI  -> [Iand  rd' rs1' off_imm]
-          SLLI  -> [Ishl  rd' rs1' off_imm]
-          SRLI  -> [Ishr  rd' rs1' off_imm]
-          SRAI  -> error "Arithmetic right shift not implemented" -- TODO
+    transpileImmBinop32I :: Binop32I -> Reg -> Reg -> Imm -> Statefully [MAInstruction Int MWord]
+    transpileImmBinop32I binop reg1 reg2 imm = do
+      (rd',rs1',off') <- tpRegRegImm reg1 reg2 imm
+      let off_imm = LImm off'
+      return $ case binop of
+                 ADDI  -> [Iadd  rd' rs1' off_imm]
+                 SLTI  -> [Imov newReg off_imm,
+                           Icmpg rd' newReg (AReg rs1')] -- Could we write this in one instruction?
+                                                         -- Perhaps we should flip MicroRAM cmpa-cmpg
+                                                         -- to match RiscV. 
+                 SLTIU -> [Imov newReg off_imm,
+                           Icmpa rd' newReg (AReg rs1')]
+                 XORI  -> [Ixor  rd' rs1' off_imm]
+                 ORI   -> [Ior   rd' rs1' off_imm]
+                 ANDI  -> [Iand  rd' rs1' off_imm]
+                 SLLI  -> [Ishl  rd' rs1' off_imm]
+                 SRLI  -> [Ishr  rd' rs1' off_imm]
+                 SRAI  -> error "Arithmetic right shift not implemented" -- TODO
       
     
     -- build 32-bit constants and uses the U-type format. LUI
@@ -741,8 +790,8 @@ commitBlock :: Statefully ()
 commitBlock = do
   contnt <- use currBlockContentTP
   currBlockContentTP .= mempty
-  name <- use currBlockTP
-  let block = NBlock (Just $ quickName name) $ toList contnt
+  name <- getName =<< use currBlockTP
+  let block = NBlock (Just $ name) $ toList contnt
   commitedBlocksTP %= (:) block
   return ()
   
@@ -769,204 +818,3 @@ firstJust _ x = x
 
 
 
-
----------------                                                   
--- Old Version
----------------
-
--- | Translating compiler from RiscV Assembly to MicroAssembly
-transpiler' :: [LineOfRiscV] -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata regT MWord))
-transpiler' rvProg = do
-  -- First remove pointless directives
-  let cleanProg = cleanUP rvProg
-  -- Works in several steps:
-  -- 1. Filter undeeded sections and separate the
-  -- rest in into excutable and data
-  -- 2.1 Translate executable code to MicroAssembly
-  -- 2.2 Translate data into InitialMemory
-  (execs, datas) <- separateSections cleanProg
-  prog <- transpileCode $ Seq.fromList execs
-  globs <- transpileData datas
-  return $ (compUnitFromCompUnit' prog) {intermediateInfo = globs}
-  where
-    compUnitFromCompUnit' :: CompilationUnit' a prog -> CompilationUnit a prog
-    compUnitFromCompUnit' cu = cu {programCU = ProgAndMem (programCU cu) [] Map.empty}
-  
-
--- | Filters unneeded sections and then splits sections into executable and data sections.
--- 
--- NOTE: This function might produce several sectiosn with the same
--- name. Technically we should concatenate the contents of all equally
--- named sections and then join all subsections of the same
--- section. For now I will just concatenate everything into two
--- sections "executable" and "data". Each variable is individually
--- marked as readable/writable.
---
--- TODO: Fix sections as mentioned above.
-separateSections :: [LineOfRiscV] -> Hopefully ([Section], [Section])
-separateSections allLines = do
-  let (left, sectionParts) = splitKeep isSectionStart allLines
-  when (Seq.null left) $ assumptError $ "Some lines outside a section: \n" <> show left
-  sections <- mapM makeSection sectionParts
-  let neededSecs = filterUnneeded sections
-  return $ List.partition _flag_exec neededSecs
-  
-  where
-    -- | Check if a line is the begining of a section, by testing if
-    -- it could create a section
-    isSectionStart :: LineOfRiscV -> Bool
-    isSectionStart line = not . isError $ makeSection (line, Seq.empty)
-    
-    -- | Like Split, but keeps the separators
-    splitKeep :: (a -> Bool) -> [a] -> (Seq a,[(a,Seq a)])
-    splitKeep _f [] = (Seq.empty,[])
-    splitKeep f (x:xs) | f x , (left, rest) <- splitKeep f xs = (Seq.empty, (x,left) : rest)
-    splitKeep f (x:xs) | (left, rest) <- splitKeep f xs = (x:<|left, rest)
-
-    makeSection :: (LineOfRiscV, Seq.Seq LineOfRiscV) -> Hopefully Section
-    makeSection (Directive TEXT , contnt)   = return $ execSection { _secName = "text", _secContent = contnt }
-    makeSection (Directive DATA ,contnt)   = return $ writeSection { _secName = "data", _secContent = contnt }
-    makeSection (Directive RODATA ,contnt) = return $ readSection { _secName = "rodata", _secContent = contnt }
-    makeSection (Directive BSS ,contnt)    = return $ writeSection { _secName = "bss", _secContent = contnt }
-    makeSection (Directive (SECTION name flags maybeType _) ,contnt) =
-      return $ flagSection name flags maybeType contnt
-    makeSection (otherLine, _) = assumptError $ "Expected a section directive but found: " <> show otherLine
-
-    -- | for now we don't filter anything
-    filterUnneeded :: [Section] -> [Section]
-    filterUnneeded secs = filter unneeded secs
-      where unneeded _ = True  
-
--- | Intermediate respresentation of blocks
-data IBlock = IBlock
-  { nameIB :: String
-  , directivesIB :: [Directive]
-  , instructionsIB :: [Instr]
-  }
-
-
--- | Translates sections of executable code, into MicroAssembly
-transpileCode :: Seq.Seq Section -> Hopefully (CompilationUnit' () (MAProgram Metadata regT MWord))
-transpileCode sections = compUnit . concat <$> mapM transpileSection sections
-  where
-    compUnit progCode =  CompUnit {programCU = progCode,
-                               traceLen  = 0, -- Bogus
-                               regData   = NumRegisters 32, -- hardcoded
-                               aData     = def, -- Empty
-                               nameBound = 0, -- Bogus
-                               intermediateInfo = ()}
-    transpileSection :: Section -> Hopefully [NamedBlock Metadata r w]
-    transpileSection sec | not $ _flag_exec sec = assumptError $ "Expected an executable section but " <> _secName sec <> " is not." 
-    transpileSection sec = transpileCodes . toList $ _secContent sec
-
-    transpileCodes :: [LineOfRiscV] -> Hopefully [NamedBlock Metadata r w]
-    transpileCodes lines = do
-      blocks <- splitBlocks lines
-      evalStateT (traverse transpileBlock blocks) ""
-
-    -- Assumes that the code is blocks of the form
-    -- @@
-    -- [directives]
-    -- lable
-    -- [instructions]
-    -- @@
-    -- with either list possibly empty. 
-    splitBlocks :: [LineOfRiscV] -> Hopefully [IBlock]
-    splitBlocks lns = do
-      let (directives , lns1) = spanMaybe getDirectives lns
-      (label, lns2) <- case lns1 of
-                            (LabelLn lbl):lns2 -> return (lbl, lns2)
-                            _ -> assumptError "Directives must be followed by a label"
-      let (instrs, lns3) = spanMaybe getInstrs lns2
-      blocks <- splitBlocks lns3
-      return $ IBlock label directives instrs : blocks
-
-    getDirectives :: LineOfRiscV -> Maybe Directive 
-    getDirectives (Directive dir) = Just dir
-    getDirectives _ = Nothing
-    
-    getInstrs :: LineOfRiscV -> Maybe Instr 
-    getInstrs (Instruction i) = Just i
-    getInstrs _ = Nothing
-
--- Bogus ID, for now
-quickName :: String -> Name
-quickName st = Name 0 $ string2short st
-
--- | The state carries the current function
-transpileBlock  :: IBlock -> StateT String Hopefully (NamedBlock Metadata r w)
-transpileBlock (IBlock name dirs instrs) = do
-  currentF <- checkFunction name dirs
-  let md = Metadata {mdFunction = quickName currentF,
-                     mdBlock = quickName name,
-                     mdLine = 0, -- Can't knwo this. Should we pass it down from the parser?
-                     mdFunctionStart = False, -- Only first instr
-                     mdReturnCall = False, 
-                     mdIsCall = False,     
-                     mdIsReturn = False}
-  instrsMRAM <- lift $ concat <$> mapM (transpileInstr' md) instrs
-  return $ NBlock (Just $ quickName name) instrsMRAM
-  
-  where 
-
-    -- Expects all function type declarations to be done right before the label in question.
-    -- throws error if not the case.
-    checkFunction :: String -> [Directive] -> StateT String Hopefully String
-    checkFunction name dirs =
-      case firstJust' getFunctType dirs of
-        Just nameT -> do
-          when (name /= nameT) $ assumptError $ "Type definition name " <> nameT <> " doesn't match name of current block " <> name
-          put name
-          return name
-        Nothing -> get
-
-    getFunctType :: Directive -> Maybe String
-    getFunctType (TYPE nameT DTFUNCTION) = Just nameT
-    getFunctType _ = Nothing
-
-transpileInstr' :: Metadata -> Instr -> Hopefully [(MAInstruction r w, md)]
-transpileInstr' md instr = undefined
-                    
--- | Translates sections of data into a list of global variables
-transpileData :: [Section] -> Hopefully (GEnv MWord)
-transpileData _ = return [] -- undefined
-
-
--- # Code cleanup
-
--- | Remove debuging directives
-cleanUP, removeUseless, removeDebug :: [LineOfRiscV] -> [LineOfRiscV]
-cleanUP = removeDebug . removeUseless
-
--- Removes CFI and debug directives
-removeDebug = filter isNoDebug
-  where isNoDebug :: LineOfRiscV -> Bool
-        isNoDebug (Directive (CFIDirectives _)) = False
-        -- isNoDebug (Directive $ LOC) = True
-        isNoDebug _ = True
-
-removeUseless = filter isNotUseless
-  where isNotUseless  :: LineOfRiscV -> Bool
-        isNotUseless  (Directive (FILE _ )) = False
-        isNotUseless  (Directive (SIZE _ _ )) = False
-        isNotUseless _ = True
---  # General utility
-
--- | Like 'span' but with 'Maybe' predicate
---
-spanMaybe :: (a -> Maybe b) -> [a] -> ([b],[a])
-spanMaybe _ [] =  ([], [])
-spanMaybe p xs@(x:xs') = case p x of
-    Just y  -> let (ys, zs) = spanMaybe p xs' in (y : ys, zs)
-    Nothing -> ([], xs)
-
--- | Find the first element of a list for which the operation returns 'Just', along
---   with the result of the operation. Like 'find' but useful where the function also
---   computes some expensive information that can be reused.
-firstJust' :: (a -> Maybe b) -> [a] -> Maybe b
-firstJust' f = listToMaybe . mapMaybe f
-
-
-
-
---- Quick testing
