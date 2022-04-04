@@ -13,7 +13,7 @@ Stability   : prototype
 {-# LANGUAGE UndecidableInstances #-}
 
 module Debug.PrettyPrint (
-  microPrint,
+  microPrint,prettyAnn,
   pprintInst,
   pprintReg,
   pprintOp,
