@@ -94,7 +94,7 @@ data SymbolTP = SymbolTP
   , _symbSize  :: Maybe (Either Integer Imm)
   , _symbAlign :: Maybe Integer             
   , _symType   :: Maybe DirTypes
-  }
+  } deriving (Show)
 defaultSym :: SymbolTP
 defaultSym = SymbolTP "Default Name" Nothing Nothing Nothing 
 
@@ -110,9 +110,7 @@ data TPState = TPState
     
   -- Memory
   , _curObjectTP :: String
-  -- content is stored in reverse (corrected when values are packed
-  -- into words)
-  , _curObjectContentTP :: Maybe [(MemWidth, LazyConst MWord)]
+  , _curObjectContentTP :: Maybe ( Seq (LazyConst MWord, Int))
   , _genvTP :: GEnv MWord
 
   -- Markers
@@ -126,7 +124,7 @@ data TPState = TPState
   -- All names must have a distinct ID number
   , _nameIDTP :: Word
   , _nameMap :: Map.Map String Name
-  }
+  } deriving (Show)
 
 makeLenses ''TPState
 -- makeLenses ''GlobalVariable
@@ -170,7 +168,7 @@ getName st = do
                              let nameRet = Name uniqueID $ string2short st
                              nameMap .= Map.insert st nameRet nmap
                              return $ nameRet
-  trace ("Got name " <> show nameRet) $ return nameRet
+  return nameRet
 
 transpiler :: [LineOfRiscV] -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord))
 transpiler rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initStateTP
@@ -199,6 +197,7 @@ transpiler rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initSt
         _ -> return ()
     memLbl lbl = do
       -- Store current object
+      commitBlock
       saveObject
       -- Start a new object
       curObjectTP .= lbl
@@ -207,13 +206,15 @@ transpiler rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initSt
 
 saveObject :: Statefully ()
 saveObject = do
+  st <- get 
   -- Get the current obejct
   curObj <- use $ curObjectContentTP
   case curObj of
     Nothing -> return ()
     Just ls -> do
-        let init = packInWords ls
+        let init = packInWords $ toList ls
         gname <- getName =<< use curObjectTP
+        trace ("Saving: " <> show gname) $ return ()
         sectionName <- use (currSectionTP . secName)
         readOnly <- not <$> use (currSectionTP . flag_write)
         let gvar = GlobalVariable {globName = gname,
@@ -233,9 +234,17 @@ saveObject = do
         genvTP %= (:) gvar
         -- Clear current obje
         curObjectContentTP .= Nothing
-  where packInWords :: [(MemWidth, LazyConst MWord)] -> [LazyConst wrdT]
-        packInWords ls = foldl'  packNextValue ls
-        
+  -- where packInWords :: [(MemWidth, LazyConst MWord)] -> [LazyConst wrdT]
+  --       packInWords ls = snd $ foldl' packNextValue initState ls
+  --       initState :: (Int, [LazyConst wrdT], LazyConst wrdT)
+  --       initState = (0,[],SConst 0) 
+
+  --       packNextValue :: (Int, [LazyConst wrdT], LazyConst wrdT)
+  --                     -> (MemWidth, LazyConst MWord)
+  --                     -> (Int, [LazyConst wrdT], LazyConst wrdT)
+  --       packNextValue (bytsTaken, partResult, partialWord)  (mw, lazy) =
+          
+          
 
 transpileDir :: Directive -> Statefully ()
 transpileDir dir =
@@ -276,7 +285,8 @@ transpileDir dir =
     ATTRIBUTE _tag _val -> ignoreDire -- We ignore for now, but it has some alignment infomrations 
     -- ## Emit data
     DirEmit typ val  -> mapM_ (emitValue $ emitSize typ) val
-    ZERO size        -> replicateM_ (fromInteger size) $ emitValue W1 (ImmNumber 0)
+    -- This might be slow if there is a very large zero instruction.
+    ZERO size        -> replicateM_ (fromInteger size) $ emitValue 1 (ImmNumber 0)
 
     where
       ignoreDire = return ()
@@ -303,17 +313,15 @@ transpileDir dir =
         symbolTableTP . at name ?= symbol'
 
       -- | Pushes a value to the current memory object
-      emitValue :: MemWidth -> Imm -> Statefully ()
+      emitValue :: Int -> Imm -> Statefully ()
       emitValue size val = do
         -- Make Imm into a lazy constant and push into the current object
         pushMemVal size =<< tpImm val
-        where pushMemVal :: MemWidth -> LazyConst MWord -> Statefully ()
+        where pushMemVal :: Int -> LazyConst MWord -> Statefully ()
               pushMemVal size val = do
-                obj <- maybe [] id <$> use curObjectContentTP
-                -- Values are pushed in reverse order, since they will
-                -- be reversed again when fitting in mword size
-                -- values.
-                curObjectContentTP .= Just ((size,val):obj)
+                obj <- maybe mempty id <$> use curObjectContentTP
+                -- Values are pushed in the end of the object
+                curObjectContentTP .= Just (obj :|> (val,size))
               
         
 
@@ -322,24 +330,24 @@ transpileDir dir =
       -- Manual set for loads and stores: "The SD, SW, SH, and SB
       -- instructions store 64-bit, 32-bit, 16-bit, and 8-bit values
       -- from the low bits of register rs2 to memory respectively."
-      emitSize :: EmitDir -> MemWidth
+      emitSize :: EmitDir -> Int
       emitSize emitTyp =
         case emitTyp of
-          BYTE        -> W1 
-          BYTE2       -> W2
-          HALF        -> W2
-          SHORT       -> W2 -- short is a 16-bit unsigned integer 
-          BYTE4       -> W4
-          WORD        -> W4
-          LONG        -> W8 -- Or 4 in RV32I
-          BYTE8       -> W8
-          DWORD       -> W8
-          QUAD        -> W8 -- it emits an 8-byte integer. If the
+          BYTE        -> 1 
+          BYTE2       -> 2
+          HALF        -> 2
+          SHORT       -> 2 -- short is a 16-bit unsigned integer 
+          BYTE4       -> 4
+          WORD        -> 4
+          LONG        -> 8 -- Or 4 in RV32I
+          BYTE8       -> 8
+          DWORD       -> 8
+          QUAD        -> 8 -- it emits an 8-byte integer. If the
                            -- bignum won’t fit in 8 bytes, it prints a
                            -- warning message; and just takes the
                            -- lowest order 8 bytes of the bignum.
-          DTPRELWORD  -> W4 -- dtp relative word, probably shouldn't show up 
-          DTPRELDWORD -> W8
+          DTPRELWORD  -> 4 -- dtp relative word, probably shouldn't show up 
+          DTPRELDWORD -> 8
 
 
 
@@ -354,6 +362,9 @@ setSection :: String                     -- ^ Name
           -> [FlagArg]                   -- ^ 
           -> Statefully ()               -- ^
 setSection name flags secTyp flagArgs = do
+  -- start of a new section closes previous sections. Save ongoing objects and commit blocks
+  commitBlock
+  saveObject
   -- Save the current section
   saveSection
   -- Create ampty section in case it doesn't exist
@@ -799,23 +810,27 @@ finalizeTP :: Statefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int M
 finalizeTP = do
   -- First commit the last section/block
   _ <- commitBlock
+  _ <- saveObject
   -- Build program
   prog <- use commitedBlocksTP
   -- Build memory
-  (genv, mem) <- getMem
+  genv <- use genvTP
+  -- Show the mem
+  trace ("MEM: " <> show genv) $ return ()
   -- Then build the CompilationUnit
-  return $ CompUnit { programCU = ProgAndMem prog mem mempty,
-                      -- TraceLen is bogus
-                      traceLen = 0,
-                      -- We added one new register, which is now the largest
-                      regData = NumRegisters newReg,
-                      -- Analysis data is bogus
-                      aData = AnalysisData mempty mempty,
-                      -- Name bound is currently bogus, but we should fix it
-                      -- TODO: fix name bound.
-                      nameBound = 0,
-                      intermediateInfo = genv }
-  where getMem = return (mempty, mempty) -- Bogus for now TODO
+  return $ CompUnit {
+    -- Memory is filled in 'RemoveLabels'
+    programCU = ProgAndMem prog [] mempty,
+    -- TraceLen is bogus
+    traceLen = 0,
+    -- We added one new register, which is now the largest
+    regData = NumRegisters newReg,
+    -- Analysis data is bogus
+    aData = AnalysisData mempty mempty,
+    -- Name bound is currently bogus, but we should fix it
+    -- TODO: fix name bound.
+    nameBound = 0,
+    intermediateInfo = genv } 
 
 
 -- Finalize current block and commit it
@@ -823,11 +838,12 @@ finalizeTP = do
 commitBlock :: Statefully ()
 commitBlock = do
   contnt <- use currBlockContentTP
-  currBlockContentTP .= mempty
-  name <- getName =<< use currBlockTP
-  let block = NBlock (Just $ name) $ toList contnt
-  commitedBlocksTP %= (:) block
-  return ()
+  when (not $ null contnt) $ do
+    currBlockContentTP .= mempty
+    name <- getName =<< use currBlockTP
+    let block = NBlock (Just $ name) $ toList contnt
+    commitedBlocksTP %= (:) block
+    return ()
   
 -- Monadic stuff
 ifM :: Monad m => m Bool -> m a -> m a -> m a

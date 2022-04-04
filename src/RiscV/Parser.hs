@@ -841,8 +841,10 @@ _test' n name = do
   let mram = removeLabels False <$> (simplError masm)
   let prog = getProg mram
   trace ("MASM:\n----\n" <> (show $ pretty <$> progmm)) $ return ()
+  --trace ("MASM:\n----\n") $ return ()
   when (isLeft masm) $ trace ("Error was " <> (show masm)) return ()
   trace ("MRAM:\n----\n" <> (show $ prettyAnn <$> prog)) $ return () -- pretty
+  --trace ("MRAM:\n----\n") $ return () -- pretty
   when (isLeft mram) $ trace ("Error was " <> (show mram)) return ()
   where isLeft either = case either of
                           Left _ -> True

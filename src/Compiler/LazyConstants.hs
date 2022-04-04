@@ -26,6 +26,7 @@ import qualified LLVM.AST as LLVM(Name(..))
 import Util.Util
 import Compiler.Errors
 import Compiler.Name
+import MicroRAM (MWord, wordBytes)
 
 -- | Lazy constants are constants that can't be evaluated until a global environment is provided.
 -- They should behave like constants for all purposes of the compiler, then a genv can be provided
@@ -187,3 +188,28 @@ applyPartialMap m1 (LConst lw ns) = LConst (\ge -> lw $ partiallyAppliedMap m1 g
         partiallyAppliedMap map1 f a = case Map.lookup a map1 of
                                          Just w -> w
                                          Nothing -> f a
+
+
+
+-- | Takes a list of Lazy constants and their width, and packs them in
+-- a list of word-long lazy variables
+
+packInWords :: [(LazyConst MWord, Int)] -> [LazyConst MWord]
+packInWords ls = packInWords' (SConst 0) 0 ls
+  where packInWords' :: LazyConst MWord -> Int -> [(LazyConst MWord, Int)] ->
+                        [LazyConst MWord]
+        packInWords' _acc 0 [] = []
+        packInWords' acc _pos [] = [acc]
+        packInWords' acc pos ((lc, w) : cs)
+          | w > wordBytes = error "flattenConstant: impossible: TLC had width > word size?"
+          -- Special case for word-aligned chunks
+          | pos == 0 && w == wordBytes = lc : packInWords' acc pos cs
+          | pos + w < wordBytes = packInWords' (combine acc pos lc) (pos + w) cs
+          | pos + w == wordBytes = combine acc pos lc : packInWords' (SConst 0) 0 cs
+          | pos + w > wordBytes = combine acc pos lc :
+            packInWords' (consume (wordBytes - pos) lc) (pos + w - wordBytes) cs
+          | otherwise = error "flattenConstant: unreachable"
+
+        combine acc pos lc = acc .|. (lc `shiftL` (pos * 8))
+
+        consume amt lc = lc `shiftR` (amt * 8)

@@ -1273,30 +1273,9 @@ flattenConstant :: Env
                 -> Statefully [LazyConst MWord]
 flattenConstant env c = do
     chunks <- constant2typedLazyConst env c
-    return $ go (SConst 0) 0 $ map unpack chunks
+    return $ packInWords $ map unpack chunks
   where
     unpack (TypedLazyConst lc w _align) = (lc, widthInt w)
-
-    go ::
-      LazyConst MWord -> Int -> [(LazyConst MWord, Int)] ->
-      [LazyConst MWord]
-    go _acc 0 [] = []
-    go acc _pos [] = [acc]
-    go acc pos ((lc, w) : cs)
-      | w > wordBytes = error "flattenConstant: impossible: TLC had width > word size?"
-      -- Special case for word-aligned chunks
-      | pos == 0 && w == wordBytes = lc : go acc pos cs
-      | pos + w < wordBytes = go (combine acc pos lc) (pos + w) cs
-      | pos + w == wordBytes = combine acc pos lc : go (SConst 0) 0 cs
-      | pos + w > wordBytes = combine acc pos lc :
-          go (consume (wordBytes - pos) lc) (pos + w - wordBytes) cs
-      | otherwise = error "flattenConstant: unreachable"
-
-    combine acc pos lc = acc .|. (lc `shiftL` (pos * 8))
-
-    consume amt lc = lc `shiftR` (amt * 8)
-
-
                         
 
 constant2OnelazyConst ::
