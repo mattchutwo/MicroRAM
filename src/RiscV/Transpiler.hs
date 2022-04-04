@@ -9,6 +9,7 @@ import           Data.Sequence (Seq(..))
 import qualified Data.Sequence as Seq
 import Data.Maybe (listToMaybe, mapMaybe, fromMaybe, isJust)
 import Data.Foldable (toList)
+import Data.List (foldl')
 -- import Test.QuickCheck (Arbitrary, arbitrary, oneof)
 import Compiler.IRs
 import Compiler.Metadata
@@ -108,7 +109,10 @@ data TPState = TPState
   , _sectionsTP :: Map.Map String Section
     
   -- Memory
-  , _curObject :: Maybe (GlobalVariable MWord)
+  , _curObjectTP :: String
+  -- content is stored in reverse (corrected when values are packed
+  -- into words)
+  , _curObjectContentTP :: Maybe [(MemWidth, LazyConst MWord)]
   , _genvTP :: GEnv MWord
 
   -- Markers
@@ -135,7 +139,8 @@ initStateTP = TPState
   , _currBlockContentTP = Seq.empty
   , _commitedBlocksTP   = [] 
   , _sectionsTP         = Map.empty
-  , _curObject          = Nothing
+  , _curObjectTP        = "NoneInit"
+  , _curObjectContentTP = Nothing
   , _genvTP             = []
   , _atFuncStartTP      = False -- An instruction type needs to be found first.
   , _afterFuncCallTP    = False
@@ -196,19 +201,41 @@ transpiler rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initSt
       -- Store current object
       saveObject
       -- Start a new object
-      lblName <- getName lbl
-      curObject . _Just %= (\obj -> obj {globName = lblName})
+      curObjectTP .= lbl
 
 
 
 saveObject :: Statefully ()
 saveObject = do
   -- Get the current obejct
-  curObj <- use $ curObject
-  -- add it to the list of globals
-  mapM (\x -> genvTP %= (:) x) curObj
-  -- Clear current obje
-  curObject .= Nothing
+  curObj <- use $ curObjectContentTP
+  case curObj of
+    Nothing -> return ()
+    Just ls -> do
+        let init = packInWords ls
+        gname <- getName =<< use curObjectTP
+        sectionName <- use (currSectionTP . secName)
+        readOnly <- not <$> use (currSectionTP . flag_write)
+        let gvar = GlobalVariable {globName = gname,
+                                   isConstant = readOnly,
+                                   -- RiscV doesn't have types 
+                                   gType = TVoid,
+                                   initializer = Just init,
+                    		   gSize = toEnum $ length init,
+                                   -- Currently ignored
+                                   -- TODO: implement alignment
+                                   gAlign = 1,
+                    		   secret = sectionName == "__DATA,__secret" ||
+                                   sectionName == ".data.secret",
+                                   -- What variables are not heap-init in RiscV?
+                                   gvHeapInit = True}
+        -- add it to the list of globals
+        genvTP %= (:) gvar
+        -- Clear current obje
+        curObjectContentTP .= Nothing
+  where packInWords :: [(MemWidth, LazyConst MWord)] -> [LazyConst wrdT]
+        packInWords ls = foldl'  packNextValue ls
+        
 
 transpileDir :: Directive -> Statefully ()
 transpileDir dir =
@@ -249,7 +276,7 @@ transpileDir dir =
     ATTRIBUTE _tag _val -> ignoreDire -- We ignore for now, but it has some alignment infomrations 
     -- ## Emit data
     DirEmit typ val  -> mapM_ (emitValue $ emitSize typ) val
-    ZERO size        -> emitValue size (ImmNumber 0)
+    ZERO size        -> replicateM_ (fromInteger size) $ emitValue W1 (ImmNumber 0)
 
     where
       ignoreDire = return ()
@@ -275,37 +302,44 @@ transpileDir dir =
               }
         symbolTableTP . at name ?= symbol'
 
-      -- | Write some values to the current object in memory.
-      --
-      -- Note: the problem here is that RISCV emits values in
-      -- unaligned chunks of 1 to 8 bytes. While MRAM stores
-      -- everything in Words.
-      emitValue :: Integer -> Imm -> Statefully ()
-      emitValue _ _ = return () -- TODO fix (temp. fix for debugging)
+      -- | Pushes a value to the current memory object
+      emitValue :: MemWidth -> Imm -> Statefully ()
+      emitValue size val = do
+        -- Make Imm into a lazy constant and push into the current object
+        pushMemVal size =<< tpImm val
+        where pushMemVal :: MemWidth -> LazyConst MWord -> Statefully ()
+              pushMemVal size val = do
+                obj <- maybe [] id <$> use curObjectContentTP
+                -- Values are pushed in reverse order, since they will
+                -- be reversed again when fitting in mword size
+                -- values.
+                curObjectContentTP .= Just ((size,val):obj)
+              
+        
 
 
       -- | The number of bytes produced by each directive. We follow the
       -- Manual set for loads and stores: "The SD, SW, SH, and SB
       -- instructions store 64-bit, 32-bit, 16-bit, and 8-bit values
       -- from the low bits of register rs2 to memory respectively."
-      emitSize :: EmitDir -> Integer
+      emitSize :: EmitDir -> MemWidth
       emitSize emitTyp =
         case emitTyp of
-          BYTE        -> 1 
-          BYTE2       -> 2
-          HALF        -> 2
-          SHORT       -> 2 -- short is a 16-bit unsigned integer 
-          BYTE4       -> 4
-          WORD        -> 4
-          LONG        -> 8 -- Or 4 in RV32I
-          BYTE8       -> 8
-          DWORD       -> 8
-          QUAD        -> 8 -- it emits an 8-byte integer. If the
+          BYTE        -> W1 
+          BYTE2       -> W2
+          HALF        -> W2
+          SHORT       -> W2 -- short is a 16-bit unsigned integer 
+          BYTE4       -> W4
+          WORD        -> W4
+          LONG        -> W8 -- Or 4 in RV32I
+          BYTE8       -> W8
+          DWORD       -> W8
+          QUAD        -> W8 -- it emits an 8-byte integer. If the
                            -- bignum won’t fit in 8 bytes, it prints a
                            -- warning message; and just takes the
                            -- lowest order 8 bytes of the bignum.
-          DTPRELWORD  -> 4 -- dtp relative word, probably shouldn't show up 
-          DTPRELDWORD -> 8
+          DTPRELWORD  -> W4 -- dtp relative word, probably shouldn't show up 
+          DTPRELDWORD -> W8
 
 
 
