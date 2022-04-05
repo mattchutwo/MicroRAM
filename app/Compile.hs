@@ -16,6 +16,7 @@ import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.Metadata
+import RiscV.Backend
 import Debug.PrettyPrint
 import LLVMutil.LLVMIO
 
@@ -53,8 +54,11 @@ main = do
                                   Nothing -> do
                                     putStrLn $ "Found no trace, can't compile."
                                     exitWith ExitSuccess
-                                  Just trLength -> if (beginning fr >= LLVMLang) then -- Compile or read from file
-                                                     callBackend trLength fr
+                                  Just trLength -> if (beginning fr >= RiscV) then -- Compile or read from file
+                                                     if beginning fr == RiscV then
+                                                       riscCompiler trLength fr
+                                                     else
+                                                       callBackend trLength fr
                                                    else
                                                      readMRAMFile trLength fr
   when (ppMRAM fr) $ putStr $ microPrint (pmProg $ lowProg $ programCU microProg)
@@ -93,6 +97,13 @@ main = do
                           )
             where undefinedFunctions = allowUndefFun fr
 
+        -- | Alternative compiler backend going through RiscV 
+        riscCompiler :: Word -> FlagRecord -> IO $ CompiledProgram
+        riscCompiler trLength fr = do
+          giveInfo fr "Running the RiscV compiler backend..."
+          riscCode <- readFile $ fileIn fr
+          handleErrorWith (riscBackend (fileIn fr) riscCode trLength)
+          
 
         saveMramProgram :: Show a => FlagRecord -> a -> IO ()
         saveMramProgram fr microProg =
@@ -166,7 +177,8 @@ data Flag
    -- Compiler Backend flags
    | PrivSegs Int
    | JustLLVM        
-   | FromLLVM
+   | FromLLVM        
+   | FromRiscV
    | JustMRAM
    | MRAMout (Maybe String)
    | MemSparsity Int
@@ -189,6 +201,7 @@ data Stages =
    FullOutput
   | MRAMLang
   | LLVMLang
+  | RiscV
   | CLang
   deriving (Eq, Ord, Show)
 
@@ -260,6 +273,7 @@ parseFlag flag fr =
     LLVMout (Just llvmOut) ->  fr {llvmFile = llvmOut}
     LLVMout Nothing ->         fr {llvmFile = replaceExtension (fileIn fr) ".ll"}
     FromLLVM ->                fr {beginning = min LLVMLang (beginning fr), llvmFile = fileIn fr}
+    FromRiscV ->               fr {beginning = RiscV}
     PrivSegs numSegs ->        fr {privSegs = Just numSegs}
     JustLLVM ->                fr {end = max LLVMLang $ end fr}
     JustMRAM ->                fr {end = max MRAMLang $ end fr}
@@ -297,6 +311,7 @@ options =
   , Option ['O'] ["optimize"]    (OptArg readOpimisation "arg")    "Optimization level of the front end"
   , Option ['o'] ["output"]      (ReqArg Output "FILE")            "Write ouput to file"
   , Option []    ["from-llvm"]   (NoArg FromLLVM)                  "Compile only with the backend. Compiles from an LLVM file."
+  , Option ['r'] ["riscv"]        (NoArg FromRiscV)                 "Compile from RiscV assembly."
   , Option []    ["priv-segs"]   (ReqArg (PrivSegs . read) "arg")  "Number of private segments. " 
   , Option []    ["just-llvm"]   (NoArg JustLLVM)                  "Compile only with the frontend. "
   , Option []    ["just-mram"]   (NoArg JustMRAM)                  "Only run the compiler (no interpreter) and output mram. "

@@ -151,7 +151,7 @@ riscvParseFile fileName = do
 
 -- | Parse RiscV given the name of the file (only used for errors) and
 -- a RiscV assembly program.
-riscvParser :: String -> String -> Either CmplError [LineOfRiscV]
+riscvParser :: String -> String -> Hopefully [LineOfRiscV]
 riscvParser rvFileName rvFile = catMaybes <$> mapM parseEnumLine (zip [0..] (lines rvFile))
   where parseEnumLine :: (Int, String) -> Hopefully (Maybe LineOfRiscV)
         parseEnumLine (lnNum, line) =

@@ -22,6 +22,7 @@ import Compiler.CompilationUnit
 import Compiler.IRs(lazyPc, hereLabel)
 import Compiler.LazyConstants
 import Compiler.Analysis (AnalysisData(..))
+import Compiler.Registers
 
 import qualified Data.List as List (partition)
 import qualified Data.Map as Map
@@ -143,8 +144,8 @@ initStateTP = TPState
   , _atFuncStartTP      = False -- An instruction type needs to be found first.
   , _afterFuncCallTP    = False
   , _symbolTableTP      = Map.empty
-  , _nameIDTP           = 0
-  , _nameMap            = Map.empty
+  , _nameIDTP           = firstUnusedName
+  , _nameMap            = Map.fromList [("main", mainName)]
   }
 
   
@@ -214,7 +215,6 @@ saveObject = do
     Just ls -> do
         let init = packInWords $ toList ls
         gname <- getName =<< use curObjectTP
-        trace ("Saving: " <> show gname) $ return ()
         sectionName <- use (currSectionTP . secName)
         readOnly <- not <$> use (currSectionTP . flag_write)
         let gvar = GlobalVariable {globName = gname,
@@ -813,14 +813,14 @@ finalizeTP = do
   _ <- saveObject
   -- Build program
   prog <- use commitedBlocksTP
+  -- Add a premain. We need this to be backwards compatible
+  let prog' = (NBlock (Just premainName) premainCode): prog
   -- Build memory
   genv <- use genvTP
-  -- Show the mem
-  trace ("MEM: " <> show genv) $ return ()
   -- Then build the CompilationUnit
   return $ CompUnit {
     -- Memory is filled in 'RemoveLabels'
-    programCU = ProgAndMem prog [] mempty,
+    programCU = ProgAndMem prog' [] mempty,
     -- TraceLen is bogus
     traceLen = 0,
     -- We added one new register, which is now the largest
@@ -831,7 +831,15 @@ finalizeTP = do
     -- TODO: fix name bound.
     nameBound = 0,
     intermediateInfo = genv } 
+  where premainCode =
+          -- bp is a caller saved reg that keeps the return address.
+          [(Imov bp (pcPlus 2), md),
+           -- Call main
+           (Ijmp $ Label mainName, md {mdIsCall = True}),
+           -- When main returns, answer (risk stores answer in a0==X10)
+           (Ianswer (AReg $ tpReg X10),md {mdIsReturn = True})]
 
+        md = trivialMetadata premainName defaultName
 
 -- Finalize current block and commit it
 -- i.e. add it to the list.
