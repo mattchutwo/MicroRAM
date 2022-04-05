@@ -144,15 +144,24 @@ numStrParser = try (Right  <$>     identifier)
 {- | Parse RiscV directly from file 
 -} 
 
-riscvParseFile :: String -> IO (Either ParseError [LineOfRiscV])
+riscvParseFile :: String -> IO (Either CmplError [LineOfRiscV])
 riscvParseFile fileName = do
   fileContent <- readFile fileName
   return $ riscvParser fileName fileContent 
 
 -- | Parse RiscV given the name of the file (only used for errors) and
 -- a RiscV assembly program.
-riscvParser :: String -> String -> Either ParseError [LineOfRiscV]
-riscvParser rvFileName rvFile = catMaybes <$> mapM (parse riscvLnParser rvFileName) (lines rvFile)
+riscvParser :: String -> String -> Either CmplError [LineOfRiscV]
+riscvParser rvFileName rvFile = catMaybes <$> mapM parseEnumLine (zip [0..] (lines rvFile))
+  where parseEnumLine :: (Int, String) -> Hopefully (Maybe LineOfRiscV)
+        parseEnumLine (lnNum, line) =
+          tag ("Parse erro at line "<> show lnNum) $
+          parseToComplError $ parse riscvLnParser rvFileName line
+        
+        parseToComplError :: Show x => Either x a -> Hopefully a
+        parseToComplError (Right a) = Right a
+        parseToComplError (Left x) = otherError $ "Parse failed:" <> show x
+
 
 {- RiscV assembly file contains labels, directives and instructions. We
    ignore comments and empty lines. Strictly speaking, any statement
