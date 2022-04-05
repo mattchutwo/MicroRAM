@@ -495,7 +495,7 @@ runWith handler steps initState = execStateT (goSteps steps) initState
       goStep
       ans <- use $ sMach . mAnswer
       case ans of
-        Just _ -> return ()
+        Just _ -> trace ("ANSWER: " <> show ans <> ". Step : " <> show n) $ return ()
         Nothing -> goSteps (n - 1)
 
     goStep = do

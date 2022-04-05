@@ -106,7 +106,7 @@ data TPState = TPState
   , _currFunctionTP :: String
   , _currBlockTP    :: String
   , _currBlockContentTP :: Seq.Seq (MAInstruction Int MWord, Metadata)
-  , _commitedBlocksTP :: [NamedBlock Metadata Int MWord]
+  , _commitedBlocksTP :: Seq.Seq (NamedBlock Metadata Int MWord)
   , _sectionsTP :: Map.Map String Section
     
   -- Memory
@@ -136,7 +136,7 @@ initStateTP = TPState
   , _currFunctionTP     = "NoneInit"
   , _currBlockTP        = "NoneInit"
   , _currBlockContentTP = Seq.empty
-  , _commitedBlocksTP   = [] 
+  , _commitedBlocksTP   = Seq.empty
   , _sectionsTP         = Map.empty
   , _curObjectTP        = "NoneInit"
   , _curObjectContentTP = Nothing
@@ -812,7 +812,7 @@ finalizeTP = do
   _ <- commitBlock
   _ <- saveObject
   -- Build program
-  prog <- use commitedBlocksTP
+  prog <- toList <$> (use commitedBlocksTP)
   -- Add a premain. We need this to be backwards compatible
   let prog' = (NBlock (Just premainName) premainCode): prog
   -- Build memory
@@ -824,7 +824,7 @@ finalizeTP = do
     -- TraceLen is bogus
     traceLen = 0,
     -- We added one new register, which is now the largest
-    regData = NumRegisters newReg,
+    regData = NumRegisters (newReg+1),
     -- Analysis data is bogus
     aData = AnalysisData mempty mempty,
     -- Name bound is currently bogus, but we should fix it
@@ -850,7 +850,7 @@ commitBlock = do
     currBlockContentTP .= mempty
     name <- getName =<< use currBlockTP
     let block = NBlock (Just $ name) $ toList contnt
-    commitedBlocksTP %= (:) block
+    commitedBlocksTP %= (:|> block)
     return ()
   
 -- Monadic stuff
