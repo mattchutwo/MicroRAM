@@ -437,14 +437,14 @@ tpImm imm = case imm of
         -- usually used with the %lo modifier to represent a 32-bit
         -- absolute address.
         ModHi              -> w .&. (2^32-2^12)
-        ModPcrel_lo        -> undefined
-        ModPcrel_hi        -> undefined
-        ModGot_pcrel_hi    -> undefined
-        ModTprel_add       -> undefined
-        ModTprel_lo        -> undefined
-        ModTprel_hi        -> undefined
-        ModTls_ie_pcrel_hi -> undefined
-        ModTls_gd_pcrel_hi -> undefined
+        ModPcrel_lo        -> error "ModPcrel_lo       "
+        ModPcrel_hi        -> error "ModPcrel_hi       "
+        ModGot_pcrel_hi    -> error "ModGot_pcrel_hi   "
+        ModTprel_add       -> error "ModTprel_add      "
+        ModTprel_lo        -> error "ModTprel_lo       "
+        ModTprel_hi        -> error "ModTprel_hi       "
+        ModTls_ie_pcrel_hi -> error "ModTls_ie_pcrel_hi"
+        ModTls_gd_pcrel_hi -> error "ModTls_gd_pcrel_hi"
 
 addrRelativeToAbsolute :: Imm -> Statefully (MAOperand Int MWord)
 addrRelativeToAbsolute off = do
@@ -466,6 +466,8 @@ tpRegRegImm :: Reg -> Reg -> Imm -> Statefully (Int, Int, LazyConst MWord)
 tpRegRegImm r1 r2 imm =  do
   imm' <- tpImm imm
   return (tpReg r1, tpReg r2, imm')
+tpRegReg :: Reg -> Reg -> (Int, Int)
+tpRegReg r1 r2 = (tpReg r1, tpReg r2)
 tpRegRegReg :: Reg -> Reg -> Reg -> (Int, Int, Int)
 tpRegRegReg r1 r2 r3 = (tpReg r1, tpReg r2, tpReg r3)
 
@@ -491,13 +493,51 @@ transpileInstr instr = do
         line <- return 0 -- Bogus
         return (instr, Metadata funName blockName line False False False False)
                
-      transpileInstr32M    :: InstrExt32M -> Seq (MAInstruction Int MWord) 
-      transpileInstr64M    :: InstrExt64M -> Seq (MAInstruction Int MWord) 
-      transpileInstralias  :: AliasInstr  -> Seq (MAInstruction Int MWord)
-      transpileInstr32M    instr = undefined
-      transpileInstr64M    instr = undefined
-      transpileInstralias  instr = undefined
+transpileInstralias  :: AliasInstr  -> Seq (MAInstruction Int MWord)
+transpileInstralias  _ =
+  -- This instruction should allways trap.  We do so by reading from
+  -- address 0 which should be poisoned, and thus executing this
+  -- instruction will make the trace invalid.
+  Seq.fromList [Iload W8 newReg (LImm 0)]
+  
+    
 
+transpileInstr64M    :: InstrExt64M -> Seq (MAInstruction Int MWord) 
+transpileInstr64M    instr = 
+  Seq.fromList $
+  case instr of
+    MULW  rd rs1 rs2 -> restrictedOperation rd rs1 rs2 Imull
+    DIVW  rd rs1 rs2 -> restrictedOperation rd rs1 rs2 (error "Undefined: Signed div 32b")
+    DIVUW rd rs1 rs2 -> restrictedOperation rd rs1 rs2 Iudiv
+    REMW  rd rs1 rs2 -> restrictedOperation rd rs1 rs2 (error "Undefined: Signed rem 32b")
+    REMUW rd rs1 rs2 -> restrictedOperation rd rs1 rs2 Iumod
+
+  where restrictedOperation rd rs1 rs2 op =
+          let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in
+            [ -- Restrict input 1 to 32b
+              Ior rs1' rs1' (LImm $ 2^32 - 1),
+              -- Restrict input 2 to 32b
+              Ior rs2' rs2' (LImm $ 2^32 - 1),
+              -- do the operation
+              op rd' rs1' (AReg rs2')
+            ] <> restrictAndSignExtendResult rd'
+                  
+transpileInstr32M :: InstrExt32M -> Seq (MAInstruction Int MWord) 
+transpileInstr32M instr =
+  Seq.fromList [
+  case instr of
+    MUL    rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in Imull  rd' rs1' (AReg rs2')
+    MULH   rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in Ismulh rd' rs1' (AReg rs2')
+    MULHU  rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in Iumulh rd' rs1' (AReg rs2')
+    DIVU   rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in Iudiv  rd' rs1' (AReg rs2')
+    REMU   rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in Iumod  rd' rs1' (AReg rs2')
+    MULHSU rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in error "Undefined: Signed Unsigned ultiplication"
+    DIV    rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in error "Undefined: Signed division"
+    REM    rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in error "Undefined: Signed reminder"
+  ]
+
+
+    
 transpileInstrPseudo :: PseudoInstr -> Statefully (Seq (MAInstruction Int MWord))  
 transpileInstrPseudo instr =
   Seq.fromList <$>
@@ -534,9 +574,13 @@ transpileInstrPseudo instr =
       return [Iadd (tpReg X0) (tpReg X0) (LImm 0) ]
     AbsolutePI _ -> error "AbsolutePI" -- AbsolutePseudo
     UnaryPI  unop reg1 reg2  -> return $ unaryPseudo unop reg1 reg2  -- UnaryPseudo Reg Reg
-    CMovPI  _ _ _-> error "1" -- CMovPseudo Reg Reg
+    CMovPI cond r1 r2 -> 
+      let (r1', r2') = tpRegReg r1 r2 in 
+        return $
+        [computeCondition cond newReg r2', 
+         Icmov r1' newReg (AReg r2')] 
     BranchZPI bsp rd off -> pseudoBranch bsp rd off  -- BranchZPseudo Reg Offset
-    BranchPI  _ _ _ _-> error "3" -- BranchPseudo Reg Reg Offset
+    BranchPI  _ _ _ _-> error "BranchPI" -- BranchPseudo Reg Reg Offset
     JmpImmPI  JPseudo off -> do
       off' <- tpImm off
       return [Ijmp . LImm $ off']
@@ -544,8 +588,16 @@ transpileInstrPseudo instr =
       off' <- tpImm off
       return [Imov (tpReg X1) (pcPlus 2),
                Ijmp . LImm $ off']
-    JmpRegPI  _ _ -> error "5" -- JumpPseudo Reg
+    JmpRegPI  _ _ -> error "JmpRegPI" -- JumpPseudo Reg
   where
+    computeCondition :: CMovPseudo -> Int -> Int -> MAInstruction Int MWord
+    computeCondition cond ret r1 =
+      case cond of
+        SEQZ -> Icmpe ret r1 (LImm 0)
+        SNEZ -> Icmpg ret r1 (LImm 0)
+        SLTZ -> Icmpg ret (tpReg X0) (AReg r1)
+        SGTZ -> Icmpg ret r1 (LImm 0)
+    
     unaryPseudo :: UnaryPseudo -> Reg -> Reg  -> [MAInstruction Int MWord]
     unaryPseudo unop reg1 reg2 = 
       let (rs1',rs2) = (tpReg reg1, tpReg reg2) in
@@ -605,14 +657,27 @@ transpileInstr64I    instr =
       (rd',rs1',off'') <- tpRegRegImm reg1 reg2 imm
       let off' = LImm off''
       return $ (case binop64I of
-                  ADDIW -> [Iadd rd' rs1' off']
+                  ADDIW -> [Iadd rd' rs1' off']<> restrictAndSignExtendResult rd'
                   -- It should be true that the  'off' < 2^5'
                   -- but we do not check for it. 
-                  SLLIW -> [Ishl rd' rs1' off']
+                  SLLIW -> [Ishl rd' rs1' off']<> restrictAndSignExtendResult rd'
                   SRLIW -> [Iand newReg rs1' (LImm $ 2^32 - 1),
-                            Ishr rd' rs1' off']
-                  SRAIW -> error "Arithmetic right shift not implemented (64I)" -- TODO
-               ) <> restrictAndSignExtendResult rd'
+                            Ishr rd' rs1' off']<> restrictAndSignExtendResult rd'
+                  SRAIW -> -- TODO There is probably a more optimal way to do this one             
+                    [ -- restrict input to 32bits
+                      Iand rs1' rs1' (LImm $ 2^32 - 1),
+                      -- Get sign bit 
+                      Ishr newReg rs1' (LImm 31),
+                      -- Extension (32 1's or 0's, followed by 32 0's)
+                      Imull newReg newReg (LImm (2^64-2^32)),
+                      -- fix highest bits
+                      Ior rs1' rs1' (AReg newReg),
+                      -- Logical shift
+                      Ishr rd' rs1' off',
+                      -- fix highest bits
+                      Ior rs1' rs1' (AReg newReg)
+                    ]
+               ) 
       where
         -- We assume, but don't check, that the immediate is less than 32bits long.
         -- in fact, because of RiscV encoding it should be less than 12bits long.
@@ -631,17 +696,33 @@ transpileInstr64I    instr =
     transpileRegBinop64I binop32 reg1 reg2 reg3 =
       let (rd',rs1',rs2') = tpRegRegReg reg1 reg2 reg3 in
         (case binop32 of
-            ADDW -> [Iadd rd' rs1' (AReg rs2')]                                 
-            SUBW -> [Isub rd' rs1' (AReg rs2')]                                 
+            ADDW -> [Iadd rd' rs1' (AReg rs2')] <>
+                    restrictAndSignExtendResult rd'                             
+            SUBW -> [Isub rd' rs1' (AReg rs2')] <>
+                    restrictAndSignExtendResult rd'                                
             SLLW -> [Iand newReg rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
-                     Ishl rd' rs1' (AReg newReg)]                                 
+                     Ishl rd' rs1' (AReg newReg)] <>
+                    restrictAndSignExtendResult rd'                                
             SRLW -> [Iand newReg rs1' (LImm $ 2^32 - 1), -- restrict input to 32b
                      Iand rd'    rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
-                     Ishr rd' newReg (AReg rd')]                                  
-            SRAW -> error "Arithmetic right shift not implemented" -- TODO
-            ) <>
-          restrictAndSignExtendResult rd'
-      where
+                     Ishr rd' newReg (AReg rd')] <>
+                    restrictAndSignExtendResult rd'                                 
+            SRAW -> -- Logical Shift right
+                    -- We make the high 32 bits the right sign (i.e. 0 or 1) before and after a logical shift.              
+              [ -- restrict input to 32bits
+                Iand rs1' rs1' (LImm $ 2^32 - 1),
+                -- Get sign bit 
+                Ishr newReg rs1' (LImm 31),
+                -- Extension (32 1's or 0's, followed by 32 0's)
+                Imull newReg newReg (LImm (2^64-2^32)),
+                -- fix highest bits
+                Ior rs1' rs1' (AReg newReg),
+                -- Logical shift
+                Ishr rd' rs1' (AReg rs2'),
+                -- fix highest bits
+                Ior rs1' rs1' (AReg newReg)
+              ]
+            )
             
             
 
@@ -688,8 +769,8 @@ transpileInstr32I instr =
       return [Imov reg' (LImm $ lazyPc + lazyUop luiFunc off')]
     ImmBinop32 binop32I reg1 reg2 imm -> transpileImmBinop32I binop32I reg1 reg2 imm
     RegBinop32 binop32 reg1 reg2 reg3 -> return $ transpileRegBinop32I binop32  reg1 reg2 reg3
-    FENCE setOrdering                 -> undefined -- Probably a noop?
-    FENCEI                            -> undefined -- Probably a noop?
+    FENCE setOrdering                 -> error "Undefined Fence" -- Probably a noop?
+    FENCEI                            -> error "Undefined Fence" -- Probably a noop?
   where
     -- Memory operations
     -- Big TODO TODO TODO
@@ -754,7 +835,7 @@ transpileInstr32I instr =
             SLTU -> [Icmpa rd' rs1' rs2']
             XOR  -> [Ixor rd' rs1' rs2']
             SRL  -> [Ishr  rd' rs1' rs2']
-            SRA  -> error "Arithmetic right shift not implemented" -- TODO
+            SRA  -> error "Arithmetic right shift not implemented FULL" -- TODO
             OR   -> [Ior rd' rs1' rs2']
             AND  -> [Iand rd' rs1' rs2']
           
@@ -778,7 +859,15 @@ transpileInstr32I instr =
                  ANDI  -> [Iand  rd' rs1' off_imm]
                  SLLI  -> [Ishl  rd' rs1' off_imm]
                  SRLI  -> [Ishr  rd' rs1' off_imm]
-                 SRAI  -> error "Arithmetic right shift not implemented" -- TODO
+                 SRAI  -> [-- sign bits
+                   Ishr newReg rs1' (LImm $ 64),
+                   -- extensions (2^off-1)*(2^(64-off))
+                   Imull newReg newReg (LImm $ (2 `pow` off' - 1) * (2 `pow` (64-off'))),
+                   -- logical extension
+                   Ishr rd' rs1' off_imm,
+                   -- add extensions
+                   Ior rd' rd' (AReg newReg)
+                   ]
       
     
     -- build 32-bit constants and uses the U-type format. LUI
