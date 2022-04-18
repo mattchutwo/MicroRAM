@@ -282,7 +282,8 @@ traceHandler active _nextH (Iext (XTraceExec nameOp valOps)) = do
   nextPc
 traceHandler active nextH instr@(Ianswer op) = do
   val <- opVal op
-  when active $ traceM $ "ANSWER = " ++ show val
+  curCycle <- use $ sMach . mCycle
+  when active $ traceM $ "ANSWER = " ++ show val ++ ". STEPS = " ++ show curCycle
   nextH instr
 traceHandler _active nextH instr = nextH instr
 
@@ -495,7 +496,7 @@ runWith handler steps initState = execStateT (goSteps steps) initState
       goStep
       ans <- use $ sMach . mAnswer
       case ans of
-        Just _ -> trace ("ANSWER: " <> show ans <> ". Step : " <> show n) $ return ()
+        Just _ -> return () -- trace ("ANSWER: " <> show ans <> ". Step : " <> show n) $ return ()
         Nothing -> goSteps (n - 1)
 
     goStep = do
