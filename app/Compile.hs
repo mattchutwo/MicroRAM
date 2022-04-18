@@ -200,8 +200,8 @@ data Flag
 data Stages =
    FullOutput
   | MRAMLang
-  | LLVMLang
   | RiscV
+  | LLVMLang
   | CLang
   deriving (Eq, Ord, Show)
 
