@@ -213,3 +213,21 @@ packInWords ls = packInWords' (SConst 0) 0 ls
         combine acc pos lc = acc .|. (lc `shiftL` (pos * 8))
 
         consume amt lc = lc `shiftR` (amt * 8)
+
+-- | exponentiation for lazy
+pow :: LazyConst MWord -> LazyConst MWord -> LazyConst MWord
+pow a b =
+  case (a, b) of
+    (SConst a', SConst b') -> SConst (a' ^ b')
+    _ -> let (aLazy, aSet) = mkLazy a in
+           let (bLazy, bSet) = mkLazy b in
+             LConst (\env -> (aLazy env)^(bLazy env)) (aSet `Set.union` bSet)
+
+      where
+        -- Makes constants into lazy.
+        mkLazy :: LazyConst MWord -> (GlobMap MWord -> MWord , Set Name)
+        mkLazy lazy =
+          case lazy of
+            SConst x   -> (\_ -> x,mempty)
+            LConst l s -> (l,s)
+      
