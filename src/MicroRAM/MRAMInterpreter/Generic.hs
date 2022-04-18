@@ -26,6 +26,8 @@ import Compiler.CompilationUnit (InitialMem)
 import Compiler.Registers
 import MicroRAM
 
+import Debug.Trace
+
 class (Show v, Show (Memory v)) => AbsDomain v where
   type Memory v
 
@@ -295,7 +297,7 @@ stepSink w rj op2 = do
   taintBug <- lift $ absSink w ls l2
   when taintBug $ do
     sMach . mBug .= True
-    -- traceM $ "Sink: Leaked byte!"
+    traceM $ "Sink: Leaked byte!"
   nextPc
 
 stepRead :: (Regs r, AbsDomain v) =>
