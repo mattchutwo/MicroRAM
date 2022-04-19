@@ -70,6 +70,19 @@ executables:
 
 
 tests:
+  riscv:
+    main:                RiscV/RiscVSpec.hs
+    source-dirs:         test
+    ghc-options:         
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -main-is RiscV.RiscVSpec
+    dependencies:
+    - MicroRAM
+    - tasty
+    - tasty-hunit
+    - tasty-smallcheck
   compiler:
     main:                Compiler/CompilerSpec.hs
     source-dirs:         test

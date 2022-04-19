@@ -1,5 +1,5 @@
 module Programs.Programs (
-  oneTest, allTests, TestProgram(..), TestGroupAbs (..)
+  oneTest, allTests, riscvTests, TestProgram(..), TestGroupAbs (..)
   ) where
 
 import MicroRAM
@@ -8,7 +8,7 @@ import MicroRAM
 ------------------
 -- The Programs
 ------------------
-testTrivial, testLoops, testGEP, testDatastruct, testBugs, testCorrectness, allTests, testErrors :: TestGroupAbs
+testTrivial, testLoops, testGEP, testDatastruct, testBugs, testCorrectness, allTests, testErrors, riscvTests :: TestGroupAbs
 
 oneTest = OneTest $ defaultTest {
     testName = "Heartbleed"
@@ -286,6 +286,15 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
   []
 
 
+-- ## Test the RISC-V backend
+
+riscvTests = ManyTests "RISC-V backend correctness tests" $ OneTest <$>
+  defaultTest {
+  testName = "Fibonacci"
+  ,fileName = "test/Programs/RISCV/fib.s"
+  ,testLen = 500
+  ,testResult = 55} :
+  []
 
 ------------------
 -- The constructs
