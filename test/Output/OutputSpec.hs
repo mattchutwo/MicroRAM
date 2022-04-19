@@ -32,6 +32,9 @@ import MicroRAM.MRAMInterpreter
 import Segments.Segmenting
 import Sparsity.Sparsity
 
+import Data.ByteString.Short (ShortByteString, toShort) 
+import qualified Data.ByteString.UTF8 as BSU
+
 main :: IO ()
 main = defaultMain tests
 
@@ -162,11 +165,16 @@ testAdvice = testProperty "Serialising advice" $
         
 
 -- * Testing Output
+instance Arbitrary ShortByteString where
+  arbitrary = do
+    string <- arbitrary
+    return $ toShort $ BSU.fromString string
+              
 instance Arbitrary InitMemSegment where
   arbitrary = do
     content <- arbitrary
     labels <- mapM (\c -> vectorOf (length c) (Vec.fromList <$> vectorOf wordBytes (choose (0,bottom)))) content
-    InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*>
+    InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*>
               arbitrary <*> arbitrary <*> pure content <*> pure labels
 
 instance Arbitrary reg => Arbitrary (Segment reg MWord) where

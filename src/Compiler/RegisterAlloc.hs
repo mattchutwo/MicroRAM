@@ -54,11 +54,14 @@ data RegisterAllocOptions = RegisterAllocOptions {
   }
 
 instance Default RegisterAllocOptions where
-  def = RegisterAllocOptions 9
+  def = RegisterAllocOptions 11
 
 type AReg = Int
 type Registers = [AReg]
 
+-- |  This pass creates *temporary* new names for registers and then colors them over.
+-- no new names persists after the pass. Otherwise, we would have to update
+-- `nameBound` in the compilation unit  
 registerAlloc :: Bool
               -> RegisterAllocOptions
               -> CompilationUnit a (Lprog Metadata VReg MWord)
@@ -68,9 +71,6 @@ registerAlloc _skipRegisterAllocation opt comp = do
   let regData = NumRegisters $ fromEnum numRegisters
   lprog   <- registerAllocProg (pmProg $ programCU comp)
   return $ comp {programCU = (programCU comp) { pmProg = lprog }, regData = regData}
-  -- ^ This pass creates *temporary* new names for registers and then colors them over.
-  -- no new names persists after the pass. Otherwise, we would have to update
-  -- `nameBound` in the compilation unit
   where
     -- Spill registers will be created after this bound
     -- and thats how we recognise them. 

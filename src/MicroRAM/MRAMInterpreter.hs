@@ -283,6 +283,8 @@ traceHandler active _nextH (Iext (XTraceExec nameOp valOps)) = do
 traceHandler active nextH instr@(Ianswer op) = do
   val <- opVal op
   when active $ traceM $ "ANSWER = " ++ show val
+  cycle <- conGetValue <$> (use $ sMach . mCycle)
+  when active $ traceM $ "Terminating on cycle " ++ show cycle
   nextH instr
 traceHandler _active nextH instr = nextH instr
 
@@ -293,8 +295,9 @@ data MemErrorKind = OutOfBounds | UseAfterFree | Unallocated
   deriving (Show, Eq)
 
 data AllocState = AllocState
+  {
   -- | The next unused address.  Used for future allocations.
-  { _asFrontier :: MWord
+  _asFrontier :: MWord
   -- | Map tracking all memory that is valid to access at the moment.  An entry
   -- `(k, v)` means that addresses `k <= addr < v` are valid to access.
   -- Entries are all non-empty (`k < v`) and non-overlapping.

@@ -129,6 +129,7 @@ between functions.
 -}
 module Compiler
     ( compile
+    , CompilerOptions(..), defOptions
     , module Export
     ) where
 
@@ -167,32 +168,48 @@ verbTagPass :: Bool -> String -> (a -> Hopefully b) -> a -> Hopefully b
 verbTagPass verb txt x =
   (if verb then trace ("\tCompiler Pass: " <> txt) else id) $ tagPass txt x
 
+data CompilerOptions = CompilerOptions
+  { verb::Bool
+  , allowUndefFun::Bool
+  , spars::Maybe Int
+  , tainted::Bool
+  , skipRegisterAllocation::Bool
+  , numberRegs::Maybe Word
+  }
+
+defOptions :: CompilerOptions
+defOptions = CompilerOptions
+  { verb = False
+  , allowUndefFun = False
+  , spars = Nothing
+  , tainted = False
+  , skipRegisterAllocation = False
+  , numberRegs = Nothing
+  }
+
 compile1
-  :: Bool
-  -> Bool
+  :: CompilerOptions
   -> Word
   -> LLVM.Module
   -> Hopefully (CompilationUnit () (MIRprog Metadata MWord))
-compile1 verb allowUndefFun len llvmProg = (return $ prog2unit len llvmProg)
+compile1 options len llvmProg = (return $ prog2unit len llvmProg)
   >>= (verbTagPass verb "Instruction Selection" $ justCompileWithNames instrSelect)
   >>= (verbTagPass verb "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
   >>= (verbTagPass verb "Lower Intrinsics" $ justCompileWithNamesSt lowerIntrinsics)
   >>= (verbTagPass verb "Catch undefined Functions" $ justCompile (catchUndefinedFunctions allowUndefFun))
-
+  where CompilerOptions {verb=verb, allowUndefFun=allowUndefFun} = options
+                        
 compile2
-  :: Bool
-  -> Maybe Int
-  -> Bool
-  -> Bool
+  :: CompilerOptions
   -> CompilationUnit () (MIRprog Metadata MWord) ->
   Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
-compile2 verb spars tainted skipRegisterAllocation prog = return prog
+compile2 options prog = return prog
   >>= (verbTagPass verb "Legalize Instructions" $ justCompileWithNames legalize)
   >>= (verbTagPass verb "Localize Labels"     $ justCompileWithNames localizeLabels)
   >>= (verbTagPass verb "Edge split"          $ justCompileWithNames edgeSplit)
   >>= (verbTagPass verb "Remove Phi Nodes"    $ justCompileWithNames removePhi)
   >>= (verbTagPass verb "Layout arguments"    $ justCompileWithNamesSt layArgs)
-  >>= (verbTagPass verb "Register Allocation" $ registerAlloc skipRegisterAllocation def)
+  >>= (verbTagPass verb "Register Allocation" $ registerAlloc skipRegisterAllocation numRegs)
   >>= (verbTagPass verb "Calling Convention"  $ justCompile callingConvention)
   >>= (verbTagPass verb "Stash Globals"       $ return . stashGlobals)
   >>= (verbTagPass verb "Count Functions"     $ justAnalyse countFunctions)
@@ -200,14 +217,26 @@ compile2 verb spars tainted skipRegisterAllocation prog = return prog
   >>= (verbTagPass verb "Computing Sparsity"  $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
   >>= (verbTagPass verb "Block cleanup"       $ blockCleanup)
   >>= (verbTagPass verb "Removing labels"     $ removeLabels tainted)
+  where numRegs = case numberRegs of
+          Just n -> RegisterAllocOptions n
+          Nothing -> def
 
-compile :: Bool -> Bool -> Bool -> Bool -> Word -> LLVM.Module -> Maybe Int ->
-  Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
-compile verb allowUndefFun tainted skipRegisterAllocation len llvmProg spars = do
-  ir <- compile1 verb allowUndefFun len llvmProg
-  high <- compile2 verb spars tainted skipRegisterAllocation ir
+        CompilerOptions { verb=verb
+                        , spars=spars
+                        , tainted=tainted
+                        , skipRegisterAllocation=skipRegisterAllocation
+                        , numberRegs=numberRegs
+                        } = options
+        
+compile :: CompilerOptions
+        -> Word
+        -> LLVM.Module
+        -> Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
+compile options len llvmProg = do
+  ir <- compile1 options len llvmProg
+  high <- compile2 options ir
   low <- return ir
-    >>= (verbTagPass verb "Lower Extension Instructions" $ justCompileWithNames lowerExtensionInstrs)
-    >>= compile2 verb spars tainted skipRegisterAllocation
+    >>= (verbTagPass (verb options) "Lower Extension Instructions" $ justCompileWithNames lowerExtensionInstrs)
+    >>= compile2 options
   -- Return both programs, using the analysis data from the final one.
   return $ low { programCU = MultiProg (programCU high) (programCU low) }

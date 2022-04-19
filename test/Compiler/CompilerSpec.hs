@@ -58,7 +58,7 @@ compileTest executionFunction tester name file len =
           
         compileTest' file len skipRegAlloc = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile False False False skipRegAlloc len llvmProg Nothing
+          mramProg <- handleErrorWith $ compile defOptions{skipRegisterAllocation = skipRegAlloc} len llvmProg
           return $ executionFunction (fmap (tripleFmap fst) mramProg)
 
 tripleFmap :: (Functor f1, Functor f2, Functor f3) =>
@@ -78,7 +78,7 @@ compileErrorTest name file len =
   QCM.assert $ isLeft compResult
   where compileFromFile file len = do
           llvmProg <- llvmParse file
-          return $ compile False False False False len llvmProg Nothing
+          return $ compile defOptions len llvmProg
           
 -- ## Full compilation tests of correctness
 

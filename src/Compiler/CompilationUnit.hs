@@ -20,6 +20,7 @@ import Data.Default (def)
 import Data.Foldable (foldl')
 import qualified Data.Map as Map
 import Data.Vector (Vector)
+import Data.ByteString.Short (ShortByteString)
 
 import Util.Util
 import MicroRAM (MWord)
@@ -44,10 +45,10 @@ data CompilationUnit' a prog = CompUnit
 
 -- | Multiple variants of the compiled program.
 data MultiProg prog = MultiProg
-  -- | "High-level" variant, used for the first interpreter pass.  Contains
+  { -- | "High-level" variant, used for the first interpreter pass.  Contains
   -- extension instructions (`Iext` + `Iextval`) in their original forms,
   -- partly for instrumentation purposes.
-  { highProg :: prog
+    highProg :: prog
   -- | "Low-level" variant, used for the second interpreter pass.  Does not
   -- contain extension instructions, with the exception of `Iextadvise`, which
   -- gets serialized as a plain `Iadvise` instead.
@@ -67,7 +68,7 @@ type CompilationUnit a prog = CompilationUnit' a (ProgAndMem prog)
 type CompilationResult prog = CompilationUnit' () (MultiProg (ProgAndMem prog))
 
 prog2unit :: Word -> prog -> CompilationUnit () prog
-prog2unit len p = CompUnit (ProgAndMem p [] Map.empty) len InfinityRegs def firstUnusedName () -- ^ 2 reserves `0` and `1` for premain and main 
+prog2unit len p = CompUnit (ProgAndMem p [] Map.empty) len InfinityRegs def firstUnusedName () --  2 reserves `0` and `1` for premain and main 
 
 -- * Lifting operators
 
@@ -121,13 +122,14 @@ justAnalyse analysis cUnit = do
 -- TODO: Should we move this to a separate file (e.g. Compiler/InitMem.hs) ?
 
 data InitMemSegment = InitMemSegment
-  { isSecret :: Bool
+  { isName :: String -- ^ human readable name that corresponds to the original global variable
+  , isSecret :: Bool
   , isReadOnly :: Bool
   , isHeapInit :: Bool
   , location :: MWord
   , segmentLen :: MWord
   , content :: Maybe [MWord]
-  , labels :: Maybe [Vector Label] -- This is Just when content is Just and mode is leak-tainted. -- TODO: Type level stuff to enable tainted things.
+  , labels :: Maybe [Vector Label] -- ^ This is Just when content is Just and mode is leak-tainted. -- TODO: Type level stuff to enable tainted things.
   } deriving (Eq, Ord, Read, Show)
 
 type InitialMem = [InitMemSegment]
@@ -147,7 +149,7 @@ flatInitMem' = foldr initSegment (Map.empty, Map.empty)
           InitMemSegment ->
           (Map.Map MWord MWord, Map.Map MWord MWord) ->
           (Map.Map MWord MWord, Map.Map MWord MWord)
-        initSegment (InitMemSegment secret _ _ loc len optContent _) (pub, sec)
+        initSegment (InitMemSegment _ secret _ _ loc len optContent _) (pub, sec)
           | secret = (pub, sec `Map.union` words)
           | otherwise = (pub `Map.union` words, sec)
           where
@@ -164,14 +166,14 @@ flatInitMem' = foldr initSegment (Map.empty, Map.empty)
 
 flatInitTaintedMem :: InitialMem -> Map.Map MWord (Vector Label)
 flatInitTaintedMem = foldr initSegment Map.empty
-  where initSegment (InitMemSegment _ _ _ _ _ _ Nothing) = id
-        initSegment (InitMemSegment _ _ _ loc _ _ (Just labels)) =
+  where initSegment (InitMemSegment _ _ _ _ _ _ _ Nothing) = id
+        initSegment (InitMemSegment _ _ _ _ loc _ _ (Just labels)) =
           Map.union $ Map.fromList $
           -- Map with the new content
           zip [loc..] labels
 
 lengthInitMem :: InitialMem -> MWord
 lengthInitMem = foldl' (\tip seg -> max tip (segTip seg)) 0
-  where segTip (InitMemSegment _ _ heapInit loc len _ _)
+  where segTip (InitMemSegment _ _ _ heapInit loc len _ _)
           | heapInit = 0
           | otherwise = loc + len

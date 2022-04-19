@@ -72,7 +72,7 @@ type IntrinsicImpl m w = [MAOperand VReg w] -> Maybe VReg -> m -> CallingContext
 
 expandIntrinsicCall :: forall m w. Show w => Map ShortByteString (IntrinsicImpl m w) -> CallingContextMetadata -> MIRInstr m w -> WithNextReg Hopefully [MIRInstr m w]
 expandIntrinsicCall intrinMap ccm (MirI (RCall _ dest (Label (Name _ debugName)) _ args) meta)
-  | Just impl <- Map.lookup debugName intrinMap = -- ^ uses the debugName 
+  | Just impl <- Map.lookup debugName intrinMap = -- uses the debugName 
     tagState ("bad call to intrinsic " ++ show debugName) $ impl args dest meta ccm
 expandIntrinsicCall _ _ instr = return [instr]
 
@@ -135,6 +135,11 @@ cc_flag_bug [] Nothing md _ =
   where zero = LImm $ SConst 0
 cc_flag_bug _ _ _ _ = progError "bad arguments"
 
+cc_answer :: IntrinsicImpl m MWord
+cc_answer [val] Nothing md _ =
+  return [MirM (Ianswer val) md]
+cc_answer _ _ _ _ = progError "bad arguments"
+
 noniSetLabel :: MemWidth -> IntrinsicImpl m MWord
 noniSetLabel wd [ptr, label] Nothing md _ = do
   r <- getNextRegister
@@ -185,6 +190,7 @@ intrinsicsList =
   [ ("@__cc_test_add", cc_test_add)
   , ("@__cc_flag_invalid", cc_flag_invalid)
   , ("@__cc_flag_bug", cc_flag_bug)
+  , ("@__cc_answer", cc_answer)
 
   , ("@__cc_malloc", cc_malloc)
   , ("@__cc_access_valid", cc_access_valid)
@@ -278,7 +284,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
       Function nm _ _ _ _ <- code
       Name _ ss <- return nm
       Just name <- return $ Text.stripPrefix "@__llvm__" $ toText ss
-      return (ss, fromText $ "@llvm." <> Text.replace "__" "." name) -- ^ Doesn't change the Word
+      return (ss, fromText $ "@llvm." <> Text.replace "__" "." name) -- Doesn't change the Word
 
     renameMap = Map.fromList renameList
     removeSet = Set.fromList $ map snd renameList
@@ -318,7 +324,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
         if dbnm == dbName' then name else 
           case Map.lookup dbName' emptyFuncMap of
             Just name' -> name'
-            Nothing -> name -- ^ The dotted form had no dummy definition, so it's probaly never called in the code. 
+            Nothing -> name -- The dotted form had no dummy definition, so it's probaly never called in the code. 
 
     changeMetadata :: Metadata -> Metadata
     changeMetadata md = md {mdFunction = changeName $ mdFunction md}

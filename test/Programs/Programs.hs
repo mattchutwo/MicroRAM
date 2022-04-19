@@ -22,7 +22,7 @@ oneTest = OneTest $ defaultTest {
 allTests = ManyTests "Program tests"
         [testCorrectness, testErrors, testBugs]
 testCorrectness = ManyTests "Correctness tests"
-                  [testTrivial, testLoops, testGEP, testDatastruct, testFunctionPointer, testVarArgs]
+                  [testTrivial, testLoops, testGEP, testDatastruct, testFunctionPointer, testVarArgs, testCmov]
 
 -- Trivial test, just to see the basics are working
 testTrivial = ManyTests "Trivial programs" $ OneTest <$>
@@ -142,6 +142,16 @@ testVarArgs = ManyTests "Test varargs" $ OneTest <$> [
     , fileName = "test/Programs/varArgs3.ll"
     , testLen = 2500 -- 2000
     , testResult = 30
+    }
+  ]
+
+-- Register allocator needs to count the return register in Icmov as "read register " (i.e. it's live)
+testCmov = ManyTests "Test cmov" $ OneTest <$> [
+    defaultTest {
+      testName = "Many cmov to test reg. alloc."
+    , fileName = "test/Programs/select.ll"
+    , testLen = 200
+    , testResult = 44
     }
   ]
 
