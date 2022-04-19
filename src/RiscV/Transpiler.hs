@@ -27,6 +27,7 @@ import Compiler.Registers
 import qualified Data.List as List (partition)
 import qualified Data.Map as Map
 import  Data.Bits (shiftL, (.|.),(.&.))
+import Data.Char (ord)
 
 import Debug.Trace (trace)
 
@@ -104,7 +105,7 @@ makeLenses ''SymbolTP
 data TPState = TPState
   { _currSectionTP  :: Section
   , _currFunctionTP :: String
-  , _currBlockTP    :: String
+  , _currBlockTP    :: Maybe String
   , _currBlockContentTP :: Seq.Seq (MAInstruction Int MWord, Metadata)
   , _commitedBlocksTP :: Seq.Seq (NamedBlock Metadata Int MWord)
   , _sectionsTP :: Map.Map String Section
@@ -133,12 +134,12 @@ makeLenses ''TPState
 initStateTP :: TPState
 initStateTP = TPState
   { _currSectionTP      = readSection { _secName = "initSection"}
-  , _currFunctionTP     = "NoneInit"
-  , _currBlockTP        = "NoneInit"
+  , _currFunctionTP     = "NoneInitFunction"
+  , _currBlockTP        = Nothing 
   , _currBlockContentTP = Seq.empty
   , _commitedBlocksTP   = Seq.empty
   , _sectionsTP         = Map.empty
-  , _curObjectTP        = "NoneInit"
+  , _curObjectTP        = "NoneInitObj"
   , _curObjectContentTP = Nothing
   , _genvTP             = []
   , _atFuncStartTP      = False -- An instruction type needs to be found first.
@@ -185,7 +186,7 @@ transpiler rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initSt
       -- Commit current block
       commitBlock
       -- Start a new block
-      currBlockTP .= lbl
+      currBlockTP .= Just lbl
       -- If entering a function...
       lblTyp <- _symType <<$>> use (symbolTableTP . at lbl)
       case lblTyp of
@@ -207,7 +208,9 @@ transpiler rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initSt
 
 saveObject :: Statefully ()
 saveObject = do
-  st <- get 
+  st <- get
+  nameCurObj <- use curObjectTP
+  trace ("Saving mem object: " <> nameCurObj) $ return ()
   -- Get the current obejct
   curObj <- use $ curObjectContentTP
   case curObj of
@@ -232,6 +235,8 @@ saveObject = do
                                    gvHeapInit = True}
         -- add it to the list of globals
         genvTP %= (:) gvar
+        gvlen <- length <$> use genvTP 
+        trace ("The size of the genv is:" <> (show $ gvlen) ) $ return () 
         -- Clear current obje
         curObjectContentTP .= Nothing
   -- where packInWords :: [(MemWidth, LazyConst MWord)] -> [LazyConst wrdT]
@@ -259,9 +264,9 @@ transpileDir dir =
     ADDRSIG_SYM _nm -> ignoreDire -- We ignore address-significance 
     CFIDirectives _ -> ignoreDire -- ignore control-flow integrity
     -- Currently unimplemented 
-    Visibility _ _ -> unimplementedDir -- Not in binutils. Remove?
-    STRING _st     -> unimplementedDir
-    ASCIZ  _st     -> unimplementedDir
+    Visibility _ _ -> ignoreDire -- TODO: unimplementedDir -- Not in binutils. Remove?
+    STRING st      -> emitString st
+    ASCIZ  st      -> emitString st -- alias for string
     EQU _st _val   -> unimplementedDir
     OPTION _opt    -> unimplementedDir -- Rarely used
     VARIANT_CC _st -> unimplementedDir -- Not in binutils. Remove?
@@ -289,9 +294,10 @@ transpileDir dir =
     ZERO size        -> replicateM_ (fromInteger size) $ emitValue 1 (ImmNumber 0)
 
     where
+      emitString :: String -> Statefully ()
+      emitString st = mapM_ (\char -> emitValue 1 (ImmNumber $ toEnum $ ord char)) st 
       ignoreDire = return ()
-      -- TODO: for testing we allow unimplemented directives.
-      unimplementedDir = ignoreDire -- implError $ "Directive not yet implemented: " <> show dir
+      unimplementedDir = implError $ "Directive not yet implemented: " <> show dir
 
       -- | Creates a symbol if it doens't exists and modifies the
       -- attributers provided
@@ -489,7 +495,7 @@ transpileInstr instr = do
                   -> Statefully (MAInstruction Int MWord, Metadata)
       addMetadata instr = do
         funName <- getName =<< use currFunctionTP
-        blockName <- getName =<< use currBlockTP
+        blockName <- getName =<< (maybe "NoName" id) <$> (use currBlockTP)
         line <- return 0 -- Bogus
         return (instr, Metadata funName blockName line False False False False)
                
@@ -934,13 +940,17 @@ finalizeTP = do
 -- i.e. add it to the list.
 commitBlock :: Statefully ()
 commitBlock = do
-  contnt <- use currBlockContentTP
-  when (not $ null contnt) $ do
-    currBlockContentTP .= mempty
-    name <- getName =<< use currBlockTP
-    let block = NBlock (Just $ name) $ toList contnt
-    commitedBlocksTP %= (:|> block)
-    return ()
+  maybeName <- use currBlockTP
+  case maybeName of
+    Nothing -> return ()
+    Just name' -> do
+      name <- getName name' 
+      contnt <- use currBlockContentTP
+      currBlockContentTP .= mempty
+      -- name <- getName =<< use currBlockTP
+      let block = NBlock (Just $ name) $ toList contnt
+      commitedBlocksTP %= (:|> block)
+  currBlockTP .= Nothing
   
 -- Monadic stuff
 ifM :: Monad m => m Bool -> m a -> m a -> m a
