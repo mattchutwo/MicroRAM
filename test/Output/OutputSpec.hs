@@ -136,7 +136,7 @@ instance Arbitrary (StateOut) where
     pc <- arbitrary
     regs <- arbitrary
     leakTainted <- arbitrary
-    labels <- if leakTainted then pure Nothing else fmap Just (vectorOf (length regs) $ fmap (replicate wordBytes) $ choose (0,untainted))
+    labels <- if leakTainted then pure Nothing else fmap Just (vectorOf (length regs) $ fmap (replicate wordBytes) $ choose (0,bottom))
     return $ StateOut pc regs labels
 
 testTrace :: TestTree
@@ -154,7 +154,7 @@ instance Arbitrary Advice where
     [ do
       wd <- arbitrary
       leakTainted <- arbitrary
-      let labels = if leakTainted then pure Nothing else fmap (Just . Vec.fromList) (vectorOf wordBytes $ choose (0,untainted))
+      let labels = if leakTainted then pure Nothing else fmap (Just . Vec.fromList) (vectorOf wordBytes $ choose (0,bottom))
       MemOp <$> arbitrary <*> arbitrary <*> arbitrary <*> pure wd <*> labels
     , return Stutter 
     ]
@@ -173,7 +173,7 @@ instance Arbitrary ShortByteString where
 instance Arbitrary InitMemSegment where
   arbitrary = do
     content <- arbitrary
-    labels <- mapM (\c -> vectorOf (length c) (Vec.fromList <$> vectorOf wordBytes (choose (0,untainted)))) content
+    labels <- mapM (\c -> vectorOf (length c) (Vec.fromList <$> vectorOf wordBytes (choose (0,bottom)))) content
     InitMemSegment  <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*>
               arbitrary <*> arbitrary <*> pure content <*> pure labels
 

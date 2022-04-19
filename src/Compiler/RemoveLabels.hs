@@ -45,7 +45,6 @@ import Compiler.IRs
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import qualified Data.Vector as V
 
 import Compiler.Common
 import Compiler.CompilationUnit
@@ -158,7 +157,7 @@ flattenGlobals tainted lm gs = goGlobals globalsStart gs
             segmentLen = gSize g,
             content = init',
             labels = if tainted then
-                Just $ replicate (fromIntegral $ gSize g) $ V.replicate wordBytes untainted
+                Just $ replicate (fromIntegral $ gSize g) bottomWord
               else Nothing
             }
       rest <- goGlobals (nextGlobalAddr addr g) gs
