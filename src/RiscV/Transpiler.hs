@@ -441,8 +441,10 @@ tpImm imm = case imm of
         -- usually used with the %lo modifier to represent a 32-bit
         -- absolute address.
         ModHi              -> w .&. (2^32-2^12)
-        ModPcrel_lo        -> error "ModPcrel_lo       "
-        ModPcrel_hi        -> error "ModPcrel_hi       "
+        --  pcrel_lo and pcrel_hi are computed just like lo and hi,
+        --  but are relative to the current pc.
+        ModPcrel_lo        -> w .&. (2^12-1)
+        ModPcrel_hi        -> w .&. (2^32-2^12)
         ModGot_pcrel_hi    -> error "ModGot_pcrel_hi   "
         ModTprel_add       -> error "ModTprel_add      "
         ModTprel_lo        -> error "ModTprel_lo       "
@@ -592,7 +594,13 @@ transpileInstrPseudo instr =
       off' <- tpImm off
       return [Imov (tpReg X1) (pcPlus 2),
                Ijmp . LImm $ off']
-    JmpRegPI  _ _ -> error "JmpRegPI" -- JumpPseudo Reg
+    JmpRegPI JLinkPseudo r1 ->
+      let r1' = tpReg r1 in 
+        return [Imov (tpReg X1) (pcPlus 2),
+                Ijmp (AReg r1')]
+    JmpRegPI  JPseudo r1 -> 
+      let r1' = tpReg r1 in 
+        return [Ijmp (AReg r1')]
   where
     computeCondition :: CMovPseudo -> Int -> Int -> MAInstruction Int MWord
     computeCondition cond ret r1 =
@@ -786,33 +794,14 @@ transpileInstr32I instr =
         -- Loads
         -- Is there a better way to do sign extended loads?
         LB  -> [Iadd rd' rs1' off', 
-                 Iload W1 rd' (AReg rd'),
-                 -- get the sign
-                 Ishr newReg rd' (LImm$ 8-1),
-                 -- make an extension mask (a prefix of o's or 1's)
-                 Imull newReg newReg (LImm $ (-1)),
-                 Iand newReg newReg (LImm $ 2^8-1),
-                 -- add the extension bits
-                 Ior  rd' newReg (AReg rd')
-                 ]    
+                 Iload W1 rd' (AReg rd')] <>
+               signExtend 8 rd'
         LH  -> [Iadd newReg rs1' off', 
-                 Iload W2 rd' (AReg newReg),
-                 -- get the sign
-                 Ishr newReg rd' (LImm $ 16-1),
-                 -- make an extension mask (a prefix of o's or 1's)
-                 Imull newReg newReg (LImm (-1)),
-                 Iand newReg newReg (LImm $ 2^16-1),
-                 -- add the extension bits
-                 Ior  rd' newReg (AReg rd')]
+                 Iload W2 rd' (AReg newReg)]<>
+               signExtend 16 rd'
         LW  -> [Iadd newReg rs1' off', 
-                 Iload W4 rd' (AReg newReg),
-                 -- get the sign
-                 Ishr newReg rd' (LImm $ 32-1),
-                 -- make an extension mask (a prefix of o's or 1's)
-                 Imull newReg newReg (LImm $ (-1)),
-                 Iand newReg newReg (LImm $ 2^32-1),
-                 -- add the extension bits
-                 Ior  rd' newReg (AReg rd')]
+                 Iload W4 rd' (AReg newReg)] <>
+               signExtend 32 rd'
         -- Unsigned loads
         LBU ->  [Iadd newReg rs1' off',
                   Iload W1 rd' (AReg newReg)] 
@@ -824,8 +813,18 @@ transpileInstr32I instr =
         SH  -> [Iadd newReg rs1' off',
                  Istore W2 (AReg newReg) rd' ] 
         SW  -> [Iadd newReg rs1' off',
-                 Istore W4 (AReg newReg) rd' ] 
-    
+                 Istore W4 (AReg newReg) rd' ]
+        where
+          -- | Sign extend the value in rd
+          signExtend :: Int -> Int -> [MAInstruction Int MWord]
+          signExtend len rd =
+            [-- get the sign
+              Ishr newReg rd (LImm $ SConst $ toEnum $ len - 1),
+              -- make a sign extension mask (a prefix of o's or 1's)
+              Imull newReg newReg (LImm $ 2^64 - 2^len),
+              -- add the sign extension bits
+              Ior  rd newReg (AReg rd)]
+                  
     -- transpileRegBinop32I
     transpileRegBinop32I :: Binop32 -> Reg -> Reg -> Reg -> [MAInstruction Int MWord]
     transpileRegBinop32I binop reg1 reg2 reg3 =
