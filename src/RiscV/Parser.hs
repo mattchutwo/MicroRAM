@@ -184,10 +184,10 @@ riscvParser rvFileName rvFile = catMaybes <$> mapM parseEnumLine (zip [0..] (lin
 
 riscvLnParser :: Stream s Identity Char
               => Parsec s u (Maybe LineOfRiscV)
-riscvLnParser = (try labelLnParse
-                <|> try drctvLnParse
-                <|> try instrLnParse
-                <|> try emptyLnParse 
+riscvLnParser = (try instrLnParse
+                -- <|> try labelLnParse
+                -- <|> try drctvLnParse
+                -- <|> try emptyLnParse 
                 <?> "Line of RiscV Assembly") <* eof
   where
     emptyLnParse,instrLnParse,labelLnParse :: Stream s Identity Char
@@ -195,7 +195,7 @@ riscvLnParser = (try labelLnParse
       -- Empty line, possibly with comments and or spaces/tabs, etc.  
     emptyLnParse = whiteSpace >> eof *> return Nothing
   
-    drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> directiveParse)
+    -- drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> directiveParse)
     instrLnParse   = Just . Instruction <$> (tabParse *> instrParser)
     labelLnParse   = Just . LabelLn       <$> identifier <* lexchar ':'
 
@@ -560,10 +560,10 @@ parsePseudo = choiceTry
       , "bgtu"   ==> BranchPI BGTU <*> regParser <:> regParser <:> offsetParser
       , "bleu"   ==> BranchPI BLEU <*> regParser <:> regParser <:> offsetParser
       --  Alternative Jumps
-      , "j"      ==> JmpImmPI JPseudo     <*> immediateParser
-      , "jal"    ==> JmpImmPI JLinkPseudo <*> immediateParser
       , "jr"     ==> JmpRegPI JPseudo     <*> regParser
       , "jalr"   ==> JmpRegPI JLinkPseudo <*> regParser
+      , "jal"    ==> JmpImmPI JLinkPseudo <*> immediateParser
+      , "j"      ==> JmpImmPI JPseudo     <*> immediateParser
       ]
 
 
