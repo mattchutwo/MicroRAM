@@ -155,7 +155,7 @@ riscvParser :: String -> String -> Hopefully [LineOfRiscV]
 riscvParser rvFileName rvFile = catMaybes <$> mapM parseEnumLine (zip [0..] (lines rvFile))
   where parseEnumLine :: (Int, String) -> Hopefully (Maybe LineOfRiscV)
         parseEnumLine (lnNum, line) =
-          tag ("Parse erro at line "<> show lnNum) $
+          tag ("Parse error at line " <> show lnNum <> "\n LINE: " <>show line<>" \n") $
           parseToComplError $ parse riscvLnParser rvFileName line
         
         parseToComplError :: Show x => Either x a -> Hopefully a
@@ -345,6 +345,8 @@ immediateParser = Expr.buildExpressionParser operands immTerm <?> "an immediate"
     mods = [
       ("hi", ModHi)
       , ("lo", ModLo)
+      , ("pcrel_hi", ModPcrel_hi)
+      , ("pcrel_lo", ModPcrel_lo)
       ]
            
     infix_ :: Stream st Identity Char
