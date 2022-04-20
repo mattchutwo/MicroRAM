@@ -210,7 +210,6 @@ saveObject :: Statefully ()
 saveObject = do
   st <- get
   nameCurObj <- use curObjectTP
-  trace ("Saving mem object: " <> nameCurObj) $ return ()
   -- Get the current obejct
   curObj <- use $ curObjectContentTP
   case curObj of
@@ -236,7 +235,6 @@ saveObject = do
         -- add it to the list of globals
         genvTP %= (:) gvar
         gvlen <- length <$> use genvTP 
-        trace ("The size of the genv is:" <> (show $ gvlen) ) $ return () 
         -- Clear current obje
         curObjectContentTP .= Nothing
   -- where packInWords :: [(MemWidth, LazyConst MWord)] -> [LazyConst wrdT]
