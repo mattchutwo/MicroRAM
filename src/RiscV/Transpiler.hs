@@ -521,9 +521,9 @@ transpileInstr64M    instr =
   where restrictedOperation rd rs1 rs2 op =
           let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in
             [ -- Restrict input 1 to 32b
-              Ior rs1' rs1' (LImm $ 2^32 - 1),
+              Iand rs1' rs1' (LImm $ 2^32 - 1),
               -- Restrict input 2 to 32b
-              Ior rs2' rs2' (LImm $ 2^32 - 1),
+              Iand rs2' rs2' (LImm $ 2^32 - 1),
               -- do the operation
               op rd' rs1' (AReg rs2')
             ] <> restrictAndSignExtendResult rd'
