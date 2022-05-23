@@ -443,8 +443,8 @@ tpImm imm = case imm of
         ModHi              -> w .&. (2^32-2^12)
         --  pcrel_lo and pcrel_hi are computed just like lo and hi,
         --  but are relative to the current pc.
-        ModPcrel_lo        -> w .&. (2^12-1)
-        ModPcrel_hi        -> w .&. (2^32-2^12)
+        ModPcrel_lo        -> error "pcrel_lo"
+        ModPcrel_hi        -> error "pcrel_hi"
         ModGot_pcrel_hi    -> error "ModGot_pcrel_hi   "
         ModTprel_add       -> error "ModTprel_add      "
         ModTprel_lo        -> error "ModTprel_lo       "
