@@ -290,10 +290,25 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
 
 riscvTests = ManyTests "RISC-V backend correctness tests" $ OneTest <$>
   defaultTest {
+  testName = "Compute 42"
+  ,fileName = "test/Programs/RISCV/compute42.s"
+  ,testLen = 100
+  ,testResult = 42} :
+  defaultTest {
   testName = "Fibonacci"
   ,fileName = "test/Programs/RISCV/fib.s"
   ,testLen = 500
   ,testResult = 55} :
+  defaultTest {
+  testName = "Square"
+  ,fileName = "test/Programs/RISCV/square.s"
+  ,testLen = 500
+  ,testResult = 64} : 
+  defaultTest {
+  testName = "Function Pointer"
+  ,fileName = "test/Programs/RISCV/funcPointer.s"
+  ,testLen = 200
+  ,testResult = 5} : 
   []
 
 ------------------

@@ -195,7 +195,7 @@ riscvLnParser = (try instrLnParse
       -- Empty line, possibly with comments and or spaces/tabs, etc.  
     emptyLnParse = whiteSpace >> eof *> return Nothing
   
-    -- drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> directiveParse)
+    drctvLnParse   = Just . Directive   <$> (tabParse *> char '.' *> directiveParse)
     instrLnParse   = Just . Instruction <$> (tabParse *> instrParser)
     labelLnParse   = Just . LabelLn       <$> identifier <* lexchar ':'
 

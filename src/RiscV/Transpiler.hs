@@ -548,7 +548,14 @@ transpileInstrPseudo :: PseudoInstr -> Statefully (Seq (MAInstruction Int MWord)
 transpileInstrPseudo instr =
   Seq.fromList <$>
   case instr of 
-    RetPI -> return [Ijmp . AReg $ tpReg X1]
+    RetPI -> do
+      -- Return from main, is special
+      function <- use currFunctionTP
+      if function == "main" then
+        -- Answers the value in a0 (i.e. X10)
+        return [Ianswer . AReg $ tpReg X10]
+        else 
+        return [Ijmp . AReg $ tpReg X1]
     CallPI Nothing off -> do
       off' <- tpAddress off
       -- MicroRam has no restriction on the size of offsets,
