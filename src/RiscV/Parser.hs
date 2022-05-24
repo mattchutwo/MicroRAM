@@ -185,9 +185,9 @@ riscvParser rvFileName rvFile = catMaybes <$> mapM parseEnumLine (zip [0..] (lin
 riscvLnParser :: Stream s Identity Char
               => Parsec s u (Maybe LineOfRiscV)
 riscvLnParser = (try instrLnParse
-                -- <|> try labelLnParse
-                -- <|> try drctvLnParse
-                -- <|> try emptyLnParse 
+                <|> try labelLnParse
+                <|> try drctvLnParse
+                <|> try emptyLnParse 
                 <?> "Line of RiscV Assembly") <* eof
   where
     emptyLnParse,instrLnParse,labelLnParse :: Stream s Identity Char
