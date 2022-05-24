@@ -102,7 +102,8 @@ main = do
         riscCompiler trLength fr = do
           giveInfo fr "Running the RiscV compiler backend..."
           riscCode <- readFile $ fileIn fr
-          handleErrorWith (riscBackend (fileIn fr) riscCode trLength)
+          handleErrorWith (riscBackend (verbose fr)
+                             (fileIn fr) riscCode trLength)
           
 
         saveMramProgram :: Show a => FlagRecord -> a -> IO ()

@@ -172,13 +172,13 @@ getName st = do
                              return $ nameRet
   return nameRet
 
-transpiler :: [LineOfRiscV] -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord))
-transpiler rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initStateTP
+transpiler :: Bool -> [LineOfRiscV] -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord))
+transpiler verb rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initStateTP
   where 
     transpilerLine :: LineOfRiscV -> Statefully ()
     transpilerLine (LabelLn lbl) =
       ifM (use $ currSectionTP . flag_exec) (codeLbl lbl) (memLbl lbl) 
-    transpilerLine (Directive dir) =     transpileDir dir
+    transpilerLine (Directive dir) =     transpileDir verb dir
     transpilerLine (Instruction instr) = transpileInstr instr
 
     codeLbl,memLbl :: String -> Statefully ()
@@ -249,27 +249,27 @@ saveObject = do
           
           
 
-transpileDir :: Directive -> Statefully ()
-transpileDir dir =
+transpileDir :: Bool -> Directive -> Statefully ()
+transpileDir verb dir =
   case dir of
     -- Ignored 
-    ALIGN _         -> ignoreDire -- We are ignoring alignment
-    P2ALIGN _a _v _m-> ignoreDire -- We are ignoring alignment
-    BALIGN _ _      -> ignoreDire -- We are ignoring alignment
-    FILE _          -> ignoreDire
-    IDENT _         -> ignoreDire  -- just places tags in object files
-    ADDRSIG         -> ignoreDire -- We ignore address-significance 
-    ADDRSIG_SYM _nm -> ignoreDire -- We ignore address-significance 
-    CFIDirectives _ -> ignoreDire -- ignore control-flow integrity
+    ALIGN _         -> ignoreDire "ALIGN _         " -- We are ignoring alignment
+    P2ALIGN _a _v _m-> ignoreDire "P2ALIGN _a _v _m" -- We are ignoring alignment
+    BALIGN _ _      -> ignoreDire "BALIGN _ _      " -- We are ignoring alignment
+    FILE _          -> ignoreDire "FILE _          " 
+    IDENT _         -> ignoreDire "IDENT _         "  -- just places tags in object files
+    ADDRSIG         -> ignoreDire "ADDRSIG         " -- We ignore address-significance 
+    ADDRSIG_SYM _nm -> ignoreDire "ADDRSIG_SYM _nm " -- We ignore address-significance 
+    CFIDirectives _ -> ignoreDire "CFIDirectives _ " -- ignore control-flow integrity
     -- Currently unimplemented 
-    Visibility _ _ -> ignoreDire -- TODO: unimplementedDir -- Not in binutils. Remove?
+    Visibility _ _ -> ignoreDire "Visibility _ _" -- TODO: unimplementedDir -- Not in binutils. Remove?
     STRING st      -> emitString st
     ASCIZ  st      -> emitString st -- alias for string
     EQU _st _val   -> unimplementedDir
     OPTION _opt    -> unimplementedDir -- Rarely used
     VARIANT_CC _st -> unimplementedDir -- Not in binutils. Remove?
     SLEB128 _val   -> unimplementedDir -- How do we do this?
-    ULEB128 _val   -> unimplementedDir -- How do we do this?
+    ULEB128 _val   -> ignoreDire "ULEB128 _val" -- Only used for debugging/exceptions 
     MACRO _ _ _    -> unimplementedDir -- No macros.
     ENDM           -> unimplementedDir
     -- Implemented
@@ -285,7 +285,7 @@ transpileDir dir =
     BSS     ->                       setSection "bss"    []          Nothing []
     SECTION nm flags typ flagArgs -> setSection nm       flags typ     flagArgs
     -- ## Attributes (https://sourceware.org/binutils/docs/as/RISC_002dV_002dATTRIBUTE.html)
-    ATTRIBUTE _tag _val -> ignoreDire -- We ignore for now, but it has some alignment infomrations 
+    ATTRIBUTE _tag _val -> ignoreDire "ATTRIBUTE _tag _val" -- We ignore for now, but it has some alignment infomrations 
     -- ## Emit data
     DirEmit typ val  -> mapM_ (emitValue $ emitSize typ) val
     -- This might be slow if there is a very large zero instruction.
@@ -294,7 +294,8 @@ transpileDir dir =
     where
       emitString :: String -> Statefully ()
       emitString st = mapM_ (\char -> emitValue 1 (ImmNumber $ toEnum $ ord char)) st 
-      ignoreDire = return ()
+      ignoreDire name =
+        (if verb then trace ("Ignored directive: " <> name) else id) return ()
       unimplementedDir = implError $ "Directive not yet implemented: " <> show dir
 
       -- | Creates a symbol if it doens't exists and modifies the

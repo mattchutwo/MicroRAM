@@ -847,7 +847,7 @@ _test' n name = do
                   lines code
   let enumLn = zip codeLns [1..]
   let parsedCode = parseToComplError $ catMaybes <$> mapM (parse riscvLnParser "") codeLns
-  let masm = (transpiler <$> parsedCode)
+  let masm = (transpiler False <$> parsedCode)
   let progmm = getProg masm
   let mram = removeLabels False <$> (simplError masm)
   let prog = getProg mram
