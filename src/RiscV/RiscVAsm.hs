@@ -12,7 +12,7 @@ module RiscV.RiscVAsm
   -- ** Offsets
   , Offset
   -- ** Registers
-  , Reg (..)
+  , Reg (..), newReg
 
   
   -- * Assembler Directives
@@ -286,6 +286,9 @@ instance Arbitrary Reg where
      X12, X13, X14, X15, X16, X17, X18, X19, X20, X21, X22,
      X23, X24, X25, X26, X27, X28, X29, X30, X31 ]
 
+-- We need an extra register, to translate RISCV to MRAMAsm
+newReg :: Int
+newReg = 1 + (fromEnum $ (maxBound::Reg)::Int)
 
 {- | Offsets are just a wrapper for `Imm`. However, in RiscV, they are
    used in different contexts and have different sizes. For example,

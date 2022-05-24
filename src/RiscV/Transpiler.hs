@@ -407,9 +407,6 @@ saveSection = do
 tpReg :: Reg -> Int
 tpReg = fromEnum
 
--- We need an extra register, to translate RISCV to MRAMAsm
-newReg :: Int
-newReg = 1 + (fromEnum $ (maxBound::Reg)::Int)
 
 
 -- ## Immediates
