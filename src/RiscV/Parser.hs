@@ -839,27 +839,27 @@ _mapUntilM f ls =
       result <- f x
       if result then _mapUntilM f ls' else return ()
 
-_test' n name = do
-  code <- readFile name -- "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
-  let codeLns = if n>0 then
-                  take n $ lines code
-                else
-                  lines code
-  let enumLn = zip codeLns [1..]
-  let parsedCode = parseToComplError $ catMaybes <$> mapM (parse riscvLnParser "") codeLns
-  let masm = (transpiler False <$> parsedCode)
-  let progmm = getProg masm
-  let mram = removeLabels False <$> (simplError masm)
-  let prog = getProg mram
-  trace ("MASM:\n----\n" <> (show $ pretty <$> progmm)) $ return ()
-  --trace ("MASM:\n----\n") $ return ()
-  when (isLeft masm) $ trace ("Error was " <> (show masm)) return ()
-  trace ("MRAM:\n----\n" <> (show $ prettyAnn <$> prog)) $ return () -- pretty
-  --trace ("MRAM:\n----\n") $ return () -- pretty
-  when (isLeft mram) $ trace ("Error was " <> (show mram)) return ()
-  where isLeft either = case either of
-                          Left _ -> True
-                          Right _ -> False
+-- _test' n name = do
+--   code <- readFile name -- "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
+--   let codeLns = if n>0 then
+--                   take n $ lines code
+--                 else
+--                   lines code
+--   let enumLn = zip codeLns [1..]
+--   let parsedCode = parseToComplError $ catMaybes <$> mapM (parse riscvLnParser "") codeLns
+--   let masm = (transpiler False <$> parsedCode)
+--   let progmm = getProg masm
+--   let mram = removeLabels False <$> (simplError masm)
+--   let prog = getProg mram
+--   trace ("MASM:\n----\n" <> (show $ pretty <$> progmm)) $ return ()
+--   --trace ("MASM:\n----\n") $ return ()
+--   when (isLeft masm) $ trace ("Error was " <> (show masm)) return ()
+--   trace ("MRAM:\n----\n" <> (show $ prettyAnn <$> prog)) $ return () -- pretty
+--   --trace ("MRAM:\n----\n") $ return () -- pretty
+--   when (isLeft mram) $ trace ("Error was " <> (show mram)) return ()
+--   where isLeft either = case either of
+--                           Left _ -> True
+--                           Right _ -> False
   
 parseToComplError :: Show x => Either x a -> Hopefully a
 parseToComplError (Right a) = Right a
