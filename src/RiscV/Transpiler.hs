@@ -131,8 +131,8 @@ data TPState = TPState
 makeLenses ''TPState
 -- makeLenses ''GlobalVariable
 
-initStateTP :: TPState
-initStateTP = TPState
+initStateTP :: Word -> Map.Map String Name -> TPState
+initStateTP firstUnusedName nameMap  = TPState
   { _currSectionTP      = readSection { _secName = "initSection"}
   , _currFunctionTP     = "NoneInitFunction"
   , _currBlockTP        = Nothing 
@@ -146,7 +146,7 @@ initStateTP = TPState
   , _afterFuncCallTP    = False
   , _symbolTableTP      = Map.empty
   , _nameIDTP           = firstUnusedName
-  , _nameMap            = Map.fromList [("main", mainName)]
+  , _nameMap            = Map.insert "main" mainName nameMap
   }
 
   
@@ -172,8 +172,14 @@ getName st = do
                              return $ nameRet
   return nameRet
 
-transpiler :: Bool -> [LineOfRiscV] -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord))
-transpiler verb rvcode = evalStateT (mapM transpilerLine rvcode >> finalizeTP) initStateTP
+transpiler :: Bool
+           -> Word
+           -> Map.Map String Name
+           ->  [LineOfRiscV]
+           -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord))
+transpiler verb firstUnusedName nameMap rvcode =
+  evalStateT (mapM transpilerLine rvcode >> finalizeTP)
+  (initStateTP firstUnusedName nameMap)
   where 
     transpilerLine :: LineOfRiscV -> Statefully ()
     transpilerLine (LabelLn lbl) =

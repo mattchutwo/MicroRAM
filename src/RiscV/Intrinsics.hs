@@ -1,6 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-module RiscV.Intrinsics where -- (transpiler)
+module RiscV.Intrinsics
+  ( addIntrinsicsHigh
+  , addIntrinsicsLow
+  , intrinsicsFstUnusedName
+  , intrinsicsMap
+  ) where -- (transpiler)
 
 import           Control.Monad.Trans.State.Lazy
 import           Data.Map (Map)
@@ -45,14 +50,12 @@ getName st = do
     -- each intrinsic once, but this mimics the behavior of the
     -- transpiler
     case Map.lookup st nmap of 
-               Just name -> trace ("Just found the name "<> show name) $
-                 return name
+               Just name -> return name
                Nothing -> do uniqueID <- use nameIntrID
                              nameIntrID %= (1 +)
                              let nameRet = Name uniqueID $ string2short st
                              nameMap .= Map.insert st nameRet nmap
-                             trace ("Created a new name "<> show nameRet) $
-                               return $ nameRet
+                             return $ nameRet
   return nameRet
 
 
@@ -75,8 +78,13 @@ The strategy for replacing intrinsics is as follows.
 -}
 
 -- shall be wrapped in `justCompile`
-addIntrinsics :: MAProgram Metadata Int MWord -> Hopefully (MAProgram Metadata Int MWord)
-addIntrinsics prog = return $ prog ++ intrinsics
+-- | Adds intrinsics with externals 
+addIntrinsicsHigh :: MAProgram Metadata Int MWord -> Hopefully (MAProgram Metadata Int MWord)
+addIntrinsicsHigh prog = return $ prog ++ intrinsics
+
+-- | Adds intrinsics with lowered externals 
+addIntrinsicsLow :: MAProgram Metadata Int MWord -> Hopefully (MAProgram Metadata Int MWord)
+addIntrinsicsLow prog = return $ prog ++ loweredIntrinsics
 
 intrinsics :: [NamedBlock Metadata Int MWord] -- Also [Intrinsic]
 intrinsics = fst intrinsicsAndMap

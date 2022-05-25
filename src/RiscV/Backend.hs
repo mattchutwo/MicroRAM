@@ -13,6 +13,7 @@ import MicroRAM
 
 import RiscV.Parser
 import RiscV.Transpiler
+import RiscV.Intrinsics
 
 riscBackend :: Bool   -- ^ verbose
             -> String -- ^ program name
@@ -22,9 +23,16 @@ riscBackend :: Bool   -- ^ verbose
 riscBackend verb progName code trLen = do
   -- Parse the RiscV code
   parsedRisc <- riscvParser progName code
+  -- build intrinsics and get their name mapping
+  let firstUnusedName = intrinsicsFstUnusedName
+  let nameMap = intrinsicsMap
   -- Transpile to MicroAssembly
-  masm <- transpiler verb parsedRisc
+  masm <- transpiler verb firstUnusedName nameMap parsedRisc
+  -- add intrinsics
+  masmHigh <- justCompile addIntrinsicsHigh masm
+  masmLow  <- justCompile addIntrinsicsLow masm
   -- Compile to MicroRAM
-  mram <- removeLabels False masm
-  return $ mram { traceLen = trLen, programCU = MultiProg (programCU mram) (programCU mram) }
+  mramHigh <- removeLabels False masmHigh
+  mramLow <- removeLabels False masmLow
+  return $ mramLow { traceLen = trLen, programCU = MultiProg (programCU mramHigh) (programCU mramLow) }
   
