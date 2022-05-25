@@ -69,11 +69,24 @@ __cc_read_unchecked
 __cc_write_and_poison
 __cc_write_unchecked
 
-The strategy for replacing intrinsics is as follows. 
+The strategy for replacing intrinsics is as follows.
 
 1. Intrinsics will remain function calls.
-2. The functions will only use caller saved registers to avoid saving registers `x1,x5–7, x10–17, x28–31`
-3. There shall be two versions with and without externals and thsi will produce the two programs.
+
+2. As long as possible, the functions will only use caller saved
+   registers to avoid saving registers x1,x5–7, x10–17, x28–31. All
+   intrinsics we have so far use fewer than 16 registers.
+
+3. There shall be two versions of each function with and without
+   externals and this will produce the two programs. The second
+   version produced by feeding the intrinsic through a filter that
+   removes the externals.  The register names will be passed to the
+   transpiler, so that calls to intrinsics will get the right name and
+   ID.
+
+4. Then all the intrinsics will be added in a new executable section
+   for intrinsics. In MicroRAM terms this is equivalent to sticking
+   them at the end of the program.
 
 -}
 
@@ -107,7 +120,7 @@ intrinsicsFstUnusedName = _nameIntrID $ snd  intrinsicsAndMap
 intrinsicsAndMap
   :: ([NamedBlock Metadata Int MWord], StateIntrNames)
 intrinsicsAndMap = flip runState initState $
-  sequence [ cc_noop
+  sequence $ [ cc_noop
            , cc_malloc
            , cc_access_valid
            , cc_access_invalid
@@ -117,7 +130,7 @@ intrinsicsAndMap = flip runState initState $
            , cc_write_unchecked
            , cc_flag_invalid
            , cc_flag_bug
-           , cc_trace]
+           , cc_trace] ++ exceptions
 
 
 
@@ -275,3 +288,15 @@ cc_trace =
 -- cc_trace_exec :: Intrinsic
 -- cc_trace_exec (name : args) Nothing md _ =
 --   buildIntrinsic "__" [Iext (XTraceExec name args)]
+
+-- # Exceptions
+exceptions = [cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_pure_virtual, cxa_throw, gxx_personality_v0]
+
+cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_pure_virtual, cxa_throw, gxx_personality_v0 :: Intrinsic
+
+cxa_allocate_exception= buildIntrinsic "__cxa_allocate_exception" $ cc_trap "__cxa_allocate_exception"
+cxa_begin_catch       = buildIntrinsic "__cxa_begin_catch" $ cc_trap "__cxa_begin_catch"
+cxa_end_catch         = buildIntrinsic "__cxa_end_catch" $ cc_trap "__cxa_end_catch"
+cxa_pure_virtual      = buildIntrinsic "__cxa_pure_virtual" $ cc_trap "__cxa_pure_virtual"
+cxa_throw             = buildIntrinsic "__cxa_throw" $ cc_trap "__cxa_throw"
+gxx_personality_v0    = buildIntrinsic "__gxx_personality_v0" $ cc_trap "__gxx_personality_v0"
