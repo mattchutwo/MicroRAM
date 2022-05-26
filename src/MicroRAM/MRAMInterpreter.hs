@@ -367,7 +367,7 @@ markInvalid start end valid =
 
 -- | Check the allocation status of `addr`, and record a memory error if it
 -- isn't valid.
-checkAccess :: Regs r => Bool -> Lens' s AllocState -> MWord -> InterpM' r v s Hopefully ()
+checkAccess :: (Concretizable v, Regs r) => Bool -> Lens' s AllocState -> MWord -> InterpM' r v s Hopefully ()
 checkAccess verbose allocState addr = do
   validMap <- use $ sExt . allocState . asValid
   let valid = case Map.lookupLE addr validMap of
@@ -376,7 +376,8 @@ checkAccess verbose allocState addr = do
   when (not valid) $ do
     -- TODO: update `asValid` to keep track of why a given region is invalid,
     -- so we can produce a more precise message and MemErrorKind
-    when verbose $ traceM $ "detected bad access at " ++ showHex addr
+    cycle <- conGetValue <$> (use $ sMach . mCycle)
+    when verbose $ traceM $ "Cycle: "++ show cycle ++". Detected bad access at " ++ showHex addr
     sExt . allocState . asMemErrors  %= (Seq.|> (OutOfBounds, addr))
 
 allocHandler :: forall v r s. (Concretizable v, Regs r) => Bool -> Lens' s AllocState -> InstrHandler' r v s -> InstrHandler' r v s
