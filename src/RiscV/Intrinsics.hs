@@ -130,12 +130,12 @@ intrinsicsAndMap = flip runState initState $
            , cc_write_unchecked
            , cc_flag_invalid
            , cc_flag_bug
-           , cc_trace] ++ exceptions
+           , cc_trace] ++ exceptions ++ otherTraps
 
 
 
 {- | # Intrinsiscs: Implementation
-   All intrinsics foollow the following strict rules:
+   All intrinsics follow the following strict rules:
 
    1. All functions end in a function return (`Ijmp 1`). In
    particular, all intrinsics are non-empty.
@@ -202,7 +202,7 @@ buildIntrinsic :: String -> [MAInstruction Int MWord] -> Intrinsic
 buildIntrinsic name instrs = do
   nameID <- getName name
   let md = intrinsicMetadata nameID
-  let instrs_md = putTheMetadata md instrs
+  let instrs_md = putTheMetadata md (instrs ++ [Ijmp $ AReg 1])
   return $ NBlock (Just nameID) instrs_md
 
 ret :: MAInstruction Int MWord
@@ -294,9 +294,23 @@ exceptions = [cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_pure_v
 
 cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_pure_virtual, cxa_throw, gxx_personality_v0 :: Intrinsic
 
-cxa_allocate_exception= buildIntrinsic "__cxa_allocate_exception" $ cc_trap "__cxa_allocate_exception"
-cxa_begin_catch       = buildIntrinsic "__cxa_begin_catch" $ cc_trap "__cxa_begin_catch"
-cxa_end_catch         = buildIntrinsic "__cxa_end_catch" $ cc_trap "__cxa_end_catch"
-cxa_pure_virtual      = buildIntrinsic "__cxa_pure_virtual" $ cc_trap "__cxa_pure_virtual"
-cxa_throw             = buildIntrinsic "__cxa_throw" $ cc_trap "__cxa_throw"
-gxx_personality_v0    = buildIntrinsic "__gxx_personality_v0" $ cc_trap "__gxx_personality_v0"
+cxa_allocate_exception = buildIntrinsic "__cxa_allocate_exception" $ cc_trap "__cxa_allocate_exception"
+cxa_begin_catch        = buildIntrinsic "__cxa_begin_catch" $ cc_trap "__cxa_begin_catch"
+cxa_end_catch          = buildIntrinsic "__cxa_end_catch" $ cc_trap "__cxa_end_catch"
+cxa_pure_virtual       = buildIntrinsic "__cxa_pure_virtual" $ cc_trap "__cxa_pure_virtual"
+cxa_throw              = buildIntrinsic "__cxa_throw" $ cc_trap "__cxa_throw"
+gxx_personality_v0     = buildIntrinsic "__gxx_personality_v0" $ cc_trap "__gxx_personality_v0"
+
+
+
+--  #Other traps
+-- These functions show up on Grit and shouldn't be called.
+-- However we should have a better pipeline to remove them automatically.
+otherTraps = [iob, unwind_Resume, zTIPKc, memcpy, pos]
+
+iob, unwind_Resume, zTIPKc, memcpy, pos :: Intrinsic
+iob           = buildIntrinsic "__iob" $ cc_trap "iob"
+unwind_Resume = buildIntrinsic "_Unwind_Resume" $ cc_trap "Unwind_Resume"
+zTIPKc        = buildIntrinsic "_ZTIPKc" $ cc_trap "ZTIPKc"
+memcpy        = buildIntrinsic "memcpy" $ cc_trap "memcpy"
+pos           = buildIntrinsic "pos" $ cc_trap "pos"
