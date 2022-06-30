@@ -4,9 +4,9 @@
 module RiscV.Transpiler where -- (transpiler)
 
 import Control.Monad.State
-import Data.Default (def)
 import           Data.Sequence (Seq(..))
 import qualified Data.Sequence as Seq
+import Data.Text (unpack, pack)
 import Data.Maybe (listToMaybe, mapMaybe, fromMaybe, isJust)
 import Data.Foldable (toList)
 import Data.List (foldl')
@@ -14,7 +14,7 @@ import Data.List (foldl')
 import Compiler.IRs
 import Compiler.Metadata
 import Compiler.Errors
-import MicroRAM (MWord, Instruction'(..), MemWidth(..))
+import MicroRAM
 import Compiler.Common
 import Compiler.Registers (RegisterData( NumRegisters ))
 -- import Compiler.Analysis (AnalysisData)
@@ -22,7 +22,7 @@ import Compiler.CompilationUnit
 import Compiler.IRs(lazyPc, hereLabel)
 import Compiler.LazyConstants
 import Compiler.Analysis (AnalysisData(..))
-import Compiler.Registers
+-- import Compiler.Registers
 
 import qualified Data.List as List (partition)
 import qualified Data.Map as Map
@@ -413,6 +413,15 @@ saveSection = do
 tpReg :: Reg -> Int
 tpReg = fromEnum
 
+-- Register shorcuts
+-- NOTE these don't match the predefined shortcuts in Compiler/Registers.hs
+-- Those are for MicroRAM only.
+tp,gp,sp,ra,zero :: Int
+tp   = fromEnum  X4 -- thread pointer
+gp   = fromEnum  X3 -- global pointer
+sp   = fromEnum  X2 -- stack pointer
+ra   = fromEnum  X1 -- return address
+zero = fromEnum  X0 -- hardwired zero
 
 
 -- ## Immediates
