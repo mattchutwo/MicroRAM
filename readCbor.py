@@ -4,8 +4,14 @@ from pprint import pprint
 import sys
 
 if len(sys.argv) <= 1:
+    # default arguments
     file = 'Output/out_test.cbor'
+elif len(sys.argv) >= 3:
+    # running in python shell
+    print ("Running from python shell or too many arguemnts provided.")
+    file = 'grit.outd'
 else:
+    # called from shell
     file, = sys.argv[1:]
 
 allCBOR = cbor.load(open(file, 'rb'))
@@ -43,14 +49,14 @@ def public_segs():
 
 def seg_len(seg):
     return seg[1]
-
+ 
 public_segs_cons = public_segs()
 
-print(len(segs), 'segments. ', public_segs_cons, " of them public")
+print(len(segs), 'segments. ', public_segs_cons, " of them public", len(segs)-public_segs_cons, "of them private")
 
 
-
-##print('segment', segs_used)
+ 
+##print('segment', segs_used) 
 print(len(trace), 'chunks in trace')
 
 ## Compute number of private segments USED.
@@ -128,6 +134,19 @@ def simpl_trace():
             print (l)
         print("")
 
+# Stops every steps and waits for command
+def simpl_trace_steps(n=15):
+    i = 0
+    for chnk in trace:
+        print ("Segment ", chnk[0], " :     // Has", len(chnk[1]))
+        for l in chnk[1]:
+            print (l)
+            i = i + 1
+            if i%n == 0:
+                input("Waiting...")
+        print("")
+
+        
 def countNetwork():
     countTo = 0
     countFrom = 0
