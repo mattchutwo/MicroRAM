@@ -502,6 +502,9 @@ transpileInstr instr = do
               InstrPseudo pseudoInstr -> transpileInstrPseudo pseudoInstr
               InstrAlias aliasInstr   -> return $ transpileInstralias aliasInstr
   instrMD <- traverse addMetadata instrs
+  -- TODO remove writes to zero
+  -- TODO2: simplify reads from 0
+  -- TODO3: replace newReg (X32) with zero (X0)
   currBlockContentTP %= flip mappend instrMD -- Instructions are added at the end.
     where
       addMetadata :: MAInstruction Int MWord
@@ -573,20 +576,29 @@ transpileInstrPseudo instr =
       off' <- tpAddress off
       -- MicroRam has no restriction on the size of offsets,
       -- So there is no need to use `auipc`
-      return [Imov (tpReg X1) (pcPlus 2),
+      return [
+        -- for debugging
+        Iext (XTrace (pack $ "CALL: " <> show off) []),
+        Imov (tpReg X1) (pcPlus 2),
        Ijmp $ off']
     CallPI (Just rd) off -> do
       off' <- tpAddress off
       -- MicroRam has no restriction on the size of offsets,
       -- So there is no need to use `auipc`
-      return [Imov (tpReg rd) (pcPlus 2),
-              Ijmp $ off']
+      return [
+        -- for debugging
+        Iext (XTrace (pack $  "CALL: " <> show off) []),
+        Imov (tpReg rd) (pcPlus 2),
+        Ijmp $ off']
     TailPI off -> do
       off' <- tpAddress off
       -- From the RiscV Manual, tail calls are just a call that uses
       -- the X6 register (page 140 table 25.3)
-      return [Imov (tpReg X1) (pcPlus 2),
-       Ijmp $ off']
+      return [
+        -- for debugging
+        Iext (XTrace (pack $  "CALL: " <> show off) []),
+        Imov (tpReg X1) (pcPlus 2),
+        Ijmp $ off']
     FencePI -> return []
     LiPI rd imm-> do
       (rd',imm') <- tpRegImm rd imm
@@ -945,13 +957,21 @@ finalizeTP = do
     intermediateInfo = genv } 
   where premainCode =
           -- bp is a caller saved reg that keeps the return address.
-          [(Imov bp (pcPlus 2), md),
+          -- although we use a special case for returns from main. 
+          [(Imov ra (pcPlus 2), md),
+           -- poison 0
+           (IpoisonW (LImm 0) 0, md),
+           -- Set the top of the stack.
+           (Imov sp (LImm initAddr), md),
            -- Call main
            (Ijmp $ Label mainName, md {mdIsCall = True}),
            -- When main returns, answer (risk stores answer in a0==X10)
            (Ianswer (AReg $ tpReg X10),md {mdIsReturn = True})]
 
         md = trivialMetadata premainName defaultName
+        -- Start stack at 2^32.
+        initAddr = 1 `shiftL` 32
+
 
 -- Finalize current block and commit it
 -- i.e. add it to the list.
