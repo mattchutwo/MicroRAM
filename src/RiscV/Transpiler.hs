@@ -618,7 +618,17 @@ transpileInstrPseudo instr =
         [computeCondition cond newReg r2', 
          Icmov r1' newReg (AReg r2')] 
     BranchZPI bsp rd off -> pseudoBranch bsp rd off  -- BranchZPseudo Reg Offset
-    BranchPI  _ _ _ _-> error "BranchPI" -- BranchPseudo Reg Reg Offset
+    BranchPI branchPI r1 r2 offset ->
+      -- From the RISC-V Instruction Set Manual:
+      -- "Note, BGT, BGTU, BLE, and BLEU can be synthesized by
+      -- reversing the operands to BLT, BLTU, BGE, and BGEU,
+      -- respectively."
+      transpileBranch32 (case branchPI of
+                            BGT  -> BLT
+                            BLE  -> BGE
+                            BGTU -> BLTU 
+                            BLEU -> BGEU
+                        )  r2 r1 offset
     JmpImmPI  JPseudo off -> do
       off' <- tpImm off
       return [Ijmp . LImm $ off']
@@ -799,11 +809,8 @@ transpileInstr32I instr =
       return [Iadd newReg rs1' (LImm off'), -- this instruction must go first, in case rd=rs1
               Imov rd' (pcPlus 2), -- or is it 8? 
               Ijmp $ AReg newReg] -- Is our instruction numbering compatible?
-    BranchInstr cond src1 src2 off -> do
-      (src1',src2',off') <- tpRegRegImm src1 src2 off
-      let (computCond, negate) = condition cond src1' src2'
-      return $ computCond : [(if negate then Icnjmp newReg else Icjmp newReg) 
-                             $ LImm off']
+    BranchInstr cond src1 src2 off ->
+      transpileBranch32 cond src1 src2 off
     MemInstr32 memOp32 reg1 off reg2  -> memOp32Instr memOp32 reg1 off reg2 
     LUI reg imm -> do
       (reg',imm') <- tpRegImm reg imm 
@@ -911,7 +918,18 @@ transpileInstr32I instr =
     -- with zeros. (We don't cehck the immediate for overflow,
     -- but it could technically be larger than 20bits)
     luiFunc :: MWord -> MWord
-    luiFunc w = shiftL w 12 
+    luiFunc w = shiftL w 12
+    
+transpileBranch32
+  :: BranchCond
+  -> Reg -> Reg -> Imm
+  -> StateT TPState Hopefully [Instruction' Int Int (MAOperand Int MWord)]
+transpileBranch32 cond src1 src2 off = do
+  (src1',src2',off') <- tpRegRegImm src1 src2 off
+  let (computCond, neg) = condition cond src1' src2'
+  return $ computCond : [(if neg then Icnjmp newReg else Icjmp newReg) 
+                          $ LImm off']
+    where
     -- Returns an instruction that computes the condition and
     -- a boolean describing if the result should be negated.
     -- (MRAM doens't have BNE, but has `Icnjmp` to negate `Icmpe`).
@@ -922,8 +940,7 @@ transpileInstr32I instr =
             BLT -> (Icmpge newReg r1 (AReg r2), True)
             BGE -> (Icmpge newReg r1 (AReg r2), False)
             BLTU-> (Icmpae newReg r1 (AReg r2), True)
-            BGEU-> (Icmpae newReg r1 (AReg r2), False)                      
-
+            BGEU-> (Icmpae newReg r1 (AReg r2), False)
               
       
       
