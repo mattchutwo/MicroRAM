@@ -306,7 +306,7 @@ gxx_personality_v0     = buildIntrinsic "__gxx_personality_v0" $ cc_trap "__gxx_
 --  #Other traps
 -- These functions show up on Grit and shouldn't be called.
 -- However we should have a better pipeline to remove them automatically.
-otherTraps = [iob, unwind_Resume, zTIPKc, memcpy, pos]
+otherTraps = [iob, unwind_Resume, zTIPKc, pos]
 
 iob, unwind_Resume, zTIPKc, memcpy, pos :: Intrinsic
 iob           = buildIntrinsic "__iob" $ cc_trap "iob"
