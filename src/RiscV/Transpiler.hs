@@ -789,12 +789,12 @@ transpileInstr64I    instr =
       return $ case mop of
         -- unsigned load
         LWU -> [Iadd newReg rs1' off',
-                 Iload W1 rd' (AReg newReg)]
+                 Iload W4 rd' (AReg newReg)]
         -- double mems
         LD  -> [Iadd newReg rs1' off',
-                 Iload W1 rd' (AReg newReg)]
+                 Iload W8 rd' (AReg newReg)]
         SD  -> [Iadd newReg rs1' off', 
-                     Istore W1 (AReg newReg) rd' ]
+                 Istore W8 (AReg newReg) rd' ]
       
 transpileInstr32I :: InstrRV32I -> Statefully (Seq (MAInstruction Int MWord)) 
 transpileInstr32I instr =
