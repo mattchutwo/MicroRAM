@@ -9,7 +9,8 @@ if len(sys.argv) <= 1:
 elif len(sys.argv) >= 3:
     # running in python shell
     print ("Running from python shell or too many arguemnts provided.")
-    file = 'grit.outd'
+    #file = 'grit.outd'
+    file = 'grit-nopub.out'
 else:
     # called from shell
     file, = sys.argv[1:]
@@ -58,6 +59,7 @@ print(len(segs), 'segments. ', public_segs_cons, " of them public", len(segs)-pu
  
 ##print('segment', segs_used) 
 print(len(trace), 'chunks in trace')
+
 
 ## Compute number of private segments USED.
 maxused = max(segs_used)
@@ -140,7 +142,7 @@ def simpl_trace_steps(n=15):
     for chnk in trace:
         print ("Segment ", chnk[0], " :     // Has", len(chnk[1]))
         for l in chnk[1]:
-            print (l)
+            print (i+1,l)
             i = i + 1
             if i%n == 0:
                 input("Waiting...")
@@ -243,4 +245,33 @@ def publicPcStats():
         label = label_map_rev.get(pc, str(pc))
         print('  %s: %d cycles' % (label, cost))
 
-publicPcStats()
+if public_segs_cons>0:
+    publicPcStats()
+
+def pc_summary():
+    '''
+    Produces a summary of the trace, showing contiguous regions of pc
+    For example 0,1,2,5,6,7 would be summarized into `0-2,5-7`
+    '''
+    summary = []
+    current_start = 0
+    current_start_step = 0 # the trace step where the start was reached
+    last_pc = 0
+    step = 0
+    for chunk in trace:
+        for state in chunk[1]:
+            step = step + 1
+            new_pc = state['pc'] 
+            if new_pc != last_pc + 1:
+                summary = [(current_start_step,current_start, last_pc)] + summary
+                current_start = new_pc
+                current_start_step = step 
+            last_pc = new_pc
+    summary = [(current_start_step,current_start, -1)] + summary #-1 signals end
+    summary.reverse()
+
+    # Pretty print
+    for (step,start,end) in summary:
+        if end == -1:
+            end = ''
+        print(step," : ", start,"-",end)
