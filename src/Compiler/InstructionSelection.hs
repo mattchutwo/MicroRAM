@@ -1227,7 +1227,7 @@ nameOfGlobals defs = Set.fromList $ concat $ map nameOfGlobal defs
           
 isGlobVar :: Env -> LLVM.Global -> Statefully $ GlobalVariable MWord
 isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align _) = do
-  typ' <- lift $ type2type (llvmtTypeEnv env) typ
+  _typ' <- lift $ type2type (llvmtTypeEnv env) typ
   byteSize <- return $ sizeOf (llvmtTypeEnv env) typ
   init' <- flatInit env init
   lift $ case init' of
@@ -1245,7 +1245,7 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
   -- alignment here to avoid the problem.
   let align' = max 1 $ (fromIntegral align + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
   name' <- globalName name
-  return $ GlobalVariable name' const typ' init' size' align'
+  return $ GlobalVariable name' [] const init' size' align'
     (sectionIsSecret sectn) (sectionIsHeapInit sectn)
   where flatInit :: Env ->
                     Maybe LLVM.Constant.Constant ->
