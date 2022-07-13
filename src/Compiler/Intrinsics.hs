@@ -135,6 +135,11 @@ cc_flag_bug [] Nothing md _ =
   where zero = LImm $ SConst 0
 cc_flag_bug _ _ _ _ = progError "bad arguments"
 
+cc_answer :: IntrinsicImpl m MWord
+cc_answer [val] Nothing md _ =
+  return [MirM (Ianswer val) md]
+cc_answer _ _ _ _ = progError "bad arguments"
+
 noniSetLabel :: MemWidth -> IntrinsicImpl m MWord
 noniSetLabel wd [ptr, label] Nothing md _ = do
   r <- getNextRegister
@@ -185,6 +190,7 @@ intrinsicsList =
   [ ("@__cc_test_add", cc_test_add)
   , ("@__cc_flag_invalid", cc_flag_invalid)
   , ("@__cc_flag_bug", cc_flag_bug)
+  , ("@__cc_answer", cc_answer)
 
   , ("@__cc_malloc", cc_malloc)
   , ("@__cc_access_valid", cc_access_valid)

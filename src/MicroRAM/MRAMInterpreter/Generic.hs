@@ -40,7 +40,6 @@ class (Show v, Show (Memory v)) => AbsDomain v where
   absSMul :: v -> v -> (v, v)
   absDiv :: v -> v -> v
   absMod :: v -> v -> v
-  absNeg :: v -> v
 
   -- Bitwise operations
   absAnd :: v -> v -> v
@@ -73,6 +72,9 @@ class (Show v, Show (Memory v)) => AbsDomain v where
   
   absSink  :: MemWidth -> v -> v -> Hopefully Bool
   absSink _ _ _ = return False
+
+  absValidJump :: v -> v -> Hopefully ()
+  absValidJump _ _ = return ()
 
   absGetPoison :: MemWidth -> v -> Memory v -> Hopefully Bool
   absGetValue :: v -> Hopefully MWord
@@ -233,8 +235,11 @@ stepMove rd cond op2 = do
 stepJump :: (Regs r, AbsDomain v) =>
   Operand r MWord -> Bool -> Operand r MWord -> InterpM' r v s Hopefully ()
 stepJump cond pos op2 = do
-  y <- opVal op2 >>= doGetValue
-  cond' <- opVal cond >>= doGetValue
+  y' <- opVal op2
+  aCond' <- opVal cond
+  liftWrap $ absValidJump aCond' y'
+  y <- doGetValue y'
+  cond' <- doGetValue aCond'
   if pos `xnor` (0 /= cond') then sMach . mPc .= y else nextPc
     where xnor = (==)
 
@@ -288,7 +293,9 @@ stepSink w rj op2 = do
   ls <- regVal rj
   l2 <- opVal op2
   taintBug <- lift $ absSink w ls l2
-  when taintBug $ sMach . mBug .= True
+  when taintBug $ do
+    sMach . mBug .= True
+    -- traceM $ "Sink: Leaked byte!"
   nextPc
 
 stepRead :: (Regs r, AbsDomain v) =>

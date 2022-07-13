@@ -199,11 +199,6 @@ instance AbsDomain AbsValue where
     (VExact a', VExact b') -> VExact $ a' `mod` b'
     _ -> VTop
 
-  absNeg a = case a of
-    VExact a' -> VExact $ negate a'
-    _ -> VTop
-
-
   absAnd a b = case (a, b) of
     (VExact a', VExact b') -> VExact $ a' .&. b'
     _ -> VTop
