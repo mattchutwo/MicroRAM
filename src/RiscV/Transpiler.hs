@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -7,7 +8,7 @@ import Control.Monad.State
 import           Data.Sequence (Seq(..))
 import qualified Data.Sequence as Seq
 import Data.Text (unpack, pack)
-import Data.Maybe (listToMaybe, mapMaybe, fromMaybe, isJust)
+import Data.Maybe (listToMaybe, mapMaybe, fromMaybe, isJust, mapMaybe)
 import Data.Foldable (toList)
 import Data.List (foldl')
 -- import Test.QuickCheck (Arbitrary, arbitrary, oneof)
@@ -55,8 +56,17 @@ data Section = Section
   -- | section type
   , _secType :: Maybe SectionType
   , _secContent :: Seq.Seq LineOfRiscV
+  -- | data
+  , _secData :: [LazyConst MWord]        -- ^ data content in section
+  , _secNextData :: Int                  -- ^ Data is entered by
+                                         -- bytes but stored by
+                                         -- words. This pointer is
+                                         -- the next available
+                                         -- byte-aligned address
+  , _secMaxAlign :: Int                  -- ^ Max alignment of all objects in section 
+  , _secEntryPoints :: Map.Map Name MWord -- ^ Locations of objects by name
   }
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq)
 
 execSection, writeSection, readSection :: Section
 readSection =   Section { _secName = ""
@@ -64,17 +74,35 @@ readSection =   Section { _secName = ""
                         , _flag_write = False
                         , _secType = Nothing
                         , _secContent = Seq.empty
+                        -- data
+                        , _secData = []
+                        , _secNextData = 0
+                        , _secMaxAlign = 1
+                        , _secEntryPoints = mempty
                         }
 writeSection =  readSection { _flag_write = True }
 execSection =   readSection { _flag_exec = True }
 
 flagSection :: String -> [Flag] -> Maybe SectionType ->  Seq.Seq LineOfRiscV -> Section
 flagSection name flags maybeType content = Section { _secName = name
-                                                   , _flag_exec = Flag_e `elem` flags
+                                                   , _flag_exec = Flag_x `elem` flags
                                                    , _flag_write = Flag_w `elem` flags
                                                    , _secType = maybeType
                                                    , _secContent = content
+                                                   -- data
+                                                   , _secData = []
+                                                   , _secNextData = 0
+                                                   , _secMaxAlign = getAlignFlag
+                                                   , _secEntryPoints = mempty
                                            }
+  where
+    getAlignFlag = fromEnum $ maximum $ mapMaybe
+                   (\case
+                       Flag_number n -> Just n
+                       _ -> Nothing
+                   ) flags
+                   
+          
 makeLenses ''Section
 
 
@@ -129,7 +157,6 @@ data TPState = TPState
   } deriving (Show)
 
 makeLenses ''TPState
--- makeLenses ''GlobalVariable
 
 initStateTP :: Word -> Map.Map String Name -> TPState
 initStateTP firstUnusedName nameMap  = TPState
@@ -226,6 +253,7 @@ saveObject = do
         sectionName <- use (currSectionTP . secName)
         readOnly <- not <$> use (currSectionTP . flag_write)
         let gvar = GlobalVariable {globName = gname,
+                                   -- entryPoints = 
                                    isConstant = readOnly,
                                    -- RiscV doesn't have types 
                                    gType = TVoid,
@@ -372,30 +400,19 @@ setSection :: String                     -- ^ Name
           -> (Maybe SectionType)         -- ^ 
           -> [FlagArg]                   -- ^ 
           -> Statefully ()               -- ^
-setSection name flags secTyp flagArgs = do
+setSection name flags secTyp _flagArgs = do
   -- start of a new section closes previous sections. Save ongoing objects and commit blocks
   commitBlock
   saveObject
   -- Save the current section
   saveSection
   -- Create ampty section in case it doesn't exist
-  let initSection = makeInitsection name flags secTyp flagArgs
+  -- Note `FlagArg`s is ignored
+  let initSection = flagSection name flags secTyp mempty
   --
   theSection <- fromMaybe initSection <$> use (sectionsTP . at name)
   currSectionTP .= theSection
 
-  where
-    makeInitsection :: String -> [Flag] -> (Maybe SectionType) -> [FlagArg] -> Section
-    makeInitsection name flag secTyp _flagArgs =
-      Section { _secName = name
-              , _flag_exec = Flag_x `elem` flag -- Must we check that 'e'
-                                             -- is not a flag? What
-                                             -- are excluded sections?
-              , _flag_write = Flag_w `elem` flag
-              , _secType = secTyp
-              , _secContent = Seq.empty
-              }
-  
 -- | Save current section into the sections map.
 saveSection :: Statefully ()
 saveSection = do
@@ -403,8 +420,6 @@ saveSection = do
   let name = (_secName currSec)
   sectionsTP . at name ?= currSec 
   return ()
-
-
 
 
 
