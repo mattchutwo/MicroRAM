@@ -8,7 +8,7 @@ import Control.Monad.State
 import           Data.Sequence (Seq(..))
 import qualified Data.Sequence as Seq
 import Data.Text (unpack, pack)
-import Data.Maybe (listToMaybe, mapMaybe, fromMaybe, isJust, mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe, fromMaybe, isJust)
 import Data.Foldable (toList)
 import Data.List (foldl')
 -- import Test.QuickCheck (Arbitrary, arbitrary, oneof)
@@ -34,7 +34,7 @@ import Debug.Trace (trace)
 
 import RiscV.RiscVAsm
 
-import Control.Lens (makeLenses, ix, at, to, (^.), (.=), (%=), (?=), _Just, use, over, Lens')
+import Control.Lens (Lens, lens, makeLenses, ix, at, to, (^.), (.=), (%=), (?=), _Just, use, over, Lens')
 
 
 -- | Option
@@ -46,8 +46,24 @@ warning :: String -> a -> a
 warning msg a | _warningOn = trace msg a
               | otherwise = a
 
+-- data MemEntry =
+     
+data MemData = MemData
+  -- | data content in section
+  { _mdData :: Seq.Seq (LazyConst MWord, Int)
+  -- | Data is entered by bytes but stored by words. This pointer is
+  -- the next available byte-aligned address
+  , _mdNextData :: Int
+  -- | Locations of objects by name
+  , _mdEntryPoints :: Map.Map Name MWord
+  }
+  deriving (Show, Eq)
 
-              
+emptyMemData :: MemData
+emptyMemData = MemData mempty 0 mempty
+
+makeLenses ''MemData
+
 data Section = Section
   { _secName :: String
   -- From the tags, only the options we care about
@@ -57,14 +73,8 @@ data Section = Section
   , _secType :: Maybe SectionType
   , _secContent :: Seq.Seq LineOfRiscV
   -- | data
-  , _secData :: [LazyConst MWord]        -- ^ data content in section
-  , _secNextData :: Int                  -- ^ Data is entered by
-                                         -- bytes but stored by
-                                         -- words. This pointer is
-                                         -- the next available
-                                         -- byte-aligned address
-  , _secMaxAlign :: Int                  -- ^ Max alignment of all objects in section 
-  , _secEntryPoints :: Map.Map Name MWord -- ^ Locations of objects by name
+  , _secData :: MemData
+  , _secMaxAlign :: Int                  -- ^ Max alignment of all objects in section
   }
   deriving (Show, Eq)
 
@@ -75,10 +85,8 @@ readSection =   Section { _secName = ""
                         , _secType = Nothing
                         , _secContent = Seq.empty
                         -- data
-                        , _secData = []
-                        , _secNextData = 0
+                        , _secData = emptyMemData
                         , _secMaxAlign = 1
-                        , _secEntryPoints = mempty
                         }
 writeSection =  readSection { _flag_write = True }
 execSection =   readSection { _flag_exec = True }
@@ -90,17 +98,15 @@ flagSection name flags maybeType content = Section { _secName = name
                                                    , _secType = maybeType
                                                    , _secContent = content
                                                    -- data
-                                                   , _secData = []
-                                                   , _secNextData = 0
+                                                   , _secData = emptyMemData
                                                    , _secMaxAlign = getAlignFlag
-                                                   , _secEntryPoints = mempty
                                            }
   where
     getAlignFlag = fromEnum $ maximum $ mapMaybe
                    (\case
                        Flag_number n -> Just n
                        _ -> Nothing
-                   ) flags
+                   ) (Flag_number 1 : flags)
                    
           
 makeLenses ''Section
@@ -121,12 +127,11 @@ makeLenses ''Section
 
 data SymbolTP = SymbolTP
   { _symbName  :: String                    
-  , _symbSize  :: Maybe (Either Integer Imm)
-  , _symbAlign :: Maybe Integer             
+  , _symbSize  :: Maybe (Either Integer Imm)             
   , _symType   :: Maybe DirTypes
   } deriving (Show)
 defaultSym :: SymbolTP
-defaultSym = SymbolTP "Default Name" Nothing Nothing Nothing 
+defaultSym = SymbolTP "Default Name" Nothing Nothing 
 
 makeLenses ''SymbolTP
               
@@ -140,8 +145,8 @@ data TPState = TPState
     
   -- Memory
   , _curObjectTP :: String
-  , _curObjectContentTP :: Maybe ( Seq (LazyConst MWord, Int))
-  , _genvTP :: GEnv MWord
+  -- , _curObjectContentTP :: Maybe ( Seq (LazyConst MWord, Int))
+  -- , _genvTP :: GEnv MWord
 
   -- Markers
   , _atFuncStartTP :: Bool -- ^ If the next instruction needs to be marked as function start
@@ -167,8 +172,6 @@ initStateTP firstUnusedName nameMap  = TPState
   , _commitedBlocksTP   = Seq.empty
   , _sectionsTP         = Map.empty
   , _curObjectTP        = "NoneInitObj"
-  , _curObjectContentTP = Nothing
-  , _genvTP             = []
   , _atFuncStartTP      = False -- An instruction type needs to be found first.
   , _afterFuncCallTP    = False
   , _symbolTableTP      = Map.empty
@@ -214,82 +217,87 @@ transpiler verb firstUnusedName nameMap rvcode =
     transpilerLine (Directive dir) =     transpileDir verb dir
     transpilerLine (Instruction instr) = transpileInstr instr
 
-    codeLbl,memLbl :: String -> Statefully ()
-    codeLbl lbl = do
-      -- Commit current block
-      commitBlock
-      -- Start a new block
-      currBlockTP .= Just lbl
-      -- If entering a function...
-      lblTyp <- _symType <<$>> use (symbolTableTP . at lbl)
-      case lblTyp of
-        (Just (Just DTFUNCTION)) -> do
-          -- Set the current Function
-          currFunctionTP .= lbl
-          -- Set function start (will mark the frist instruction's
-          -- metadata)
-          atFuncStartTP .= True
-        _ -> return ()
-    memLbl lbl = do
-      -- Store current object
-      commitBlock
-      saveObject
-      -- Start a new object
-      curObjectTP .= lbl
+codeLbl,memLbl :: String -> Statefully ()
+codeLbl lbl = do
+  -- Commit current block
+  commitBlock
+  -- Start a new block
+  currBlockTP .= Just lbl
+  -- If entering a function...
+  lblTyp <- _symType <<$>> use (symbolTableTP . at lbl)
+  case lblTyp of
+    (Just (Just DTFUNCTION)) -> do
+      -- Set the current Function
+      currFunctionTP .= lbl
+      -- Set function start (will mark the frist instruction's
+      -- metadata)
+      atFuncStartTP .= True
+    _ -> return ()
+memLbl lbl = do
+  -- Store current object
+  commitBlock
+  -- Start a new object
+  curObjectTP .= lbl
+  objName <- getName lbl
+  -- Mark data with a new entry point
+  dataPointer <- use $ currSectionTP . secData . mdNextData
+  currSectionTP . secData . mdEntryPoints %= (Map.insert objName (toEnum dataPointer))  
 
-
-
-saveObject :: Statefully ()
-saveObject = do
-  st <- get
-  nameCurObj <- use curObjectTP
-  -- Get the current obejct
-  curObj <- use $ curObjectContentTP
-  case curObj of
-    Nothing -> return ()
-    Just ls -> do
-        let init = packInWords $ toList ls
-        gname <- getName =<< use curObjectTP
-        sectionName <- use (currSectionTP . secName)
-        readOnly <- not <$> use (currSectionTP . flag_write)
-        let gvar = GlobalVariable {globName = gname,
-                                   -- entryPoints = 
-                                   isConstant = readOnly,
-                                   -- RiscV doesn't have types 
-                                   gType = TVoid,
-                                   initializer = Just init,
-                    		   gSize = toEnum $ length init,
-                                   -- Currently ignored
-                                   -- TODO: implement alignment
-                                   gAlign = 1,
-                    		   secret = sectionName == "__DATA,__secret" ||
-                                   sectionName == ".data.secret",
-                                   -- What variables are not heap-init in RiscV?
-                                   gvHeapInit = True}
-        -- add it to the list of globals
-        genvTP %= (:) gvar
-        gvlen <- length <$> use genvTP 
-        -- Clear current obje
-        curObjectContentTP .= Nothing
-  -- where packInWords :: [(MemWidth, LazyConst MWord)] -> [LazyConst wrdT]
-  --       packInWords ls = snd $ foldl' packNextValue initState ls
-  --       initState :: (Int, [LazyConst wrdT], LazyConst wrdT)
-  --       initState = (0,[],SConst 0) 
-
-  --       packNextValue :: (Int, [LazyConst wrdT], LazyConst wrdT)
-  --                     -> (MemWidth, LazyConst MWord)
-  --                     -> (Int, [LazyConst wrdT], LazyConst wrdT)
-  --       packNextValue (bytsTaken, partResult, partialWord)  (mw, lazy) =
-          
-          
-
+sectionVariable :: Section -> Statefully (Maybe (GlobalVariable MWord))
+sectionVariable (Section _sectionName True _write _secTy _code _mdata _align) = return Nothing
+sectionVariable (Section sectionName False write _secTy _code (MemData d _ entries) align) = do
+  secName <- getName sectionName
+  let initBuffer = packInWords $ toList d
+  return $ Just $ GlobalVariable
+    {globName = secName
+    , entryPoints = Map.toList entries
+    , isConstant = not write
+    , initializer = Just $ initBuffer
+    , gSize = toEnum $ length initBuffer
+    , gAlign = toEnum align
+    , secret = sectionName == "__DATA,__secret" ||
+               sectionName == ".data.secret"
+    -- What variables are not heap-init in RiscV?
+    , gvHeapInit = True}
+  
+  -- nameCurObj <- use curObjectTP
+  -- -- Get the current obejct
+  -- curObj <- use $ curObjectContentTP
+  -- case curObj of
+  --   Nothing -> return ()
+  --   Just ls -> do
+  --       let init = packInWords $ toList ls
+  --       gname <- getName =<< use curObjectTP
+  --       sectionName <- use (currSectionTP . secName)
+  --       readOnly <- not <$> use (currSectionTP . flag_write)
+  --       let gvar = GlobalVariable {globName = gname,
+  --                                  -- entryPoints = 
+  --                                  isConstant = readOnly,
+  --                                  -- RiscV doesn't have types 
+  --                                  gType = TVoid,
+  --                                  initializer = Just init,
+  --                   		   gSize = toEnum $ length init,
+  --                                  -- Currently ignored
+  --                                  -- TODO: implement alignment
+  --                                  gAlign = 1,
+  --                   		   secret = sectionName == "__DATA,__secret" ||
+  --                                  sectionName == ".data.secret",
+  --                                  -- What variables are not heap-init in RiscV?
+  --                                  gvHeapInit = True}
+  --       -- add it to the list of globals
+  --       genvTP %= (:) gvar
+  --       gvlen <- length <$> use genvTP 
+  --       -- Clear current obje
+  --       curObjectContentTP .= Nothing
+      
+  
 transpileDir :: Bool -> Directive -> Statefully ()
 transpileDir verb dir =
   case dir of
     -- Ignored 
-    ALIGN _         -> ignoreDire "ALIGN _         " -- We are ignoring alignment
-    P2ALIGN _a _v _m-> ignoreDire "P2ALIGN _a _v _m" -- We are ignoring alignment
-    BALIGN _ _      -> ignoreDire "BALIGN _ _      " -- We are ignoring alignment
+    ALIGN align     -> alignment align Nothing Nothing 
+    P2ALIGN a v m   -> alignment (2 ^ a) v m
+    BALIGN a v      -> alignment a v Nothing
     FILE _          -> ignoreDire "FILE _          " 
     IDENT _         -> ignoreDire "IDENT _         "  -- just places tags in object files
     ADDRSIG         -> ignoreDire "ADDRSIG         " -- We ignore address-significance 
@@ -308,8 +316,8 @@ transpileDir verb dir =
     ENDM           -> unimplementedDir
     -- Implemented
     -- ## Declare Symbols 
-    COMM   nm size align -> setSymbol nm (Just $ Left  size) (Just align)   Nothing
-    COMMON nm size align -> setSymbol nm (Just $ Left  size) (Just align)   Nothing
+    COMM   nm size align -> commSetSymbol nm size align
+    COMMON nm size align -> commSetSymbol nm size align
     SIZE   nm size       -> setSymbol nm (Just $ Right size) Nothing        Nothing
     TYPE   nm typ        -> setSymbol nm Nothing             Nothing        (Just typ)
     -- ## Sections
@@ -326,12 +334,61 @@ transpileDir verb dir =
     ZERO size        -> replicateM_ (fromInteger size) $ emitValue 1 (ImmNumber 0)
 
     where
+      -- Alignment simply pushes `mfill` (default 0 or no-op) until
+      -- the current pointer is aligned
+      alignment :: Integer -> Maybe Integer -> Maybe Integer -> Statefully ()
+      alignment align mfill mmaxFill = do
+        let fill = maybe 0 fromInteger mfill
+        let max = maybe maxBound fromInteger mmaxFill
+        isExec <- use $ currSectionTP . flag_exec
+        if isExec then alignExec fill max else alignData fill max
+          where
+            alignExec _fill _max =
+              -- Code is always word-aligned. Produce warning if higher is requested:
+              if align <= 16 then return () else
+                (trace "Warning. Code alignment higher than 16 not supported" $ return ())
+
+            alignData :: Int -> Int -> Statefully ()
+            alignData fill maxFill = do
+              pointer <- use $ currSectionTP . secData . mdNextData
+              let paddingLength = pointer `mod` (fromInteger align)
+              when (paddingLength <= maxFill) $ do
+                let padding = SConst (toEnum fill) -- ^ one byte of fill
+                replicateM_ paddingLength (pushMemVal 1 padding)    
+      
+
       emitString :: String -> Statefully ()
       emitString st = mapM_ (\char -> emitValue 1 (ImmNumber $ toEnum $ ord char)) st 
       ignoreDire name =
         (if verb then trace ("Ignored directive: " <> name) else id) return ()
       unimplementedDir = implError $ "Directive not yet implemented: " <> show dir
 
+      -- | Comm and Common are special: They define a symbol whose
+      -- value should be defined somwhere else.  Because we don't link
+      -- with anything else, we interpret comm as declaring it an
+      -- uninitialized value in a differetn, specialized section
+      commSetSymbol  :: String                     -- ^ Name
+                     -> Integer                    -- ^ Size
+                     -> Integer                    -- ^ Alignment
+                     -> Statefully ()
+      commSetSymbol name size align = do
+        -- temporarily change sections to put the uninitialized value somewhere else.
+        Section secName sExec sWrite sType sContent sData sMAling <- use currSectionTP
+        let commSectionName = ".data.comm" -- how to make this unique?
+        setSection commSectionName [] Nothing [] 
+        -- Align
+        alignment align Nothing Nothing
+        -- record position as if there was a label `name`
+        memLbl name
+        -- Fill uninitialized values
+        replicateM_ (fromInteger size) (pushMemVal 1 0)
+        -- now go back to the original section. `setSection` should
+        -- find the section by name and reset all the content and
+        -- flags correctly. We pass the correct flags, but they get
+        -- ignored for the old ones
+        let flags = [] ++ (if sExec then [Flag_x] else []) ++ (if sWrite then [Flag_w] else [])
+        setSection secName flags sType [] -- TODO what about sData SMAlign 
+        
       -- | Creates a symbol if it doens't exists and modifies the
       -- attributers provided
       setSymbol :: String                     -- ^ Name
@@ -346,25 +403,24 @@ transpileDir verb dir =
         let symbol' = SymbolTP {
               _symbName    = name
               , _symbSize  = firstJust size  (_symbSize  symbol) 
-              , _symbAlign = firstJust align (_symbAlign symbol) 
               , _symType   = firstJust typ   (_symType   symbol) 
               }
         symbolTableTP . at name ?= symbol'
 
-      -- | Pushes a value to the current memory object
+      -- | Pushes an Immediate value to the current memory object
       emitValue :: Int -> Imm -> Statefully ()
       emitValue size val = do
         -- Make Imm into a lazy constant and push into the current object
         pushMemVal size =<< tpImm val
-        where pushMemVal :: Int -> LazyConst MWord -> Statefully ()
-              pushMemVal size val = do
-                obj <- maybe mempty id <$> use curObjectContentTP
-                -- Values are pushed in the end of the object
-                curObjectContentTP .= Just (obj :|> (val,size))
-              
+
+      -- | pushes a memory value to the current memory object
+      pushMemVal :: Int -> LazyConst MWord -> Statefully ()
+      pushMemVal size lVal = do
+        -- add the new value
+        currSectionTP . secData . mdData  %= (:|> (lVal, size))
+        -- Increase pointer
+        currSectionTP . secData . mdNextData %= (+ size)
         
-
-
       -- | The number of bytes produced by each directive. We follow the
       -- Manual set for loads and stores: "The SD, SW, SH, and SB
       -- instructions store 64-bit, 32-bit, 16-bit, and 8-bit values
@@ -403,7 +459,7 @@ setSection :: String                     -- ^ Name
 setSection name flags secTyp _flagArgs = do
   -- start of a new section closes previous sections. Save ongoing objects and commit blocks
   commitBlock
-  saveObject
+  --saveObject
   -- Save the current section
   saveSection
   -- Create ampty section in case it doesn't exist
@@ -966,13 +1022,14 @@ finalizeTP :: Statefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int M
 finalizeTP = do
   -- First commit the last section/block
   _ <- commitBlock
-  _ <- saveObject
+  _ <- saveSection
   -- Build program
   prog <- toList <$> (use commitedBlocksTP)
   -- Add a premain. We need this to be backwards compatible
   let prog' = (NBlock (Just premainName) premainCode): prog
   -- Build memory
-  genv <- use genvTP
+  sections :: Map.Map String Section <- use sectionsTP
+  genv <- makeGEnv sections 
   -- Then build the CompilationUnit
   return $ CompUnit {
     -- Memory is filled in 'RemoveLabels'
@@ -1003,7 +1060,14 @@ finalizeTP = do
         md = trivialMetadata premainName defaultName
         -- Start stack at 2^32.
         initAddr = 1 `shiftL` 32
-
+  
+        makeGEnv :: Map.Map String Section -> Statefully [GlobalVariable MWord]
+        makeGEnv m = mapMaybeM sectionVariable (Map.elems m)   
+  
+        -- | A version of 'mapMaybe' that works with a monadic predicate.
+        mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
+        mapMaybeM op = foldr f (pure [])
+          where f x xs = do x <- op x; case x of Nothing -> xs; Just x -> do xs <- xs; pure $ x:xs
 
 -- Finalize current block and commit it
 -- i.e. add it to the list.
