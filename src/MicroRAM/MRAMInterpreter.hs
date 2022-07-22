@@ -48,7 +48,7 @@ module MicroRAM.MRAMInterpreter
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State
-import Control.Lens (makeLenses, ix, at, to, (^.), (.~), (.=), (%=), use, Lens', _1, _2, _3)
+import Control.Lens (makeLenses, ix, at, to, (^.), over, (.=), (%=), use, Lens', _1, _2, _3)
 import Data.Bits
 import qualified Data.ByteString as BS
 import Data.Foldable
@@ -267,32 +267,24 @@ snapshotHandler _nextH (Iext XSnapshot) = do
   m <- use sMach
   sCachedMach .= Just m
   nextPc
-snapshotHandler _nextH (Iext (XCheck pc)) = do
-  pc' <- conGetValue <$> opVal pc
-  i <- fetchInstr pc'
-  initState <- (sMach . mPc .~ pc') <$> get
+snapshotHandler _nextH (Iext (XCheck i)) = do
+  initState <- (over (sMach . mPc) (+1)) <$> get
 
-  -- Take a MicroRAM step.
-  let mramState = _sMach <$> stepMicro initState i
+  -- Take MicroRAM steps.
+  let mramState = _sMach <$> stepMicro initState (Native.toMRAMInsts i)
 
   -- Convert to native architecture and then take a step.
-  let archState = stepArch (toArchState initState) $ toArchInstr i
+  let archState = Native.stepArch (Native.toArchState $ _sMach initState) i
 
   -- Simulation check that toArch (step i) == step (toArch i).
-  if archEq (toArchState mramState) archState then
+  if (Native.archStateEq <$> (Native.toArchState <$> mramState) <*> archState) == Right True then
     nextPc
   else do
-    traceM $ "[CHECK] Step for instruction " <> show pc' <> " does not match native step at state " <> show (_sMach initState)
+    traceM $ "[CHECK] Step for instruction " <> show i <> " does not match native step at state " <> show (_sMach initState)
     nextPc -- JP: Should we stop execution instead?
 
   where
-    stepMicro s i = execStateT (stepInstr i) s
-
-    stepArch s i = undefined
-    toArchState s = undefined
-    toArchInstr i = undefined
-
-    archEq s1 s2 = undefined
+    stepMicro s is = execStateT (mapM_ stepInstr is) s
 
 snapshotHandler nextH instr = nextH instr
 

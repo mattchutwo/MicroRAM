@@ -1,13 +1,13 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 {-|
 Module      : MicroRAM
@@ -147,6 +147,7 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Word (Word64)
 import GHC.Generics -- Helps testing
+import {-# SOURCE #-} Native (NativeInstruction)
 
 -- * The MicroRAM language(s)
 
@@ -206,8 +207,8 @@ data ExtInstr operand2 =
   -- bypassing memory safety checks.
   | XSnapshot
   -- ^ Save a copy of the entire machine state.
-  | XCheck operand2 -- The PC of the instruction.
-  -- ^ Take the latest snapshot (saved by Xrvsnapshot), run the RISC-V instruction pc, and check that the simulator's result matches the MicroRAM machine state. Notice that pc can be a program counter or directly the RISC-V instruction or both, whatever is easier.
+  | XCheck NativeInstruction
+  -- ^ Take the latest snapshot (saved by XSnapshot), run the native instruction, and check that the simulator's result matches the MicroRAM machine state.
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
 data ExtValInstr operand2 =
@@ -482,3 +483,4 @@ aggregateOps instr =
     Iext ext               -> fold ext
     Iextval dest ext       -> dest <> fold ext
     Iextadvise dest op2 ext -> dest <> op2 <> fold ext
+
