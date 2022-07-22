@@ -31,7 +31,6 @@ instance Read NativeInstruction where
 instance Show NativeInstruction where
   show (NativeInstruction i) = show i
 
-
 class (Typeable (Inst arch), Eq (Inst arch), Ord (Inst arch), Show (Inst arch)) => Native arch where
   type Inst arch = i | i -> arch
   type State arch = s | s -> arch
@@ -39,8 +38,9 @@ class (Typeable (Inst arch), Eq (Inst arch), Ord (Inst arch), Show (Inst arch)) 
   -- | Convert a native instruction to a MRAM instruction.
   toMRAMInsts :: Inst arch -> [Instruction r v]
 
+  -- | Take a step for a native instruction.
   stepArch :: State arch -> Inst arch -> Hopefully (State arch)
-  -- toArchState :: Regs r => MachineState' r v -> State arch
+  -- | Convert a MicroRAM state to a native state.
   toArchState :: MachineState' r v -> State arch
 
   -- | Whether two native states are equal (potentially ignore irrelevant fields).
