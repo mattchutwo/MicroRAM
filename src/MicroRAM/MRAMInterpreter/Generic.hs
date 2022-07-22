@@ -8,7 +8,7 @@ module MicroRAM.MRAMInterpreter.Generic
   ( AbsDomain(..),
     MachineState'(..), mCycle, mPc, mRegs, mProg, mMem, mBug, mAnswer, 
     mReg,
-    InterpState'(..), sExt, sMach,
+    InterpState'(..), sExt, sMach, sCachedMach,
     InterpM', InstrHandler',
     doStore, doLoad, doPoison, doGetPoison, doGetValue,
     fetchInstr, stepInstr, nextPc, finishInstr, regVal, opVal,
@@ -94,6 +94,7 @@ deriving instance (Show r, AbsDomain v) => Show (MachineState' r v)
 data InterpState' r v s = InterpState
   { _sExt :: s
   , _sMach :: MachineState' r v
+  , _sCachedMach :: Maybe (MachineState' r v)
   }
 makeLenses ''InterpState'
 

@@ -32,7 +32,7 @@ module MicroRAM.MRAMInterpreter
     run, run_v, execAnswer, execBug,
     -- For post processing check (e.g. segment checking)
     runWith, initMach, InstrHandler, runPassGeneric, InterpState,
-    sMach, sExt, mCycle, mPc,
+    sMach, sCachedMach, sExt, mCycle, mPc,
     InstrHandler', InterpState',
     -- * Trace
     ExecutionState(..),
@@ -48,7 +48,7 @@ module MicroRAM.MRAMInterpreter
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State
-import Control.Lens (makeLenses, ix, at, to, (^.), (.=), (%=), use, Lens', _1, _2, _3)
+import Control.Lens (makeLenses, ix, at, to, (^.), (.~), (.=), (%=), use, Lens', _1, _2, _3)
 import Data.Bits
 import qualified Data.ByteString as BS
 import Data.Foldable
@@ -108,7 +108,7 @@ data Advice =
 
 concretizeAdvice :: forall v. Concretizable v
                  => v -- ^ address
-                 -> v -- ^ bbstract value
+                 -> v -- ^ abstract value
                  -> MemOpType
                  -> MemWidth
                  -> Advice
@@ -262,6 +262,41 @@ readStr ptr = do
     readByte :: MWord -> Memory v -> Hopefully Word8
     readByte addr mem = fromIntegral . conGetValue <$> absLoad W1 (absExact @v addr) mem
     
+snapshotHandler :: (Concretizable v, Regs r) => InstrHandler' r v s -> InstrHandler' r v s
+snapshotHandler _nextH (Iext XSnapshot) = do
+  m <- use sMach
+  sCachedMach .= Just m
+  nextPc
+snapshotHandler _nextH (Iext (XCheck pc)) = do
+  pc' <- conGetValue <$> opVal pc
+  i <- fetchInstr pc'
+  initState <- (sMach . mPc .~ pc') <$> get
+
+  -- Take a MicroRAM step.
+  let mramState = _sMach <$> stepMicro initState i
+
+  -- Convert to native architecture and then take a step.
+  let archState = stepArch (toArchState initState) $ toArchInstr i
+
+  -- Simulation check that toArch (step i) == step (toArch i).
+  if archEq (toArchState mramState) archState then
+    nextPc
+  else do
+    traceM $ "[CHECK] Step for instruction " <> show pc' <> " does not match native step at state " <> show (_sMach initState)
+    nextPc -- JP: Should we stop execution instead?
+
+  where
+    stepMicro s i = execStateT (stepInstr i) s
+
+    stepArch s i = undefined
+    toArchState s = undefined
+    toArchInstr i = undefined
+
+    archEq s1 s2 = undefined
+
+snapshotHandler nextH instr = nextH instr
+
+
 traceHandler :: (Concretizable v, Regs r) => Bool -> InstrHandler' r v s -> InstrHandler' r v s
 traceHandler active _nextH (Iext (XTrace desc ops)) = do
   vals <- mapM opVal ops
@@ -510,8 +545,8 @@ runPass1 verbose steps initMach' = do
   final <- runWith handler steps initState
   return $ getMemInfo $ final ^. sExt
   where
-    initState = InterpState initAllocState initMach'
-    handler = traceHandler verbose  $ allocHandler verbose id $ stepInstr
+    initState = InterpState initAllocState initMach' Nothing
+    handler = snapshotHandler $ traceHandler verbose $ allocHandler verbose id $ stepInstr
 
     getMemInfo :: AllocState -> MemInfo
     getMemInfo as = MemInfo (as ^. asMallocAddrs) (getPoisonAddrs $ as ^. asMemErrors)
@@ -532,7 +567,7 @@ runPass2 steps initMach' memInfo = do
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
-    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach'
+    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach' Nothing
 
     eTrace :: Lens' (a, b, c) a
     eTrace = _1
@@ -562,7 +597,7 @@ runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
-    initState = InterpState initS initMach'
+    initState = InterpState initS initMach' Nothing
     handler =
       execTraceHandler eTrace eAdvice $
       postHandler $

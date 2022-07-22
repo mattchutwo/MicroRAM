@@ -204,6 +204,10 @@ data ExtInstr operand2 =
   | XStoreUnchecked operand2 operand2
   -- ^ Store the second operand at the address given by the first operand,
   -- bypassing memory safety checks.
+  | XSnapshot
+  -- ^ Save a copy of the entire machine state.
+  | XCheck operand2 -- The PC of the instruction.
+  -- ^ Take the latest snapshot (saved by Xrvsnapshot), run the RISC-V instruction pc, and check that the simulator's result matches the MicroRAM machine state. Notice that pc can be a program counter or directly the RISC-V instruction or both, whatever is easier.
   deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
 
 data ExtValInstr operand2 =

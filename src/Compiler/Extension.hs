@@ -31,6 +31,9 @@ lowerInstr (MirM (Iext ext) md) = case ext of
   XAccessValid _ _ -> return []
   XAccessInvalid _ _ -> return []
   XStoreUnchecked ptr val -> return [MirM (Istore WWord ptr val) md]
+  -- TODO: Are these right?
+  XSnapshot -> return []
+  XCheck _ -> return []
 lowerInstr (MirM (Iextval dest ext) md) = case ext of
   XLoadUnchecked ptr -> return [MirM (Iload WWord dest ptr) md]
 -- Note that `Iextadvise` instructions are not handled here.  Those are left
@@ -57,6 +60,9 @@ lowerInstr' tempReg (Iext ext) = case ext of
   XAccessValid _ _ ->  []
   XAccessInvalid _ _ ->  []
   XStoreUnchecked ptr val ->  [Imov tempReg val, Istore WWord ptr tempReg]
+  -- TODO: Are these right?
+  XSnapshot -> []
+  XCheck _ -> []
 lowerInstr' _ (Iextval dest ext) = case ext of
   XLoadUnchecked ptr ->  [Iload WWord dest ptr]
 lowerInstr' _ i =  [i]
