@@ -540,6 +540,7 @@ initState (ProgAndMem prog mem _) =
       _mBug = False,
       _mAnswer = Nothing
     },
+    _sCachedMach = Nothing,
     _sExt = ExtraState {
       _eMetadata = Seq.fromList $ map snd prog
     }
@@ -563,6 +564,7 @@ havocState s =
       _mBug = False,
       _mAnswer = Nothing
     },
+    _sCachedMach = Nothing,
     _sExt = ExtraState {
       _eMetadata = s ^. sExt . eMetadata
     }

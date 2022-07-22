@@ -76,6 +76,7 @@ import MicroRAM
 import MicroRAM.MRAMInterpreter.Concrete
 import MicroRAM.MRAMInterpreter.Generic
 import MicroRAM.MRAMInterpreter.Tainted
+import qualified Native
 
 import Util.Util
 
@@ -267,7 +268,7 @@ snapshotHandler _nextH (Iext XSnapshot) = do
   m <- use sMach
   sCachedMach .= Just m
   nextPc
-snapshotHandler _nextH (Iext (XCheck i)) = do
+snapshotHandler _nextH (Iext (XCheck (Native.NativeInstruction i))) = do
   initState <- (over (sMach . mPc) (+1)) <$> get
 
   -- Take MicroRAM steps.
@@ -277,11 +278,12 @@ snapshotHandler _nextH (Iext (XCheck i)) = do
   let archState = Native.stepArch (Native.toArchState $ _sMach initState) i
 
   -- Simulation check that toArch (step i) == step (toArch i).
-  if (Native.archStateEq <$> (Native.toArchState <$> mramState) <*> archState) == Right True then
-    nextPc
-  else do
-    traceM $ "[CHECK] Step for instruction " <> show i <> " does not match native step at state " <> show (_sMach initState)
-    nextPc -- JP: Should we stop execution instead?
+  case (Native.toArchState <$> mramState, archState) of
+    (Right l, Right r) | Native.archStateEq l r ->
+      nextPc
+    _ -> do
+      traceM $ "[CHECK] Step for instruction " <> show i <> " does not match native step at state " <> show (_sMach initState)
+      nextPc -- JP: Should we stop execution instead?
 
   where
     stepMicro s is = execStateT (mapM_ stepInstr is) s
