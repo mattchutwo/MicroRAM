@@ -31,7 +31,6 @@ lowerInstr (MirM (Iext ext) md) = case ext of
   XAccessValid _ _ -> return []
   XAccessInvalid _ _ -> return []
   XStoreUnchecked ptr val -> return [MirM (Istore WWord ptr val) md]
-  -- TODO: Are these right?
   XSnapshot -> return []
   XCheck _ -> return []
 lowerInstr (MirM (Iextval dest ext) md) = case ext of
