@@ -17,7 +17,7 @@
 #
 # resolver: ./custom-snapshot.yaml
 # resolver: https://example.com/snapshots/2018-01-01.yaml
-resolver: lts-15.9
+resolver: lts-18.28
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -40,10 +40,48 @@ packages:
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 #
 extra-deps:
-- haggle-0.1.0.0
+- haggle-0.2
 - monad-primitive-0.1
-- ref-tf-0.4.0.2
-- dom-lt-0.2.2.1
+- ref-tf-0.5.0.1
+- dom-lt-0.2.3
+- bv-sized-1.0.4
+- bitwise-1.0.0.1
+- panic-0.4.0.1
+- parameterized-utils-2.1.5.0
+- random-1.2.1.1
+- splitmix-0.1.0.4
+- QuickCheck-2.14.2
+- indexed-traversable-0.1.2
+- profunctors-5.6.2
+- uuid-types-1.0.5
+- base-orphans-0.8.6
+- bifunctors-5.5.12
+- comonad-5.0.8
+- contravariant-1.5.5
+- tagged-0.8.6.1
+- StateVar-1.2.2
+- th-abstraction-0.4.4.0
+- aeson-2.1.0.0
+- OneTuple-0.3.1
+- attoparsec-0.14.4
+- generically-0.1
+- hashable-1.3.5.0
+- semialign-1.2.0.1
+- text-short-0.1.5
+- time-compat-1.9.6.1
+- hashtables-1.2.4.2
+- lens-5.1.1
+- git: https://github.com/GaloisInc/grift.git
+  commit: 819a1fedf33501a79ad5fbd6e7ae03dfc7219234
+  subdirs:
+    - grift
+    - grift-sim
+- git: https://github.com/GaloisInc/softfloat-hs.git
+  commit: a74bb916c48322895d5e009c170a9bb632c47173
+- git: https://github.com/GaloisInc/bv-sized-float.git
+  commit: f18e76f244a0f49f043873de650ebb92d1546d07
+- git: https://github.com/GaloisInc/elf-edit.git
+  commit: d6d26540ed50348a597720b0015357bde34d504d
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
