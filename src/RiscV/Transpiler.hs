@@ -647,7 +647,9 @@ transpileInstrPseudo instr =
       function <- use currFunctionTP
       if function == "main" then
         -- Answers the value in a0 (i.e. X10)
-        return [Ianswer . AReg $ tpReg X10]
+        -- return [Ianswer . AReg $ tpReg X10]
+        -- lets try without the special case. TODO: if successfull, delete the branch
+        return [Ijmp . AReg $ tpReg X1]
         else 
         return [Ijmp . AReg $ tpReg X1]
     CallPI Nothing off -> do
@@ -656,7 +658,7 @@ transpileInstrPseudo instr =
       -- So there is no need to use `auipc`
       return [
         -- for debugging
-        Iext (XTrace (pack $ "CALL: " <> show off) []),
+        -- Iext (XTrace (pack $ "CALL: " <> show off) []),
         Imov (tpReg X1) (pcPlus 2),
        Ijmp $ off']
     CallPI (Just rd) off -> do
