@@ -248,30 +248,65 @@ def publicPcStats():
 if public_segs_cons>0:
     publicPcStats()
 
-def pc_summary():
+
+reverse_label = {v: k for k, v in compUnit['labels'].items()}
+
+#We create a function to recover the first 4 function arguments at cycle n
+states = trace[0][1] # only works without public pc (i.e. only one
+                         # chunk of trace)
+def get_args(cycle):
+    '''
+    a function to recover the first 4 function arguments at cycle n.
+    WARNING: rihgt now it only works if there is only one trace chunk
+    (i.e. no public pc)
+    '''
+    regs = states[cycle]['regs']
+    func_args = regs[10:14]
+    return func_args
+
+def pc_summary(end = -1, fun_args = False):
     '''
     Produces a summary of the trace, showing contiguous regions of pc
     For example 0,1,2,5,6,7 would be summarized into `0-2,5-7`
     '''
+
+    
     summary = []
     current_start = 0
     current_start_step = 0 # the trace step where the start was reached
     last_pc = 0
     step = 0
+    loop_count = 0 # to count loop iterations
     for chunk in trace:
         for state in chunk[1]:
             step = step + 1
             new_pc = state['pc'] 
             if new_pc != last_pc + 1:
-                summary = [(current_start_step,current_start, last_pc)] + summary
-                current_start = new_pc
-                current_start_step = step 
+                # check if we are in a loop, if so just summarize
+                if new_pc != current_start:
+                    summary = [(current_start_step,current_start, last_pc, loop_count)] + summary
+                    current_start = new_pc
+                    current_start_step = step
+                    loop_count = 0
+                else:
+                    loop_count = loop_count + 1
             last_pc = new_pc
-    summary = [(current_start_step,current_start, -1)] + summary #-1 signals end
+            if step > end and end >= 0:
+                break
+    summary = [(current_start_step,current_start, -1,0)] + summary #-1 signals end
     summary.reverse()
 
     # Pretty print
-    for (step,start,end) in summary:
+    for (step,start,end,loop_count) in summary:
         if end == -1:
             end = ''
-        print(step," : ", start,"-",end)
+        if start in reverse_label:
+            name = reverse_label[start]
+            print(step," : ", start,"-",end,"(", reverse_label[start] ,")")
+            if not(name[0] in "._") and fun_args:
+                print ("\tARGUMENTS: ", [ hex(x) for x in get_args(step)])
+        else:
+            print(step," : ", start,"-",end)
+        # summarize loops
+        if loop_count > 0:
+            print ("\t Looped", loop_count, "times.")
