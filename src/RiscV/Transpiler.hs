@@ -676,8 +676,7 @@ transpileInstrPseudo instr =
       -- the X6 register (page 140 table 25.3)
       return [
         -- for debugging
-        Iext (XTrace (pack $  "CALL: " <> show off) []),
-        Imov (tpReg X1) (pcPlus 2),
+        Iext (XTrace (pack $  "TAIL CALL: " <> show off) []),
         Ijmp $ off']
     FencePI -> return []
     LiPI rd imm-> do
@@ -982,7 +981,7 @@ transpileInstr32I instr =
                  SLLI  -> [Ishl  rd' rs1' off_imm]
                  SRLI  -> [Ishr  rd' rs1' off_imm]
                  SRAI  -> [-- sign bits
-                   Ishr newReg rs1' (LImm $ 64),
+                   Ishr newReg rs1' (LImm $ 63),
                    -- extensions (2^off-1)*(2^(64-off))
                    Imull newReg newReg (LImm $ (2 `pow` off' - 1) * (2 `pow` (64-off'))),
                    -- logical extension
@@ -1056,7 +1055,7 @@ finalizeTP = do
   where premainCode =
           -- bp is a caller saved reg that keeps the return address.
           -- although we use a special case for returns from main. 
-          [(Imov ra (pcPlus 2), md),
+          [(Imov ra (pcPlus 4), md),
            -- poison 0
            (IpoisonW (LImm 0) 0, md),
            -- Set the top of the stack.
