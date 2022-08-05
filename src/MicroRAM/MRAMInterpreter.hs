@@ -586,7 +586,7 @@ runPassGeneric :: forall r s v. (Concretizable v, Regs r)
                -> s -> Word -> MachineState' r v -> Hopefully (Trace r)
 runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
   -- The first entry of the trace is always the initial state.  Then `steps`
-  -- entries follow after it.k
+  -- entries follow after it.
   initExecState <- evalStateT (getStateWithAdvice eAdvice) initState
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
