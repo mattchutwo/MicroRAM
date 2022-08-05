@@ -464,14 +464,14 @@ parse64I = choiceTry
 parse32M :: Stream s Identity Char
          => Parsec s u InstrExt32M
 parse32M = choiceTry
-      [ "mul"    ==> MUL    <*> regParser <:> regParser <:> regParser
+      [ "mulhsu" ==> MULHSU <*> regParser <:> regParser <:> regParser
+      , "mulhu" ==> MULHU  <*> regParser <:> regParser <:> regParser
       , "mulh"   ==> MULH   <*> regParser <:> regParser <:> regParser
-      , "mulhsu" ==> MULHSU <*> regParser <:> regParser <:> regParser
-      , "mulhu " ==> MULHU  <*> regParser <:> regParser <:> regParser
-      , "div"    ==> DIV    <*> regParser <:> regParser <:> regParser
+      , "mul"    ==> MUL    <*> regParser <:> regParser <:> regParser
       , "divu"   ==> DIVU   <*> regParser <:> regParser <:> regParser
-      , "rem"    ==> REM    <*> regParser <:> regParser <:> regParser
+      , "div"    ==> DIV    <*> regParser <:> regParser <:> regParser
       , "remu"   ==> REMU   <*> regParser <:> regParser <:> regParser
+      , "rem"    ==> REM    <*> regParser <:> regParser <:> regParser
       ]
 
 

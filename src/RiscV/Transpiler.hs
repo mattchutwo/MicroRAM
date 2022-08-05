@@ -305,8 +305,8 @@ transpileDir verb dir =
     CFIDirectives _ -> ignoreDire "CFIDirectives _ " -- ignore control-flow integrity
     -- Currently unimplemented 
     Visibility _ _ -> ignoreDire "Visibility _ _" -- TODO: unimplementedDir -- Not in binutils. Remove?
-    STRING st      -> emitString st
-    ASCIZ  st      -> emitString st -- alias for string
+    STRING st      -> emitString st True
+    ASCIZ  st      -> emitString st True -- alias for string
     EQU _st _val   -> unimplementedDir
     OPTION _opt    -> unimplementedDir -- Rarely used
     VARIANT_CC _st -> unimplementedDir -- Not in binutils. Remove?
@@ -351,14 +351,21 @@ transpileDir verb dir =
             alignData :: Int -> Int -> Statefully ()
             alignData fill maxFill = do
               pointer <- use $ currSectionTP . secData . mdNextData
-              let paddingLength = pointer `mod` (fromInteger align)
+              let paddingLength = -(pointer `mod` (-fromInteger align))
+              sName <- use $ currSectionTP . secName
+              --_ <- trace ("Align " <> show sName <> " at " <> show pointer <> " to " <> show align <> " ( need to add " <> show paddingLength <> ").") $ return ()
               when (paddingLength <= maxFill) $ do
                 let padding = SConst (toEnum fill) -- ^ one byte of fill
+                --_ <- trace ("\tFilling from " <> show pointer <> " to alignment of " <> show align <> " up to " <> show maxFill)  $ return ()
                 replicateM_ paddingLength (pushMemVal 1 padding)    
       
 
-      emitString :: String -> Statefully ()
-      emitString st = mapM_ (\char -> emitValue 1 (ImmNumber $ toEnum $ ord char)) st 
+      emitString :: String -> Bool -> Statefully ()
+      emitString st nullTerminated = do
+        pointer <- use $ currSectionTP . secData . mdNextData
+        -- _ <- trace ("\tEmit String: "<> st) $ return ()
+        mapM_ (\char -> emitValue 1 (ImmNumber $ toEnum $ ord char)) st
+        when nullTerminated $ emitValue 1 (ImmNumber 0)
       ignoreDire name =
         (if verb then trace ("Ignored directive: " <> name) else id) return ()
       unimplementedDir = implError $ "Directive not yet implemented: " <> show dir
