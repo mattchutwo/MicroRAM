@@ -4,6 +4,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -29,6 +30,7 @@ import Data.Parameterized.Some
 
 import GRIFT.BitVector.BVApp (BVApp(..))
 import GRIFT.BitVector.BVFloatApp (BVFloatApp(..))
+import GRIFT.Decode (encode)
 import GRIFT.InstructionSet
 import GRIFT.InstructionSet.Known
 import GRIFT.Types
@@ -74,16 +76,51 @@ bvConcatMany' repr uBvs = UnsignedBV $ foldl' go (zero repr) (zip [0..] uBvs)
       let bvShifted = BV.shl repr bvExt (i * 8) in
       BV.or acc bvShifted
 
+-- | Given a 'BV' of arbitrary length, decompose it into a list of bytes. Uses
+-- an unsigned interpretation of the input vector, so if you ask for more bytes that
+-- the 'BV' contains, you get zeros. The result is little-endian, so the first
+-- element of the list will be the least significant byte of the input vector.
+bvGetBytesU :: Int -> BV w -> [BV 8]
+bvGetBytesU n _ | n <= 0 = []
+bvGetBytesU n bv = map go [0..(n-1)]
+  where
+    go i = select' ((fromIntegral i) * 8) (knownNat @8) bv
+
 instance RVStateM SimM RV64IM where
   getRV = return rv64IMRepr
   getPC = MS.gets mPC
   getGPR rid = (Vec.! asInt rid) <$> MS.gets mGPRs
-  getFPR rid = undefined
+  getFPR = undefined
   getMem bytes addr = do
     memory <- MS.gets mMemory
     let val = fmap (\a -> Map.findWithDefault 0 a memory)
               [addr..addr+(fromIntegral (natValue bytes-1))]
     return (bvConcatMany' ((knownNat @8) `natMultiply` bytes) val)
+  getCSR = undefined
+  getPriv = undefined
 
--- step :: Machine -> Instruction RV64G fmt -> Hopefully Machine
--- step m i = undefined
+  setPC pc = MS.modify $ \m -> m { mPC = pc }
+  setGPR rid regVal = MS.modify $ \m ->
+    let gprs = mGPRs m
+    in m { mGPRs = Vec.update gprs [(asInt rid, regVal)] }
+  setFPR = undefined
+  setMem bytes addr (UnsignedBV val) = do
+    memory <- MS.gets mMemory
+    let addrValPairs = zip
+          [addr + (fromIntegral i) | i <- [0..(natValue bytes-1)]]
+          (UnsignedBV <$> bvGetBytesU (fromIntegral (natValue bytes)) val)
+        memory' = foldr (\(a, byte) mem -> Map.insert a byte mem) memory addrValPairs
+    MS.modify $ \m -> m { mMemory = memory' }
+  setCSR = undefined
+  setPriv = undefined
+  isHalted = undefined
+  logInstruction = undefined
+
+stepInstM :: Instruction RV64IM fmt -> SimM ()
+stepInstM i@(Inst opcode _) = do
+  let semantics = getInstSemantics $ semanticsFromOpcode knownISet opcode
+      iw = 32
+  execSemantics (evalInstExpr knownISet i iw) semantics
+
+stepInst :: Machine -> Instruction RV64IM fmt -> Machine
+stepInst m i = MS.execState (unSimM (stepInstM i)) m
