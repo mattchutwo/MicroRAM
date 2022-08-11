@@ -26,6 +26,7 @@ import           Data.Vector (Vector)
 import           Numeric.Natural
 
 import Data.Parameterized.Classes
+import Data.Parameterized.List
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
 
@@ -43,6 +44,7 @@ import GRIFT.Simulation
 
 import Compiler.Errors
 import Native
+import RiscV.RiscVAsm
 
 data RiscV
 
@@ -155,6 +157,62 @@ instance Native RiscV where
   type State RiscV = Machine
 
   toMRAMInsts i = undefined
-  stepArch m i = undefined
+  stepArch m (Some i) = Right (stepInst m i)
   toArchState ms' = undefined
   archStateEq s1 s2 = undefined
+
+sizedBVToReg :: SizedBV 5 -> Reg
+sizedBVToReg _ = undefined
+
+griftToInstr :: Instruction RV64IM fmt -> Instr
+griftToInstr (Inst oc (Operands fmt ops)) =
+  case fmt of
+    RRepr | (rdBV :< rs1BV :< rs2BV :< Nil) <- ops ->
+            let rd = sizedBVToReg rdBV
+                rs1 = sizedBVToReg rs1BV
+                rs2 = sizedBVToReg rs2BV
+            in case oc of
+              Add -> Instr32I $ RegBinop32 ADD rd rs1 rs2
+              Sub -> undefined
+              Sll -> undefined
+              Slt -> undefined
+              Sltu -> undefined
+              Xor -> undefined
+              Srl -> undefined
+              Sra -> undefined
+              Or -> undefined
+              And -> undefined
+              Addw -> undefined
+              Subw -> undefined
+              Sllw -> undefined
+              Srlw -> undefined
+              Sraw -> undefined
+              Slliw -> undefined
+              Srliw -> undefined
+              Sraiw -> undefined
+              Mul -> undefined
+              Mulh -> undefined
+              Mulhsu -> undefined
+              Mulhu -> undefined
+              Div -> undefined
+              Divu -> undefined
+              Rem -> undefined
+              Remu -> undefined
+              Mulw -> undefined
+              Divw -> undefined
+              Divuw -> undefined
+              Remw -> undefined
+              Remuw -> undefined
+    IRepr -> undefined
+    SRepr -> undefined
+    BRepr -> undefined
+    URepr -> undefined
+    JRepr -> undefined
+    HRepr -> undefined
+    PRepr -> undefined
+    ARepr -> undefined
+    R2Repr -> undefined
+    R3Repr -> undefined
+    R4Repr -> undefined
+    RXRepr -> undefined
+    XRepr -> undefined
