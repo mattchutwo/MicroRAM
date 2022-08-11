@@ -25,6 +25,7 @@ import qualified Data.Vector as Vec
 import           Data.Vector (Vector)
 import           Numeric.Natural
 
+import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
 
@@ -124,3 +125,36 @@ stepInstM i@(Inst opcode _) = do
 
 stepInst :: Machine -> Instruction RV64IM fmt -> Machine
 stepInst m i = MS.execState (unSimM (stepInstM i)) m
+
+instance TestEquality Operands where
+  Operands fmt1 ops1 `testEquality` Operands fmt2 ops2
+    | Just Refl <- fmt1 `testEquality` fmt2
+    , Just Refl <- ops1 `testEquality` ops2 = Just Refl
+    | otherwise = Nothing
+
+instance OrdF Operands where
+  Operands fmt1 ops1 `compareF` Operands fmt2 ops2 =
+    case fmt1 `compareF` fmt2 of
+      EQF -> fromOrdering (toOrdering (ops1 `compareF` ops2))
+      c -> c
+
+instance TestEquality (Instruction RV64IM) where
+  Inst oc1 ops1 `testEquality` Inst oc2 ops2
+    | Just Refl <- oc1 `testEquality` oc2
+    , Just Refl <- ops1 `testEquality` ops2 = Just Refl
+    | otherwise = Nothing
+
+instance OrdF (Instruction RV64IM) where
+  Inst oc1 ops1 `compareF` Inst oc2 ops2 =
+    case oc1 `compareF` oc2 of
+      EQF -> ops1 `compareF` ops2
+      c -> c
+
+instance Native RiscV where
+  type Inst RiscV = Some (Instruction RV64IM)
+  type State RiscV = Machine
+
+  toMRAMInsts i = undefined
+  stepArch m i = undefined
+  toArchState ms' = undefined
+  archStateEq s1 s2 = undefined
