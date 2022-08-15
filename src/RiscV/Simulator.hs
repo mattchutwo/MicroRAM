@@ -240,48 +240,49 @@ griftToInstr (Inst oc (Operands fmt ops)) =
                 rs2 = sizedBVToReg rs2BV
                 imm12 = sizedBVToImm imm12BV
             in case oc of
-              Sb -> undefined
-              Sh -> undefined
-              Sw -> undefined
-              Sd -> undefined
+              Sb -> Instr32I $ MemInstr32 SB rs1 imm12 rs2
+              Sh -> Instr32I $ MemInstr32 SH rs1 imm12 rs2
+              Sw -> Instr32I $ MemInstr32 SW rs1 imm12 rs2
+              Sd -> Instr64I $ MemInstr64 SD rs1 imm12 rs2
     BRepr | (rs1BV :< rs2BV :< imm12BV :< Nil) <- ops ->
             let rs1 = sizedBVToReg rs1BV
                 rs2 = sizedBVToReg rs2BV
                 imm12 = sizedBVToImm imm12BV
             in case oc of
-              Beq -> undefined
-              Bne -> undefined
-              Blt -> undefined
-              Bltu -> undefined
-              Bge -> undefined
-              Bgeu -> undefined
+              Beq -> Instr32I $ BranchInstr BEQ rs1 rs2 imm12
+              Bne -> Instr32I $ BranchInstr BNE rs1 rs2 imm12
+              Blt -> Instr32I $ BranchInstr BLT rs1 rs2 imm12
+              Bltu -> Instr32I $ BranchInstr BLTU rs1 rs2 imm12
+              Bge -> Instr32I $ BranchInstr BGE rs1 rs2 imm12
+              Bgeu -> Instr32I $ BranchInstr BGEU rs1 rs2 imm12
     URepr | (rs1BV :< imm20BV :< Nil) <- ops ->
             let rs1 = sizedBVToReg rs1BV
                 imm20 = sizedBVToImm imm20BV
             in case oc of
-              Lui -> undefined
-              Auipc -> undefined
+              Lui -> Instr32I $ LUI rs1 imm20
+              Auipc -> Instr32I $ AUIPC rs1 imm20
     JRepr | (rdBV :< imm20BV :< Nil) <- ops ->
             let rd = sizedBVToReg rdBV
+                imm20 = sizedBVToImm imm20BV
             in case oc of
-              Jal -> undefined
+              Jal -> Instr32I $ JAL rd imm20
     HRepr | (rdBV :< rs1BV :< shamt7BV :< Nil) <- ops ->
             let rd = sizedBVToReg rdBV
                 rs1 = sizedBVToReg rs1BV
                 shamt7 = sizedBVToImm shamt7BV
             in case oc of
-              Slli -> undefined
-              Srli -> undefined
-              Srai -> undefined
+              Slli -> Instr32I $ ImmBinop32 SLLI rd rs1 shamt7
+              Srli -> Instr32I $ ImmBinop32 SRLI rd rs1 shamt7
+              Srai -> Instr32I $ ImmBinop32 SRAI rd rs1 shamt7
     PRepr -> case oc of
-      Ecall -> undefined
-      Ebreak -> undefined
-      Mret -> undefined
-      Wfi -> undefined
-    ARepr -> undefined
-    R2Repr -> undefined
-    R3Repr -> undefined
-    R4Repr -> undefined
-    RXRepr -> undefined
+      Ecall -> error "ecall not implemented"
+      Ebreak -> error "ebreak not implemented"
+      Mret -> error "mret not implemented"
+      Wfi -> error "wfi not implemented"
+    ARepr -> error "memory atomics not implemented"
+    R2Repr -> error "r2-format instructions not implemented"
+    R3Repr -> error "r3-format instructions not implemented"
+    R4Repr -> error "r4-format instructions not implemented"
+    RXRepr -> error "rx-format instructions not implemented"
     XRepr -> case oc of
-      Illegal -> undefined
+      Illegal -> error "illegal instruction"
