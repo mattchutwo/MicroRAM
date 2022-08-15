@@ -35,9 +35,6 @@ class (Typeable (Inst arch), Eq (Inst arch), Ord (Inst arch), Show (Inst arch)) 
   type Inst arch = i | i -> arch
   type State arch = s | s -> arch
 
-  -- | Convert a native instruction to a MRAM instruction.
-  toMRAMInsts :: Inst arch -> [Instruction r v]
-
   -- | Take a step for a native instruction.
   stepArch :: State arch -> Inst arch -> Hopefully (State arch)
   -- | Convert a MicroRAM state to a native state.

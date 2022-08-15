@@ -1,5 +1,7 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module RiscV.Transpiler where -- (transpiler)
 
@@ -23,6 +25,7 @@ import Compiler.IRs(lazyPc, hereLabel)
 import Compiler.LazyConstants
 import Compiler.Analysis (AnalysisData(..))
 -- import Compiler.Registers
+import qualified Native
 
 import qualified Data.List as List (partition)
 import qualified Data.Map as Map
@@ -173,11 +176,12 @@ getName st = do
   return nameRet
 
 transpiler :: Bool
+           -> Bool
            -> Word
            -> Map.Map String Name
            ->  [LineOfRiscV]
            -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord))
-transpiler verb firstUnusedName nameMap rvcode =
+transpiler verb emulatorEnabled firstUnusedName nameMap rvcode =
   evalStateT (mapM transpilerLine rvcode >> finalizeTP)
   (initStateTP firstUnusedName nameMap)
   where 
@@ -185,7 +189,7 @@ transpiler verb firstUnusedName nameMap rvcode =
     transpilerLine (LabelLn lbl) =
       ifM (use $ currSectionTP . flag_exec) (codeLbl lbl) (memLbl lbl) 
     transpilerLine (Directive dir) =     transpileDir verb dir
-    transpilerLine (Instruction instr) = transpileInstr instr
+    transpilerLine (Instruction instr) = transpileInstr emulatorEnabled instr
 
     codeLbl,memLbl :: String -> Statefully ()
     codeLbl lbl = do
@@ -492,15 +496,16 @@ tpRegRegReg r1 r2 r3 = (tpReg r1, tpReg r2, tpReg r3)
 
 
 -- ## Instructions
-transpileInstr :: Instr -> Statefully ()
-transpileInstr instr = do
-  instrs <- case instr of
+transpileInstr :: Bool -> Instr -> Statefully ()
+transpileInstr emulatorEnabled instr = do
+  instrs' <- case instr of
               Instr32I instrRV32I     -> transpileInstr32I instrRV32I     
               Instr64I instrRV64I     -> transpileInstr64I instrRV64I   
               Instr32M instrExt32M    -> return $ transpileInstr32M instrExt32M  
               Instr64M instrExt64M    -> return $ transpileInstr64M instrExt64M  
               InstrPseudo pseudoInstr -> transpileInstrPseudo pseudoInstr
               InstrAlias aliasInstr   -> return $ transpileInstralias aliasInstr
+  let instrs = insertEmulator instrs' instr
   instrMD <- traverse addMetadata instrs
   -- TODO remove writes to zero
   -- TODO2: simplify reads from 0
@@ -514,10 +519,27 @@ transpileInstr instr = do
         blockName <- getName =<< (maybe "NoName" id) <$> (use currBlockTP)
         line <- return 0 -- Bogus
         return (instr, Metadata funName blockName line False False False False)
+
+      insertEmulator instrs instr
+        | shouldEmulate instr =
+              [Iext XSnapshot]
+           <> instrs
+           <> [Iext (XCheck (Native.NativeInstruction instr))]
+        | otherwise = instrs
+
+      shouldEmulate instr = emulatorEnabled && case instr of
+        -- TODO: Should all instructions be emulated?
+        Instr32I instrRV32I     -> True
+        Instr64I instrRV64I     -> True
+        Instr32M instrExt32M    -> True
+        Instr64M instrExt64M    -> True
+        InstrPseudo pseudoInstr -> True
+        InstrAlias aliasInstr   -> True
+
                
 transpileInstralias  :: AliasInstr  -> Seq (MAInstruction Int MWord)
 transpileInstralias  _ =
-  -- This instruction should allways trap.  We do so by reading from
+  -- This instruction should always trap.  We do so by reading from
   -- address 0 which should be poisoned, and thus executing this
   -- instruction will make the trace invalid.
   Seq.fromList [Iload W8 newReg (LImm 0)]

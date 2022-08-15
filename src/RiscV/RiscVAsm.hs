@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeFamilies #-}
+
 module RiscV.RiscVAsm
   ( 
   -- * Operands
@@ -78,6 +80,8 @@ module RiscV.RiscVAsm
   -- $alias
   , AliasInstr(..)
    ) where
+
+import Native (Native(..))
 
 -- import Data.Bits
 import Data.Word (Word8, Word16, Word64)
@@ -847,7 +851,16 @@ data Instr
   | InstrAlias  AliasInstr   -- ^ Instruction Aliases
   deriving (Show, Eq, Ord)
 
+data RiscV
 
+instance Native RiscV where
+  type Inst RiscV = Instr
+  type State RiscV = ()
+
+  stepArch = error "TODO"
+  toArchState = error "TODO"
+
+  archStateEq = error "TODO"
 
 
 {- $rv32i

@@ -103,7 +103,7 @@ main = do
           giveInfo fr "Running the RiscV compiler backend..."
           riscCode <- readFile $ fileIn fr
           handleErrorWith (riscBackend (verbose fr)
-                             (fileIn fr) riscCode trLength)
+                             (nativeEmulator fr) (fileIn fr) riscCode trLength)
           
 
         saveMramProgram :: Show a => FlagRecord -> a -> IO ()
@@ -187,6 +187,7 @@ data Flag
    | PrettyPrint
    | PubSegMode String
    | ModeFlag Mode
+   | NativeEmulator
    | SkipRegisterAllocation
    -- Interpreter flags
    | VerifierMode
@@ -223,6 +224,7 @@ data FlagRecord = FlagRecord
   , ppMRAM :: Bool
   , pubSegMode :: PublicSegmentMode
   , modeLeakTainted :: Bool
+  , nativeEmulator :: Bool
   , skipRegisterAllocation :: Bool
   -- Interpreter
   , verifierMode :: Bool -- VerifierMode
@@ -254,6 +256,7 @@ defaultFlags name len =
   , ppMRAM = False
   , pubSegMode = PsmFunctionCalls
   , modeLeakTainted = False
+  , nativeEmulator = False
   , skipRegisterAllocation = False
   -- Interpreter
   , verifierMode = False
@@ -286,6 +289,7 @@ parseFlag flag fr =
     PubSegMode "abs-int" ->    fr {pubSegMode = PsmAbsInt}
     PubSegMode x ->            error $ "unsupported public segment mode: " ++ show x
     ModeFlag LeakTaintedMode -> fr {modeLeakTainted = True}
+    NativeEmulator ->           fr {nativeEmulator = True}
     SkipRegisterAllocation ->   fr {skipRegisterAllocation = True}
     -- Interpreter flags
     FromMRAM ->                 fr {beginning = MRAMLang} -- In this case we are reading the fileIn
@@ -326,7 +330,8 @@ options =
   , Option []    ["allow-undef"] (NoArg AllowUndefFun)             "Allow declared functions with no body."
   , Option []    ["pretty-print"] (NoArg PrettyPrint)              "Pretty print the MicroRAM program with metadata."
   , Option []    ["pub-seg-mode"] (ReqArg PubSegMode "MODE")       "Public segment generation mode, one of: none, function-calls, abs-int"
-  , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")              "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
+  , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")    "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
+  , Option []    ["debug-emulator"] (NoArg NativeEmulator)         "Emulate native instructions to check for consistency between native and MRAM machines. Should only be used while debugging."
   , Option []    ["debug-skip-register-allocation"]   (NoArg SkipRegisterAllocation)    "Skip register allocation. Should only be used while debugging."
   ]
   where readOpimisation Nothing = Optimisation 1

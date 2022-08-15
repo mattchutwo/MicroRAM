@@ -263,31 +263,31 @@ readStr ptr = do
     readByte :: MWord -> Memory v -> Hopefully Word8
     readByte addr mem = fromIntegral . conGetValue <$> absLoad W1 (absExact @v addr) mem
     
+-- This assumes that XSnapshot and XCheck surround a native instruction.
 snapshotHandler :: (Concretizable v, Regs r) => InstrHandler' r v s -> InstrHandler' r v s
 snapshotHandler _nextH (Iext XSnapshot) = do
   m <- use sMach
   sCachedMach .= Just m
   nextPc
 snapshotHandler _nextH (Iext (XCheck (Native.NativeInstruction i))) = do
-  initState <- (over (sMach . mPc) (+1)) <$> get
 
-  -- Take MicroRAM steps.
-  let mramState = _sMach <$> stepMicro initState (Native.toMRAMInsts i)
+  -- Get MicroRAM state (after the intepreter already took the steps).
+  mramState <- _sMach <$> get
 
   -- Convert to native architecture and then take a step.
-  let archState = Native.stepArch (Native.toArchState $ _sMach initState) i
+  initStateM <- _sCachedMach <$> get
+  case initStateM of
+    Nothing ->
+      otherError $ "No cached machine state for XCheck"
+    Just initState -> do
+      let archState = Native.stepArch (Native.toArchState initState) i
 
-  -- Simulation check that toArch (step i) == step (toArch i).
-  case (Native.toArchState <$> mramState, archState) of
-    (Right l, Right r) | Native.archStateEq l r ->
-      nextPc
-    _ -> do
-      traceM $ "[CHECK] Step for instruction " <> show i <> " does not match native step at state " <> show (_sMach initState)
-      nextPc -- JP: Should we stop execution instead?
-
-  where
-    stepMicro s is = execStateT (mapM_ stepInstr is) s
-
+      -- Simulation check that toArch (step i) == step (toArch i).
+      case archState of
+        Right r | Native.archStateEq (Native.toArchState mramState) r ->
+          nextPc
+        _ ->
+          otherError $ "[CHECK] Step for instruction " <> show i <> " does not match native step at state " <> show initState
 snapshotHandler nextH instr = nextH instr
 
 
@@ -586,7 +586,7 @@ runPassGeneric :: forall r s v. (Concretizable v, Regs r)
                -> s -> Word -> MachineState' r v -> Hopefully (Trace r)
 runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
   -- The first entry of the trace is always the initial state.  Then `steps`
-  -- entries follow after it.k
+  -- entries follow after it.
   initExecState <- evalStateT (getStateWithAdvice eAdvice) initState
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)

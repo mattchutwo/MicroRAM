@@ -16,18 +16,19 @@ import RiscV.Transpiler
 import RiscV.Intrinsics
 
 riscBackend :: Bool   -- ^ verbose
+            -> Bool   -- ^ Whether emulator is enabled
             -> String -- ^ program name
             -> String -- ^ RiscV Code as string
             -> Word    -- ^ The trace length
             -> Hopefully (CompilationResult (AnnotatedProgram Metadata Int MWord))
-riscBackend verb progName code trLen = do
+riscBackend verb emulatorEnabled progName code trLen = do
   -- Parse the RiscV code
   parsedRisc <- riscvParser progName code
   -- build intrinsics and get their name mapping
   let firstUnusedName = intrinsicsFstUnusedName
   let nameMap = intrinsicsMap
   -- Transpile to MicroAssembly
-  masm <- transpiler verb firstUnusedName nameMap parsedRisc
+  masm <- transpiler verb emulatorEnabled firstUnusedName nameMap parsedRisc
   -- add intrinsics
   masmHigh <- justCompile addIntrinsicsHigh masm
   masmLow  <- justCompile addIntrinsicsLow masm
