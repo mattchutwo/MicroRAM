@@ -159,7 +159,6 @@ instance Native RiscV where
   type Inst RiscV = Some (Instruction RV64IM)
   type State RiscV = Machine
 
-  toMRAMInsts i = undefined
   stepArch m (Some i) = Right (stepInst m i)
 
   toArchState ms' = Machine
