@@ -25,6 +25,7 @@ import qualified Data.Vector as Vec
 import           Data.Vector (Vector)
 import           Numeric.Natural
 
+import Control.Lens ((^.))
 import Data.Parameterized.Classes
 import Data.Parameterized.List
 import Data.Parameterized.NatRepr
@@ -43,6 +44,8 @@ import GRIFT.Semantics.Utils
 import GRIFT.Simulation
 
 import Compiler.Errors
+import Compiler.Registers
+import MicroRAM.MRAMInterpreter.Generic
 import Native
 import RiscV.RiscVAsm
 
@@ -158,7 +161,16 @@ instance Native RiscV where
 
   toMRAMInsts i = undefined
   stepArch m (Some i) = Right (stepInst m i)
-  toArchState ms' = undefined
+
+  toArchState ms' = Machine
+    { mRV = knownRepr
+    , mPC = UnsignedBV (BV.word64 (ms' ^. mPc))
+    , mMemory = ms' ^. mMem
+    , mGPRs = Vec.fromList (regToList 32 (ms' ^. mRegs))
+--  , mPC :: UnsignedBV (RVWidth RV64IM)
+--  , mMemory :: Map (UnsignedBV (RVWidth RV64IM)) (UnsignedBV 8)
+--  , mGPRs :: Vector (UnsignedBV (RVWidth RV64IM))
+    }
   archStateEq s1 s2 = undefined
 
 sizedBVToReg :: SizedBV 5 -> Reg
