@@ -164,6 +164,9 @@ instance Native RiscV where
 sizedBVToReg :: SizedBV 5 -> Reg
 sizedBVToReg _ = undefined
 
+sizedBVToImm :: SizedBV w -> Imm
+sizedBVToImm _ = undefined
+
 griftToInstr :: Instruction RV64IM fmt -> Instr
 griftToInstr (Inst oc (Operands fmt ops)) =
   case fmt of
@@ -171,48 +174,114 @@ griftToInstr (Inst oc (Operands fmt ops)) =
             let rd = sizedBVToReg rdBV
                 rs1 = sizedBVToReg rs1BV
                 rs2 = sizedBVToReg rs2BV
+                imm = sizedBVToImm rs2BV
             in case oc of
               Add -> Instr32I $ RegBinop32 ADD rd rs1 rs2
-              Sub -> undefined
-              Sll -> undefined
-              Slt -> undefined
-              Sltu -> undefined
-              Xor -> undefined
-              Srl -> undefined
-              Sra -> undefined
-              Or -> undefined
-              And -> undefined
-              Addw -> undefined
-              Subw -> undefined
-              Sllw -> undefined
-              Srlw -> undefined
-              Sraw -> undefined
-              Slliw -> undefined
-              Srliw -> undefined
-              Sraiw -> undefined
-              Mul -> undefined
-              Mulh -> undefined
-              Mulhsu -> undefined
-              Mulhu -> undefined
-              Div -> undefined
-              Divu -> undefined
-              Rem -> undefined
-              Remu -> undefined
-              Mulw -> undefined
-              Divw -> undefined
-              Divuw -> undefined
-              Remw -> undefined
-              Remuw -> undefined
-    IRepr -> undefined
-    SRepr -> undefined
-    BRepr -> undefined
-    URepr -> undefined
-    JRepr -> undefined
-    HRepr -> undefined
-    PRepr -> undefined
+              Sub -> Instr32I $ RegBinop32 SUB rd rs1 rs2
+              Sll -> Instr32I $ RegBinop32 SLL rd rs1 rs2
+              Slt -> Instr32I $ RegBinop32 SLT rd rs1 rs2
+              Sltu -> Instr32I $ RegBinop32 SLTU rd rs1 rs2
+              Xor -> Instr32I $ RegBinop32 XOR rd rs1 rs2
+              Srl -> Instr32I $ RegBinop32 SRL rd rs1 rs2
+              Sra -> Instr32I $ RegBinop32 SRA rd rs1 rs2
+              Or -> Instr32I $ RegBinop32 OR rd rs1 rs2
+              And -> Instr32I $ RegBinop32 AND rd rs1 rs2
+              Addw -> Instr64I $ RegBinop64 ADDW rd rs1 rs2
+              Subw -> Instr64I $ RegBinop64 SUBW rd rs1 rs2
+              Sllw -> Instr64I $ RegBinop64 SLLW rd rs1 rs2
+              Srlw -> Instr64I $ RegBinop64 SRLW rd rs1 rs2
+              Sraw -> Instr64I $ RegBinop64 SRAW rd rs1 rs2
+              Slliw -> Instr64I $ ImmBinop64 SLLIW rd rs1 imm
+              Srliw -> Instr64I $ ImmBinop64 SRLIW rd rs1 imm
+              Sraiw -> Instr64I $ ImmBinop64 SRAIW rd rs1 imm
+              Mul -> Instr32M $ MUL rd rs1 rs2
+              Mulh -> Instr32M $ MULH rd rs1 rs2
+              Mulhsu -> Instr32M $ MULHSU rd rs1 rs2
+              Mulhu -> Instr32M $ MULHU rd rs1 rs2
+              Div -> Instr32M $ DIV rd rs1 rs2
+              Divu -> Instr32M $ DIVU rd rs1 rs2
+              Rem -> Instr32M $ REM rd rs1 rs2
+              Remu -> Instr32M $ REMU rd rs1 rs2
+              Mulw -> Instr64M $ MULW rd rs1 rs2
+              Divw -> Instr64M $ DIVW rd rs1 rs2
+              Divuw -> Instr64M $ DIVUW rd rs1 rs2
+              Remw -> Instr64M $ REMW rd rs1 rs2
+              Remuw -> Instr64M $ REMUW rd rs1 rs2
+    IRepr | (rdBV :< rs1BV :< imm12BV :< Nil) <- ops ->
+            let rd = sizedBVToReg rdBV
+                rs1 = sizedBVToReg rs1BV
+                imm12 = sizedBVToImm imm12BV
+            in case oc of
+              Jalr -> Instr32I $ JALR rd rs1 imm12
+              Lb -> Instr32I $ MemInstr32 LB rd imm12 rs1
+              Lh -> Instr32I $ MemInstr32 LH rd imm12 rs1
+              Lw -> Instr32I $ MemInstr32 LW rd imm12 rs1
+              Lbu -> Instr32I $ MemInstr32 LBU rd imm12 rs1
+              Lhu -> Instr32I $ MemInstr32 LHU rd imm12 rs1
+              Addi -> Instr32I $ ImmBinop32 ADDI rd rs1 imm12
+              Slti -> Instr32I $ ImmBinop32 SLTI rd rs1 imm12
+              Sltiu -> Instr32I $ ImmBinop32 SLTIU rd rs1 imm12
+              Xori -> Instr32I $ ImmBinop32 XORI rd rs1 imm12
+              Ori -> Instr32I $ ImmBinop32 ORI rd rs1 imm12
+              Andi -> Instr32I $ ImmBinop32 ANDI rd rs1 imm12
+              Fence -> error "fence not implemented"
+              Csrrw -> error "csrrw not implemented"
+              Csrrs -> error "csrrs not implemented"
+              Csrrc -> error "csrrc not implemented"
+              FenceI -> error "fencei not implemented"
+              Csrrwi -> error "csrrwi not implemented"
+              Csrrsi -> error "csrrsi not implemented"
+              Csrrci -> error "csrrci not implemented"
+              Lwu -> Instr64I $ MemInstr64 LWU rd imm12 rs1
+              Ld -> Instr64I $ MemInstr64 LD rd imm12 rs1
+              Addiw -> Instr64I $ ImmBinop64 ADDIW rd rs1 imm12
+    SRepr | (rs1BV :< rs2BV :< imm12BV :< Nil) <- ops ->
+            let rs1 = sizedBVToReg rs1BV
+                rs2 = sizedBVToReg rs2BV
+                imm12 = sizedBVToImm imm12BV
+            in case oc of
+              Sb -> undefined
+              Sh -> undefined
+              Sw -> undefined
+              Sd -> undefined
+    BRepr | (rs1BV :< rs2BV :< imm12BV :< Nil) <- ops ->
+            let rs1 = sizedBVToReg rs1BV
+                rs2 = sizedBVToReg rs2BV
+                imm12 = sizedBVToImm imm12BV
+            in case oc of
+              Beq -> undefined
+              Bne -> undefined
+              Blt -> undefined
+              Bltu -> undefined
+              Bge -> undefined
+              Bgeu -> undefined
+    URepr | (rs1BV :< imm20BV :< Nil) <- ops ->
+            let rs1 = sizedBVToReg rs1BV
+                imm20 = sizedBVToImm imm20BV
+            in case oc of
+              Lui -> undefined
+              Auipc -> undefined
+    JRepr | (rdBV :< imm20BV :< Nil) <- ops ->
+            let rd = sizedBVToReg rdBV
+            in case oc of
+              Jal -> undefined
+    HRepr | (rdBV :< rs1BV :< shamt7BV :< Nil) <- ops ->
+            let rd = sizedBVToReg rdBV
+                rs1 = sizedBVToReg rs1BV
+                shamt7 = sizedBVToImm shamt7BV
+            in case oc of
+              Slli -> undefined
+              Srli -> undefined
+              Srai -> undefined
+    PRepr -> case oc of
+      Ecall -> undefined
+      Ebreak -> undefined
+      Mret -> undefined
+      Wfi -> undefined
     ARepr -> undefined
     R2Repr -> undefined
     R3Repr -> undefined
     R4Repr -> undefined
     RXRepr -> undefined
-    XRepr -> undefined
+    XRepr -> case oc of
+      Illegal -> undefined
