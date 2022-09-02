@@ -97,16 +97,21 @@ addIntrinsicsHigh prog = return $ prog ++ intrinsics
 
 -- | Adds intrinsics with lowered externals 
 addIntrinsicsLow :: MAProgram Metadata Int MWord -> Hopefully (MAProgram Metadata Int MWord)
-addIntrinsicsLow prog = return $ prog ++ loweredIntrinsics
+addIntrinsicsLow prog = map lowerBlock <$> addIntrinsicsHigh prog   
+  -- return $ prog ++ loweredIntrinsics
 
 intrinsics :: [NamedBlock Metadata Int MWord] -- Also [Intrinsic]
 intrinsics = fst intrinsicsAndMap
 
 loweredIntrinsics  :: [NamedBlock Metadata Int MWord]
 loweredIntrinsics = lowerBlock <$> intrinsics
-  where lowerBlock (NBlock name instrs) =
-          NBlock name (concat $ lowerInstrMd <$> instrs)
-        lowerInstrMd :: (MAInstruction Int MWord, Metadata)
+
+lowerBlock
+  :: NamedBlock Metadata Int MWord
+  -> NamedBlock Metadata Int MWord
+lowerBlock (NBlock name instrs) =
+  NBlock name (concat $ lowerInstrMd <$> instrs)
+  where lowerInstrMd :: (MAInstruction Int MWord, Metadata)
                      -> [(MAInstruction Int MWord, Metadata)]
         lowerInstrMd (instr,md) = (\a -> (a,md)) <$> lowerInstr' newReg instr
         
