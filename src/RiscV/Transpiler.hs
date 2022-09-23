@@ -306,6 +306,7 @@ transpileDir verb dir =
     -- Currently unimplemented 
     Visibility _ _ -> ignoreDire "Visibility _ _" -- TODO: unimplementedDir -- Not in binutils. Remove?
     STRING st      -> emitString st True
+    ASCII  st      -> emitString st False
     ASCIZ  st      -> emitString st True -- alias for string
     EQU _st _val   -> unimplementedDir
     OPTION _opt    -> unimplementedDir -- Rarely used

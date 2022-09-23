@@ -413,6 +413,7 @@ data Directive
   | RODATA                              -- ^ Emit .rodata section (if not present) and make current
   | BSS                                 -- ^ Emit .bss section (if not present) and make current
   | STRING      String                  -- ^ Emit string
+  | ASCII       String                  -- ^ Emit ascii text without null terminator
   | ASCIZ       String                  -- ^ Emit string (alias for .string)
   | EQU         String Word             -- ^ Constant definition
   | TYPE        String DirTypes         -- ^ Accepted for source compatibility

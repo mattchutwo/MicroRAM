@@ -701,6 +701,7 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "rodata"        ==> RODATA 
       , "bss"           ==> BSS    
       , "string"        ==> STRING     <*> textParser
+      , "ascii"         ==> ASCII      <*> textParser
       , "asciz"         ==> ASCIZ      <*> textParser
       , "equ"           ==> EQU        <*> identifier <:> (fromInteger <$> integer)
       , "type"          ==> TYPE       <*> identifier <:> typeParser
