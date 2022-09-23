@@ -902,8 +902,8 @@ transpileInstr32I instr =
       return [Imov reg' (LImm $ lazyPc + lazyUop luiFunc off')]
     ImmBinop32 binop32I reg1 reg2 imm -> transpileImmBinop32I binop32I reg1 reg2 imm
     RegBinop32 binop32 reg1 reg2 reg3 -> return $ transpileRegBinop32I binop32  reg1 reg2 reg3
-    FENCE predOrder succOrder         -> error "Undefined Fence" -- Probably a noop?
-    FENCEI                            -> error "Undefined Fence" -- Probably a noop?
+    FENCE predOrder succOrder         -> return []
+    FENCEI                            -> return []
   where
     -- Memory operations
     -- Big TODO TODO TODO
