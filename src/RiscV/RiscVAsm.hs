@@ -69,7 +69,7 @@ module RiscV.RiscVAsm
   , AbsolutePseudo(..)
   , MemOpKind(..)
   , UnaryPseudo(..)
-  , CMovPseudo(..)
+  , CmpFlagPseudo(..)
   , BranchZPseudo(..)
   , BranchPseudo(..)
   , JumpPseudo(..)
@@ -1367,7 +1367,7 @@ data UnaryPseudo
   deriving (Show, Eq, Ord)
 
 {- |
-Conditional move instructions
+Comparison instructions with explicit flag output
 
 +---------------------+---------------------+----------------------------+-----------+
 |  pseudoinstruction  | Base Instruction(s) |          Meaning           | Supported |
@@ -1384,7 +1384,7 @@ Conditional move instructions
 -}
 
 
-data CMovPseudo
+data CmpFlagPseudo
   = SEQZ -- ^ @sltiu rd, rs, 1@      Set if = zero 
   | SNEZ -- ^ @sltu rd, x0, rs@      Set if <> zero
   | SLTZ -- ^ @slt rd, rs, x0@       Set if < zero 
@@ -1519,8 +1519,8 @@ data PseudoInstr
   | AbsolutePI AbsolutePseudo
   -- | Unary register Pseudoinstructions
   | UnaryPI UnaryPseudo Reg Reg
-  -- | Conditional Moves
-  | CMovPI CMovPseudo Reg Reg
+  -- | Comparison with explicit flag output
+  | CmpFlagPI CmpFlagPseudo Reg Reg
   -- | Alternative branches
   | BranchZPI BranchZPseudo Reg Offset
   | BranchPI BranchPseudo Reg Reg Offset

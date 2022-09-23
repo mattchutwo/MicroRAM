@@ -695,11 +695,9 @@ transpileInstrPseudo instr =
       return [Iadd (tpReg X0) (tpReg X0) (LImm 0) ]
     AbsolutePI _ -> error "AbsolutePI" -- AbsolutePseudo
     UnaryPI  unop reg1 reg2  -> return $ unaryPseudo unop reg1 reg2  -- UnaryPseudo Reg Reg
-    CMovPI cond r1 r2 -> 
+    CmpFlagPI cond r1 r2 ->
       let (r1', r2') = tpRegReg r1 r2 in 
-        return $
-        [computeCondition cond newReg r2', 
-         Icmov r1' newReg (AReg r2')] 
+        return [computeCondition cond r1' r2']
     BranchZPI bsp rd off -> pseudoBranch bsp rd off  -- BranchZPseudo Reg Offset
     BranchPI branchPI r1 r2 offset ->
       -- From the RISC-V Instruction Set Manual:
@@ -727,11 +725,13 @@ transpileInstrPseudo instr =
       let r1' = tpReg r1 in 
         return [Ijmp (AReg r1')]
   where
-    computeCondition :: CMovPseudo -> Int -> Int -> MAInstruction Int MWord
+    computeCondition :: CmpFlagPseudo -> Int -> Int -> MAInstruction Int MWord
     computeCondition cond ret r1 =
       case cond of
         SEQZ -> Icmpe ret r1 (LImm 0)
-        SNEZ -> Icmpg ret r1 (LImm 0)
+        -- `r1 != 0` is the same as `r1 > 0` (unsigned)
+        SNEZ -> Icmpa ret r1 (LImm 0)
+        -- `r1 < 0` is the same as `0 > r1` (signed)
         SLTZ -> Icmpg ret (tpReg X0) (AReg r1)
         SGTZ -> Icmpg ret r1 (LImm 0)
     

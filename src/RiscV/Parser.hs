@@ -568,10 +568,10 @@ parsePseudo = choiceTry
       , "negw"   ==> UnaryPI NEGW  <*> regParser <:> regParser
       , "sext.w"  ==> UnaryPI SEXTW <*> regParser <:> regParser
       -- Conditional Moves
-      , "seqz"   ==> CMovPI SEQZ <*> regParser <:> regParser
-      , "snez"   ==> CMovPI SNEZ <*> regParser <:> regParser
-      , "sltz"   ==> CMovPI SLTZ <*> regParser <:> regParser
-      , "sgtz"   ==> CMovPI SGTZ <*> regParser <:> regParser
+      , "seqz"   ==> CmpFlagPI SEQZ <*> regParser <:> regParser
+      , "snez"   ==> CmpFlagPI SNEZ <*> regParser <:> regParser
+      , "sltz"   ==> CmpFlagPI SLTZ <*> regParser <:> regParser
+      , "sgtz"   ==> CmpFlagPI SGTZ <*> regParser <:> regParser
       -- Alternative branches ZERO
       , "beqz"   ==> BranchZPI BEQZ <*> regParser <:> offsetParser
       , "bnez"   ==> BranchZPI BNEZ <*> regParser <:> offsetParser
