@@ -9,6 +9,7 @@ module RiscV.RiscVAsm
     Imm (..)
   , ImmOp (..)
   , Modifier (..)
+  , SymbolSuffix (..)
   -- ** Offsets
   , Offset
   -- ** Registers
@@ -132,6 +133,18 @@ instance Arbitrary Modifier where
       , ModTls_ie_pcrel_hi
       , ModTls_gd_pcrel_hi]
 
+
+data SymbolSuffix =
+  SufPlt        -- ^ @symbol@plt@: Address of the Procedure Linkage Table stub
+                -- for calling @symbol@ after dynamic linking.
+  deriving (Show, Eq, Ord)
+
+instance Arbitrary SymbolSuffix where
+  arbitrary =
+    oneof $ pure <$>
+      [ SufPlt ]
+
+
 {- $operands
 
    An expression specifies an address or numeric value using
@@ -167,7 +180,7 @@ instance Arbitrary Modifier where
 
 data Imm =
   ImmNumber Word64
-  | ImmSymbol String
+  | ImmSymbol String (Maybe SymbolSuffix)
   | ImmMod Modifier Imm
   | ImmBinOp ImmOp Imm Imm 
   deriving (Show, Eq, Ord)
@@ -193,7 +206,7 @@ instance Arbitrary ImmOp where
 instance Arbitrary Imm where
   arbitrary = oneof $ 
     [ ImmNumber  <$> arbitrary
-    , ImmSymbol  <$> arbitrary
+    , ImmSymbol  <$> arbitrary <*> arbitrary
     , ImmMod     <$> arbitrary <*> arbitrary
     , ImmBinOp   <$> arbitrary <*> arbitrary <*> arbitrary ]
 

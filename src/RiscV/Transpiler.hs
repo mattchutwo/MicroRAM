@@ -506,7 +506,10 @@ zero = fromEnum  X0 -- hardwired zero
 tpImm :: Imm -> Statefully (LazyConst MWord)
 tpImm imm = case imm of
               ImmNumber c -> return $ SConst c
-              ImmSymbol str -> lazyAddrOf <$> getName str         
+              -- Note we ignore all symbol suffixes - we treat `memcpy@plt` the
+              -- same as plain `memcpy`.  Real linkers do the same when
+              -- `memcpy` is a local symbol.
+              ImmSymbol str _ -> lazyAddrOf <$> getName str         
               ImmMod mod imm1 -> do
                 lc <- tpImm imm1
                 return $ lazyUop (modifierFunction mod) lc

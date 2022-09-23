@@ -326,7 +326,7 @@ immediateParser = Expr.buildExpressionParser operands immTerm <?> "an immediate"
     immTerm :: Stream s Identity Char
             => Parsec s u Imm
     immTerm = parens immediateParser
-              <|> ImmSymbol <$> lexeme identifier
+              <|> symbolWithSuffix
               <|> ImmNumber <$> fromInteger <$> lexeme integerParser
               <|> modParse <*> parens immediateParser
     operands :: Stream s Identity Char
@@ -353,7 +353,20 @@ immediateParser = Expr.buildExpressionParser operands immTerm <?> "an immediate"
            => String -> (a -> a -> a) -> Expr.Operator st u Identity a
     infix_ operator func =
       Expr.Infix (symbolParser operator >> return func) Expr.AssocLeft
-    
+
+    symbolWithSuffix :: Stream s Identity Char
+                     => Parsec s u Imm
+    symbolWithSuffix = lexeme $
+                       ImmSymbol <$> identifier <*> optionMaybe suffixParse
+
+    suffixParse :: Stream s Identity Char
+                => Parsec s u SymbolSuffix
+    suffixParse = char '@' *> parseFromPairs suffixes
+
+    suffixes = [
+      ("plt", SufPlt)
+      ]
+
 {- | Offsets.  Offsets are differnt from Immediates. First of all,
 bounded by a smaller number (2^12 I think?). Second, they accept no
 symbols or modifiers (I think).
