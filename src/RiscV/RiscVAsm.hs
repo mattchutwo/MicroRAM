@@ -1093,7 +1093,7 @@ data InstrRV32I =
   | RegBinop32 Binop32 Reg Reg Reg
   
     -- | Synchronisation Instructions (Fences)
-  | FENCE SetOrdering
+  | FENCE SetOrdering SetOrdering
   | FENCEI            
   deriving (Show, Eq, Ord)
 
@@ -1120,10 +1120,10 @@ predecessor set includes loads (resp. stores) if and only if PR
 (resp. PW) is set.
 -}
 data SetOrdering = SetOrdering
-  { predRead  :: Bool
-  , predWrite :: Bool
-  , succRead  :: Bool
-  , succWrite :: Bool
+  { orderRead  :: Bool
+  , orderWrite :: Bool
+  , orderInput :: Bool
+  , orderOutput :: Bool
   } deriving (Show, Eq, Ord)
 
 

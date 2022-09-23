@@ -442,13 +442,25 @@ parse32I = choiceTry
       , "or"    ==> RegBinop32 OR   <*> regParser <:> regParser <:> regParser
       , "and"   ==> RegBinop32 AND  <*> regParser <:> regParser <:> regParser
       -- fence instructions
-      , "fance"    ==> FENCE    <*> orderingParser
+      , "fence"    ==> FENCE    <*> orderingParser <:> orderingParser
       , "fence.i"  ==> FENCEI ]
     
 
 -- | Memory ordering for fences
-orderingParser :: Parsec s u SetOrdering
-orderingParser = undefined -- not needed?
+orderingParser :: Stream s Identity Char
+               => Parsec s u SetOrdering
+orderingParser = foldl (\x f -> f x) emptyOrdering <$> option [] (many1 flag)
+  where
+    emptyOrdering = SetOrdering False False False False
+    flag = choice
+      [ char 'r' >> pure (\o -> o { orderRead = True })
+      , char 'w' >> pure (\o -> o { orderWrite = True })
+      , char 'i' >> pure (\o -> o { orderInput = True })
+      , char 'o' >> pure (\o -> o { orderOutput = True })
+      ]
+
+allOrdering :: SetOrdering
+allOrdering = SetOrdering True True True True
 
 parse64I :: Stream s Identity Char
          => Parsec s u InstrRV64I
