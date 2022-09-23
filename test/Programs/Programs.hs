@@ -319,6 +319,11 @@ riscvTests = ManyTests "RISC-V backend correctness tests" $ OneTest <$>
   ,fileName = "test/Programs/RISCV/funcPointer.s"
   ,testLen = 200
   ,testResult = 5} : 
+  defaultTest {
+  testName = "String Escape"
+  ,fileName = "test/Programs/RISCV/string_escape.s"
+  ,testLen = 200
+  ,testResult = 1} :
   []
 
 ------------------
