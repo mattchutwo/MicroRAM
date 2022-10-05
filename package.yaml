@@ -25,7 +25,6 @@ dependencies:
 - data-default
 - haggle
 - llvm-hs-pure
-- llvm-hs
 - mtl
 - bytestring
 - prettyprinter
