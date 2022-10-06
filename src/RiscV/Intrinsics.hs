@@ -97,16 +97,21 @@ addIntrinsicsHigh prog = return $ prog ++ intrinsics
 
 -- | Adds intrinsics with lowered externals 
 addIntrinsicsLow :: MAProgram Metadata Int MWord -> Hopefully (MAProgram Metadata Int MWord)
-addIntrinsicsLow prog = return $ prog ++ loweredIntrinsics
+addIntrinsicsLow prog = map lowerBlock <$> addIntrinsicsHigh prog   
+  -- return $ prog ++ loweredIntrinsics
 
 intrinsics :: [NamedBlock Metadata Int MWord] -- Also [Intrinsic]
 intrinsics = fst intrinsicsAndMap
 
 loweredIntrinsics  :: [NamedBlock Metadata Int MWord]
 loweredIntrinsics = lowerBlock <$> intrinsics
-  where lowerBlock (NBlock name instrs) =
-          NBlock name (concat $ lowerInstrMd <$> instrs)
-        lowerInstrMd :: (MAInstruction Int MWord, Metadata)
+
+lowerBlock
+  :: NamedBlock Metadata Int MWord
+  -> NamedBlock Metadata Int MWord
+lowerBlock (NBlock name instrs) =
+  NBlock name (concat $ lowerInstrMd <$> instrs)
+  where lowerInstrMd :: (MAInstruction Int MWord, Metadata)
                      -> [(MAInstruction Int MWord, Metadata)]
         lowerInstrMd (instr,md) = (\a -> (a,md)) <$> lowerInstr' newReg instr
         
@@ -130,7 +135,9 @@ intrinsicsAndMap = flip runState initState $
            , cc_write_unchecked
            , cc_flag_invalid
            , cc_flag_bug
-           , cc_trace] ++ exceptions ++ otherTraps
+           , cc_trace
+           , cc_trace_exec]
+  ++ exceptions ++ otherTraps
 
 
 
@@ -215,10 +222,14 @@ retReg = fromEnum X10
 arg0', arg1' :: Int
 arg0' = fromEnum X10
 arg1' = fromEnum X11
+arg2' = fromEnum X12
+arg3' = fromEnum X13
 
 arg0, arg1 :: MAOperand Int MWord
 arg0 = AReg $ arg0'
 arg1 = AReg $ arg1'
+arg2 = AReg $ arg2'
+arg3 = AReg $ arg3'
 
 -- This on is not used in riscv.
 cc_noop :: Intrinsic
@@ -285,10 +296,11 @@ cc_trace =
 
 -- TODO: we could implement trace trace_exec with vargs. Or more simply
 -- fix the number of arguments, say 8.
--- cc_trace_exec :: Intrinsic
--- cc_trace_exec (name : args) Nothing md _ =
---   buildIntrinsic "__" [Iext (XTraceExec name args)]
-
+cc_trace_exec :: Intrinsic
+cc_trace_exec =
+  buildIntrinsic "__cc_trace_exec"
+  [Iext (XTraceExec arg0 otherArgs)]
+  where otherArgs = [arg1, arg2, arg3]
 -- # Exceptions
 exceptions = [cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_pure_virtual, cxa_throw, gxx_personality_v0]
 
@@ -306,7 +318,7 @@ gxx_personality_v0     = buildIntrinsic "__gxx_personality_v0" $ cc_trap "__gxx_
 --  #Other traps
 -- These functions show up on Grit and shouldn't be called.
 -- However we should have a better pipeline to remove them automatically.
-otherTraps = [iob, unwind_Resume, zTIPKc, pos]
+otherTraps = [iob, unwind_Resume, zTIPKc]
 
 iob, unwind_Resume, zTIPKc, memcpy, pos :: Intrinsic
 iob           = buildIntrinsic "__iob" $ cc_trap "iob"

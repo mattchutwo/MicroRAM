@@ -102,7 +102,6 @@ instance AbsDomain MWord where
       hi = fromIntegral $ prod `shiftR` wordBits
   absDiv a b = if b == 0 then 0 else a `div` b
   absMod a b = if b == 0 then 0 else a `mod` b
-  absNeg = negate
 
   absAnd = (.&.)
   absOr = (.|.)

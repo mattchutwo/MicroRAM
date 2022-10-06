@@ -48,7 +48,7 @@ processTest leakTainted name file len =
         output :: FilePath -> Word -> Bool -> IO Property 
         output file len skipRegAlloc = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile False False False skipRegAlloc len llvmProg Nothing
+          mramProg <- handleErrorWith $ compile defOptions{skipRegisterAllocation = skipRegAlloc} len llvmProg
           let postProcessed = compilerErrorResolve $ postProcess_v False False PsmAbsInt chunkSize True mramProg Nothing
           return $ result2property $ checkOutput leakTainted <$> postProcessed
         chunkSize = 10

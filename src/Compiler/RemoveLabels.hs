@@ -45,7 +45,6 @@ import Compiler.IRs
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import qualified Data.Vector as V
 
 import Compiler.Common
 import Compiler.CompilationUnit
@@ -96,13 +95,19 @@ buildLabelMap blocks globs = do
       trace "warning: unnamed block in RemoveLabels" $
         goBlocks m (addr + blockSize b) bs
 
+    goGlobs :: Map.Map Name MWord -> MWord -> [GlobalVariable MWord] -> Hopefully (Map.Map Name MWord)
     goGlobs m _addr [] = return m
     goGlobs m addr (g:gs) = do
-      let name = globName g
+      let entries = (globName g,0):(entryPoints g)
+      m' <- foldM (insertLabel addr) m entries
+      goGlobs m' (nextGlobalAddr addr g) gs
+
+    insertLabel :: MWord -> Map.Map Name MWord -> (Name, MWord) -> Hopefully (Map.Map Name MWord)
+    insertLabel addr m (name, offset) = do
       when (Map.member name m) $
         assumptError $ "name collision between globals: " ++ show name
-      goGlobs (Map.insert name addr m) (nextGlobalAddr addr g) gs
-
+      return (Map.insert name (addr + offset) m)
+      
 getOrZero :: Map Name MWord -> Name -> MWord
 getOrZero m n = case Map.lookup n m of
   Nothing -> trace ("warning: label " ++ show n ++ " is missing; defaulting to zero") 0
@@ -152,6 +157,7 @@ flattenGlobals tainted lm gs = goGlobals globalsStart gs
     goGlobals addr (g:gs) = do
       init' <- mapM (mapM goLazyConst) (initializer g)
       let seg = InitMemSegment {
+            isName   = short2string $  dbName $ globName g,
             isSecret = secret g,
             isReadOnly = isConstant g,
             isHeapInit = gvHeapInit g,
@@ -159,7 +165,7 @@ flattenGlobals tainted lm gs = goGlobals globalsStart gs
             segmentLen = gSize g,
             content = init',
             labels = if tainted then
-                Just $ replicate (fromIntegral $ gSize g) $ V.replicate wordBytes untainted
+                Just $ replicate (fromIntegral $ gSize g) bottomWord
               else Nothing
             }
       rest <- goGlobals (nextGlobalAddr addr g) gs
@@ -194,3 +200,4 @@ stashGlobals ::
   CompilationUnit [GlobalVariable MWord] (Lprog m mreg MWord)
 stashGlobals cu = cu { intermediateInfo = gs }
   where gs = globals $ pmProg $ programCU cu
+
