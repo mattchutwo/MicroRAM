@@ -59,7 +59,7 @@ data Machine = Machine
   , mPC :: UnsignedBV (RVWidth RV64IM)
   , mMemory :: Map (UnsignedBV (RVWidth RV64IM)) (UnsignedBV 8)
   , mGPRs :: Vector (UnsignedBV (RVWidth RV64IM))
-  }
+  } -- deriving Eq
 
 newtype SimM a = SimM { unSimM :: MS.State Machine a }
   deriving (Functor, Applicative, Monad, MS.MonadState Machine)
