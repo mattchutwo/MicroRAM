@@ -8,6 +8,8 @@
 module Native where
 
 import Compiler.Errors
+import Compiler.Registers
+import MicroRAM.MRAMInterpreter.Concrete (Concretizable(..))
 import Data.Typeable
 import GHC.Generics
 import MicroRAM

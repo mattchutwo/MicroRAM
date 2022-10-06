@@ -126,25 +126,6 @@ renderAdvc advs = concat $ map renderAdvc' advs
         renderAdvc' (Advise v) = "Advise: " ++ show v
         renderAdvc' (Stutter) = "...Stutter..."
 
--- | Memory for trace. Contains the default value, the stored values and,
--- when using taint tracking, the tainted labels.
--- TODO: We could merge the values and the labels into a single map of type:
---     `Map MWord v`
--- where `v` is instantiated to `MWord` or `TaintedValue`. Then we can keep everything
--- abstract.
-type Mem = (MWord,
-            Map MWord MWord,
-            Maybe (Map MWord (Vector Label))) -- When tainted
-type Poison = Set MWord
-
-class AbsDomain v => Concretizable v where
-  -- Assumes: `forall v. absGetValue v = Just $ conGetvalue v
-  conGetValue :: v -> MWord
-  conGetTaint :: v -> Maybe (Vector Label)
-  
-  conMem :: Memory v -> Mem
-  conPoison :: Memory v -> Poison
-
 -- Returns address aligned to the word 
 conAlignWord :: forall v. Concretizable v => v -> MWord
 conAlignWord v = conGetValue v `shiftR` logWordBytes `shiftL` logWordBytes
