@@ -252,12 +252,12 @@ packages:
     version: 0.1.0
     git: https://github.com/GaloisInc/softfloat-hs.git
     pantry-tree:
-      size: 64763
-      sha256: 6b216760c23afb6668218d8ace41fa61bc0c60fc70d95859f885aa759488bf00
-    commit: a74bb916c48322895d5e009c170a9bb632c47173
+      size: 64694
+      sha256: de0de3d3eeb395fca19e0ca26f16cf437d2d400ea6e643e59cc05c4e578a15e3
+    commit: c0ca2254562c2b6802186bae73d770f9732e3ff3
   original:
     git: https://github.com/GaloisInc/softfloat-hs.git
-    commit: a74bb916c48322895d5e009c170a9bb632c47173
+    commit: c0ca2254562c2b6802186bae73d770f9732e3ff3
 - completed:
     name: bv-sized-float
     version: 0.2.0

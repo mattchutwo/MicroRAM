@@ -37,6 +37,7 @@ import Data.Char (ord)
 import Debug.Trace (trace)
 
 import RiscV.RiscVAsm
+import RiscV.Simulator () -- Import `Instance Native RiscV` 
 
 import Control.Lens (Lens, lens, makeLenses, ix, at, to, (^.), (.=), (%=), (?=), _Just, use, over, Lens')
 

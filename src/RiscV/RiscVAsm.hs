@@ -851,17 +851,6 @@ data Instr
   | InstrAlias  AliasInstr   -- ^ Instruction Aliases
   deriving (Show, Eq, Ord)
 
-data RiscV
-
-instance Native RiscV where
-  type Inst RiscV = Instr
-  type State RiscV = ()
-
-  stepArch = error "TODO"
-  toArchState = error "TODO"
-
-  archStateEq = error "TODO"
-
 
 {- $rv32i
 RV32I 32 bit Base Integer Instruction Set, Version 2.1

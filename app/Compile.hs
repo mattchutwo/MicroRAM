@@ -336,7 +336,7 @@ options =
   , Option []    ["pretty-print"] (NoArg PrettyPrint)              "Pretty print the MicroRAM program with metadata."
   , Option []    ["pub-seg-mode"] (ReqArg PubSegMode "MODE")       "Public segment generation mode, one of: none, function-calls, abs-int"
   , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")    "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
-  , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")          "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
+  , Option []    ["debug-emulator"] (NoArg NativeEmulator)         "Emulate native instructions to check for consistency between native and MRAM machines. Should only be used while debugging."
   , Option ['r'] ["regs"]         (ReqArg (NumberRegs . read) "n")    "Define the number of registers."
   , Option []    ["debug-skip-register-allocation"]   (NoArg SkipRegisterAllocation)    "Skip register allocation. Should only be used while debugging."
   ]
