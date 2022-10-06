@@ -197,9 +197,11 @@ translateMem (mDefault, mMap, _) =
 sizedBVToReg :: SizedBV 5 -> Reg
 sizedBVToReg _ = undefined
 
+-- Not used right now TODO: Delete?
 sizedBVToImm :: SizedBV w -> Imm
 sizedBVToImm _ = undefined
 
+-- Not used right now TODO: Delete?
 griftToInstr :: Instruction RV64IM fmt -> Instr
 griftToInstr (Inst oc (Operands fmt ops)) =
   case fmt of
