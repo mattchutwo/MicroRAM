@@ -77,7 +77,7 @@ extra-deps:
     - grift
     - grift-sim
 - git: https://github.com/GaloisInc/softfloat-hs.git
-  commit: a74bb916c48322895d5e009c170a9bb632c47173
+  commit: c0ca2254562c2b6802186bae73d770f9732e3ff3
 - git: https://github.com/GaloisInc/bv-sized-float.git
   commit: f18e76f244a0f49f043873de650ebb92d1546d07
 - git: https://github.com/GaloisInc/elf-edit.git
