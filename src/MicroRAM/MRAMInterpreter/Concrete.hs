@@ -21,7 +21,7 @@ instance of the abstract domain with `v =  MWord`.
 
 -}
 
-module MicroRAM.MRAMInterpreter.Concrete (splitAddr, splitAlignedAddr, WordMemory(..)) where
+module MicroRAM.MRAMInterpreter.Concrete (splitAddr, splitAlignedAddr, WordMemory(..), Mem(..), Poison, Concretizable(..)) where
 
 import Control.Monad
 import Control.Lens (makeLenses, at, (^.), (&), (.~), (%~))
@@ -29,9 +29,11 @@ import Data.Bits
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Map.Strict (Map)
+import Data.Vector (Vector)
 
-import Compiler.Errors
 import Compiler.CompilationUnit
+import Compiler.Errors
+import Compiler.Tainted ( Label )
 import MicroRAM
 import MicroRAM.MRAMInterpreter.Generic
 
@@ -138,3 +140,27 @@ instance AbsDomain MWord where
     return $ Set.member waddr (mem ^. wmPoison)
 
   absGetValue x = return x
+
+
+
+-- | Memory for trace. Contains the default value, the stored values and,
+-- when using taint tracking, the tainted labels.
+-- TODO: We could merge the values and the labels into a single map of type:
+--     `Map MWord v`
+-- where `v` is instantiated to `MWord` or `TaintedValue`. Then we can keep everything
+-- abstract.
+type Mem = (MWord,
+            Map MWord MWord,
+            Maybe (Map MWord (Vector Label))) -- When tainted
+type Poison = Set MWord
+
+
+-- | Further properies of concrete values that should be mappable to
+-- machine words
+class AbsDomain v => Concretizable v where
+  -- Assumes: `forall v. absGetValue v = Just $ conGetvalue v
+  conGetValue :: v -> MWord
+  conGetTaint :: v -> Maybe (Vector Label)
+  
+  conMem :: Memory v -> Mem
+  conPoison :: Memory v -> Poison
