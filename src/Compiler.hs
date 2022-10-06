@@ -136,6 +136,7 @@ module Compiler
 import           Compiler.Analysis
 import           Compiler.BlockCleanup
 import           Compiler.CallingConvention
+import           Compiler.Common (GlobalVariable)
 import           Compiler.CompilationUnit
 import           Compiler.CountFunctions
 import           Compiler.Errors
@@ -198,11 +199,11 @@ compile1 options len llvmProg = (return $ prog2unit len llvmProg)
   >>= (verbTagPass verb "Lower Intrinsics" $ justCompileWithNamesSt lowerIntrinsics)
   >>= (verbTagPass verb "Catch undefined Functions" $ justCompile (catchUndefinedFunctions allowUndefFun))
   where CompilerOptions {verb=verb, allowUndefFun=allowUndefFun} = options
-                        
+
 compile2
   :: CompilerOptions
-  -> CompilationUnit () (MIRprog Metadata MWord) ->
-  Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
+  -> CompilationUnit () (MIRprog Metadata MWord)
+  -> Hopefully (CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord))
 compile2 options prog = return prog
   >>= (verbTagPass verb "Legalize Instructions" $ justCompileWithNames legalize)
   >>= (verbTagPass verb "Localize Labels"     $ justCompileWithNames localizeLabels)
@@ -216,27 +217,43 @@ compile2 options prog = return prog
   >>= (verbTagPass verb "Stacking"            $ justCompileWithNames stacking)
   >>= (verbTagPass verb "Computing Sparsity"  $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
   >>= (verbTagPass verb "Block cleanup"       $ blockCleanup)
-  >>= (verbTagPass verb "Removing labels"     $ removeLabels tainted)
   where numRegs = case numberRegs of
           Just n -> RegisterAllocOptions n
           Nothing -> def
 
         CompilerOptions { verb=verb
                         , spars=spars
-                        , tainted=tainted
                         , skipRegisterAllocation=skipRegisterAllocation
                         , numberRegs=numberRegs
                         } = options
-        
+
+compile3
+  :: CompilerOptions
+  -> CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord)
+  -> Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
+compile3 options prog = return prog
+  >>= (verbTagPass verb "Removing labels"     $ removeLabels tainted)
+  where CompilerOptions { verb=verb, tainted=tainted } = options
+
+compileLowerExt
+  :: CompilerOptions
+  -> CompilationUnit g (MIRprog Metadata MWord)
+  -> Hopefully (CompilationUnit g (MIRprog Metadata MWord))
+compileLowerExt options = verbTagPass (verb options) "Lower Extension Instructions" $
+  justCompileWithNames lowerExtensionInstrs
+
 compile :: CompilerOptions
         -> Word
         -> LLVM.Module
         -> Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
 compile options len llvmProg = do
   ir <- compile1 options len llvmProg
-  high <- compile2 options ir
-  low <- return ir
-    >>= (verbTagPass (verb options) "Lower Extension Instructions" $ justCompileWithNames lowerExtensionInstrs)
+  high <- return ir
     >>= compile2 options
+    >>= compile3 options
+  low <- return ir
+    >>= compileLowerExt options
+    >>= compile2 options
+    >>= compile3 options
   -- Return both programs, using the analysis data from the final one.
   return $ low { programCU = MultiProg (programCU high) (programCU low) }
