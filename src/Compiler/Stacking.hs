@@ -99,7 +99,7 @@ _smartMovMaybe (Just r) a = smartMov r a
 -- Sends main to the returnBlock
 premain :: Regs mreg => Name -> NamedBlock Metadata mreg MWord
 premain returnName =
-  NBlock (Just premainName) $
+  makeNamedBlock (Just premainName) $
   -- poison address 0
   (IpoisonW (LImm 0) sp, md{mdFunctionStart = True}) : -- Premain is a 'function' add function start metadata
   addMD md (
@@ -121,7 +121,7 @@ premain returnName =
 
 -- | returnBlock: return lets the program output an answer (when main returns)
 returnBlock :: Regs mreg => Name -> NamedBlock Metadata mreg MWord
-returnBlock retName = NBlock (Just retName) [(Ianswer (AReg ax),md)]
+returnBlock retName = makeNamedBlock (Just retName) [(Ianswer (AReg ax),md)]
   where md = (trivialMetadata retName retName) {mdIsReturn = True}
 
 
@@ -272,7 +272,7 @@ stackBlock
   -> Hopefully (NamedBlock Metadata mreg MWord)
 stackBlock (BB name body term _) = do
   body' <- mapM stackInstr (body++term)
-  return $ NBlock (Just name) $ concat body'
+  return $ makeNamedBlock (Just name) $ concat body'
 
 -- | Translating functions
 stackFunction
@@ -283,12 +283,12 @@ stackFunction
 stackFunction (LFunction name _retT _argT _argN size code) = do
   codeBlocks <- mapM stackBlock code
   entryName <- case codeBlocks of
-    NBlock (Just name) _ : _ -> return name
+    NamedBlock { blockName = Just name } : _ -> return name
     _ -> assumptError $ "function " ++ show name ++ " entry block has no name"
   let prologueBody = addMD prolMD (prologue size entryName)
   -- Prologue has the same name of the function and the removeLabels pass will look for
   -- this prologue (not the function) when jumping. That's why we need a prologue even if it's empty
-  let prologueBlock = NBlock (Just name) $ prologueBody
+  let prologueBlock = makeNamedBlock (Just name) $ prologueBody
   return $ markFunStart $ prologueBlock : codeBlocks
     
   where prolMD = trivialMetadata name name
@@ -298,14 +298,14 @@ stackFunction (LFunction name _retT _argT _argN size code) = do
           -- Find the first instruction and add 'mdFunctionStart = True'
           case blocks of
             [] -> [] -- If the funciton is empty, it has no start
-            NBlock (Just name) [] : bbs -> NBlock (Just name) [] : markFunStart bbs
+            blk : bbs | null (blockInstrs blk) -> blk : markFunStart bbs
             bb : bbs -> (markFunStartBlock bb) : bbs -- guarantees that bb is not empty
         -- Assumes the block is not empty
         markFunStartBlock :: NamedBlock Metadata mreg MWord -> NamedBlock Metadata mreg MWord
-        markFunStartBlock  (NBlock (Just name) (firstInst : insts)) =
-          NBlock (Just name) $ (fst firstInst, (snd firstInst){mdFunctionStart = True}) : insts
-        markFunStartBlock (NBlock name []) = error $
-          "Block is expected to be non-empty, but found empty block: \n\t" <> show name
+        markFunStartBlock blk@NamedBlock { blockInstrs = firstInst:insts } =
+          blk { blockInstrs = (fst firstInst, (snd firstInst){mdFunctionStart = True}) : insts }
+        markFunStartBlock blk@NamedBlock { blockInstrs = [] } = error $
+          "Block is expected to be non-empty, but found empty block: \n\t" <> show (blockName blk)
           
 stacking :: Regs mreg => (Lprog Metadata mreg MWord, Word) -> Hopefully $ (MAProgram Metadata mreg MWord, Word)
 stacking (IRprog _ _ functions, nextName) = do

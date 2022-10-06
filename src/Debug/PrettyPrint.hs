@@ -119,9 +119,11 @@ instance (Pretty name, Pretty inst) => Pretty (BB name inst) where
          ]
 
 instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (NamedBlock meta reg wrd) where
-  pretty (NBlock nameM insts) = 
-    vsep [ "/// Block " <> pretty nameM
-         , vsep (map (pretty . fst) insts)
+  pretty blk =
+    vsep [ "/// Block " <> pretty (blockName blk)
+         , "/// Secret: " <> viaShow (blockSecret blk)
+         , "/// Privileged: " <> viaShow (blockPrivileged blk)
+         , vsep (map (pretty . fst) (blockInstrs blk))
          , line
          ]
 

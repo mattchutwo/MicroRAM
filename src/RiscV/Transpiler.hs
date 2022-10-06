@@ -1038,7 +1038,7 @@ finalizeTP = do
   -- Build program
   prog <- toList <$> (use commitedBlocksTP)
   -- Add a premain. We need this to be backwards compatible
-  let prog' = (NBlock (Just premainName) premainCode): prog
+  let prog' = (makeNamedBlock (Just premainName) premainCode): prog
   -- Build memory
   sections :: Map.Map String Section <- use sectionsTP
   genv <- makeGEnv sections 
@@ -1093,7 +1093,7 @@ commitBlock = do
       contnt <- use currBlockContentTP
       currBlockContentTP .= mempty
       -- name <- getName =<< use currBlockTP
-      let block = NBlock (Just $ name) $ toList contnt
+      let block = makeNamedBlock (Just name) $ toList contnt
       commitedBlocksTP %= (:|> block)
   currBlockTP .= Nothing
   

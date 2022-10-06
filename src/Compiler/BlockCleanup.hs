@@ -45,7 +45,7 @@ import Util.Util
 redundantMovs :: forall md reg wrd . Eq reg => MAProgram md reg wrd -> Hopefully (MAProgram md reg wrd)
 redundantMovs prog = return $ map updateBlock prog
   where
-    updateBlock (NBlock name instrs) = NBlock name $ filter (not . isRedundant . fst) instrs
+    updateBlock blk = blk { blockInstrs = filter (not . isRedundant . fst) (blockInstrs blk) }
 
     isRedundant :: MAInstruction reg wrd -> Bool
     isRedundant (Imov r1 (AReg r2)) = r1 == r2
@@ -60,14 +60,17 @@ threadJumps prog = return $ map (updateStart . updateBlock) $ filter (not . isJu
   where
 
     -- If removed block (src) was a starting block, mark the dest in jumpMap' as a starting block.
-    updateStart (NBlock name (i:instrs)) | shouldStart name = NBlock name (setStartInst i: instrs)
+    updateStart blk
+      | shouldStart (blockName blk)
+      , i:instrs <- blockInstrs blk
+      = blk { blockInstrs = setStartInst i : instrs }
     updateStart b                                           = b
 
     shouldStart (Just name) =
       let startingDests = Set.fromList $ map snd $ filter (\(src, _dest) ->
               -- Check if the src is a starting block.
               case Map.lookup src blockMap of
-                Just (i:_insts) -> mdFunctionStart $ snd i
+                Just (NamedBlock { blockInstrs = i:_ }) -> mdFunctionStart $ snd i
                 _               -> False
             ) $ Map.toList jumpMap'
       in
@@ -78,14 +81,17 @@ threadJumps prog = return $ map (updateStart . updateBlock) $ filter (not . isJu
 
     -- Map from names to blocks.
     blockMap = Map.fromList $ do
-      NBlock (Just n) is <- prog
-      return (n, is)
+      blk <- prog
+      Just name <- [blockName blk]
+      return (name, blk)
 
     -- Map from old labels to new ones.  If block A contains only a jump to B,
     -- then we record (A, B) in this map.
     jumpMap :: Map.Map Name Name 
     jumpMap = Map.fromList $ do
-      NBlock (Just src) [(Ijmp (Label dest), md)] <- prog
+      blk <- prog
+      Just src <- [blockName blk]
+      [(Ijmp (Label dest), md)] <- [blockInstrs blk]
       -- TODO: This temporarily disables thread jumping for blocks that start functions. This leads to errors if globals reference the function and the names aren't updated.
       guard $ not $ mdFunctionStart md
 
@@ -111,10 +117,10 @@ threadJumps prog = return $ map (updateStart . updateBlock) $ filter (not . isJu
           | Just l' <- Map.lookup l jumpMap = resolve' (n - 1) l'
           | otherwise = Just l
 
-    isJumpSource (NBlock (Just name)_) = Map.member name jumpMap'
+    isJumpSource blk | Just name <- blockName blk = Map.member name jumpMap'
     isJumpSource _ = False
 
-    updateBlock (NBlock name instrs) = NBlock name $ map (mapFst updateInstr) instrs
+    updateBlock blk = blk { blockInstrs = map (mapFst updateInstr) (blockInstrs blk) }
 
     updateInstr i = mapInstr id id updateOperand i
 
@@ -134,7 +140,7 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
     indexedProg = zip [0..] prog
 
     nameMap :: Map.Map Name Int
-    nameMap = Map.fromList $ [(name, i) | (i, NBlock (Just name) _) <- indexedProg]
+    nameMap = Map.fromList $ [(name, i) | (i, blk) <- indexedProg, Just name <- [blockName blk]]
 
     premainIndex = Map.findWithDefault (error "unreachable: block for premain not found") premainName nameMap
 
@@ -169,7 +175,7 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
     blockDeps i | i >= Seq.length progSeq = mempty
     blockDeps i = deps <> fallthroughDep
       where
-        NBlock _ instrs = progSeq `Seq.index` i
+        instrs = blockInstrs $ progSeq `Seq.index` i
         deps = mconcat $ map ((foldInstr (const mempty) (const mempty) opDep) . fst) instrs
 
         opDep (Label l) = Set.singleton $ nameToIndex l

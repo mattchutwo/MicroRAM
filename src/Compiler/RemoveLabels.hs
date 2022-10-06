@@ -64,7 +64,7 @@ blocksStart :: MWord
 blocksStart = 0
 
 blockSize :: NamedBlock md regT MWord -> MWord
-blockSize (NBlock _ instrs) = fromIntegral $ length instrs
+blockSize (NamedBlock { blockInstrs = instrs}) = fromIntegral $ length instrs
 
 globalsStart :: MWord
 globalsStart = 1 * fromIntegral wordBytes
@@ -87,12 +87,12 @@ buildLabelMap blocks globs = do
   return $ blockMap <> globMap
   where
     goBlocks m _addr [] = return m
-    goBlocks m addr (b@(NBlock (Just name) _) : bs) = do
-      when (Map.member name m) $
-        assumptError $ "name collision between blocks: " ++ show name
-      goBlocks (Map.insert name addr m) (addr + blockSize b) bs
-    goBlocks m addr (b@(NBlock Nothing _) : bs) = do
-      trace "warning: unnamed block in RemoveLabels" $
+    goBlocks m addr (b : bs)
+      | Just name <- blockName b = do
+        when (Map.member name m) $
+          assumptError $ "name collision between blocks: " ++ show name
+        goBlocks (Map.insert name addr m) (addr + blockSize b) bs
+      | otherwise = trace "warning: unnamed block in RemoveLabels" $
         goBlocks m (addr + blockSize b) bs
 
     goGlobs :: Map.Map Name MWord -> MWord -> [GlobalVariable MWord] -> Hopefully (Map.Map Name MWord)
@@ -123,8 +123,8 @@ flattenBlocks lm bs = snd $ foldr goBlock (totalBlockSize, []) bs
 
     -- Walks over blocks in reverse order.
     -- The instructions for the last block are placed at the end of the accumulated list and each block is processed right to left.
-    goBlock (NBlock _ instrs) (!postAddr,!acc) =
-      foldr goInstr (postAddr, acc) instrs
+    goBlock blk (!postAddr,!acc) =
+      foldr goInstr (postAddr, acc) (blockInstrs blk)
 
     -- Walks over instructions in reverse order.
     goInstr :: (MAInstruction regT MWord, md) -> (MWord,[(Instruction regT MWord, md)]) -> (MWord,[(Instruction regT MWord, md)])

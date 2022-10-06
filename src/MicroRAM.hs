@@ -103,7 +103,6 @@ module MicroRAM
 ( -- * MicroRAM
   Instruction'(..),
   Instruction,
---  NamedBlock(NBlock),
   Program,
   Operand(..),
 

@@ -109,8 +109,8 @@ loweredIntrinsics = lowerBlock <$> intrinsics
 lowerBlock
   :: NamedBlock Metadata Int MWord
   -> NamedBlock Metadata Int MWord
-lowerBlock (NBlock name instrs) =
-  NBlock name (concat $ lowerInstrMd <$> instrs)
+lowerBlock blk@NamedBlock { blockInstrs = instrs } =
+  blk { blockInstrs = concat $ lowerInstrMd <$> instrs }
   where lowerInstrMd :: (MAInstruction Int MWord, Metadata)
                      -> [(MAInstruction Int MWord, Metadata)]
         lowerInstrMd (instr,md) = (\a -> (a,md)) <$> lowerInstr' newReg instr
@@ -210,7 +210,7 @@ buildIntrinsic name instrs = do
   nameID <- getName name
   let md = intrinsicMetadata nameID
   let instrs_md = putTheMetadata md (instrs ++ [Ijmp $ AReg 1])
-  return $ NBlock (Just nameID) instrs_md
+  return $ makeNamedBlock (Just nameID) instrs_md
 
 ret :: MAInstruction Int MWord
 ret = Ijmp . AReg $ fromEnum X1

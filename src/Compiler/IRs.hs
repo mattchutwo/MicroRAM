@@ -28,7 +28,7 @@ module Compiler.IRs(
   AnnotatedProgram,
   MA2Instruction,
   MAInstruction,
-  NamedBlock(..),
+  NamedBlock(..), makeNamedBlock,
   
   -- ** Generic IR
   -- $GIR
@@ -105,8 +105,22 @@ type MA2Instruction regT wrdT = MRAM.Instruction' regT (MAOperand regT wrdT) (MA
 -- | One oprand MicroAssembly
 type MAInstruction regT wrdT = MRAM.Instruction' regT regT (MAOperand regT wrdT)
 
-data NamedBlock md r w = NBlock (Maybe Name) [(MAInstruction r w, md)]
+data NamedBlock md r w = NamedBlock
+  { blockName :: Maybe Name
+  , blockInstrs :: [(MAInstruction r w, md)]
+  , blockSecret :: Bool
+  , blockPrivileged :: Bool
+  }
   deriving (Show)
+
+makeNamedBlock :: Maybe Name -> [(MAInstruction r w, md)] -> NamedBlock md r w
+makeNamedBlock name instrs = NamedBlock
+  { blockName = name
+  , blockInstrs = instrs
+  , blockSecret = False
+  , blockPrivileged = False
+  }
+
 type MAProgram md r w = [NamedBlock md r w] -- These are MicroASM programs
 type AnnotatedProgram md r w = [(MRAM.Instruction r w, md)]
 
