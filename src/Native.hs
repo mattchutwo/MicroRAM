@@ -40,7 +40,7 @@ class (Typeable (Inst arch), Eq (Inst arch), Ord (Inst arch), Show (Inst arch)) 
   -- | Take a step for a native instruction.
   stepArch :: State arch -> Inst arch -> Hopefully (State arch)
   -- | Convert a MicroRAM state to a native state.
-  toArchState :: MachineState' r v -> State arch
+  toArchState :: (Concretizable v, Regs r) => MachineState' r v -> State arch
 
   -- | Whether two native states are equal (potentially ignore irrelevant fields).
   archStateEq :: State arch -> State arch -> Bool

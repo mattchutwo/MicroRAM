@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
@@ -45,6 +46,8 @@ import GRIFT.Simulation
 
 import Compiler.Errors
 import Compiler.Registers
+import MicroRAM.MRAMInterpreter
+import MicroRAM.MRAMInterpreter.Concrete (Concretizable(..))
 import MicroRAM.MRAMInterpreter.Generic
 import Native
 import RiscV.RiscVAsm
@@ -161,17 +164,36 @@ instance Native RiscV where
 
   stepArch m (Some i) = Right (stepInst m i)
 
+  toArchState :: forall v r.
+                 (Concretizable v, Regs r)
+              => MachineState' r v
+              -> State RiscV
   toArchState ms' = Machine
     { mRV = knownRepr
     , mPC = UnsignedBV (BV.word64 (ms' ^. mPc))
-    , mMemory = ms' ^. mMem
-    , mGPRs = Vec.fromList (regToList 32 (ms' ^. mRegs))
+    , mMemory = translateMem $ conMem @v (ms' ^. mMem)
+    , mGPRs = Vec.fromList $ (UnsignedBV . BV.word64 . conGetValue) <$> regToList 32 (ms' ^. mRegs)
 --  , mPC :: UnsignedBV (RVWidth RV64IM)
 --  , mMemory :: Map (UnsignedBV (RVWidth RV64IM)) (UnsignedBV 8)
 --  , mGPRs :: Vector (UnsignedBV (RVWidth RV64IM))
     }
-  archStateEq s1 s2 = undefined
+    where 
+  archStateEq s1 s2 =
+    (mPC s1 == mPC s2) && (mMemory s1 == mMemory s2) && (mGPRs s1 == mGPRs s2)
 
+translateMem :: Mem
+             -> Map (UnsignedBV (RVWidth RV64IM)) (UnsignedBV 8)
+translateMem (mDefault, mMap, _) =
+  mapValueAndKey (UnsignedBV . BV.word64) (fromInteger . toInteger) mMap -- 
+  where mapValueAndKey :: (Ord k2)
+                       => (k1 -> k2)
+                       -> (a1 -> a2)
+                       -> Map.Map k1 a1
+                       -> Map.Map k2 a2
+        mapValueAndKey fk fa map = (Map.mapKeys fk) $ (Map.map fa) $ map
+          
+
+-- Not used right now TODO: Delete?
 sizedBVToReg :: SizedBV 5 -> Reg
 sizedBVToReg _ = undefined
 
