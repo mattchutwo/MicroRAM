@@ -130,6 +130,7 @@ between functions.
 module Compiler
     ( compile
     , CompilerOptions(..), defOptions
+    , Domain(..), DomainInput(..), loadCode, compileDomains
     , module Export
     ) where
 
@@ -282,12 +283,14 @@ data Domain = Domain
   -- in particular, in verifier mode there will usually be no code available
   -- for secret domains.
   }
+  deriving (Eq, Show)
 
 -- | An input file for a domain.  In each constructor, the `Maybe String` is
 -- the contents of the file, which initially is unset.
 data DomainInput =
     InputLLVM FilePath (Maybe LLVM.Module)
   | InputRISCV FilePath (Maybe String)
+  deriving (Eq, Show)
 
 
 data CompiledObject = CompiledObject

@@ -33,14 +33,14 @@ mkPostTests tg = case tg of
   ManyTests nm ts -> testGroup nm $ mkPostTests <$> ts 
 
 mkPostTest :: TestProgram -> TestTree
-mkPostTest (TestProgram name file len cmpError _res _hasBug leakTainted) =
-  if cmpError then emptyTest else processTest leakTainted name file len
+mkPostTest (TestProgram name inputs len cmpError _res _hasBug leakTainted) =
+  if cmpError then emptyTest else processTest leakTainted name inputs len
 
 emptyTest :: TestTree
 emptyTest = testGroup "Compiler errors not tested" [] -- This is ignored by QuickCheck
 
-processTest :: Bool -> TestName -> FilePath -> Word -> TestTree
-processTest leakTainted name file len =
+processTest :: Bool -> TestName -> [Domain] -> Word -> TestTree
+processTest leakTainted name (OneLLVM file) len =
   testGroup name [monadicTest False, monadicTest True]
   where monadicTest skipRegAlloc =
           testProperty (if skipRegAlloc then "Skip RegAlloc" else "Regular") $
@@ -55,3 +55,4 @@ processTest leakTainted name file len =
         result2property r = case r of
                               Right _ -> counterexample "" True
                               Left msg -> counterexample msg False
+processTest _ _ _ _ = testGroup "multi-file and non-LLVM tests are ignored" []
