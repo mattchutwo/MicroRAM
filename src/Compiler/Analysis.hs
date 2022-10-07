@@ -44,3 +44,15 @@ addAnalysisPiece piece adata =
  case piece of
    SparsityData spar -> adata {sparsityData = spar}
    FunctionUsage fusage -> adata {functionUsage = fusage }
+
+appendAnalysisData :: AnalysisData -> AnalysisData -> AnalysisData
+appendAnalysisData ad1 ad2 = AnalysisData
+  { sparsityData = Map.unionWith max (sparsityData ad1) (sparsityData ad2)
+  , functionUsage = Map.unionWith (+) (functionUsage ad1) (functionUsage ad2)
+  }
+
+renameAnalysisData :: (Name -> Name) -> AnalysisData -> AnalysisData
+renameAnalysisData f (AnalysisData sd fu) =
+  AnalysisData
+    sd
+    (Map.fromListWith (+) [(f name, count) | (name, count) <- Map.toList fu])

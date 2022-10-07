@@ -111,6 +111,8 @@ data NamedBlock md r w = NamedBlock
   , blockSecret :: Bool
   , blockPrivileged :: Bool
   , blockExtern :: Bool
+    -- ^ If set, this block is externally visible, meaning its label will be
+    -- visible to other objects during linking.
   }
   deriving (Show)
 

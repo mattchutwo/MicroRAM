@@ -31,9 +31,17 @@ import Control.Monad.State (StateT, get, modify)
 -- | These names are an extension to LLVM's register names.
 -- It includes a `NewName` to produce temporary registers that
 -- don't intefere with existing ones. 
-data Name =
-  Name {nameID:: Word,
-        dbName :: ShortByteString}   -- ^ Global identifier and a human readable name for debugging.
+data Name = Name
+  { nameID:: Word
+  , dbName :: ShortByteString
+  -- ^ String representation of this name.  This is used during linking, where
+  -- undefined symbols in one object are linked to external symbols of the same
+  -- name in other objects.  Names of defined, non-external symbols are not
+  -- used for anything and can be arbitrary.
+  --
+  -- This field is included in the printed form of the `Name` for debugging
+  -- purposes.
+  }
 
 instance Eq Name where
   (Name n _) == (Name m _) = n == m
