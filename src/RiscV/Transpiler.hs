@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module RiscV.Transpiler where -- (transpiler)
@@ -34,7 +35,7 @@ import Debug.Trace (trace)
 
 import RiscV.RiscVAsm
 
-import Control.Lens (Lens, lens, makeLenses, ix, at, to, (^.), (.=), (%=), (?=), _Just, use, over, Lens')
+import Control.Lens (Lens, lens, makeLenses, ix, at, to, (^.), (.=), (%=), (?=), (&), (.~), _Just, use, over, Lens')
 
 
 -- | Option
@@ -129,9 +130,10 @@ data SymbolTP = SymbolTP
   { _symbName  :: String                    
   , _symbSize  :: Maybe (Either Integer Imm)             
   , _symType   :: Maybe DirTypes
+  , _symExtern :: Bool
   } deriving (Show)
 defaultSym :: SymbolTP
-defaultSym = SymbolTP "Default Name" Nothing Nothing 
+defaultSym = SymbolTP "Default Name" Nothing Nothing False
 
 makeLenses ''SymbolTP
               
@@ -243,14 +245,17 @@ memLbl lbl = do
   dataPointer <- use $ currSectionTP . secData . mdNextData
   currSectionTP . secData . mdEntryPoints %= (Map.insert objName (toEnum dataPointer))  
 
-sectionVariable :: Section -> Statefully (Maybe (GlobalVariable MWord))
-sectionVariable (Section _sectionName True _write _secTy _code _mdata _align) = return Nothing
-sectionVariable (Section sectionName False write _secTy _code (MemData d _ entries) align) = do
+sectionVariable :: Map.Map String SymbolTP
+                -> Section
+                -> Statefully (Maybe (GlobalVariable MWord))
+sectionVariable _symTable (Section _sectionName True _write _secTy _code _mdata _align) = return Nothing
+sectionVariable symTable (Section sectionName False write _secTy _code (MemData d _ entries) align) = do
   secName <- getName sectionName
   let initBuffer = packInWords $ toList d
   return $ Just $ GlobalVariable
     { globSectionName = secName
-    , entryPoints = Map.toList entries
+    , entryPoints =
+      [(name, offset, symIsExtern symTable name) | (name, offset) <- Map.toList entries]
     , isConstant = not write
     , initializer = Just $ initBuffer
     , gSize = toEnum $ length initBuffer
@@ -259,38 +264,12 @@ sectionVariable (Section sectionName False write _secTy _code (MemData d _ entri
                sectionName == ".data.secret"
     -- What variables are not heap-init in RiscV?
     , gvHeapInit = True}
-  
-  -- nameCurObj <- use curObjectTP
-  -- -- Get the current obejct
-  -- curObj <- use $ curObjectContentTP
-  -- case curObj of
-  --   Nothing -> return ()
-  --   Just ls -> do
-  --       let init = packInWords $ toList ls
-  --       gname <- getName =<< use curObjectTP
-  --       sectionName <- use (currSectionTP . secName)
-  --       readOnly <- not <$> use (currSectionTP . flag_write)
-  --       let gvar = GlobalVariable {globName = gname,
-  --                                  -- entryPoints = 
-  --                                  isConstant = readOnly,
-  --                                  -- RiscV doesn't have types 
-  --                                  gType = TVoid,
-  --                                  initializer = Just init,
-  --                   		   gSize = toEnum $ length init,
-  --                                  -- Currently ignored
-  --                                  -- TODO: implement alignment
-  --                                  gAlign = 1,
-  --                   		   secret = sectionName == "__DATA,__secret" ||
-  --                                  sectionName == ".data.secret",
-  --                                  -- What variables are not heap-init in RiscV?
-  --                                  gvHeapInit = True}
-  --       -- add it to the list of globals
-  --       genvTP %= (:) gvar
-  --       gvlen <- length <$> use genvTP 
-  --       -- Clear current obje
-  --       curObjectContentTP .= Nothing
-      
-  
+
+symIsExtern :: Map.Map String SymbolTP -> Name -> Bool
+symIsExtern symTable name = case Map.lookup (short2string $ dbName name) symTable of
+  Just sym -> sym ^. symExtern
+  Nothing -> False
+
 transpileDir :: Bool -> Directive -> Statefully ()
 transpileDir verb dir =
   case dir of
@@ -303,8 +282,8 @@ transpileDir verb dir =
     ADDRSIG         -> ignoreDire "ADDRSIG         " -- We ignore address-significance 
     ADDRSIG_SYM _nm -> ignoreDire "ADDRSIG_SYM _nm " -- We ignore address-significance 
     CFIDirectives _ -> ignoreDire "CFIDirectives _ " -- ignore control-flow integrity
-    -- Currently unimplemented 
-    Visibility _ _ -> ignoreDire "Visibility _ _" -- TODO: unimplementedDir -- Not in binutils. Remove?
+    Visibility GLOBL nm -> setSymbol nm symExtern True
+    Visibility _ nm -> ignoreDire "Visibility _ _" -- TODO: unimplementedDir -- Not in binutils. Remove?
     STRING st      -> emitString st True
     ASCII  st      -> emitString st False
     ASCIZ  st      -> emitString st True -- alias for string
@@ -319,8 +298,8 @@ transpileDir verb dir =
     -- ## Declare Symbols 
     COMM   nm size align -> commSetSymbol nm size align
     COMMON nm size align -> commSetSymbol nm size align
-    SIZE   nm size       -> setSymbol nm (Just $ Right size) Nothing        Nothing
-    TYPE   nm typ        -> setSymbol nm Nothing             Nothing        (Just typ)
+    SIZE   nm size       -> setSymbol nm symbSize (Just $ Right size)
+    TYPE   nm typ        -> setSymbol nm symType (Just typ)
     -- ## Sections
     TEXT    ->                       setSection "text"   [Flag_x]    Nothing []
     DATA    ->                       setSection "data"   []          Nothing []
@@ -400,19 +379,14 @@ transpileDir verb dir =
       -- | Creates a symbol if it doens't exists and modifies the
       -- attributers provided
       setSymbol :: String                     -- ^ Name
-                -> Maybe (Either Integer Imm) -- ^ Size
-                -> Maybe Integer              -- ^ Alignment
-                -> Maybe DirTypes             -- ^ Type
+                -> Lens' SymbolTP a
+                -> a
                 -> Statefully ()
-      setSymbol name size align typ = do
+      setSymbol name field val = do
         -- Get the symbol from the table, or the default if the symbol is not there.
         symbol <-  fromMaybe defaultSym <$> use (symbolTableTP . at name)
         -- Then set the values given.
-        let symbol' = SymbolTP {
-              _symbName    = name
-              , _symbSize  = firstJust size  (_symbSize  symbol) 
-              , _symType   = firstJust typ   (_symType   symbol) 
-              }
+        let symbol' = symbol & field .~ val
         symbolTableTP . at name ?= symbol'
 
       -- | Pushes an Immediate value to the current memory object
@@ -1037,15 +1011,17 @@ finalizeTP = do
   _ <- saveSection
   -- Build program
   prog <- toList <$> (use commitedBlocksTP)
+  symTable <- use symbolTableTP
+  let prog' = [blk { blockExtern = blockIsExtern symTable blk } | blk <- prog]
   -- Add a premain. We need this to be backwards compatible
-  let prog' = (makeNamedBlock (Just premainName) premainCode): prog
+  let prog'' = (makeNamedBlock (Just premainName) premainCode): prog'
   -- Build memory
   sections :: Map.Map String Section <- use sectionsTP
-  genv <- makeGEnv sections 
+  genv <- makeGEnv symTable sections
   -- Then build the CompilationUnit
   return $ CompUnit {
     -- Memory is filled in 'RemoveLabels'
-    programCU = ProgAndMem prog' [] mempty,
+    programCU = ProgAndMem prog'' [] mempty,
     -- TraceLen is bogus
     traceLen = 0,
     -- We added one new register, which is now the largest
@@ -1073,13 +1049,19 @@ finalizeTP = do
         -- Start stack at 2^32.
         initAddr = 1 `shiftL` 32
   
-        makeGEnv :: Map.Map String Section -> Statefully [GlobalVariable MWord]
-        makeGEnv m = mapMaybeM sectionVariable (Map.elems m)   
+        makeGEnv :: Map.Map String SymbolTP
+                 -> Map.Map String Section
+                 -> Statefully [GlobalVariable MWord]
+        makeGEnv symTable m = mapMaybeM (sectionVariable symTable) (Map.elems m)
   
         -- | A version of 'mapMaybe' that works with a monadic predicate.
         mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
         mapMaybeM op = foldr f (pure [])
           where f x xs = do x <- op x; case x of Nothing -> xs; Just x -> do xs <- xs; pure $ x:xs
+
+        blockIsExtern symTable blk
+          | Just name <- blockName blk = symIsExtern symTable name
+          | otherwise = False
 
 -- Finalize current block and commit it
 -- i.e. add it to the list.
@@ -1104,10 +1086,6 @@ whenM :: Monad m => m Bool -> m () -> m ()
 whenM mb thing = do { b <- mb
                     ; when b thing }
 whenL b s = whenM (use b) s
-
-firstJust :: Maybe a -> Maybe a -> Maybe a
-firstJust (Just a) _ = Just a
-firstJust _ x = x
 
 (<<$>>) :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
 (<<$>>) = fmap . fmap

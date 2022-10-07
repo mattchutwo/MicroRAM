@@ -128,8 +128,9 @@ instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pr
          ]
 
 instance (Pretty name, Pretty param, Pretty block) => Pretty (Function name param block) where
-  pretty (Function name retTy argTys argNms blocks) =
+  pretty (Function name retTy argTys argNms blocks extern) =
     vsep [ "// " <> pretty name <> " " <> prettyArgs (zip argTys argNms) <> " -> " <> pretty retTy
+         , "// Extern: " <> pretty extern
          , vsep (map pretty blocks)
          , line
          ]
@@ -138,8 +139,9 @@ instance (Pretty name, Pretty param, Pretty block) => Pretty (Function name para
       prettyArgs args = "("<> concatWith (surround ", ") (map (\(typ,nm) -> pretty typ <> " " <> pretty nm) args) <> ")"
 
 instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (LFunction mdata reg wrd) where
-  pretty (LFunction name retTy argTys argNms _stackSize blocks) =
+  pretty (LFunction name retTy argTys argNms _stackSize blocks extern) =
     vsep [ "// " <> pretty name <> " :: " <> prettyArgs (zip argTys argNms) <> " -> " <> pretty retTy
+         , "// Extern: " <> pretty extern
          , vsep (map pretty blocks)
          , line
          ]

@@ -99,7 +99,9 @@ type TypeEnv = Map.Map Name Ty
 -- set in memory and translated to constant pointers. 
 data GlobalVariable wrdT = GlobalVariable
   { globSectionName :: Name
-  , entryPoints :: [(Name,MWord)]
+  , entryPoints :: [(Name, MWord, Bool)]
+    -- ^ List of symbols defined within this global variable.  The `Bool` is
+    -- `True` if the symbol is externally visible.
   , isConstant :: Bool
   , initializer :: Maybe [LazyConst wrdT]
     -- ^ A list of machine words to initialize this global

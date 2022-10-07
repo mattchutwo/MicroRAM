@@ -47,6 +47,7 @@ import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.Float as LLVM
 import qualified LLVM.AST.IntegerPredicate as IntPred
+import qualified LLVM.AST.Linkage as LLVM
 
 import Compiler.Errors
 import Compiler.Common
@@ -1128,7 +1129,7 @@ processParams (params, _) = do
 -- | Instruction generation for Functions
 
 isFunction :: Env -> LLVM.Definition -> Statefully $ MIRFunction Metadata MWord
-isFunction env (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
+isFunction env (LLVM.GlobalDefinition (LLVM.Function link _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
   do
     name' <- globalName name
     (paramsTyp, paramNames) <- processParams params
@@ -1136,7 +1137,7 @@ isFunction env (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params 
     currentFunction .= name'
     body <- isBlocks env code -- runStateT (isBlocks env code) initState
     retT' <- lift $ type2type  (llvmtTypeEnv env) retT
-    return $ Function name' retT' paramsTyp paramNames body
+    return $ Function name' retT' paramsTyp paramNames body (linkageIsExtern link)
 isFunction _tenv other = lift $ unreachableError $ show other -- Shoudl be filtered out 
   
 -- | Instruction Selection for all definitions
@@ -1226,7 +1227,7 @@ nameOfGlobals defs = Set.fromList $ concat $ map nameOfGlobal defs
 
           
 isGlobVar :: Env -> LLVM.Global -> Statefully $ GlobalVariable MWord
-isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align _) = do
+isGlobVar env (LLVM.GlobalVariable name link _ _ _ _ const typ _ init sectn _ align _) = do
   _typ' <- lift $ type2type (llvmtTypeEnv env) typ
   byteSize <- return $ sizeOf (llvmtTypeEnv env) typ
   init' <- flatInit env init
@@ -1245,7 +1246,8 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
   -- alignment here to avoid the problem.
   let align' = max 1 $ (fromIntegral align + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
   name' <- globalName name
-  return $ GlobalVariable name' [(name', 0)] const init' size' align'
+  let extern = linkageIsExtern link
+  return $ GlobalVariable name' [(name', 0, extern)] const init' size' align'
     (sectionIsSecret sectn) (sectionIsHeapInit sectn)
   where flatInit :: Env ->
                     Maybe LLVM.Constant.Constant ->
@@ -1265,6 +1267,11 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
         sectionIsHeapInit (Just ".data.heapinit") = True
         sectionIsHeapInit _ = False
 isGlobVar _ other = unreachableError $ show other
+
+linkageIsExtern :: LLVM.Linkage -> Bool
+linkageIsExtern LLVM.Private = False
+linkageIsExtern LLVM.Internal = False
+linkageIsExtern _ = True
 
 -- | Evaluate an LLVM constant and flatten its value into a list of (lazy)
 -- machine words.

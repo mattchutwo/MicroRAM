@@ -89,7 +89,7 @@ setCalleeArgsFun fun = do
 
 -- | Retrieves Incoming arguments from the stack
 initializeFunctionArgs :: LFunction Metadata VReg MWord -> WithNextReg Hopefully (LFunction Metadata Name MWord)
-initializeFunctionArgs lf@(LFunction fname typ typs argNms stackSize blocks) = do
+initializeFunctionArgs lf@(LFunction fname typ typs argNms stackSize blocks extern) = do
   bname <- newLocalName (dbName fname <> "_Args")
   let instrs = getStackInstrs bname
   -- Don't insert a block if it'd be empty.
@@ -97,7 +97,7 @@ initializeFunctionArgs lf@(LFunction fname typ typs argNms stackSize blocks) = d
     return $ lf
   else do
     let b = BB bname instrs [] daginfo
-    return $ LFunction fname typ typs argNms stackSize $ b : blocks
+    return $ LFunction fname typ typs argNms stackSize (b : blocks) extern
   where
     getStackInstrs :: Name ->  [LTLInstr Metadata VReg MWord]
     getStackInstrs bname = map (\(typ, (argNm, i)) -> 

@@ -110,7 +110,7 @@ data RAState = RAState {
 
 
 registerAllocFunc :: forall wrd . Word -> Registers -> LFunction Metadata VReg wrd -> Hopefully $ LFunction Metadata AReg wrd
-registerAllocFunc spillBound registers (LFunction name typ typs argNms stackSize' blocks') = do
+registerAllocFunc spillBound registers (LFunction name typ typs argNms stackSize' blocks' extern) = do
 
   (rtlBlocks, rast) <- flip runStateT (RAState spillBound 0 mempty) $ do
     blocks <- mapM flattenBasicBlock blocks'
@@ -122,7 +122,7 @@ registerAllocFunc spillBound registers (LFunction name typ typs argNms stackSize
   -- Unflatten basic block
   let blocks = unflattenBasicBlock rtlBlocks
       
-  return $ LFunction name typ typs argNms stackSize blocks
+  return $ LFunction name typ typs argNms stackSize blocks extern
 
   where
     -- -- These are for arguments that are passed through registers.
@@ -423,11 +423,11 @@ skipRegisterAlloc comp = do
       return (setCode lprog code', foldr1 max registerCounts)
 
     skipRegisterAllocFunc :: LFunction Metadata VReg wrd -> Hopefully (LFunction Metadata AReg wrd, Int)
-    skipRegisterAllocFunc (LFunction name typ typs argNms stackSize' blocks') = do
+    skipRegisterAllocFunc (LFunction name typ typs argNms stackSize' blocks' extern) = do
       let allRegisters = Set.toList $ Set.unions $ map extractRegisters blocks'
       let coloring = Map.fromList $ zip allRegisters [firstAvailableRegister..]
       blocks <- applyColoring coloring blocks'
-      return (LFunction name typ typs argNms stackSize' blocks, firstAvailableRegister + Map.size coloring)
+      return (LFunction name typ typs argNms stackSize' blocks extern, firstAvailableRegister + Map.size coloring)
 
 
 

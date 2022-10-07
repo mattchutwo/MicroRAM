@@ -133,7 +133,7 @@ elimDead :: (Show regT, Show wrdT) => [GlobalVariable wrdT] -> MAProgram Metadat
 elimDead _ [] = return []
 elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBlocks]
   where
-    globalMap = Map.fromList [(name, g) | g <- globals, (name, _) <- entryPoints g]
+    globalMap = Map.fromList [(name, g) | g <- globals, (name, _, _) <- entryPoints g]
     progSeq = Seq.fromList prog
 
     reservedNames = Set.fromList [pcName]

@@ -280,7 +280,7 @@ stackFunction
   Regs mreg =>
   LFunction Metadata mreg MWord
   -> Hopefully $ [NamedBlock Metadata mreg MWord]
-stackFunction (LFunction name _retT _argT _argN size code) = do
+stackFunction (LFunction name _retT _argT _argN size code extern) = do
   codeBlocks <- mapM stackBlock code
   entryName <- case codeBlocks of
     NamedBlock { blockName = Just name } : _ -> return name
@@ -288,7 +288,7 @@ stackFunction (LFunction name _retT _argT _argN size code) = do
   let prologueBody = addMD prolMD (prologue size entryName)
   -- Prologue has the same name of the function and the removeLabels pass will look for
   -- this prologue (not the function) when jumping. That's why we need a prologue even if it's empty
-  let prologueBlock = makeNamedBlock (Just name) $ prologueBody
+  let prologueBlock = (makeNamedBlock (Just name) prologueBody) { blockExtern = extern }
   return $ markFunStart $ prologueBlock : codeBlocks
     
   where prolMD = trivialMetadata name name

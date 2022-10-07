@@ -55,8 +55,8 @@ expandInstrs f = goProg
         goProg (IRprog te gs code) = IRprog te gs <$> traverse goFunc code
 
         goFunc :: MIRFunction m w -> WithNextReg f (MIRFunction m w)
-        goFunc (Function nm rty atys anms bbs) =
-          Function nm rty atys anms <$> traverse (goBB $ CCM atys) bbs
+        goFunc (Function nm rty atys anms bbs extern) =
+          Function nm rty atys anms <$> traverse (goBB $ CCM atys) bbs <*> pure extern
 
         goBB :: CallingContextMetadata -> BB n (MIRInstr m w) -> WithNextReg f (BB n (MIRInstr m w))
         goBB ccm (BB nm body term dag) = BB nm <$> goInstrs ccm body <*> goInstrs ccm term <*> pure dag
@@ -281,7 +281,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
   where
     renameList :: [(ShortByteString, ShortByteString)]
     renameList = do
-      Function nm _ _ _ _ <- code
+      Function nm _ _ _ _ _ <- code
       Name _ ss <- return nm
       Just name <- return $ Text.stripPrefix "@__llvm__" $ toText ss
       return (ss, fromText $ "@llvm." <> Text.replace "__" "." name) -- Doesn't change the Word
@@ -297,7 +297,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
     -- we create the Map `"emptyFoo" -> Name n "emptyFoo"` 
     emptyFuncMap :: Map.Map ShortByteString Name
     emptyFuncMap = foldr go Map.empty code
-      where go (Function nm _ _ _ bbs) mapNE =
+      where go (Function nm _ _ _ bbs _) mapNE =
               if null bbs then Map.insert (dbName nm) nm mapNE else mapNE
 
     -- | Renames all the function of the form `@__LLVM__foo`
@@ -305,10 +305,10 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
     -- function with the same dotted name.
     code' :: [MIRFunction Metadata MWord]
     code' = do
-      Function nm rty atys anms bbs <- code
+      Function nm rty atys anms bbs ext <- code
       -- Remove functions in the remove set (i.e. dummy version of the function)
       guard $ not $ Set.member (dbName nm) removeSet
-      let replaceName = Function (changeName nm) rty atys anms bbs
+      let replaceName = Function (changeName nm) rty atys anms bbs ext
       return $ mapMetadataMIRFunction changeMetadata replaceName
     
     -- | Changes the underscored ShortByteString for the dotted form

@@ -99,7 +99,7 @@ buildLabelMap blocks globs = do
     goGlobs m _addr [] = return m
     goGlobs m addr (g:gs) = do
       let entries = entryPoints g
-      m' <- foldM (insertLabel addr) m entries
+      m' <- foldM (insertLabel addr) m [(name, offset) | (name, offset, _extern) <- entries]
       goGlobs m' (nextGlobalAddr addr g) gs
 
     insertLabel :: MWord -> Map.Map Name MWord -> (Name, MWord) -> Hopefully (Map.Map Name MWord)

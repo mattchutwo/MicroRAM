@@ -110,6 +110,7 @@ data NamedBlock md r w = NamedBlock
   , blockInstrs :: [(MAInstruction r w, md)]
   , blockSecret :: Bool
   , blockPrivileged :: Bool
+  , blockExtern :: Bool
   }
   deriving (Show)
 
@@ -119,6 +120,7 @@ makeNamedBlock name instrs = NamedBlock
   , blockInstrs = instrs
   , blockSecret = False
   , blockPrivileged = False
+  , blockExtern = False
   }
 
 type MAProgram md r w = [NamedBlock md r w] -- These are MicroASM programs
@@ -139,6 +141,7 @@ data Function nameT paramT blockT = Function
   , funcArgTys :: [paramT] -- ^ Types of arguments
   , funcArgNms :: [nameT] -- ^ Arguments names
   , funcBlocks :: [blockT] -- ^ Function code as a list of blocks
+  , funcExtern :: Bool
   }
   deriving (Show, Functor)
 
@@ -319,6 +322,7 @@ data LFunction mdata mreg wrdT = LFunction {
   , paramNms :: [Name]
   , stackSize :: MRAM.MWord
   , funBody:: [BB Name $ LTLInstr mdata mreg wrdT]
+  , lfuncExtern :: Bool
   } deriving (Show)
 
 -- | Traverse the LTL functions and replacing operands 
@@ -348,11 +352,11 @@ rtlToLtl (IRprog tenv globals code) = do
   return $ IRprog tenv globals code'
   where
    convertFunc :: RFunction mdata wrdT -> Hopefully $ LFunction mdata VReg wrdT
-   convertFunc (Function name retType paramTypes paramNames body) = do
+   convertFunc (Function name retType paramTypes paramNames body extern) = do
      -- JP: Where should we get the metadata and stack size from?
      let stackSize = 0 -- Since nothing is spilled 0
      body' <- mapM convertBasicBlock body
-     return $ LFunction name retType paramTypes paramNames stackSize body' 
+     return $ LFunction name retType paramTypes paramNames stackSize body' extern
 
    convertBasicBlock :: BB name (RTLInstr mdata wrdT) -> Hopefully $ BB name (LTLInstr mdata VReg wrdT)
    convertBasicBlock (BB name instrs term dag) = do

@@ -27,8 +27,8 @@ callingConvention lprog = do
 
 
 callingConventionFunc :: (Regs reg, Ord reg) => LFunction Metadata reg MWord -> LFunction Metadata reg MWord
-callingConventionFunc lf@(LFunction _fname _typ _typs _nms _stackSize []) = lf
-callingConventionFunc (LFunction fname typ typs argNames stackSize (firstBlock:blocks)) = 
+callingConventionFunc lf@(LFunction _fname _typ _typs _nms _stackSize [] _extern) = lf
+callingConventionFunc (LFunction fname typ typs argNames stackSize (firstBlock:blocks) extern) =
     -- Get all registers that the function writes to.
     let isMain = dbName fname == "main" in    -- ATTENTION: relies on debugging name!
     let registers = if isMain then
@@ -48,7 +48,7 @@ callingConventionFunc (LFunction fname typ typs argNames stackSize (firstBlock:b
     -- Update stack size.
     let stackSize' = stackSize + fromIntegral (length registers) in
 
-    LFunction fname typ typs argNames stackSize' blocks''
+    LFunction fname typ typs argNames stackSize' blocks'' extern
     
   where
     calleeRestore stkSize registers = zipWith (\pos reg -> Lgetstack Local pos ty reg) [stkSize..] registers

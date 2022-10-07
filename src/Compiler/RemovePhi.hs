@@ -45,14 +45,14 @@ edgeSplit (IRprog te ge funcs, nextReg) = do
   where initNameState = NameState nextReg Map.empty
 
 edgeSplitFunc :: forall wrdT . RFunction Metadata wrdT -> State NameState (RFunction Metadata wrdT)
-edgeSplitFunc (Function name retTy argTys argNms blocks) = do
+edgeSplitFunc (Function name retTy argTys argNms blocks extern) = do
   -- Function starts with empy name map
   modify (\st -> st {nameMap = Map.empty})
   -- create spliting blocks
   edgeBlocks <- mapM (buildEdgeBlock name) $ Map.toList edgeIndex
   -- Modify existing blocks
   blocks' <- mapM fixInstrs blocks
-  return $ Function name retTy argTys argNms (blocks' ++ edgeBlocks)
+  return $ Function name retTy argTys argNms (blocks' ++ edgeBlocks) extern
 
   where
     (cfg, predecessorMap, successorMap) = buildCFG blocks
@@ -144,9 +144,9 @@ removePhi (IRprog te ge funcs, nextReg) = do
 
 removePhiFunc :: forall wrdT.
   RFunction Metadata wrdT -> StateT Word Hopefully (RFunction Metadata wrdT)
-removePhiFunc f@(Function name retTy argTys argNms blocks) = do
+removePhiFunc f@(Function name retTy argTys argNms blocks extern) = do
     blocks' <- mapM removePhiBlock blocks
-    return $ Function name retTy argTys argNms blocks'
+    return $ Function name retTy argTys argNms blocks' extern
   where
     -- Remove phis from a block.
     removePhiBlock :: BB Name (RTLInstr Metadata wrdT) -> StateT Word Hopefully (BB Name (RTLInstr Metadata wrdT))
