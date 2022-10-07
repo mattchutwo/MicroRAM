@@ -46,6 +46,7 @@ import Compiler.LayArgs
 import Compiler.Legalize
 import Compiler.LocalizeLabels
 import Compiler.Metadata
+import Compiler.Name (firstUnusedName)
 import Compiler.RegisterAlloc
 import Compiler.Registers
 import Compiler.RemoveLabels
@@ -339,7 +340,7 @@ jpProgComp len = do
   m <- fromLLVMFile "test/programs/varArgs.ll"
   -- return m
   return $ either (error . show) id $
-        (justCompileWithNames instrSelect) (prog2unit len m)
+        (justCompileWithNames instrSelect) (prog2unit len m firstUnusedName)
     >>= (justCompile renameLLVMIntrinsicImpls)
     >>= (justCompileWithNamesSt lowerIntrinsics)
     >>= (justCompile (catchUndefinedFunctions allowUndefFun))

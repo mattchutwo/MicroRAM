@@ -148,6 +148,7 @@ import           Compiler.LayArgs
 import           Compiler.Legalize
 import           Compiler.LocalizeLabels
 import           Compiler.Metadata
+import           Compiler.Name (firstUnusedName)
 import           Compiler.RegisterAlloc
 import           Compiler.RegisterAlloc as Export (AReg)
 import           Compiler.RemoveLabels
@@ -192,8 +193,9 @@ compile1
   :: CompilerOptions
   -> Word
   -> LLVM.Module
+  -> Word
   -> Hopefully (CompilationUnit () (MIRprog Metadata MWord))
-compile1 options len llvmProg = (return $ prog2unit len llvmProg)
+compile1 options len llvmProg firstName = (return $ prog2unit len llvmProg firstName)
   >>= (verbTagPass verb "Instruction Selection" $ justCompileWithNames instrSelect)
   >>= (verbTagPass verb "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
   >>= (verbTagPass verb "Lower Intrinsics" $ justCompileWithNamesSt lowerIntrinsics)
@@ -247,7 +249,7 @@ compile :: CompilerOptions
         -> LLVM.Module
         -> Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
 compile options len llvmProg = do
-  ir <- compile1 options len llvmProg
+  ir <- compile1 options len llvmProg firstUnusedName
   high <- return ir
     >>= compile2 options
     >>= compile3 options

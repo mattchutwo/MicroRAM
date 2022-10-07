@@ -67,8 +67,9 @@ type CompilationUnit a prog = CompilationUnit' a (ProgAndMem prog)
 
 type CompilationResult prog = CompilationUnit' () (MultiProg (ProgAndMem prog))
 
-prog2unit :: Word -> prog -> CompilationUnit () prog
-prog2unit len p = CompUnit (ProgAndMem p [] Map.empty) len InfinityRegs def firstUnusedName () --  2 reserves `0` and `1` for premain and main 
+prog2unit :: Word -> prog -> Word -> CompilationUnit () prog
+prog2unit len p firstName =
+  CompUnit (ProgAndMem p [] Map.empty) len InfinityRegs def firstName ()
 
 -- * Lifting operators
 
