@@ -249,7 +249,7 @@ sectionVariable (Section sectionName False write _secTy _code (MemData d _ entri
   secName <- getName sectionName
   let initBuffer = packInWords $ toList d
   return $ Just $ GlobalVariable
-    {globName = secName
+    { globSectionName = secName
     , entryPoints = Map.toList entries
     , isConstant = not write
     , initializer = Just $ initBuffer

@@ -98,7 +98,7 @@ type TypeEnv = Map.Map Name Ty
 -- | This is the representation of global variables until they are
 -- set in memory and translated to constant pointers. 
 data GlobalVariable wrdT = GlobalVariable
-  { globName :: Name -- Optimize?
+  { globSectionName :: Name
   , entryPoints :: [(Name,MWord)]
   , isConstant :: Bool
   , initializer :: Maybe [LazyConst wrdT]

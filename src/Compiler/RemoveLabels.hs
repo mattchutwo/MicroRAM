@@ -98,7 +98,7 @@ buildLabelMap blocks globs = do
     goGlobs :: Map.Map Name MWord -> MWord -> [GlobalVariable MWord] -> Hopefully (Map.Map Name MWord)
     goGlobs m _addr [] = return m
     goGlobs m addr (g:gs) = do
-      let entries = (globName g,0):(entryPoints g)
+      let entries = entryPoints g
       m' <- foldM (insertLabel addr) m entries
       goGlobs m' (nextGlobalAddr addr g) gs
 
@@ -157,7 +157,7 @@ flattenGlobals tainted lm gs = goGlobals globalsStart gs
     goGlobals addr (g:gs) = do
       init' <- mapM (mapM goLazyConst) (initializer g)
       let seg = InitMemSegment {
-            isName   = short2string $  dbName $ globName g,
+            isName   = short2string $  dbName $ globSectionName g,
             isSecret = secret g,
             isReadOnly = isConstant g,
             isHeapInit = gvHeapInit g,
