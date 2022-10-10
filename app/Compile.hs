@@ -10,7 +10,8 @@ import Frontend.ClangCaller
 import Util.Util
 
 import MicroRAM
-import Compiler
+import Compiler hiding (Domain)
+import qualified Compiler
 import Control.Monad(when)
 import Compiler.CompilationUnit
 import Compiler.Errors
@@ -37,15 +38,14 @@ type CompiledProgram = CompilationResult (AnnotatedProgram Metadata AReg MWord)
 
 main :: IO ()
 main = do
-  (options, file, len) <- getArgs >>= parseArgs
-  fr <- parseOptions file len options
+  fr <- getArgs >>= parseArgs
   when (beginning fr <= end fr) $ do
     putStrLn "Nothing to do here. Beginning comes later than end. Did you use -from-mram and -just-llvm? "
     exitSuccess
   -- --------------
   -- Run Frontend
   -- --------------
-  when (beginning fr == CLang) $ frontend fr -- writes the resutl to llvmFile
+  when (beginning fr == CLang && null (domains fr)) $ frontend fr -- writes the resutl to llvmFile
   when (end fr >= LLVMLang) $ exitWith ExitSuccess
   -- --------------
   -- Run Backend
@@ -55,7 +55,9 @@ main = do
                                     putStrLn $ "Found no trace, can't compile."
                                     exitWith ExitSuccess
                                   Just trLength -> if (beginning fr >= RiscV) then -- Compile or read from file
-                                                     if beginning fr == RiscV then
+                                                     if not $ null $ domains fr then
+                                                       domainCompiler trLength fr
+                                                     else if beginning fr == RiscV then
                                                        riscCompiler trLength fr
                                                      else
                                                        callBackend trLength fr
@@ -104,7 +106,22 @@ main = do
           riscCode <- readFile $ fileIn fr
           handleErrorWith (riscBackend (verbose fr)
                              (fileIn fr) riscCode trLength)
-          
+
+        -- | Multi-domain / multi-input compiler
+        domainCompiler :: Word -> FlagRecord -> IO $ CompiledProgram
+        domainCompiler trLength fr = do
+          giveInfo fr "Running the multi-input compiler backend..."
+          ds <- mapM (loadCode llvmParse readFile) (domains fr)
+          let options = CompilerOptions
+                { verb = verbose fr
+                , allowUndefFun = allowUndefFunctions fr
+                , spars = sparsNum fr
+                , tainted = modeLeakTainted fr
+                , skipRegisterAllocation = skipRegAlloc fr
+                , numberRegs = numberRegsFr fr
+                }
+          handleErrorWith (compileDomains options trLength ds)
+
 
         saveMramProgram :: Show a => FlagRecord -> a -> IO ()
         saveMramProgram fr microProg =
@@ -175,6 +192,12 @@ data Flag
    -- Compiler Frontend flags
    | Optimisation Int 
    | LLVMout (Maybe String)
+   -- Multi-domain input flags
+   | Domain String
+   | DomainSecret Word Word
+   | DomainPrivileged
+   | DomainInputRiscv FilePath
+   | DomainInputLLVM FilePath
    -- Compiler Backend flags
    | PrivSegs Int
    | JustLLVM        
@@ -212,6 +235,8 @@ data FlagRecord = FlagRecord
   { verbose :: Bool  
   , fileIn :: String
   , beginning :: Stages
+  , domains :: [Compiler.Domain]
+  , curDomain :: Compiler.Domain
   -- Compiler frontend
   , optim :: Int
   -- Compiler backend
@@ -238,17 +263,19 @@ data FlagRecord = FlagRecord
 fr2ClangArgs :: FlagRecord -> ClangArgs
 fr2ClangArgs fr = ClangArgs (fileIn fr) (Just $ llvmFile fr) (optim fr) (verbose fr)
 
-defaultFlags :: String -> Maybe Word -> FlagRecord
-defaultFlags name len =
+defaultFlags :: FlagRecord
+defaultFlags =
   FlagRecord
   { verbose   = False  
-  , fileIn    = name
+  , fileIn    = ""
   , beginning = CLang
+  , domains   = []
+  , curDomain = defaultDomain
   -- Compiler frontend
   , optim     = 0
   -- Compiler backend
   , privSegs  = Nothing
-  , trLen     = len
+  , trLen     = Nothing
   , llvmFile  = "temp/temp.ll"
   , mramFile  = Nothing
   , sparsNum     = Just 2
@@ -266,7 +293,27 @@ defaultFlags name len =
   , doubleCheck = False
   , outFormat = StdHex
   }
-  
+
+defaultDomain :: Compiler.Domain
+defaultDomain = Compiler.Domain
+  { secretLengths = Nothing
+  , privileged = False
+  , domainInputs = []
+  }
+
+commitCurDomain :: FlagRecord -> FlagRecord
+commitCurDomain fr
+  | not $ null $ domainInputs $ curDomain fr =
+    fr { domains = domains fr ++ [curDomain fr], curDomain = defaultDomain }
+  | otherwise =
+    fr { curDomain = defaultDomain }
+
+withCurDomain :: (Compiler.Domain -> Compiler.Domain) -> FlagRecord -> FlagRecord
+withCurDomain f fr = fr { curDomain = f (curDomain fr) }
+
+addDomainInput :: DomainInput -> Compiler.Domain -> Compiler.Domain
+addDomainInput i d = d { domainInputs = domainInputs d ++ [i] }
+
 parseFlag :: Flag -> FlagRecord -> FlagRecord
 parseFlag flag fr =
   case flag of
@@ -300,14 +347,15 @@ parseFlag flag fr =
     FlatFormat ->               fr {outFormat = max Flat $ outFormat fr}
     PrettyHex ->                fr {outFormat = max PHex $ outFormat fr}
     VerifierMode ->             fr {verifierMode = True}
+    -- Multi-domain flags
+    Domain _name ->             commitCurDomain fr
+    DomainSecret codeSize memSize ->
+      withCurDomain (\d -> d { secretLengths = Just (codeSize, memSize) }) fr
+    DomainPrivileged ->         withCurDomain (\d -> d { privileged = True }) fr
+    DomainInputRiscv path ->    withCurDomain (addDomainInput (InputRISCV path Nothing)) fr
+    DomainInputLLVM path ->     withCurDomain (addDomainInput (InputLLVM path Nothing)) fr
     _ ->                        fr
 
-parseOptions :: String -> Maybe Word -> [Flag] -> IO FlagRecord
-parseOptions filein len flags = do
-  name <- return $ filein
-  let initFR = defaultFlags name len in
-    return $ foldr parseFlag initFR flags
-  
 options :: [OptDescr Flag]
 options =
   [ Option ['h'] ["help"]        (NoArg Help)                      "Print this help message"
@@ -333,29 +381,41 @@ options =
   , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")          "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
   , Option ['r'] ["regs"]         (ReqArg (NumberRegs . read) "n")    "Define the number of registers."
   , Option []    ["debug-skip-register-allocation"]   (NoArg SkipRegisterAllocation)    "Skip register allocation. Should only be used while debugging."
+
+  , Option []    ["domain"]      (ReqArg Domain "NAME")            "define a new domain called NAME"
+  , Option []    ["domain-secret"] (ReqArg readDomainSecret "CODESIZE,MEMSIZE") "set the secret flag, max code size, and max initial memory size for the current domain"
+  , Option []    ["domain-privileged"] (NoArg DomainPrivileged)    "set the privileged flag for the current domain"
+  , Option []    ["domain-input-riscv"] (ReqArg DomainInputRiscv "PATH") "add a RISC-V assembly file to the current domain"
+  , Option []    ["domain-input-llvm"] (ReqArg DomainInputLLVM "PATH") "add an LLVM IR file to the current domain"
   ]
   where readOpimisation Nothing = Optimisation 1
         readOpimisation (Just ntxt) = Optimisation (read ntxt)
 
-parseArgs :: [String] -> IO ([Flag], String, Maybe Word)
-parseArgs argv = 
-  case getOpt Permute options argv of
-        (opts,fs:maybeLength,[]) -> do
-          -- there can only be one file
-          when (Help `elem` opts) $ do
-            hPutStrLn stderr (usageInfo header options)
-            exitWith ExitSuccess
-          myLength <- getLength maybeLength
-          return (nub opts, fs, myLength)
-        (_,_,errs)      -> do
+        readDomainSecret s = DomainSecret (read a) (read b)
+          where (a, ',':b) = break (== ',') s
+
+parseArgs :: [String] -> IO FlagRecord
+parseArgs argv = do
+  (opts, posArgs) <- case getOpt Permute options argv of
+    (opts, posArgs, []) -> do
+      return (opts, posArgs)
+    (_,_,errs)      -> usageError errs
+
+  let fr = commitCurDomain $ foldr parseFlag defaultFlags opts
+  addPosArgs fr posArgs
+
+  where header = "Usage: compile file length [arguments] [options]. \n Options: "
+        usageError errs = do
           hPutStrLn stderr (concat errs ++ usageInfo header options)
           exitWith (ExitFailure 1)
 
-        where header = "Usage: compile file length [arguments] [options]. \n Options: "
-
-              getLength [] = return $ Nothing
-              getLength [len] = return $ Just $ read len
-              getLength args = do
-                hPutStrLn stderr ("The only arguments should be a file name and a trace length. \n" ++
-                                  "Arguments provided beyond file name: " ++ show args ++ "\n" ++ usageInfo header options) 
-                exitWith (ExitFailure 1)
+        addPosArgs fr posArgs
+          | not $ null $ domains fr = case posArgs of
+            [] -> return fr
+            [len] -> return (fr { trLen = Just $ read len })
+            _ -> usageError ["too many positional arguments"]
+          | otherwise = case posArgs of
+            [file] -> return (fr { fileIn = file })
+            [file, len] -> return (fr { fileIn = file, trLen = Just $ read len })
+            [] -> usageError ["file name is required"]
+            _ -> usageError ["too many positional arguments"]
