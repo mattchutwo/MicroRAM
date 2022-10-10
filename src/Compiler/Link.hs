@@ -46,12 +46,14 @@ linkCompUnits objs = do
   let externNames = [cuExternNames obj | obj <- objs]
 
   -- Map string names to Names for all extern symbols
+  -- `builtinNames` are defined by built-in compiler magic.
+  let builtinNames = [pcName]
   externNameMap <- foldM (\m name -> do
     let nameStr = dbName name
     when (Map.member nameStr m) $
       otherError $ "multiple definitions of extern symbol " ++ show nameStr
     return $ Map.insert nameStr name m) mempty
-      [name | names <- externNames, name <- Set.toList names]
+      ([name | names <- externNames, name <- Set.toList names] ++ builtinNames)
 
   -- Check for undefined names that won't be resolved by linking to other
   -- compilation units.
