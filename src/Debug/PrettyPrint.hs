@@ -123,6 +123,7 @@ instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pr
     vsep [ "/// Block " <> pretty (blockName blk)
          , "/// Secret: " <> viaShow (blockSecret blk)
          , "/// Privileged: " <> viaShow (blockPrivileged blk)
+         , "/// Extern: " <> viaShow (blockExtern blk)
          , vsep (map (pretty . fst) (blockInstrs blk))
          , line
          ]
