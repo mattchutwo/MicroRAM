@@ -54,6 +54,8 @@ import MicroRAM.MRAMInterpreter.Generic
 import Native
 import RiscV.RiscVAsm
 
+import Debug.Trace
+
 data RiscV
 
 data Machine = Machine
