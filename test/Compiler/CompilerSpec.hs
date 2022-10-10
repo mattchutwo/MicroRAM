@@ -49,19 +49,26 @@ compileTest
   -> [Domain]
   -> Word
   -> TestTree
-compileTest executionFunction tester name (OneLLVM file) len =
+compileTest executionFunction tester name domains len =
   testGroup name [monadicTest False, monadicTest True]
   where monadicTest skipRegAlloc =
           testProperty (if skipRegAlloc then "Skip RegAlloc" else "Regular") $ 
           QCM.monadicIO $ do
-          answer <- QCM.run $ compileTest' file len skipRegAlloc
+          let options = defOptions { skipRegisterAllocation = skipRegAlloc }
+          answer <- QCM.run $ case domains of
+            OneLLVM file -> compileLLVM options file
+            domains -> compileMulti options domains
           QCM.assert $ tester answer
-          
-        compileTest' file len skipRegAlloc = do
+
+        compileLLVM options file = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile defOptions{skipRegisterAllocation = skipRegAlloc} len llvmProg
+          mramProg <- handleErrorWith $ compile options len llvmProg
           return $ executionFunction (fmap (tripleFmap fst) mramProg)
-compileTest _ _ _ _ _ = testGroup "multi-file and non-LLVM tests are ignored" []
+
+        compileMulti options domains = do
+          domains' <- mapM (loadCode llvmParse readFile) domains
+          mramProg <- handleErrorWith $ compileDomains options len domains'
+          return $ executionFunction (fmap (tripleFmap fst) mramProg)
 
 tripleFmap :: (Functor f1, Functor f2, Functor f3) =>
      (a -> b) -> f1 (f2 (f3 a)) -> f1 (f2 (f3 b))

@@ -24,7 +24,7 @@ oneTest = OneTest $ defaultTest {
     }
 
 allTests = ManyTests "Program tests"
-        [testCorrectness, testErrors, testBugs]
+        [testCorrectness, testErrors, testBugs, testMulti]
 testCorrectness = ManyTests "Correctness tests"
                   [testTrivial, testLoops, testGEP, testDatastruct, testFunctionPointer, testVarArgs, testCmov]
 
@@ -300,6 +300,17 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
   []
 
 
+testMulti = ManyTests "Multi-input tests" $ OneTest <$>
+  defaultTest
+    { testName = "Link f and g"
+    , testDomains = oneDomain
+      [ InputLLVM "test/Programs/domains/g_main.ll" Nothing
+      , InputLLVM "test/Programs/domains/f.ll" Nothing ]
+    , testLen = 200
+    , testResult = 203 } :
+  []
+
+
 -- ## Test the RISC-V backend
 
 riscvTests = ManyTests "RISC-V backend correctness tests" $ OneTest <$>
@@ -374,6 +385,13 @@ pattern OneRISCV path = [Domain
   { secretLengths = Nothing
   , privileged = False
   , domainInputs = [InputRISCV path Nothing]
+  }]
+
+oneDomain :: [DomainInput] -> [Domain]
+oneDomain inputs = [Domain
+  { secretLengths = Nothing
+  , privileged = False
+  , domainInputs = inputs
   }]
 
 
