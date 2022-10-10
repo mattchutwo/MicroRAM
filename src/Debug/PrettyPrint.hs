@@ -64,7 +64,7 @@ pprintInst :: (Pretty wrd, Bounded wrd, Integral wrd, Show wrd) => Instruction' 
 pprintInst = show . pretty
 
 instance Pretty func => Pretty (IRprog mdata wrd func) where
-  pretty (IRprog _tenv _globals code) =
+  pretty (IRprog _tenv _globals code _ext) =
     -- TODO: tenv + globals
     vsep $ map pretty code
 

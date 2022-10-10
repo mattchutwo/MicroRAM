@@ -39,9 +39,9 @@ data NameState = NameState
 
 -- Split edges to ensure the "unique successor or predecessor property" (Modern Compiler Implementation in Java, 19.6).
 edgeSplit :: (Rprog Metadata wrdT, Word) -> Hopefully (Rprog Metadata wrdT, Word)
-edgeSplit (IRprog te ge funcs, nextReg) = do
+edgeSplit (IRprog te ge funcs ext, nextReg) = do
   let (funcs', NameState nextReg' _) = runState (mapM edgeSplitFunc funcs) initNameState
-  return $ (IRprog te ge funcs', nextReg')
+  return $ (IRprog te ge funcs' ext, nextReg')
   where initNameState = NameState nextReg Map.empty
 
 edgeSplitFunc :: forall wrdT . RFunction Metadata wrdT -> State NameState (RFunction Metadata wrdT)
@@ -138,9 +138,9 @@ edgeSplitFunc (Function name retTy argTys argNms blocks extern) = do
 
 -- | Removes phis. Assumes edge splitting has already happened.
 removePhi :: (Rprog Metadata wrdT, Word) -> Hopefully (Rprog Metadata wrdT, Word)
-removePhi (IRprog te ge funcs, nextReg) = do
+removePhi (IRprog te ge funcs ext, nextReg) = do
   (funcs', nextReg') <- runStateT (mapM removePhiFunc funcs) nextReg
-  return (IRprog te ge funcs', nextReg')
+  return (IRprog te ge funcs' ext, nextReg')
 
 removePhiFunc :: forall wrdT.
   RFunction Metadata wrdT -> StateT Word Hopefully (RFunction Metadata wrdT)

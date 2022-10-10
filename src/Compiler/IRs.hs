@@ -186,6 +186,9 @@ data IRprog mdata wrdT funcT = IRprog
   { typeEnv :: TypeEnv
   , globals :: GEnv wrdT
   , code :: [funcT]
+  , externFuncs :: [Name]
+  -- ^ Names of external functions that were declared but not defined within
+  -- this program.
   } deriving (Show, Functor, Foldable, Traversable)
 
 
@@ -349,9 +352,9 @@ traverseOpLprog fop = traverse (traverseOpLFun fop)
 
 -- Converts a RTL program to a LTL program.
 rtlToLtl :: forall mdata wrdT . Rprog mdata wrdT -> Hopefully $ Lprog mdata VReg wrdT
-rtlToLtl (IRprog tenv globals code) = do
+rtlToLtl (IRprog tenv globals code ext) = do
   code' <- mapM convertFunc code
-  return $ IRprog tenv globals code'
+  return $ IRprog tenv globals code' ext
   where
    convertFunc :: RFunction mdata wrdT -> Hopefully $ LFunction mdata VReg wrdT
    convertFunc (Function name retType paramTypes paramNames body extern) = do

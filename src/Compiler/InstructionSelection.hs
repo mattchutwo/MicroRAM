@@ -34,6 +34,8 @@ import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map 
 import Data.Foldable (foldl')
+import Data.List (partition)
+import GHC.Stack
 
 import Control.Lens (makeLenses, (.=), (%=), (^.), use)
 import Control.Monad.Except
@@ -1162,6 +1164,15 @@ itIsMetaData (LLVM.MetadataNodeDefinition _ _) = True
 itIsMetaData (LLVM.NamedMetadataDefinition _ _) = True
 itIsMetaData _ = False
 
+-- | Returns `True` if the function is a declaration, not a definition.
+llvmFuncName :: HasCallStack => LLVM.Definition -> LLVM.Name
+llvmFuncName (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ _ name _ _ _ _ _ _ _ _ _ _)) = name
+llvmFuncName _ = error "called llvmFuncName on non-function"
+
+funcIsDecl :: LLVM.Definition -> Bool
+funcIsDecl (LLVM.GlobalDefinition (LLVM.Function  _ _ _ _ _ _ _ _ _ _ _ _ _ _ [] _ _)) = True
+funcIsDecl _ = False
+
 unreachableError :: MonadError CmplError m => [Char] -> m b
 unreachableError what = otherError $ "This is akward. This error should be unreachable. You called a function that should only be called on a list after filtering, to avoid this error. Here is the info: " ++ what
 
@@ -1655,11 +1666,15 @@ isDefs nameBound defs = do
   let globalEvaluation = isGlobVars env $ filter itIsGlobVar defs  -- filtered inside the def 
   (globVars, state') <- runStateT globalEvaluation (initState nameBound) 
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
-  (funcs, state'') <- runStateT (isFunctions env) state'
+  ((funcs, externFuncNames), state'') <- runStateT (isFunctions env) state'
   checkDiscardedDefs defs -- Make sure we dont drop something important
-  return $ (IRprog Map.empty globVars funcs, state'' ^. nextReg) 
-  where isFunctions env = mapM (isFunction env) $ filter itIsFunc defs
-          
+  return $ (IRprog Map.empty globVars funcs externFuncNames, state'' ^. nextReg)
+  where (funcDecls, funcDefs) = partition funcIsDecl $ filter itIsFunc defs
+        isFunctions env = do
+          funcs <- mapM (isFunction env) $ filter itIsFunc defs
+          externFuncNames <- mapM (globalName . llvmFuncName) funcDecls
+          return (funcs, externFuncNames)
+
 -- | Instruction selection generates an RTL Program
 instrSelect :: (LLVM.Module, Word) -> Hopefully $ (MIRprog Metadata MWord, Word)
 instrSelect (LLVM.Module _ _ _ _ defs, bound) = isDefs bound defs

@@ -308,7 +308,7 @@ stackFunction (LFunction name _retT _argT _argN size code extern) = do
           "Block is expected to be non-empty, but found empty block: \n\t" <> show (blockName blk)
           
 stacking :: Regs mreg => (Lprog Metadata mreg MWord, Word) -> Hopefully $ (MAProgram Metadata mreg MWord, Word)
-stacking (IRprog _ _ functions, nextName) = do
+stacking (IRprog _ _ functions _, nextName) = do
   functions' <- mapM stackFunction functions
   return (concat functions', nextName)
 

@@ -52,7 +52,7 @@ expandInstrs :: forall f m w.
 expandInstrs f = goProg
   -- TODO: this can probably be done more cleanly with traverse or lenses
   where goProg :: MIRprog m w -> WithNextReg f (MIRprog m w)
-        goProg (IRprog te gs code) = IRprog te gs <$> traverse goFunc code
+        goProg (IRprog te gs code ext) = IRprog te gs <$> traverse goFunc code <*> pure ext
 
         goFunc :: MIRFunction m w -> WithNextReg f (MIRFunction m w)
         goFunc (Function nm rty atys anms bbs extern) =
@@ -277,7 +277,7 @@ removeIntrinsics prog =
 -- `@__llvm__memset__p0i8__i64`, then this pass renames it to the dotted form.
 -- It also removes the empty definition of the dotted form, to avoid conflicts later on.
 renameLLVMIntrinsicImpls :: MIRprog Metadata MWord -> Hopefully (MIRprog Metadata MWord)
-renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
+renameLLVMIntrinsicImpls (IRprog te gs code ext) = return $ IRprog te gs code' ext
   where
     renameList :: [(ShortByteString, ShortByteString)]
     renameList = do

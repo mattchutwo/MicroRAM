@@ -98,7 +98,7 @@ firstAvailableRegister = 3
 
 
 setCode :: Lprog Metadata reg0 MWord -> [LFunction Metadata reg MWord] -> Lprog Metadata reg MWord
-setCode (IRprog tenv globals _) code = IRprog tenv globals code
+setCode (IRprog tenv globals _ ext) code = IRprog tenv globals code ext
 
 -- Register allocator state.
 data RAState = RAState {
