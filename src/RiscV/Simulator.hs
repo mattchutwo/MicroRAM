@@ -131,8 +131,8 @@ stepInstM i@(Inst opcode _) = do
       iw = 32
   execSemantics (evalInstExpr knownISet i iw) semantics
 
-stepInst :: Machine -> Instruction RV64IM fmt -> Machine
-stepInst m i = MS.execState (unSimM (stepInstM i)) m
+stepInst :: Machine -> Some (Instruction RV64IM) -> Machine
+stepInst m (Some i) = MS.execState (unSimM (stepInstM i)) m
 
 instance TestEquality Operands where
   Operands fmt1 ops1 `testEquality` Operands fmt2 ops2
@@ -158,11 +158,17 @@ instance OrdF (Instruction RV64IM) where
       EQF -> ops1 `compareF` ops2
       c -> c
 
+-- 
+(=?=) :: (Show a, Eq a) => a -> a -> String -> String -> String -> Bool
+(=?=) a1 a2 id1 id2 name =
+  if a1 == a2 then True else
+    trace ("The two " <> name <> "s don't match. \n\t " <> name <> "(" <> id1<> ") : " <> show a1 <> "\n\t" <> name <> "(" <> id1<> ") : " <> show a2) False
+
 instance Native RiscV where
-  type Inst RiscV = Some (Instruction RV64IM)
+  type Inst RiscV = Instr -- Some (Instruction RV64IM)
   type State RiscV = Machine
 
-  stepArch m (Some i) = Right (stepInst m i)
+  stepArch m i = Right (stepInst m $ instrToGrift i)
 
   toArchState :: forall v r.
                  (Concretizable v, Regs r)
@@ -179,7 +185,8 @@ instance Native RiscV where
     }
     where 
   archStateEq s1 s2 =
-    (mPC s1 == mPC s2) && (mMemory s1 == mMemory s2) && (mGPRs s1 == mGPRs s2)
+    ((mPC s1 =?= mPC s2) "MRAM" "RiscV" "PC") && ((mMemory s1 =?= mMemory s2) "MRAM" "RiscV" "memory") && ((mGPRs s1 =?= mGPRs s2) "MRAM" "RiscV" "GPR")
+    -- (mPC s1 == mPC s2) && (mMemory s1 == mMemory s2) && (mGPRs s1 == mGPRs s2)
 
 translateMem :: Mem
              -> Map (UnsignedBV (RVWidth RV64IM)) (UnsignedBV 8)

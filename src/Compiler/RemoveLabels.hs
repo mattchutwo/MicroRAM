@@ -53,6 +53,8 @@ import Compiler.LazyConstants
 import Compiler.Tainted
 import Compiler.Layout (alignTo)
 
+import RiscV.RiscVAsm (instrTraverseImm, Imm(..))
+
 import Debug.Trace
 
 
@@ -113,7 +115,7 @@ getOrZero m n = case Map.lookup n m of
   Nothing -> trace ("warning: label " ++ show n ++ " is missing; defaulting to zero") 0
   Just x -> x
 
-flattenBlocks ::
+flattenBlocks :: Show regT => 
   Map Name MWord ->
   [NamedBlock md regT MWord] ->
   [(Instruction regT MWord, md)]
@@ -127,13 +129,15 @@ flattenBlocks lm bs = snd $ foldr goBlock (totalBlockSize, []) bs
       foldr goInstr (postAddr, acc) instrs
 
     -- Walks over instructions in reverse order.
-    goInstr :: (MAInstruction regT MWord, md) -> (MWord,[(Instruction regT MWord, md)]) -> (MWord,[(Instruction regT MWord, md)])
+    goInstr :: Show regT => (MAInstruction regT MWord, md) -> (MWord,[(Instruction regT MWord, md)]) -> (MWord,[(Instruction regT MWord, md)])
     goInstr (i, md) (!lastAddr,!acc) =
       -- Get the address of the current instruction.
       let addr = lastAddr - 1 in
-      let !i' = goOperand addr <$> i in
-
-      (addr, (i', md):acc)
+      -- Replace all the labels and lazy constants in the operands of each instruction
+      -- Starting with the XCheck instructions, which have different opperands
+      let i' = goXCheck addr i in
+      let !i''  = goOperand addr <$> i' in
+        (addr, (i'', md):acc)
 
     goOperand :: MWord -> MAOperand regT MWord -> Operand regT MWord
     goOperand _ (AReg r) = Reg r
@@ -144,6 +148,18 @@ flattenBlocks lm bs = snd $ foldr goBlock (totalBlockSize, []) bs
     -- HereLabel)
     lmFuncWithPc pcAddress = getOrZero $ Map.insert pcName pcAddress lm
     lmFunc = getOrZero lm
+
+    -- Replace all the `ImmLazy` with `ImmWord`
+    goXCheck :: MWord -> MAInstruction regT MWord -> MAInstruction regT MWord
+    goXCheck addr (Iext (XCheck nativeInstr)) =
+      Iext $ XCheck $ instrTraverseImm (goImm addr) nativeInstr -- goImm addr
+    goXCheck _ i = i
+
+    goImm :: MWord -> Imm -> Imm
+    goImm addr (ImmLazy lc) =
+      ImmNumber $ makeConcreteConst (lmFuncWithPc addr) lc
+    goImm _ imm = error $ "RemoveLabels: Expected a `ImmLazy` but found: "<> show imm <> ".\n\tThe transpiler should have turned this into a `ImmLazy`"
+    
 
 flattenGlobals ::
   Bool ->
@@ -178,6 +194,7 @@ flattenGlobals tainted lm gs = goGlobals globalsStart gs
 
 -- ** Remove labels from the entire CompilationUnit  
 removeLabels ::
+  Show regT =>
   Bool ->
   CompilationUnit [GlobalVariable MWord] (MAProgram md regT Wrd) ->
   Hopefully (CompilationUnit () (AnnotatedProgram md regT Wrd))

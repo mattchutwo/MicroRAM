@@ -209,7 +209,7 @@ data ExtInstr operand2 =
   -- ^ Save a copy of the entire machine state.
   | XCheck NativeInstruction
   -- ^ Take the latest snapshot (saved by XSnapshot), run the native instruction, and check that the simulator's result matches the MicroRAM machine state.
-  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
+  deriving (Eq, Read, Show, Functor, Foldable, Traversable, Generic)
 
 data ExtValInstr operand2 =
     XLoadUnchecked operand2
@@ -272,7 +272,7 @@ data Instruction' regT operand1 operand2 =
   | Iext (ExtInstr operand2)                -- ^ Custom instruction with no return value
   | Iextval regT (ExtValInstr operand2)     -- ^ Custom instruction, returning a value
   | Iextadvise regT operand2 (ExtAdviseInstr operand2) -- ^ Like `Iextval`, but gets serialized as `Iadvise`
-  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
+  deriving (Eq, Read, Show, Functor, Foldable, Traversable, Generic)
 
 pattern IstoreW :: operand2 -> operand1 -> Instruction' regT operand1 operand2
 pattern IstoreW a b = Istore WWord a b

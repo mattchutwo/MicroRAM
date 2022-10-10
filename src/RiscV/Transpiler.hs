@@ -585,7 +585,7 @@ transpileInstr emulatorEnabled instr = do
               Instr64M instrExt64M    -> return $ transpileInstr64M instrExt64M  
               InstrPseudo pseudoInstr -> transpileInstrPseudo pseudoInstr
               InstrAlias aliasInstr   -> return $ transpileInstralias aliasInstr
-  let instrs = insertEmulator instrs' instr
+  instrs <- insertEmulator instrs' instr
   instrMD <- traverse addMetadata instrs
   -- TODO remove writes to zero
   -- TODO2: simplify reads from 0
@@ -601,11 +601,14 @@ transpileInstr emulatorEnabled instr = do
         return (instr, Metadata funName blockName line False False False False)
 
       insertEmulator instrs instr
-        | shouldEmulate instr =
-              [Iext XSnapshot]
-           <> instrs
-           <> [Iext (XCheck (Native.NativeInstruction instr))]
-        | otherwise = instrs
+        | shouldEmulate instr = do
+            lazyInstr <- instrTraverseImmM (ImmLazy <.> tpImm) instr
+            return $ [Iext XSnapshot]
+              <> instrs
+              <> [Iext (XCheck $ Native.NativeInstruction lazyInstr)]
+        | otherwise = return instrs
+        where (<.>) :: Functor f => (a -> b) -> (c -> f a) -> c -> f b
+              f1 <.> f2 = fmap f1 . f2
 
       shouldEmulate instr = emulatorEnabled && case instr of
         -- TODO: Should all instructions be emulated?

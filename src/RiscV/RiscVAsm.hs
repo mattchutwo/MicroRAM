@@ -1,4 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module RiscV.RiscVAsm
   ( 
@@ -79,13 +81,22 @@ module RiscV.RiscVAsm
   -- ** Aliases
   -- $alias
   , AliasInstr(..)
-   ) where
 
-import Native (Native(..))
+  -- ** Traverseble
+  , TraversableOp
+  , traverseOp
+  , instrTraverseImmM
+  , instrTraverseImm
+  , instrTraverseRegM
+   ) where
 
 -- import Data.Bits
 import Data.Word (Word8, Word16, Word64)
+import Data.Functor.Identity (runIdentity, Identity(..))
 import Test.QuickCheck (Arbitrary, arbitrary, oneof)
+import Compiler.LazyConstants (LazyConst(..))
+
+import Debug.Trace
 
 {- | The RISC-V assembler supports following modifiers for relocatable
    addresses used in RISC-V instruction operands. These expressions
@@ -172,9 +183,10 @@ instance Arbitrary Modifier where
 data Imm =
   ImmNumber Word64
   | ImmSymbol String
+  | ImmLazy (LazyConst Word64) -- Only to go inside Xrvcheck
   | ImmMod Modifier Imm
   | ImmBinOp ImmOp Imm Imm 
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq)
 
 data ImmOp =
   ImmAnd     
@@ -433,7 +445,7 @@ data Directive
     [FlagArg]
   | DirEmit EmitDir [Imm]               -- ^ Emits a value at the current position
   | CFIDirectives CFIDirectives         -- ^ Control Flow Integrity
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq)
 
 
 data AttTag
@@ -839,7 +851,7 @@ data LineOfRiscV =
     LabelLn       String
   | Directive   Directive
   | Instruction Instr
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq)
 
 
 data Instr
@@ -849,7 +861,7 @@ data Instr
   | Instr64M    InstrExt64M  -- ^ RV64M Standard Extension for Integer Multiply and Divide
   | InstrPseudo PseudoInstr  -- ^ Pseudoinstructions
   | InstrAlias  AliasInstr   -- ^ Instruction Aliases
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq)
 
 
 {- $rv32i
@@ -1084,7 +1096,7 @@ data InstrRV32I =
     -- | Synchronisation Instructions (Fences)
   | FENCE SetOrdering
   | FENCEI            
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq)
 
 {- | Memory operations 64I
 
@@ -1183,7 +1195,7 @@ data InstrRV64I
   = MemInstr64 MemOp64 Reg Offset Reg -- ^ Memory operations
   | ImmBinop64 Binop64I Reg Reg Imm  -- ^ Integer Register-Immediate Instructions
   | RegBinop64 Binop64 Reg Reg Reg -- ^ Integer Register-Register Instructions
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq)
 
 {- $ext32M
 RV32M Standard Extension for Integer Multiply and Divide (Version 2.0)
@@ -1322,7 +1334,7 @@ data AbsolutePseudo
   | PseudoLLA Reg Imm
   | PseudoLoad MemOpKind Reg Imm Reg 
   | PseudoStore MemOpKind Reg Imm Reg
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq)
 
 data MemOpKind = MemByte | MemHalf | MemWord | MemDouble
   deriving (Show, Eq, Ord)
@@ -1515,7 +1527,7 @@ data PseudoInstr
   -- | Alternative Jumps
   | JmpImmPI JumpPseudo Offset
   | JmpRegPI JumpPseudo Reg
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq)
 
 
 
