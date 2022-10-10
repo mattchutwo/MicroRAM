@@ -159,15 +159,19 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
     globalDeps n = error $ "no global for name " <> show n
 
     lazyDeps :: LazyConst a -> Set.Set (Either Name Int)
-    lazyDeps (LConst _ ds) = Set.map nameToIndex ds
+    lazyDeps (LConst _ ds) = Set.fromList [x | d <- Set.toList ds, Just x <- [nameToIndex d]]
     lazyDeps (SConst _)    = mempty
 
+    -- | Convert a name to a dependency key.  `Left n` means the global named
+    -- `n`, and `Right i` means the block starting at address `i`.  Returns
+    -- `Nothing` if the name is not defined.
+    nameToIndex :: Name -> Maybe (Either Name Int)
     nameToIndex n = case Map.lookup n nameMap of
-      Just j -> Right j
+      Just j -> Just $ Right j
       Nothing -> if Set.member n reservedNames || Map.member n globalMap then
-          Left n
+          Just $ Left n
         else       
-          error $ "no definition for name " ++ show n
+          Nothing
 
     blockDeps :: Int -> Set.Set (Either Name Int)
     -- If the last block falls through, consider the one-past-the-end block to
@@ -178,7 +182,9 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
         instrs = blockInstrs $ progSeq `Seq.index` i
         deps = mconcat $ map ((foldInstr (const mempty) (const mempty) opDep) . fst) instrs
 
-        opDep (Label l) = Set.singleton $ nameToIndex l
+        opDep (Label l) = case nameToIndex l of
+          Just x -> Set.singleton x
+          Nothing -> Set.empty
         opDep (LImm li) = lazyDeps li
         opDep (AReg _) = mempty
 

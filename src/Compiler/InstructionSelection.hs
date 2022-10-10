@@ -1671,7 +1671,7 @@ isDefs nameBound defs = do
   return $ (IRprog Map.empty globVars funcs externFuncNames, state'' ^. nextReg)
   where (funcDecls, funcDefs) = partition funcIsDecl $ filter itIsFunc defs
         isFunctions env = do
-          funcs <- mapM (isFunction env) $ filter itIsFunc defs
+          funcs <- mapM (isFunction env) funcDefs
           externFuncNames <- mapM (globalName . llvmFuncName) funcDecls
           return (funcs, externFuncNames)
 

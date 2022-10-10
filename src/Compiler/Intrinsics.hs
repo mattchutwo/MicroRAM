@@ -266,8 +266,10 @@ lowerIntrinsics = expandInstrs (expandIntrinsicCall intrinsics)
 -- This overlaps with dead code elimination (a bit), but enables checking for undefined functions
 removeIntrinsics :: MIRprog m MWord -> WithNextReg Hopefully (MIRprog m MWord)
 removeIntrinsics prog = 
-  return $ prog {code = filter (not . isIntrinsic) $ code prog}
-  where isIntrinsic f = dbName (funcName f) `Map.member` intrinsics
+  return $ prog
+    { code = filter (not . isIntrinsicName . funcName) $ code prog
+    , externFuncs = filter (not . isIntrinsicName) $ externFuncs prog }
+  where isIntrinsicName nm = dbName nm `Map.member` intrinsics
         
 -- | Rename C/LLVM implementations of LLVM intrinsics to line up with their
 -- intrinsic name.
@@ -277,7 +279,8 @@ removeIntrinsics prog =
 -- `@__llvm__memset__p0i8__i64`, then this pass renames it to the dotted form.
 -- It also removes the empty definition of the dotted form, to avoid conflicts later on.
 renameLLVMIntrinsicImpls :: MIRprog Metadata MWord -> Hopefully (MIRprog Metadata MWord)
-renameLLVMIntrinsicImpls (IRprog te gs code ext) = return $ IRprog te gs code' ext
+renameLLVMIntrinsicImpls (IRprog te gs code externFuncNames) =
+  return $ IRprog te gs code' externFuncNames'
   where
     renameList :: [(ShortByteString, ShortByteString)]
     renameList = do
@@ -288,6 +291,7 @@ renameLLVMIntrinsicImpls (IRprog te gs code ext) = return $ IRprog te gs code' e
 
     renameMap = Map.fromList renameList
     removeSet = Set.fromList $ map snd renameList
+    externFuncNames' = [nm | nm <- externFuncNames, not $ Set.member (dbName nm) removeSet]
 
     -- | If the code calls `@llvm.memset.p0i8.i64` it will actually call
     -- a dummy, empty function called `Name n "@llvm.memset.p0i8.i64"`.
@@ -296,9 +300,9 @@ renameLLVMIntrinsicImpls (IRprog te gs code ext) = return $ IRprog te gs code' e
     -- So, for every empty function named `Name n "emptyFoo"`
     -- we create the Map `"emptyFoo" -> Name n "emptyFoo"` 
     emptyFuncMap :: Map.Map ShortByteString Name
-    emptyFuncMap = foldr go Map.empty code
-      where go (Function nm _ _ _ bbs _) mapNE =
-              if null bbs then Map.insert (dbName nm) nm mapNE else mapNE
+    emptyFuncMap = Map.fromList [(dbName nm, nm) | nm <- names]
+      where names = [nm | Function nm _ _ _ bbs _ <- code, not $ null bbs]
+              ++ externFuncNames
 
     -- | Renames all the function of the form `@__LLVM__foo`
     -- into the dotted form and removes the original, empty,

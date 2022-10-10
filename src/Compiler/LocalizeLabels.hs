@@ -30,7 +30,7 @@ localizeLabels (IRprog te ge funcs externFuncNames, nameBound) =
   return $ (IRprog te ge funcs' externFuncNames, nameBound')
   where
     -- Function names are not localized.
-    funcNames = Map.fromList $ map (dup . funcName) funcs
+    funcNames = Map.fromList $ map (dup . funcName) funcs ++ map dup externFuncNames
     dup a = (a,a)
      
 data RenameState = RenameState
