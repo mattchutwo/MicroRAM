@@ -273,7 +273,7 @@ compile options len llvmProg = do
 
 
 data Domain = Domain
-  { secretLengths :: Maybe (Int, Int)
+  { secretLengths :: Maybe (Word, Word)
   -- ^ If set, the code and memory of the domain are secret, with the indicated
   -- upper limits on their respective lengths.
   , privileged :: Bool
@@ -322,7 +322,7 @@ compileDomains options len domains = do
     [compileDomain options len d | d <- domains]
   obj <- concatObjects objs
   high <- compile3 options (objHigh obj)
-  low <- compile3 options (objHigh obj)
+  low <- compile3 options (objLow obj)
   return $ low { programCU = MultiProg (programCU high) (programCU low) }
 
 compileDomain :: CompilerOptions
@@ -364,7 +364,14 @@ sequenceObjects firstName mkObjs = go firstName mkObjs
 -- objects can refer to external symbols (blocks and globals) defined in other
 -- objects.
 linkObjects :: [CompiledObject] -> Hopefully CompiledObject
-linkObjects objs = concatObjects objs
+linkObjects objs = do
+  high <- linkCompUnits (map objHigh objs)
+  low <- linkCompUnits (map objLow objs)
+  return $ CompiledObject
+    { objHigh = high
+    , objLow = low
+    , objNextName = max (nameBound high) (nameBound low)
+    }
 
 -- | Concatenate several objects.  This makes no changes to `Name`s, so symbols
 -- defined in one object won't be visible in the others.
@@ -375,5 +382,5 @@ concatObjects objs = do
   return $ CompiledObject
     { objHigh = high
     , objLow = low
-    , objNextName = maximum (map objNextName objs)
+    , objNextName = max (nameBound high) (nameBound low)
     }
