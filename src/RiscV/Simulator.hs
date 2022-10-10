@@ -32,6 +32,8 @@ import Data.Parameterized.List
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
 
+import GHC.Word (Word64)
+
 import GRIFT.BitVector.BVApp (BVApp(..))
 import GRIFT.BitVector.BVFloatApp (BVFloatApp(..))
 import GRIFT.Decode (encode)
@@ -328,3 +330,139 @@ griftToInstr (Inst oc (Operands fmt ops)) =
     RXRepr -> error "rx-format instructions not implemented"
     XRepr -> case oc of
       Illegal -> error "illegal instruction"
+
+-- These functions to translate registers have a lot of duplicated code!
+-- How can we factor them cleanly?
+enumToSizedBV x =  sizedBVInteger $ toEnum $ fromEnum x
+
+regToSizedBV :: FormatRepr a -> Reg -> Reg -> Reg -> Operands a
+regToSizedBV RRepr rd rs1 rs2  =
+  let (rd', rs1', rs2') = (enumToSizedBV rd, enumToSizedBV rs1, enumToSizedBV rs2) in
+    let ops = rd' :<  rs1' :< rs2' :< Nil in
+      (Operands RRepr ops)
+regToSizedBV IRepr rd rs1 rs2  =
+  let (rd', rs1', rs2') = (enumToSizedBV rd, enumToSizedBV rs1, enumToSizedBV rs2) in
+    let ops = rd' :<  rs1' :< rs2' :< Nil in
+      (Operands IRepr ops)
+
+-- catching errors if an immidiate is not a Number (i.e. a Word)
+-- THIS IS NOT PURE!
+withConcreteImm :: Imm -> (Word64 -> a) -> a
+withConcreteImm imm f =
+  case imm of
+    ImmNumber w -> f w
+    imm' -> error $ "RiscV emulator encountered an `Immediate` which is not concrete: " <> show imm' <> ".\n\tIf this is a `ImmLazy`, then it was probably missed by the `RemoveLabels` step. Otherwise it's a problem with the transpiler. "
+
+regRegImmToSizedBV :: FormatRepr a -> Reg -> Reg -> Imm -> Operands a
+regRegImmToSizedBV RRepr rd rs1 imm  =
+  withConcreteImm imm $
+  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, enumToSizedBV w) in
+          let ops = rd' :<  rs1' :< imm' :< Nil in
+            (Operands RRepr ops)
+regRegImmToSizedBV IRepr rd rs1 imm  =
+  withConcreteImm imm $
+  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, enumToSizedBV w) in
+          let ops = rd' :<  rs1' :< imm' :< Nil in
+            (Operands IRepr ops)
+regRegImmToSizedBV SRepr rd rs1 imm  =
+  withConcreteImm imm $
+  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, enumToSizedBV w) in
+          let ops = rd' :<  rs1' :< imm' :< Nil in
+            (Operands SRepr ops)
+regRegImmToSizedBV BRepr rd rs1 imm  =
+  withConcreteImm imm $
+  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, enumToSizedBV w) in
+          let ops = rd' :<  rs1' :< imm' :< Nil in
+            (Operands BRepr ops)
+              
+regImmToSizedBV :: FormatRepr a -> Reg -> Imm -> Operands a
+regImmToSizedBV URepr rs1 imm  =
+  withConcreteImm imm $
+  \w -> let (rs1', imm') = (enumToSizedBV rs1, enumToSizedBV w) in
+          let ops = rs1' :< imm' :< Nil in
+            (Operands URepr ops)
+regImmToSizedBV JRepr rs1 imm  =
+  withConcreteImm imm $
+  \w -> let (rs1', imm') = (enumToSizedBV rs1, enumToSizedBV w) in
+          let ops = rs1' :< imm' :< Nil in
+            (Operands JRepr ops)
+
+
+
+-- HERE
+-- Not used right now TODO: Delete?
+instrToGrift :: Instr -> Some (Instruction RV64IM)
+instrToGrift instr =
+  case instr of
+    Instr32I (RegBinop32 ADD rd rs1 rs2) -> Some $ Inst Add (regToSizedBV RRepr rd rs1 rs2)
+    -- RRepr
+    Instr32I (RegBinop32 ADD rd rs1 rs2  ) -> Some $ Inst Add    (regToSizedBV RRepr rd rs1 rs2)    
+    Instr32I (RegBinop32 SUB rd rs1 rs2  ) -> Some $ Inst Sub    (regToSizedBV RRepr rd rs1 rs2)
+    Instr32I (RegBinop32 SLL rd rs1 rs2  ) -> Some $ Inst Sll    (regToSizedBV RRepr rd rs1 rs2)
+    Instr32I (RegBinop32 SLT rd rs1 rs2  ) -> Some $ Inst Slt    (regToSizedBV RRepr rd rs1 rs2)
+    Instr32I (RegBinop32 SLTU rd rs1 rs2 ) -> Some $ Inst Sltu   (regToSizedBV RRepr rd rs1 rs2)
+    Instr32I (RegBinop32 XOR rd rs1 rs2  ) -> Some $ Inst Xor    (regToSizedBV RRepr rd rs1 rs2)
+    Instr32I (RegBinop32 SRL rd rs1 rs2  ) -> Some $ Inst Srl    (regToSizedBV RRepr rd rs1 rs2)
+    Instr32I (RegBinop32 SRA rd rs1 rs2  ) -> Some $ Inst Sra    (regToSizedBV RRepr rd rs1 rs2)
+    Instr32I (RegBinop32 OR rd rs1 rs2   ) -> Some $ Inst Or     (regToSizedBV RRepr rd rs1 rs2)
+    Instr32I (RegBinop32 AND rd rs1 rs2  ) -> Some $ Inst And    (regToSizedBV RRepr rd rs1 rs2)
+    Instr64I (RegBinop64 ADDW rd rs1 rs2 ) -> Some $ Inst Addw   (regToSizedBV RRepr rd rs1 rs2)
+    Instr64I (RegBinop64 SUBW rd rs1 rs2 ) -> Some $ Inst Subw   (regToSizedBV RRepr rd rs1 rs2)
+    Instr64I (RegBinop64 SLLW rd rs1 rs2 ) -> Some $ Inst Sllw   (regToSizedBV RRepr rd rs1 rs2)
+    Instr64I (RegBinop64 SRLW rd rs1 rs2 ) -> Some $ Inst Srlw   (regToSizedBV RRepr rd rs1 rs2)
+    Instr64I (RegBinop64 SRAW rd rs1 rs2 ) -> Some $ Inst Sraw   (regToSizedBV RRepr rd rs1 rs2)
+    Instr64I (ImmBinop64 SLLIW rd rs1 imm) -> Some $ Inst Slliw  (regRegImmToSizedBV RRepr rd rs1 imm)
+    Instr64I (ImmBinop64 SRLIW rd rs1 imm) -> Some $ Inst Srliw  (regRegImmToSizedBV RRepr rd rs1 imm)
+    Instr64I (ImmBinop64 SRAIW rd rs1 imm) -> Some $ Inst Sraiw  (regRegImmToSizedBV RRepr rd rs1 imm)
+    Instr32M (MUL rd rs1 rs2             ) -> Some $ Inst Mul    (regToSizedBV RRepr rd rs1 rs2)
+    Instr32M (MULH rd rs1 rs2            ) -> Some $ Inst Mulh   (regToSizedBV RRepr rd rs1 rs2)
+    Instr32M (MULHSU rd rs1 rs2          ) -> Some $ Inst Mulhsu (regToSizedBV RRepr rd rs1 rs2)
+    Instr32M (MULHU rd rs1 rs2           ) -> Some $ Inst Mulhu  (regToSizedBV RRepr rd rs1 rs2)
+    Instr32M (DIV rd rs1 rs2             ) -> Some $ Inst Div    (regToSizedBV RRepr rd rs1 rs2)
+    Instr32M (DIVU rd rs1 rs2            ) -> Some $ Inst Divu   (regToSizedBV RRepr rd rs1 rs2)
+    Instr32M (REM rd rs1 rs2             ) -> Some $ Inst Rem    (regToSizedBV RRepr rd rs1 rs2)
+    Instr32M (REMU rd rs1 rs2            ) -> Some $ Inst Remu   (regToSizedBV RRepr rd rs1 rs2)
+    Instr64M (MULW rd rs1 rs2            ) -> Some $ Inst Mulw   (regToSizedBV RRepr rd rs1 rs2)
+    Instr64M (DIVW rd rs1 rs2            ) -> Some $ Inst Divw   (regToSizedBV RRepr rd rs1 rs2)
+    Instr64M (DIVUW rd rs1 rs2           ) -> Some $ Inst Divuw  (regToSizedBV RRepr rd rs1 rs2)
+    Instr64M (REMW rd rs1 rs2            ) -> Some $ Inst Remw   (regToSizedBV RRepr rd rs1 rs2)
+    Instr64M (REMUW rd rs1 rs2           ) -> Some $ Inst Remuw  (regToSizedBV RRepr rd rs1 rs2)
+    -- IRepr 
+    Instr32I (JALR rd rs1 imm12            ) -> Some $ Inst Jalr  (regRegImmToSizedBV IRepr rd rs1 imm12)   
+    Instr32I (MemInstr32 LB rd imm12 rs1   ) -> Some $ Inst Lb    (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr32I (MemInstr32 LH rd imm12 rs1   ) -> Some $ Inst Lh    (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr32I (MemInstr32 LW rd imm12 rs1   ) -> Some $ Inst Lw    (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr32I (MemInstr32 LBU rd imm12 rs1  ) -> Some $ Inst Lbu   (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr32I (MemInstr32 LHU rd imm12 rs1  ) -> Some $ Inst Lhu   (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr32I (ImmBinop32 ADDI rd rs1 imm12 ) -> Some $ Inst Addi  (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr32I (ImmBinop32 SLTI rd rs1 imm12 ) -> Some $ Inst Slti  (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr32I (ImmBinop32 SLTIU rd rs1 imm12) -> Some $ Inst Sltiu (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr32I (ImmBinop32 XORI rd rs1 imm12 ) -> Some $ Inst Xori  (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr32I (ImmBinop32 ORI rd rs1 imm12  ) -> Some $ Inst Ori   (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr32I (ImmBinop32 ANDI rd rs1 imm12 ) -> Some $ Inst Andi  (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr64I (MemInstr64 LWU rd imm12 rs1  ) -> Some $ Inst Lwu   (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr64I (MemInstr64 LD rd imm12 rs1   ) -> Some $ Inst Ld    (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    Instr64I (ImmBinop64 ADDIW rd rs1 imm12) -> Some $ Inst Addiw (regRegImmToSizedBV IRepr rd rs1 imm12)  
+    -- SRepr | (rs1BV :< rs2BV :< imm12BV :< Nil) <- ops ->
+    Instr32I (MemInstr32 SB rs1 imm12 rs2) -> Some $ Inst Sb (regRegImmToSizedBV SRepr rs1 rs2 imm12)
+    Instr32I (MemInstr32 SH rs1 imm12 rs2) -> Some $ Inst Sh (regRegImmToSizedBV SRepr rs1 rs2 imm12)
+    Instr32I (MemInstr32 SW rs1 imm12 rs2) -> Some $ Inst Sw (regRegImmToSizedBV SRepr rs1 rs2 imm12)
+    Instr64I (MemInstr64 SD rs1 imm12 rs2) -> Some $ Inst Sd (regRegImmToSizedBV SRepr rs1 rs2 imm12)
+    -- BRepr
+    Instr32I (BranchInstr BEQ rs1 rs2 imm12 ) -> Some $ Inst Beq  (regRegImmToSizedBV BRepr rs1 rs2 imm12)
+    Instr32I (BranchInstr BNE rs1 rs2 imm12 ) -> Some $ Inst Bne  (regRegImmToSizedBV BRepr rs1 rs2 imm12)
+    Instr32I (BranchInstr BLT rs1 rs2 imm12 ) -> Some $ Inst Blt  (regRegImmToSizedBV BRepr rs1 rs2 imm12)
+    Instr32I (BranchInstr BLTU rs1 rs2 imm12) -> Some $ Inst Bltu (regRegImmToSizedBV BRepr rs1 rs2 imm12)
+    Instr32I (BranchInstr BGE rs1 rs2 imm12 ) -> Some $ Inst Bge  (regRegImmToSizedBV BRepr rs1 rs2 imm12)
+    Instr32I (BranchInstr BGEU rs1 rs2 imm12) -> Some $ Inst Bgeu (regRegImmToSizedBV BRepr rs1 rs2 imm12)
+    -- URepr
+    Instr32I (LUI rs1 imm20  ) -> Some $ Inst Lui   (regImmToSizedBV URepr rs1 imm20)
+    Instr32I (AUIPC rs1 imm20) -> Some $ Inst Auipc (regImmToSizedBV URepr rs1 imm20)
+    -- JRepr 
+    Instr32I (JAL rd imm20)    -> Some $ Inst Jal   (regImmToSizedBV JRepr rd imm20)
+    -- HRepr
+    Instr32I (ImmBinop32 SLLI rd rs1 shamt7) -> Some $ Inst Slli (regRegImmToSizedBV HRepr rd rs1 shamt7)
+    Instr32I (ImmBinop32 SRLI rd rs1 shamt7) -> Some $ Inst Srli (regRegImmToSizedBV HRepr rd rs1 shamt7)
+    Instr32I (ImmBinop32 SRAI rd rs1 shamt7) -> Some $ Inst Srai (regRegImmToSizedBV HRepr rd rs1 shamt7)
+    -- Other
+    i ->  error $ "Instruction not supported: " <> show i
