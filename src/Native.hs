@@ -14,6 +14,7 @@ import Data.Typeable
 import GHC.Generics
 import MicroRAM
 import MicroRAM.MRAMInterpreter.Generic
+import RiscV.RiscVAsm (Imm, Reg, TraversableOp(..))
 
 data NativeInstruction = forall i . Native i => NativeInstruction (Inst i)
 
@@ -22,10 +23,13 @@ instance Eq NativeInstruction where
     Nothing -> False
     Just Refl -> i1 == i2
 
-instance Ord NativeInstruction where
-  compare (NativeInstruction (i1 :: a)) (NativeInstruction (i2 :: b)) = case eqT :: Maybe (a :~: b) of
-    Nothing -> error "Cannot compare different native instructions" -- JP: Could define an ordering over known architectures..
-    Just Refl -> compare i1 i2
+instance TraversableOp NativeInstruction where
+  traverseOp fi fr (NativeInstruction i) = NativeInstruction <$> traverseOp fi fr i 
+  
+-- instance Ord NativeInstruction where
+--   compare (NativeInstruction (i1 :: a)) (NativeInstruction (i2 :: b)) = case eqT :: Maybe (a :~: b) of
+--     Nothing -> error "Cannot compare different native instructions" -- JP: Could define an ordering over known architectures..
+--     Just Refl -> compare i1 i2
 
 instance Read NativeInstruction where
   readsPrec _ = error "Cannot read a native instruction" -- JP: We could for known architectures...
@@ -33,7 +37,8 @@ instance Read NativeInstruction where
 instance Show NativeInstruction where
   show (NativeInstruction i) = show i
 
-class (Typeable (Inst arch), Eq (Inst arch), Ord (Inst arch), Show (Inst arch)) => Native arch where
+
+class (Typeable (Inst arch), Eq (Inst arch), Show (Inst arch), TraversableOp (Inst arch)) => Native arch where
   type Inst arch = i | i -> arch
   type State arch = s | s -> arch
 

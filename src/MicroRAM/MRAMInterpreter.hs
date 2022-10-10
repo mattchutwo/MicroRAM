@@ -268,7 +268,7 @@ snapshotHandler _nextH (Iext (XCheck (Native.NativeInstruction i))) = do
         Right r | Native.archStateEq (Native.toArchState mramState) r ->
           nextPc
         _ ->
-          otherError $ "[CHECK] Step for instruction " <> show i <> " does not match native step at state " <> show initState
+          otherError $ "[CHECK] Step for instruction " <> show i <> " does not match native step. The initial state:\n " <> show initState
 snapshotHandler nextH instr = nextH instr
 
 

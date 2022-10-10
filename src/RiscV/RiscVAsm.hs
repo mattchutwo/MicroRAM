@@ -1625,4 +1625,88 @@ data AliasInstr
   = UNIMPC | UNIMP
   deriving (Show, Eq, Ord)
 
+-- The following class allows us to ReplaceLabels With concrete values inside Native Instructions.
+-- But it does restrict Native architectures to ones using Imm and Reg, which is very restrictive!
+-- I would like to remove this restriction.
+class TraversableOp instr where
+  traverseOp :: Applicative m => (Imm -> m Imm) -> (Reg -> m Reg) -> instr -> m instr
 
+instrTraverseImmM :: (Applicative m, TraversableOp instr) => (Imm -> m Imm) -> instr -> m instr
+instrTraverseImmM fi i = traverseOp fi pure i
+
+instrTraverseImm :: (Show instr, TraversableOp instr) => (Imm -> Imm) -> instr -> instr
+instrTraverseImm fi i = runIdentity $ instrTraverseImmM (Identity . fi) i
+
+instrTraverseRegM :: (Applicative m, TraversableOp instr) => (Reg -> m Reg) -> instr -> m instr
+instrTraverseRegM fr = traverseOp pure fr
+
+instance TraversableOp Instr where
+  traverseOp fi fr instr =
+    case instr of
+      Instr32I    instr' -> Instr32I    <$> traverseOp fi fr instr' 
+      Instr64I    instr' -> Instr64I    <$> traverseOp fi fr instr' 
+      Instr32M    instr' -> Instr32M    <$> traverseOp fi fr instr' 
+      Instr64M    instr' -> Instr64M    <$> traverseOp fi fr instr' 
+      InstrPseudo instr' -> InstrPseudo <$> traverseOp fi fr instr' 
+      InstrAlias  instr' -> InstrAlias  <$> traverseOp fi fr instr'
+
+instance TraversableOp InstrRV32I  where
+  traverseOp fi fr instr =
+    case instr of
+      JAL  r imm               -> JAL            <$> fr r  <*> fi imm                       
+      JALR r1 r2 imm           -> JALR           <$> fr r1 <*> fr r2 <*> fi imm                  
+      BranchInstr bc r1 r2 imm -> BranchInstr bc <$> fr r1 <*> fr r2 <*> fi imm
+      MemInstr32 mop r1 imm r2 -> MemInstr32 mop <$> fr r1  <*> fi imm <*> fr r2    
+      LUI   r imm              -> LUI            <$> fr r  <*> fi imm                     
+      AUIPC r imm              -> AUIPC          <$> fr r  <*> fi imm                     
+      ImmBinop32 bop r1 r2 imm -> ImmBinop32 bop <$> fr r1 <*> fr r2 <*> fi imm   
+      RegBinop32 bop r1 r2 r3  -> RegBinop32 bop <$> fr r1 <*> fr r2 <*> fr r3     
+      FENCE sord               -> pure $ FENCE sord               
+      FENCEI                   -> pure $ FENCEI                          
+  
+instance TraversableOp InstrRV64I  where
+  traverseOp fi fr instr = 
+    case instr of
+      MemInstr64 mop r1 imm r2 -> MemInstr64 mop <$> fr r1 <*> fi imm <*> fr r2 
+      ImmBinop64 bop r1 r2 imm -> ImmBinop64 bop <$> fr r1 <*> fr r2 <*> fi imm
+      RegBinop64 bop r1 r2 r3   -> RegBinop64 bop <$> fr r1 <*> fr r2 <*> fr r3
+instance TraversableOp InstrExt32M where
+  traverseOp _ fr instr =
+    case instr of
+      MUL    r1 r2 r3 -> MUL    <$> fr r1 <*> fr r2 <*> fr r3    
+      MULH   r1 r2 r3 -> MULH   <$> fr r1 <*> fr r2 <*> fr r3  
+      MULHSU r1 r2 r3 -> MULHSU <$> fr r1 <*> fr r2 <*> fr r3
+      MULHU  r1 r2 r3 -> MULHU  <$> fr r1 <*> fr r2 <*> fr r3 
+      DIV    r1 r2 r3 -> DIV    <$> fr r1 <*> fr r2 <*> fr r3   
+      DIVU   r1 r2 r3 -> DIVU   <$> fr r1 <*> fr r2 <*> fr r3  
+      REM    r1 r2 r3 -> REM    <$> fr r1 <*> fr r2 <*> fr r3   
+      REMU   r1 r2 r3 -> REMU   <$> fr r1 <*> fr r2 <*> fr r3
+      
+instance TraversableOp InstrExt64M where
+  traverseOp _ fr instr =
+    case instr of
+      MULW  r1 r2 r3 -> MULW  <$> fr r1  <*> fr r2 <*> fr r3
+      DIVW  r1 r2 r3 -> DIVW  <$> fr r1  <*> fr r2 <*> fr r3
+      DIVUW r1 r2 r3 -> DIVUW <$> fr r1  <*> fr r2 <*> fr r3
+      REMW  r1 r2 r3 -> REMW  <$> fr r1  <*> fr r2 <*> fr r3
+      REMUW r1 r2 r3 -> REMUW <$> fr r1  <*> fr r2 <*> fr r3
+      
+instance TraversableOp PseudoInstr where
+  traverseOp fi fr instr =
+    case instr of
+      RetPI         -> pure RetPI
+      CallPI mr imm -> CallPI <$> (traverse fr mr) <*> fi imm 
+      TailPI imm    -> TailPI <$> fi imm
+      FencePI       -> pure FencePI
+      LiPI r imm    -> LiPI <$> fr r <*> fi imm
+      NopPI         -> pure NopPI
+      AbsolutePI ap -> pure $ AbsolutePI ap 
+      UnaryPI up r1 r2      -> UnaryPI up    <$> fr r1  <*> fr r2     
+      CMovPI cmp r1 r2      -> CMovPI cmp    <$> fr r1  <*> fr r2
+      BranchZPI bzp r imm   -> BranchZPI bzp <$> fr r   <*> fi imm
+      BranchPI bp r1 r2 imm -> BranchPI bp   <$> fr r1  <*> fr r2 <*> fi imm
+      JmpImmPI jp imm       -> JmpImmPI jp   <$> fi imm    
+      JmpRegPI jp r         -> JmpRegPI jp   <$> fr r
+      
+instance TraversableOp AliasInstr  where
+  traverseOp _ _ instr = pure instr
