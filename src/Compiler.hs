@@ -249,6 +249,7 @@ compile3
   -> CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord)
   -> Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
 compile3 options prog = return prog
+  >>= (verbTagPass verb "Add premain"         $ justCompileWithNames addPremain)
   >>= (verbTagPass verb "Block cleanup"       $ blockCleanup)
   >>= (verbTagPass verb "Removing labels"     $ removeLabels tainted)
   where CompilerOptions { verb=verb, tainted=tainted } = options

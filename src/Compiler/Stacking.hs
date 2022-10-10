@@ -54,7 +54,7 @@ NOTE: we are not setting functions in memory, so
 
 -}
 module Compiler.Stacking
-    ( stacking, 
+    ( stacking, addPremain
     ) where
 
 
@@ -310,7 +310,13 @@ stackFunction (LFunction name _retT _argT _argN size code extern) = do
 stacking :: Regs mreg => (Lprog Metadata mreg MWord, Word) -> Hopefully $ (MAProgram Metadata mreg MWord, Word)
 stacking (IRprog _ _ functions, nextName) = do
   functions' <- mapM stackFunction functions
+  return (concat functions', nextName)
+
+addPremain :: Regs mreg
+           => (MAProgram Metadata mreg MWord, Word)
+           -> Hopefully (MAProgram Metadata mreg MWord, Word)
+addPremain (prog, nextName) = do
   let returnName = Name nextName "_ret_"
   return $
-    ([premain returnName, returnBlock returnName] ++ concat functions',
+    ([premain returnName, returnBlock returnName] ++ prog,
       nextName + 1)
