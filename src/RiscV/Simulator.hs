@@ -14,6 +14,7 @@
 module RiscV.Simulator where
 
 import qualified Control.Monad.State as MS
+import           Data.Bits
 import qualified Data.BitVector.Sized as BV
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized.Unsigned as BVU
@@ -21,10 +22,12 @@ import           Data.BitVector.Sized.Unsigned (UnsignedBV(..))
 import           Data.Foldable (foldl')
 import qualified Data.Map as Map
 import           Data.Map (Map)
+import qualified Data.Map.Merge.Strict as Map
 import           Data.Type.Equality
 import qualified Data.Vector as Vec
 import           Data.Vector (Vector)
 import           Numeric.Natural
+
 
 import Control.Lens ((^.))
 import Data.Parameterized.Classes
@@ -48,6 +51,7 @@ import GRIFT.Simulation
 
 import Compiler.Errors
 import Compiler.Registers
+import MicroRAM (MWord)
 import MicroRAM.MRAMInterpreter
 import MicroRAM.MRAMInterpreter.Concrete (Concretizable(..))
 import MicroRAM.MRAMInterpreter.Generic
@@ -63,8 +67,18 @@ data Machine = Machine
   , mPC :: UnsignedBV (RVWidth RV64IM)
   , mMemory :: Map (UnsignedBV (RVWidth RV64IM)) (UnsignedBV 8)
   , mGPRs :: Vector (UnsignedBV (RVWidth RV64IM))
-  } -- deriving Eq
+  }
 
+prettyPrintMachine :: Machine -> String
+prettyPrintMachine (Machine _rv pc mem regs) =
+  "PC: " <> show pc <>
+  "\nRegs: " <> show (openVB <$> regs) <>
+  "\nMemory: " <> show (openVBMap mem)
+
+openVB (UnsignedBV (BV n)) = n
+openVBMap m = Map.mapKeys openVB $ Map.map openVB m
+
+               
 newtype SimM a = SimM { unSimM :: MS.State Machine a }
   deriving (Functor, Applicative, Monad, MS.MonadState Machine)
 
@@ -136,7 +150,9 @@ stepInstM i@(Inst opcode _) = do
   execSemantics (evalInstExpr knownISet i iw) semantics
 
 stepInst :: Machine -> Some (Instruction RV64IM) -> Machine
-stepInst m (Some i) = MS.execState (unSimM (stepInstM i)) m
+stepInst m (Some i) =
+  trace ("Taking step from:\n" <> prettyPrintMachine m <> "\n============") $
+  MS.execState (unSimM (stepInstM i)) m
 
 instance TestEquality Operands where
   Operands fmt1 ops1 `testEquality` Operands fmt2 ops2

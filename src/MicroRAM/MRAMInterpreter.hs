@@ -263,18 +263,21 @@ snapshotHandler _nextH (Iext (XCheck (Native.NativeInstruction i))) = do
     Nothing ->
       otherError $ "No cached machine state for XCheck"
     Just initState -> do
+      let riscvState = (Native.toArchState initState)
       let archState = Native.stepArch (Native.toArchState initState) i
 
       -- Simulation check that toArch (step i) == step (toArch i).
       case archState of
         Right r | Native.archStateEq (Native.toArchState mramState) r ->
-          nextPc
+                  nextPc
         _ -> do
-          instrs <- use sCachedInstrs
+          instrs <- use sCachedInstr s
           otherError $ "[CHECK] Native Simulation failed. Steps didn't match." <>
             "\nMRAM Instructions:\n\t" <> show (instrs) <>
             "\nRiscV Instruction:\n\t" <> show i <>
-            "\nThe initial state:\n " <> (prettyPrintMachState initState)
+            "\nThe initial state:\n " <> (prettyPrintMachState initState) <>
+            "\nThe final state  :\n " <> (prettyPrintMachState mramState)
+            
 snapshotHandler nextH instr = do
   sCachedInstrs %= (\seq -> seq :|> instr)  
   nextH instr
