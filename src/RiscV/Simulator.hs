@@ -132,7 +132,7 @@ instance RVStateM SimM RV64IM where
 stepInstM :: Instruction RV64IM fmt -> SimM ()
 stepInstM i@(Inst opcode _) = do
   let semantics = getInstSemantics $ semanticsFromOpcode knownISet opcode
-      iw = 32
+      iw = 1
   execSemantics (evalInstExpr knownISet i iw) semantics
 
 stepInst :: Machine -> Some (Instruction RV64IM) -> Machine
