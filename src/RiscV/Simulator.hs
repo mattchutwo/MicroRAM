@@ -203,24 +203,53 @@ instance Native RiscV where
 --  , mMemory :: Map (UnsignedBV (RVWidth RV64IM)) (UnsignedBV 8)
 --  , mGPRs :: Vector (UnsignedBV (RVWidth RV64IM))
     }
-    where 
+    
   archStateEq s1 s2 =
     -- the PCs don't match: one RiscV instruction might be compiled to multiple MRAM ones
     -- so in the execution MRAM will increase the PC much more. 
     --((mPC s1 =?= mPC s2) "MRAM" "RiscV" "PC") &&
-    ((mMemory s1 =?= mMemory s2) "MRAM" "RiscV" "memory") && ((mGPRs s1 =?= mGPRs s2) "MRAM" "RiscV" "GPR")
-    -- (mPC s1 == mPC s2) && (mMemory s1 == mMemory s2) && (mGPRs s1 == mGPRs s2)
+    (mMemory s1 `memoryEq` mMemory s2) && ((mGPRs s1 =?= mGPRs s2) "MRAM" "RiscV" "GPR")
+    where
+      memoryEq m1 m2 =
+        if m1 == m2 then True else 
+          let descriptiveDifference =
+                Map.merge
+                (Map.mapMaybeMissing $     \k x ->   if x==0 then Nothing else Just (x,0))
+                (Map.mapMaybeMissing $     \k y ->   if 0==y then Nothing else Just (0,y))
+                (Map.zipWithMaybeMatched $ \k x y -> if x==y then Nothing else Just (x,y))
+                (openVBMap m1) (openVBMap m2)
+          in trace ("Memories don't match. Here is a map with the differences where MRAM is shown first: \n " <> show descriptiveDifference)
+             False
+          
+            
+
 
 -- Mem translation is wrong. It should take into account the MRAM is word-aligned while GRIFT is byte-aligned.
 translateMem :: Mem
              -> Map (UnsignedBV (RVWidth RV64IM)) (UnsignedBV 8)
 translateMem (mDefault, mMap, _) =
-  mapValueAndKey (UnsignedBV . BV.word64) (fromInteger . toInteger) mMap -- 
-  where mapValueAndKey :: (Ord k2)
-                       => (k1 -> k2)
-                       -> (a1 -> a2)
-                       -> Map.Map k1 a1
-                       -> Map.Map k2 a2
+  mapValueAndKey (UnsignedBV . BV.word64) (fromInteger . toInteger) $ 
+        Map.foldrWithKey addEntryAsBytes Map.empty mMap
+  where addEntryAsBytes :: MWord
+                        -> MWord
+                        -> Map MWord MWord
+                        -> Map MWord MWord
+        addEntryAsBytes key value map = 
+          insertFromList (\n -> (8*key+n, maskAndShift n value)) ([0..7]) map
+
+        insertFromList :: (MWord -> (MWord,MWord)) -> [MWord] ->  Map MWord MWord -> Map MWord MWord
+        insertFromList f []     m = m
+        insertFromList f (x:ls) m =
+          let (k,v) = (f x) in 
+            insertFromList f ls $ Map.insert k v m 
+
+        maskAndShift n value = let n'::Int = fromEnum n in shift ((shift 15 n') .&. value) (n' * (-1)) 
+
+        mapValueAndKey :: (Ord k2)
+                               => (k1 -> k2)
+                               -> (a1 -> a2)
+                               -> Map.Map k1 a1
+                               -> Map.Map k2 a2
         mapValueAndKey fk fa map = (Map.mapKeys fk) $ (Map.map fa) $ map
           
 
