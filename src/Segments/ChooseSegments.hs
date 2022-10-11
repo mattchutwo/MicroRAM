@@ -358,7 +358,8 @@ allocateQueue size =
      spar <- sparsityPS <$> get
      prog <- progPS <$> get
      -- Note: We realy on the fact that the first state never stutters. That state will be dropped.
-     let sparseTrace = stutter size spar prog queue 
+     let sparseTrace = take (length queue) $ -- Hack for no public pc
+           stutter size spar prog queue 
      currentPrivSegment <- privLoc <$> get
      let tailTrace = tail sparseTrace -- drop the initial state which is already in the trace (in the previous segment)
      let newChunks =  splitPrivBlocks size currentPrivSegment tailTrace
