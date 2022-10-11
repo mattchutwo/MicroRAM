@@ -363,34 +363,34 @@ withConcreteImm imm f =
 regRegImmToSizedBV :: FormatRepr a -> Reg -> Reg -> Imm -> Operands a
 regRegImmToSizedBV RRepr rd rs1 imm  =
   withConcreteImm imm $
-  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, enumToSizedBV w) in
+  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, wordToSizedBV w) in
           let ops = rd' :<  rs1' :< imm' :< Nil in
             (Operands RRepr ops)
 regRegImmToSizedBV IRepr rd rs1 imm  =
   withConcreteImm imm $
-  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, enumToSizedBV w) in
+  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, wordToSizedBV w) in
           let ops = rd' :<  rs1' :< imm' :< Nil in
             (Operands IRepr ops)
 regRegImmToSizedBV SRepr rd rs1 imm  =
   withConcreteImm imm $
-  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, enumToSizedBV w) in
+  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, wordToSizedBV w) in
           let ops = rd' :<  rs1' :< imm' :< Nil in
             (Operands SRepr ops)
 regRegImmToSizedBV BRepr rd rs1 imm  =
   withConcreteImm imm $
-  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, enumToSizedBV w) in
+  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, wordToSizedBV w) in
           let ops = rd' :<  rs1' :< imm' :< Nil in
             (Operands BRepr ops)
               
 regImmToSizedBV :: FormatRepr a -> Reg -> Imm -> Operands a
 regImmToSizedBV URepr rs1 imm  =
   withConcreteImm imm $
-  \w -> let (rs1', imm') = (enumToSizedBV rs1, enumToSizedBV w) in
+  \w -> let (rs1', imm') = (enumToSizedBV rs1, wordToSizedBV w) in
           let ops = rs1' :< imm' :< Nil in
             (Operands URepr ops)
 regImmToSizedBV JRepr rs1 imm  =
   withConcreteImm imm $
-  \w -> let (rs1', imm') = (enumToSizedBV rs1, enumToSizedBV w) in
+  \w -> let (rs1', imm') = (enumToSizedBV rs1, wordToSizedBV w) in
           let ops = rs1' :< imm' :< Nil in
             (Operands JRepr ops)
 
