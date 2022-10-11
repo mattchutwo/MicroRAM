@@ -17,11 +17,13 @@ module Compiler.Link
 
 import           Control.Monad
 import           Control.Monad.Writer
+import qualified Data.ByteString.Short as BSS
 import           Data.Default
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Set (Set)
 import qualified Data.Set as Set
+import           Data.Word
 
 import           Compiler.Analysis (appendAnalysisData, renameAnalysisData)
 import           Compiler.Common
@@ -52,7 +54,8 @@ linkCompUnits objs = do
     let nameStr = dbName name
     when (Map.member nameStr m) $
       otherError $ "multiple definitions of extern symbol " ++ show nameStr
-    return $ Map.insert nameStr name m) mempty
+    return $ Map.insert nameStr name $ Map.insert (altName nameStr) name $ m)
+      mempty
       ([name | names <- externNames, name <- Set.toList names] ++ builtinNames)
 
   -- Check for undefined names that won't be resolved by linking to other
@@ -71,6 +74,13 @@ linkCompUnits objs = do
 
   let objs' = map (renameCompUnit nameFunc) objs
   concatCompUnits objs'
+  where -- | Convert `@foo` to `foo` and vice versa.  This is used for
+        -- compatibility between LLVM and RISC-V symbol names.
+        altName s
+          | b:rest <- BSS.unpack s, b == atByte = BSS.pack rest
+          | otherwise = BSS.pack $ atByte : BSS.unpack s
+        atByte :: Word8
+        atByte = fromIntegral $ fromEnum '@'
 
 -- | Concatenate several comp_units.  This makes no changes to `Name`s, so symbols
 -- defined in one comp_unit won't be visible in the others.

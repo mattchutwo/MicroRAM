@@ -302,10 +302,17 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
 
 testMulti = ManyTests "Multi-input tests" $ OneTest <$>
   defaultTest
-    { testName = "Link f and g"
+    { testName = "Link f and g (LLVM)"
     , testDomains = oneDomain
       [ InputLLVM "test/Programs/domains/g_main.ll" Nothing
       , InputLLVM "test/Programs/domains/f.ll" Nothing ]
+    , testLen = 200
+    , testResult = 203 } :
+  defaultTest
+    { testName = "Link f and g (RISC-V)"
+    , testDomains = oneDomain
+      [ InputRISCV "test/Programs/domains/g_main.s" Nothing
+      , InputRISCV "test/Programs/domains/f.s" Nothing ]
     , testLen = 200
     , testResult = 203 } :
   []

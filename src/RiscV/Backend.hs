@@ -27,7 +27,7 @@ riscBackend verb progName code trLen = do
   let firstUnusedName = intrinsicsFstUnusedName
   let nameMap = intrinsicsMap
   -- Transpile to MicroAssembly
-  masm <- transpiler verb firstUnusedName nameMap parsedRisc
+  masm <- addRiscvPremain <$> transpiler verb firstUnusedName nameMap parsedRisc
   -- add intrinsics
   masmHigh <- justCompile addIntrinsicsHigh masm
   masmLow  <- justCompile addIntrinsicsLow masm

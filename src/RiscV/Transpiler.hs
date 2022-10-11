@@ -1014,14 +1014,14 @@ finalizeTP = do
   symTable <- use symbolTableTP
   let prog' = [blk { blockExtern = blockIsExtern symTable blk } | blk <- prog]
   -- Add a premain. We need this to be backwards compatible
-  let prog'' = (makeNamedBlock (Just premainName) premainCode): prog'
   -- Build memory
   sections :: Map.Map String Section <- use sectionsTP
   genv <- makeGEnv symTable sections
+  nextName <- use nameIDTP
   -- Then build the CompilationUnit
   return $ CompUnit {
     -- Memory is filled in 'RemoveLabels'
-    programCU = ProgAndMem prog'' [] mempty,
+    programCU = ProgAndMem prog' [] mempty,
     -- TraceLen is bogus
     traceLen = 0,
     -- We added one new register, which is now the largest
@@ -1029,12 +1029,31 @@ finalizeTP = do
     -- Analysis data is bogus
     aData = AnalysisData mempty mempty,
     -- Name bound is currently bogus, but we should fix it
-    -- TODO: fix name bound.
-    nameBound = 0,
+    nameBound = nextName,
     intermediateInfo = genv } 
-  where premainCode =
+  where makeGEnv :: Map.Map String SymbolTP
+                 -> Map.Map String Section
+                 -> Statefully [GlobalVariable MWord]
+        makeGEnv symTable m = mapMaybeM (sectionVariable symTable) (Map.elems m)
+  
+        -- | A version of 'mapMaybe' that works with a monadic predicate.
+        mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
+        mapMaybeM op = foldr f (pure [])
+          where f x xs = do x <- op x; case x of Nothing -> xs; Just x -> do xs <- xs; pure $ x:xs
+
+        blockIsExtern symTable blk
+          | Just name <- blockName blk = symIsExtern symTable name
+          | otherwise = False
+
+addRiscvPremain :: CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord)
+                -> CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord)
+addRiscvPremain cu = cu { programCU = goProgAndMem $ programCU cu }
+  where goProgAndMem pm = pm { pmProg = goProg $ pmProg pm }
+        goProg p = makeNamedBlock (Just premainName) premainCode : p
+
+        premainCode =
           -- bp is a caller saved reg that keeps the return address.
-          -- although we use a special case for returns from main. 
+          -- although we use a special case for returns from main.
           [(Imov ra (pcPlus 4), md),
            -- poison 0
            (IpoisonW (LImm 0) 0, md),
@@ -1048,20 +1067,6 @@ finalizeTP = do
         md = trivialMetadata premainName defaultName
         -- Start stack at 2^32.
         initAddr = 1 `shiftL` 32
-  
-        makeGEnv :: Map.Map String SymbolTP
-                 -> Map.Map String Section
-                 -> Statefully [GlobalVariable MWord]
-        makeGEnv symTable m = mapMaybeM (sectionVariable symTable) (Map.elems m)
-  
-        -- | A version of 'mapMaybe' that works with a monadic predicate.
-        mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
-        mapMaybeM op = foldr f (pure [])
-          where f x xs = do x <- op x; case x of Nothing -> xs; Just x -> do xs <- xs; pure $ x:xs
-
-        blockIsExtern symTable blk
-          | Just name <- blockName blk = symIsExtern symTable name
-          | otherwise = False
 
 -- Finalize current block and commit it
 -- i.e. add it to the list.
