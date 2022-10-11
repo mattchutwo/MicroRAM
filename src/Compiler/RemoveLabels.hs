@@ -101,8 +101,14 @@ buildLabelMap blocks globs = do
     goGlobs m _addr [] = return m
     goGlobs m addr (g:gs) = do
       let entries = entryPoints g
-      m' <- foldM (insertLabel addr) m [(name, offset) | (name, offset, _extern) <- entries]
-      goGlobs m' (nextGlobalAddr addr g) gs
+      let (addr', nextAddr) = if gvHeapInit g then
+              (heapInitAddress, addr)
+            else
+              (addr, nextGlobalAddr addr g)
+      m' <- foldM (insertLabel addr') m [(name, offset) | (name, offset, _extern) <- entries]
+      -- Note this still increments by the size of `g`, even for heap-init
+      -- globals.
+      goGlobs m' nextAddr gs
 
     insertLabel :: MWord -> Map.Map Name MWord -> (Name, MWord) -> Hopefully (Map.Map Name MWord)
     insertLabel addr m (name, offset) = do
@@ -172,19 +178,23 @@ flattenGlobals tainted lm gs = goGlobals globalsStart gs
     goGlobals _addr [] = return []
     goGlobals addr (g:gs) = do
       init' <- mapM (mapM goLazyConst) (initializer g)
+      let (addr', nextAddr) = if gvHeapInit g then
+              (heapInitAddress, addr)
+            else
+              (addr, nextGlobalAddr addr g)
       let seg = InitMemSegment {
             isName   = short2string $  dbName $ globSectionName g,
             isSecret = secret g,
             isReadOnly = isConstant g,
             isHeapInit = gvHeapInit g,
-            location = addr `div` fromIntegral wordBytes,
+            location = addr' `div` fromIntegral wordBytes,
             segmentLen = gSize g,
             content = init',
             labels = if tainted then
                 Just $ replicate (fromIntegral $ gSize g) bottomWord
               else Nothing
             }
-      rest <- goGlobals (nextGlobalAddr addr g) gs
+      rest <- goGlobals nextAddr gs
       return $ seg : rest
 
     goLazyConst :: LazyConst MWord -> Hopefully MWord
