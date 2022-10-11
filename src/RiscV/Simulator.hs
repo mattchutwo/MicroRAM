@@ -166,7 +166,7 @@ instance OrdF (Instruction RV64IM) where
 (=?=) :: (Show a, Eq a) => a -> a -> String -> String -> String -> Bool
 (=?=) a1 a2 id1 id2 name =
   if a1 == a2 then True else
-    trace ("The two " <> name <> "s don't match. \n\t " <> name <> "(" <> id1<> ") : " <> show a1 <> "\n\t" <> name <> "(" <> id1<> ") : " <> show a2) False
+    trace ("The two " <> name <> "s don't match. \n\t" <> name <> "(" <> id1<> ") : " <> show a1 <> "\n\t" <> name <> "(" <> id2 <> ") : " <> show a2) False
 
 instance Native RiscV where
   type Inst RiscV = Instr -- Some (Instruction RV64IM)
@@ -189,9 +189,13 @@ instance Native RiscV where
     }
     where 
   archStateEq s1 s2 =
-    ((mPC s1 =?= mPC s2) "MRAM" "RiscV" "PC") && ((mMemory s1 =?= mMemory s2) "MRAM" "RiscV" "memory") && ((mGPRs s1 =?= mGPRs s2) "MRAM" "RiscV" "GPR")
+    -- the PCs don't match: one RiscV instruction might be compiled to multiple MRAM ones
+    -- so in the execution MRAM will increase the PC much more. 
+    --((mPC s1 =?= mPC s2) "MRAM" "RiscV" "PC") &&
+    ((mMemory s1 =?= mMemory s2) "MRAM" "RiscV" "memory") && ((mGPRs s1 =?= mGPRs s2) "MRAM" "RiscV" "GPR")
     -- (mPC s1 == mPC s2) && (mMemory s1 == mMemory s2) && (mGPRs s1 == mGPRs s2)
 
+-- Mem translation is wrong. It should take into account the MRAM is word-aligned while GRIFT is byte-aligned.
 translateMem :: Mem
              -> Map (UnsignedBV (RVWidth RV64IM)) (UnsignedBV 8)
 translateMem (mDefault, mMap, _) =
@@ -336,6 +340,7 @@ griftToInstr (Inst oc (Operands fmt ops)) =
 -- These functions to translate registers have a lot of duplicated code!
 -- How can we factor them cleanly?
 enumToSizedBV x =  sizedBVInteger $ toEnum $ fromEnum x
+wordToSizedBV x =  sizedBVInteger $ toInteger x
 
 regToSizedBV :: FormatRepr a -> Reg -> Reg -> Reg -> Operands a
 regToSizedBV RRepr rd rs1 rs2  =

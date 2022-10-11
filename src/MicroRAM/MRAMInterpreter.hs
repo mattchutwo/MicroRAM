@@ -54,7 +54,7 @@ import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.List (intercalate)
 import qualified Data.Sequence as Seq
-import Data.Sequence (Seq)
+import Data.Sequence (Seq ( (:|>) ))
 import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified Data.Map.Strict as Map
@@ -80,6 +80,7 @@ import qualified Native
 
 import Util.Util
 
+import Debug.PrettyPrint
 import Debug.Trace
 
 -- AbsDomain instance for MWord (concrete interpreter)
@@ -247,8 +248,9 @@ readStr ptr = do
 -- This assumes that XSnapshot and XCheck surround a native instruction.
 snapshotHandler :: (Concretizable v, Regs r) => InstrHandler' r v s -> InstrHandler' r v s
 snapshotHandler _nextH (Iext XSnapshot) = do
-  m <- use sMach
-  sCachedMach .= Just m
+  m <- use sMach 
+  sCachedMach .= Just (over mPc succ m) 
+  sCachedInstrs .= Seq.Empty
   nextPc
 snapshotHandler _nextH (Iext (XCheck (Native.NativeInstruction i))) = do
 
@@ -267,9 +269,15 @@ snapshotHandler _nextH (Iext (XCheck (Native.NativeInstruction i))) = do
       case archState of
         Right r | Native.archStateEq (Native.toArchState mramState) r ->
           nextPc
-        _ ->
-          otherError $ "[CHECK] Step for instruction " <> show i <> " does not match native step. The initial state:\n " <> show initState
-snapshotHandler nextH instr = nextH instr
+        _ -> do
+          instrs <- use sCachedInstrs
+          otherError $ "[CHECK] Native Simulation failed. Steps didn't match." <>
+            "\nMRAM Instructions:\n\t" <> show (instrs) <>
+            "\nRiscV Instruction:\n\t" <> show i <>
+            "\nThe initial state:\n " <> (prettyPrintMachState initState)
+snapshotHandler nextH instr = do
+  sCachedInstrs %= (\seq -> seq :|> instr)  
+  nextH instr
 
 
 traceHandler :: (Concretizable v, Regs r) => Bool -> InstrHandler' r v s -> InstrHandler' r v s
@@ -521,7 +529,7 @@ runPass1 verbose steps initMach' = do
   final <- runWith handler steps initState
   return $ getMemInfo $ final ^. sExt
   where
-    initState = InterpState initAllocState initMach' Nothing
+    initState = InterpState initAllocState initMach' Nothing Seq.Empty
     handler = snapshotHandler $ traceHandler verbose $ allocHandler verbose id $ stepInstr
 
     getMemInfo :: AllocState -> MemInfo
@@ -543,7 +551,7 @@ runPass2 steps initMach' memInfo = do
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
-    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach' Nothing
+    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach' Nothing Seq.Empty
 
     eTrace :: Lens' (a, b, c) a
     eTrace = _1
@@ -573,7 +581,7 @@ runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
-    initState = InterpState initS initMach' Nothing
+    initState = InterpState initS initMach' Nothing Seq.Empty
     handler =
       execTraceHandler eTrace eAdvice $
       postHandler $
