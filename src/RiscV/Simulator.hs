@@ -496,10 +496,10 @@ instrToGrift instr =
     Instr64I (MemInstr64 LD rd imm12 rs1   ) -> Some $ Inst Ld    (regRegImmToSizedBV IRepr rd rs1 imm12)  
     Instr64I (ImmBinop64 ADDIW rd rs1 imm12) -> Some $ Inst Addiw (regRegImmToSizedBV IRepr rd rs1 imm12)  
     -- SRepr | (rs1BV :< rs2BV :< imm12BV :< Nil) <- ops ->
-    Instr32I (MemInstr32 SB rs1 imm12 rs2) -> Some $ Inst Sb (regRegImmToSizedBV SRepr rs1 rs2 imm12)
-    Instr32I (MemInstr32 SH rs1 imm12 rs2) -> Some $ Inst Sh (regRegImmToSizedBV SRepr rs1 rs2 imm12)
-    Instr32I (MemInstr32 SW rs1 imm12 rs2) -> Some $ Inst Sw (regRegImmToSizedBV SRepr rs1 rs2 imm12)
-    Instr64I (MemInstr64 SD rs1 imm12 rs2) -> Some $ Inst Sd (regRegImmToSizedBV SRepr rs1 rs2 imm12)
+    Instr32I (MemInstr32 SB rs1 imm12 rs2) -> Some $ Inst Sb (regRegImmToSizedBV SRepr rs2 rs1 imm12)
+    Instr32I (MemInstr32 SH rs1 imm12 rs2) -> Some $ Inst Sh (regRegImmToSizedBV SRepr rs2 rs1 imm12)
+    Instr32I (MemInstr32 SW rs1 imm12 rs2) -> Some $ Inst Sw (regRegImmToSizedBV SRepr rs2 rs1 imm12)
+    Instr64I (MemInstr64 SD rs1 imm12 rs2) -> Some $ Inst Sd (regRegImmToSizedBV SRepr rs2 rs1 imm12)
     -- BRepr
     Instr32I (BranchInstr BEQ rs1 rs2 imm12 ) -> Some $ Inst Beq  (regRegImmToSizedBV BRepr rs1 rs2 imm12)
     Instr32I (BranchInstr BNE rs1 rs2 imm12 ) -> Some $ Inst Bne  (regRegImmToSizedBV BRepr rs1 rs2 imm12)
