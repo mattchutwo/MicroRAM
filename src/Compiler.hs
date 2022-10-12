@@ -181,6 +181,7 @@ data CompilerOptions = CompilerOptions
   , tainted::Bool
   , skipRegisterAllocation::Bool
   , numberRegs::Maybe Word
+  , riscvEmulatorEnabled::Bool
   }
 
 defOptions :: CompilerOptions
@@ -191,6 +192,7 @@ defOptions = CompilerOptions
   , tainted = False
   , skipRegisterAllocation = False
   , numberRegs = Nothing
+  , riscvEmulatorEnabled = False
   }
 
 compile1
@@ -387,7 +389,7 @@ compileInput options len (InputRISCV path mCode) firstName = do
   let code = maybe (error $ "missing code for " ++ show path) id mCode
   parsed <- riscvParser path code
   -- TODO: intrinsic handling?
-  masm <- transpiler (verb options) firstName mempty parsed
+  masm <- transpiler (verb options) (riscvEmulatorEnabled options) firstName mempty parsed
   let masm' = masm { traceLen = len }
   return $ CompiledObject masm' masm' (nameBound masm')
 

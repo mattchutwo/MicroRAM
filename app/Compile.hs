@@ -112,7 +112,7 @@ main = do
         domainCompiler :: Word -> FlagRecord -> IO $ CompiledProgram
         domainCompiler trLength fr = do
           giveInfo fr "Running the multi-input compiler backend..."
-          ds <- mapM (loadCode llvmParse readFile) (domains fr)
+          ds <- mapM (loadCode (error "llvm input is disabled") readFile) (domains fr)
           let options = CompilerOptions
                 { verb = verbose fr
                 , allowUndefFun = allowUndefFunctions fr
@@ -120,6 +120,7 @@ main = do
                 , tainted = modeLeakTainted fr
                 , skipRegisterAllocation = skipRegAlloc fr
                 , numberRegs = numberRegsFr fr
+                , riscvEmulatorEnabled = nativeEmulator fr
                 }
           handleErrorWith (compileDomains options trLength ds)
 
