@@ -227,31 +227,12 @@ instance Native RiscV where
 -- Mem translation is wrong. It should take into account the MRAM is word-aligned while GRIFT is byte-aligned.
 translateMem :: Mem
              -> Map (UnsignedBV (RVWidth RV64IM)) (UnsignedBV 8)
-translateMem (mDefault, mMap, _) =
-  mapValueAndKey (UnsignedBV . BV.word64) (fromInteger . toInteger) $ 
-        Map.foldrWithKey addEntryAsBytes Map.empty mMap
-  where addEntryAsBytes :: MWord
-                        -> MWord
-                        -> Map MWord MWord
-                        -> Map MWord MWord
-        addEntryAsBytes key value map = 
-          insertFromList (\n -> (8*key+n, maskAndShift n value)) ([0..7]) map
-
-        insertFromList :: (MWord -> (MWord,MWord)) -> [MWord] ->  Map MWord MWord -> Map MWord MWord
-        insertFromList f []     m = m
-        insertFromList f (x:ls) m =
-          let (k,v) = (f x) in 
-            insertFromList f ls $ Map.insert k v m 
-
-        maskAndShift n value = let n'::Int = fromEnum n in shift ((shift 15 n') .&. value) (n' * (-1)) 
-
-        mapValueAndKey :: (Ord k2)
-                               => (k1 -> k2)
-                               -> (a1 -> a2)
-                               -> Map.Map k1 a1
-                               -> Map.Map k2 a2
-        mapValueAndKey fk fa map = (Map.mapKeys fk) $ (Map.map fa) $ map
-          
+translateMem (mDefault, mMap, _) = Map.fromList $ do
+  (wordAddr, wordVal) <- Map.toList mMap
+  offset <- [0..7]
+  let byteAddr = wordAddr * 8 + fromIntegral offset
+  let byteVal = (wordVal `shiftR` (8 * offset)) .&. 0xff
+  return (UnsignedBV $ BV.word64 byteAddr, fromIntegral byteVal)
 
 -- Not used right now TODO: Delete?
 sizedBVToReg :: SizedBV 5 -> Reg
