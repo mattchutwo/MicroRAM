@@ -1675,7 +1675,7 @@ instance TraversableOp InstrRV32I  where
       AUIPC r imm              -> AUIPC          <$> fr r  <*> fi imm                     
       ImmBinop32 bop r1 r2 imm -> ImmBinop32 bop <$> fr r1 <*> fr r2 <*> fi imm   
       RegBinop32 bop r1 r2 r3  -> RegBinop32 bop <$> fr r1 <*> fr r2 <*> fr r3     
-      FENCE sord               -> pure $ FENCE sord               
+      FENCE pord sord          -> pure $ FENCE pord sord
       FENCEI                   -> pure $ FENCEI                          
   
 instance TraversableOp InstrRV64I  where
@@ -1716,7 +1716,7 @@ instance TraversableOp PseudoInstr where
       NopPI         -> pure NopPI
       AbsolutePI ap -> pure $ AbsolutePI ap 
       UnaryPI up r1 r2      -> UnaryPI up    <$> fr r1  <*> fr r2     
-      CMovPI cmp r1 r2      -> CMovPI cmp    <$> fr r1  <*> fr r2
+      CmpFlagPI cmp r1 r2   -> CmpFlagPI cmp    <$> fr r1  <*> fr r2
       BranchZPI bzp r imm   -> BranchZPI bzp <$> fr r   <*> fi imm
       BranchPI bp r1 r2 imm -> BranchPI bp   <$> fr r1  <*> fr r2 <*> fi imm
       JmpImmPI jp imm       -> JmpImmPI jp   <$> fi imm    
