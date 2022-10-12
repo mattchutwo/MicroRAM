@@ -57,7 +57,8 @@ regToList :: Regs mreg => Word -> RegBank mreg b -> [b]
 regToList bound (RegBank bank def) = fst $ foldr (\i (acc, regs) -> case regs of
     ((j, reg):regs') | i == j -> (reg:acc, regs')
     _                         -> (def:acc, regs)
-  ) ([], Map.toDescList bank) $ map fromWord [0..bound - 1]
+  ) ([], bankList) $ map fromWord [0..bound - 1]
+  where bankList = dropWhile (\(r,_) -> r >= fromWord bound) $ Map.toDescList bank
 
 
 
@@ -89,9 +90,9 @@ instance Regs MReg where
   fromWord 2 = AX
   fromWord n = MReg $ n - 3
   
-  toWord SP       = 1 
-  toWord BP       = 2 
-  toWord AX       = 3 
+  toWord SP       = 0
+  toWord BP       = 1
+  toWord AX       = 2
   toWord (MReg n) = n + 3 
   
 
