@@ -211,16 +211,15 @@ instance Native RiscV where
     (mMemory s1 `memoryEq` mMemory s2) && ((mGPRs s1 =?= mGPRs s2) "MRAM" "RiscV" "GPR")
     where
       memoryEq m1 m2 =
-        if m1 == m2 then True else 
-          let descriptiveDifference =
-                Map.merge
-                (Map.mapMaybeMissing $     \k x ->   if x==0 then Nothing else Just (x,0))
-                (Map.mapMaybeMissing $     \k y ->   if 0==y then Nothing else Just (0,y))
-                (Map.zipWithMaybeMatched $ \k x y -> if x==y then Nothing else Just (x,y))
-                (openVBMap m1) (openVBMap m2)
-          in trace ("Memories don't match. Here is a map with the differences where MRAM is shown first: \n " <> show descriptiveDifference)
+        let descriptiveDifference =
+              Map.merge
+              (Map.mapMaybeMissing $     \k x ->   if x==0 then Nothing else Just (x,0))
+              (Map.mapMaybeMissing $     \k y ->   if 0==y then Nothing else Just (0,y))
+              (Map.zipWithMaybeMatched $ \k x y -> if x==y then Nothing else Just (x,y))
+              (openVBMap m1) (openVBMap m2)
+        in if Map.null descriptiveDifference then True else
+             trace ("Memories don't match. Here is a map with the differences where MRAM is shown first: \n " <> show descriptiveDifference)
              False
-          
             
 
 
