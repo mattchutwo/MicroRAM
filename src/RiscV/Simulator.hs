@@ -78,6 +78,9 @@ prettyPrintMachine (Machine _rv pc mem regs) =
 openVB (UnsignedBV (BV n)) = n
 openVBMap m = Map.mapKeys openVB $ Map.map openVB m
 
+openGPRs :: Vector (UnsignedBV (RVWidth RV64IM)) -> Vector MWord
+openGPRs v = fmap (fromIntegral . openVB) v
+
                
 newtype SimM a = SimM { unSimM :: MS.State Machine a }
   deriving (Functor, Applicative, Monad, MS.MonadState Machine)
@@ -208,7 +211,7 @@ instance Native RiscV where
     -- the PCs don't match: one RiscV instruction might be compiled to multiple MRAM ones
     -- so in the execution MRAM will increase the PC much more. 
     --((mPC s1 =?= mPC s2) "MRAM" "RiscV" "PC") &&
-    (mMemory s1 `memoryEq` mMemory s2) && ((mGPRs s1 =?= mGPRs s2) "MRAM" "RiscV" "GPR")
+    (mMemory s1 `memoryEq` mMemory s2) && (mGPRs s1 `gprsEq` mGPRs s2)
     where
       memoryEq m1 m2 =
         let descriptiveDifference =
@@ -219,6 +222,15 @@ instance Native RiscV where
               (openVBMap m1) (openVBMap m2)
         in if Map.null descriptiveDifference then True else
              trace ("Memories don't match. Here is a map with the differences where MRAM is shown first: \n " <> show descriptiveDifference)
+             False
+
+      gprsEq r1 r2 =
+        if r1 == r2 then True else
+          let r1' = openGPRs r1
+              r2' = openGPRs r2
+              descriptiveDifference =
+                [(i, r1' Vec.! i, r2' Vec.! i) | i <- [0 .. 31], r1' Vec.! i /= r2' Vec.! i]
+          in trace ("GPRs don't match. Here is a map with the differences where MRAM is shown first:\n" <> show descriptiveDifference)
              False
             
 

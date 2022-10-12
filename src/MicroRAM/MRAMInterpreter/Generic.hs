@@ -98,18 +98,18 @@ deriving instance (Show r, AbsDomain v) => Show (MachineState' r v)
 -- Pretty printing for SOME fields of the machinestate
 prettyPrintMachState :: (Show r, AbsDomain v) => MachineState' r v -> String
 prettyPrintMachState (MachineState cycle pc regs prog mem bug ans) =
-  "STATE: \n-------------\n\t" <>
-  "CYCLE: " <> show cycle <>
-  "\n-------------\n\t" <>
-  "PC: " <> show pc <>
-  "\n-------------\n\t" <>
-  "Regs: " <> show regs <>
-  "\n-------------\n\t" <>
-  "BUG: " <> show bug <>
-  "\n-------------\n\t" <>
-  "ANS: " <> show ans <>
-  "\n-------------\n\t" <>
-  "MEMORY: " <> show mem <>
+  "STATE: \n-------------" <>
+  "\n\tCYCLE: " <> show cycle <>
+  -- "\n-------------\n\t" <>
+  "\n\tPC: " <> show pc <>
+  -- "\n-------------\n\t" <>
+  "\n\tRegs: " <> show regs <>
+  -- "\n-------------\n\t" <>
+  "\n\tBUG: " <> show bug <>
+  -- "\n-------------\n\t" <>
+  "\n\tANS: " <> show ans <>
+  -- "\n-------------\n\t" <>
+  "\n\tMEMORY: " <> show mem <>
   "\n-------------\n\t"
 
 data InterpState' r v s = InterpState
