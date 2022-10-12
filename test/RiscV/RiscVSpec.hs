@@ -38,16 +38,16 @@ mkCompilerTests tg = case tg of
   ManyTests nm ts -> testGroup nm $ mkCompilerTests <$> ts 
   where 
     mkCompilerTest :: TestProgram -> TestTree
-    mkCompilerTest (TestProgram name file len _cmpErr res _hasBug _leakTainted) =
-      riscCompilerTest name file len res 
+    mkCompilerTest (TestProgram name input len _cmpErr res _hasBug _leakTainted) =
+      riscCompilerTest name input len res
 
 riscCompilerTest
   :: TestName
-  -> FilePath
+  -> [Domain]
   -> Word
   -> MWord
   -> TestTree
-riscCompilerTest name file len expectedResult = 
+riscCompilerTest name (OneRISCV file) len expectedResult =
   testProperty name $ 
   QCM.monadicIO $ do
   answer <- QCM.run $ riscCompilerTest' file len
@@ -56,7 +56,7 @@ riscCompilerTest name file len expectedResult =
   where 
     riscCompilerTest' file len = do
       riscCode <- readFile $ file
-      mramCode <- handleErrorWith (riscBackend file riscCode len)
+      mramCode <- handleErrorWith (riscBackend False file riscCode len)
       return $ execAnswer False False (fmap (tripleFmap fst) mramCode)
 
       
@@ -64,6 +64,7 @@ riscCompilerTest name file len expectedResult =
     tripleFmap :: (Functor f1, Functor f2, Functor f3)
                => (a -> b) -> f1 (f2 (f3 a)) -> f1 (f2 (f3 b))
     tripleFmap f compRes =  fmap (fmap (fmap f)) compRes
+riscCompilerTest _ _ _ _ = testGroup "multi-file and non-RISC-V tests are ignored" []
 
 
 -- TODO Delete after this

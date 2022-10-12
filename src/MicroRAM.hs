@@ -103,7 +103,6 @@ module MicroRAM
 ( -- * MicroRAM
   Instruction'(..),
   Instruction,
---  NamedBlock(NBlock),
   Program,
   Operand(..),
 
@@ -135,7 +134,7 @@ module MicroRAM
   wordBits,
 
   -- * Mappiung and Folding
-  mapInstr, mapProg, mapInstrM,
+  mapInstr, mapProg, mapInstrM, traverseInstr,
   foldInstr,
   ) where
 
@@ -389,7 +388,15 @@ mapInstrM :: Monad m =>
   -> (operand2 -> m operand2')
   -> Instruction' regT operand1 operand2
   -> m (Instruction' regT' operand1' operand2')
-mapInstrM regF opF1 opF2 instr =
+mapInstrM regF opF1 opF2 instr = traverseInstr regF opF1 opF2 instr
+
+traverseInstr :: Applicative m =>
+  (regT -> m regT')
+  -> (operand1 -> m operand1')
+  -> (operand2 -> m operand2')
+  -> Instruction' regT operand1 operand2
+  -> m (Instruction' regT' operand1' operand2')
+traverseInstr regF opF1 opF2 instr =
   case instr of             
   -- Bit Operations             
   Iand r1 op1 op2        -> Iand <$>  (regF r1) <*> (opF1 op1) <*> (opF2 op2)          
@@ -433,9 +440,9 @@ mapInstrM regF opF1 opF2 instr =
   -- Poison                                    
   Ipoison w op2 op1      -> Ipoison w <$>  (opF2 op2) <*> (opF1 op1)      
   -- Extensions                            
-  Iext ext               -> Iext <$> (mapM opF2 ext)
-  Iextval dest ext       -> Iextval <$> (regF dest) <*> (mapM opF2 ext)
-  Iextadvise dest op2 ext -> Iextadvise <$> (regF dest) <*> (opF2 op2) <*> (mapM opF2 ext)
+  Iext ext               -> Iext <$> (traverse opF2 ext)
+  Iextval dest ext       -> Iextval <$> (regF dest) <*> (traverse opF2 ext)
+  Iextadvise dest op2 ext -> Iextadvise <$> (regF dest) <*> (opF2 op2) <*> (traverse opF2 ext)
 
 
 foldInstr :: Monoid a =>

@@ -130,12 +130,14 @@ between functions.
 module Compiler
     ( compile
     , CompilerOptions(..), defOptions
+    , Domain(..), DomainInput(..), loadCode, compileDomains
     , module Export
     ) where
 
 import           Compiler.Analysis
 import           Compiler.BlockCleanup
 import           Compiler.CallingConvention
+import           Compiler.Common (GlobalVariable)
 import           Compiler.CompilationUnit
 import           Compiler.CountFunctions
 import           Compiler.Errors
@@ -145,8 +147,10 @@ import           Compiler.InstructionSelection
 import           Compiler.Intrinsics
 import           Compiler.LayArgs
 import           Compiler.Legalize
+import           Compiler.Link
 import           Compiler.LocalizeLabels
 import           Compiler.Metadata
+import           Compiler.Name (firstUnusedName)
 import           Compiler.RegisterAlloc
 import           Compiler.RegisterAlloc as Export (AReg)
 import           Compiler.RemoveLabels
@@ -155,6 +159,8 @@ import           Compiler.Stacking
 import           Compiler.UndefinedFunctions
 
 import           MicroRAM (MWord)
+import           RiscV.Parser
+import           RiscV.Transpiler
 import           Sparsity.Sparsity
 import           Util.Util
 
@@ -191,18 +197,33 @@ compile1
   :: CompilerOptions
   -> Word
   -> LLVM.Module
+  -> Word
   -> Hopefully (CompilationUnit () (MIRprog Metadata MWord))
-compile1 options len llvmProg = (return $ prog2unit len llvmProg)
+compile1 options len llvmProg firstName = (return $ prog2unit len llvmProg firstName)
   >>= (verbTagPass verb "Instruction Selection" $ justCompileWithNames instrSelect)
   >>= (verbTagPass verb "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
   >>= (verbTagPass verb "Lower Intrinsics" $ justCompileWithNamesSt lowerIntrinsics)
+  where CompilerOptions {verb=verb, allowUndefFun=allowUndefFun} = options
+
+compileCheckUndef
+  :: CompilerOptions
+  -> CompilationUnit () (MIRprog Metadata MWord)
+  -> Hopefully (CompilationUnit () (MIRprog Metadata MWord))
+compileCheckUndef options prog = return prog
   >>= (verbTagPass verb "Catch undefined Functions" $ justCompile (catchUndefinedFunctions allowUndefFun))
   where CompilerOptions {verb=verb, allowUndefFun=allowUndefFun} = options
-                        
+
+compileLowerExt
+  :: CompilerOptions
+  -> CompilationUnit g (MIRprog Metadata MWord)
+  -> Hopefully (CompilationUnit g (MIRprog Metadata MWord))
+compileLowerExt options = verbTagPass (verb options) "Lower Extension Instructions" $
+  justCompileWithNames lowerExtensionInstrs
+
 compile2
   :: CompilerOptions
-  -> CompilationUnit () (MIRprog Metadata MWord) ->
-  Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
+  -> CompilationUnit () (MIRprog Metadata MWord)
+  -> Hopefully (CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord))
 compile2 options prog = return prog
   >>= (verbTagPass verb "Legalize Instructions" $ justCompileWithNames legalize)
   >>= (verbTagPass verb "Localize Labels"     $ justCompileWithNames localizeLabels)
@@ -215,28 +236,190 @@ compile2 options prog = return prog
   >>= (verbTagPass verb "Count Functions"     $ justAnalyse countFunctions)
   >>= (verbTagPass verb "Stacking"            $ justCompileWithNames stacking)
   >>= (verbTagPass verb "Computing Sparsity"  $ justAnalyse (return . SparsityData . (forceSparsity spars))) 
-  >>= (verbTagPass verb "Block cleanup"       $ blockCleanup)
-  >>= (verbTagPass verb "Removing labels"     $ removeLabels tainted)
   where numRegs = case numberRegs of
           Just n -> RegisterAllocOptions n
           Nothing -> def
 
         CompilerOptions { verb=verb
                         , spars=spars
-                        , tainted=tainted
                         , skipRegisterAllocation=skipRegisterAllocation
                         , numberRegs=numberRegs
                         } = options
-        
+
+compileRiscvPremain
+  :: CompilerOptions
+  -> CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord)
+  -> Hopefully (CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord))
+compileRiscvPremain options prog = return prog
+  >>= (verbTagPass verb "Add premain"         $ return . addRiscvPremain)
+  where CompilerOptions { verb=verb } = options
+
+compileLLVMPremain
+  :: CompilerOptions
+  -> CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord)
+  -> Hopefully (CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord))
+compileLLVMPremain options prog = return prog
+  >>= (verbTagPass verb "Add premain"         $ justCompileWithNames addPremain)
+  where CompilerOptions { verb=verb } = options
+
+compile3
+  :: CompilerOptions
+  -> CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord)
+  -> Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
+compile3 options prog = return prog
+  >>= (verbTagPass verb "Block cleanup"       $ blockCleanup)
+  >>= (verbTagPass verb "Removing labels"     $ removeLabels tainted)
+  where CompilerOptions { verb=verb, tainted=tainted } = options
+
 compile :: CompilerOptions
         -> Word
         -> LLVM.Module
         -> Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
 compile options len llvmProg = do
-  ir <- compile1 options len llvmProg
-  high <- compile2 options ir
-  low <- return ir
-    >>= (verbTagPass (verb options) "Lower Extension Instructions" $ justCompileWithNames lowerExtensionInstrs)
+  ir <- compile1 options len llvmProg firstUnusedName
+    >>= compileCheckUndef options
+  high <- return ir
     >>= compile2 options
+    >>= compileLLVMPremain options
+    >>= compile3 options
+  low <- return ir
+    >>= compileLowerExt options
+    >>= compile2 options
+    >>= compileLLVMPremain options
+    >>= compile3 options
   -- Return both programs, using the analysis data from the final one.
   return $ low { programCU = MultiProg (programCU high) (programCU low) }
+
+
+data Domain = Domain
+  { secretLengths :: Maybe (Word, Word)
+  -- ^ If set, the code and memory of the domain are secret, with the indicated
+  -- upper limits on their respective lengths.
+  , privileged :: Bool
+  -- ^ If set, all code and memory of the domain will be placed in the upper
+  -- (privileged) portion of memory.
+  , domainInputs :: [DomainInput]
+  -- ^ List of inputs to compile to construct this domain.  This may be empty;
+  -- in particular, in verifier mode there will usually be no code available
+  -- for secret domains.
+  }
+  deriving (Eq, Show)
+
+-- | An input file for a domain.  In each constructor, the `Maybe String` is
+-- the contents of the file, which initially is unset.
+data DomainInput =
+    InputLLVM FilePath (Maybe LLVM.Module)
+  | InputRISCV FilePath (Maybe String)
+  deriving (Eq, Show)
+
+inputPath :: DomainInput -> FilePath
+inputPath (InputLLVM path _) = path
+inputPath (InputRISCV path _) = path
+
+
+data CompiledObject = CompiledObject
+  { objLow :: CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord)
+  , objHigh :: CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord)
+  , objNextName :: Word
+  }
+
+
+loadCode :: Applicative m
+         => (FilePath -> m LLVM.Module)
+         -> (FilePath -> m String)
+         -> Domain
+         -> m Domain
+loadCode loadLLVM loadRISCV domain =
+  (\inputs' -> domain { domainInputs = inputs' }) <$> traverse go (domainInputs domain)
+  where
+    go (InputLLVM path _) = InputLLVM path <$> (Just <$> loadLLVM path)
+    go (InputRISCV path _) = InputRISCV path <$> (Just <$> loadRISCV path)
+
+
+compileDomains :: CompilerOptions
+               -> Word
+               -> [Domain]
+               -> Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
+compileDomains options len domains = do
+  (objs, nextName) <- sequenceObjects firstUnusedName
+    [compileDomain options len d | d <- domains]
+  obj <- concatObjects objs
+  -- Hack: add the appropriate premain corresponding to the first input of the
+  -- first domain.
+  let compilePremain = case concatMap domainInputs domains of
+        InputLLVM _ _ : _ -> compileLLVMPremain
+        InputRISCV _ _ : _ -> compileRiscvPremain
+  high <- return (objHigh obj)
+    >>= compilePremain options
+    >>= compile3 options
+  low <- return (objLow obj)
+    >>= compilePremain options
+    >>= compile3 options
+  return $ low { programCU = MultiProg (programCU high) (programCU low) }
+
+compileDomain :: CompilerOptions
+              -> Word
+              -> Domain
+              -> Word
+              -> Hopefully CompiledObject
+compileDomain options len domain firstName = do
+  (objs, nextName) <- sequenceObjects firstName
+    [compileInput options len inp | inp <- domainInputs domain]
+  obj <- linkObjects objs
+  return $ obj { objNextName = nextName }
+
+compileInput :: CompilerOptions
+             -> Word
+             -> DomainInput
+             -> Word
+             -> Hopefully CompiledObject
+compileInput options len (InputLLVM path mCode) firstName = do
+  let code = maybe (error $ "missing code for " ++ show path) id mCode
+  ir <- compile1 options len code firstName
+  high <- return ir
+    >>= compile2 options
+  low <- return ir
+    >>= compileLowerExt options
+    >>= compile2 options
+  let nextName = max (nameBound high) (nameBound low)
+  return $ CompiledObject low high nextName
+compileInput options len (InputRISCV path mCode) firstName = do
+  let code = maybe (error $ "missing code for " ++ show path) id mCode
+  parsed <- riscvParser path code
+  -- TODO: intrinsic handling?
+  masm <- transpiler (verb options) firstName mempty parsed
+  let masm' = masm { traceLen = len }
+  return $ CompiledObject masm' masm' (nameBound masm')
+
+sequenceObjects :: Word -> [Word -> Hopefully CompiledObject] -> Hopefully ([CompiledObject], Word)
+sequenceObjects firstName mkObjs = go firstName mkObjs
+  where go firstName [] = return ([], firstName)
+        go firstName (f : fs) = do
+          obj <- f firstName
+          (objs, nextName) <- go (objNextName obj) fs
+          return (obj:objs, nextName)
+
+-- | Link together several objects.  This adjusts certain `Name`s so that
+-- objects can refer to external symbols (blocks and globals) defined in other
+-- objects.
+linkObjects :: [CompiledObject] -> Hopefully CompiledObject
+linkObjects objs = do
+  high <- linkCompUnits (map objHigh objs)
+  low <- linkCompUnits (map objLow objs)
+  return $ CompiledObject
+    { objHigh = high
+    , objLow = low
+    , objNextName = max (nameBound high) (nameBound low)
+    }
+
+-- | Concatenate several objects.  This makes no changes to `Name`s, so symbols
+-- defined in one object won't be visible in the others.
+concatObjects :: [CompiledObject] -> Hopefully CompiledObject
+concatObjects objs = do
+  high <- concatCompUnits (map objHigh objs)
+  low <- concatCompUnits (map objLow objs)
+  return $ CompiledObject
+    { objHigh = high
+    , objLow = low
+    , objNextName = max (nameBound high) (nameBound low)
+    }

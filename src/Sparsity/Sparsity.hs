@@ -250,10 +250,11 @@ sparsInstr spars (location, instr) =
 -- 1. run through the list of instrucitons updateing the sparsity info
 -- 2. Set the "End Sparsity" for all instructions in the map
 sparsBlock :: NamedBlock md r w -> Sparsity'
-sparsBlock (NBlock _ instrs) =
+sparsBlock blk =
   setEndSpars (length instrs) $                 -- second step
   foldl' sparsInstr Map.empty $ enumerate $ fst <$> instrs -- first step
   where setEndSpars lastLoc spars = fmap (setNewEnd lastLoc) spars
+        instrs = blockInstrs blk
 
 -- ** TODO: Functions
 -- If we carry the controll flow of functions, we can improve the approximation

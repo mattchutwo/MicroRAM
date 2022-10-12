@@ -64,7 +64,7 @@ pprintInst :: (Pretty wrd, Bounded wrd, Integral wrd, Show wrd) => Instruction' 
 pprintInst = show . pretty
 
 instance Pretty func => Pretty (IRprog mdata wrd func) where
-  pretty (IRprog _tenv _globals code) =
+  pretty (IRprog _tenv _globals code _ext) =
     -- TODO: tenv + globals
     vsep $ map pretty code
 
@@ -119,15 +119,19 @@ instance (Pretty name, Pretty inst) => Pretty (BB name inst) where
          ]
 
 instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (NamedBlock meta reg wrd) where
-  pretty (NBlock nameM insts) = 
-    vsep [ "/// Block " <> pretty nameM
-         , vsep (map (pretty . fst) insts)
+  pretty blk =
+    vsep [ "/// Block " <> pretty (blockName blk)
+         , "/// Secret: " <> viaShow (blockSecret blk)
+         , "/// Privileged: " <> viaShow (blockPrivileged blk)
+         , "/// Extern: " <> viaShow (blockExtern blk)
+         , vsep (map (pretty . fst) (blockInstrs blk))
          , line
          ]
 
 instance (Pretty name, Pretty param, Pretty block) => Pretty (Function name param block) where
-  pretty (Function name retTy argTys argNms blocks) =
+  pretty (Function name retTy argTys argNms blocks extern) =
     vsep [ "// " <> pretty name <> " " <> prettyArgs (zip argTys argNms) <> " -> " <> pretty retTy
+         , "// Extern: " <> pretty extern
          , vsep (map pretty blocks)
          , line
          ]
@@ -136,8 +140,9 @@ instance (Pretty name, Pretty param, Pretty block) => Pretty (Function name para
       prettyArgs args = "("<> concatWith (surround ", ") (map (\(typ,nm) -> pretty typ <> " " <> pretty nm) args) <> ")"
 
 instance (Show reg, Show wrd, Pretty wrd, Pretty (PrettyPrintWrapper reg)) => Pretty (LFunction mdata reg wrd) where
-  pretty (LFunction name retTy argTys argNms _stackSize blocks) =
+  pretty (LFunction name retTy argTys argNms _stackSize blocks extern) =
     vsep [ "// " <> pretty name <> " :: " <> prettyArgs (zip argTys argNms) <> " -> " <> pretty retTy
+         , "// Extern: " <> pretty extern
          , vsep (map pretty blocks)
          , line
          ]

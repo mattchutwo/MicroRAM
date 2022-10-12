@@ -31,4 +31,4 @@ catchUndefinedFunctions undefAllowed prog = do
         "Use --allow-undef to remove this warning."
     return prog
   where
-    undefNames = map funcName $ filter (\f -> null $ funcBlocks f) $ code prog
+    undefNames = externFuncs prog

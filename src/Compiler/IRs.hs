@@ -28,7 +28,7 @@ module Compiler.IRs(
   AnnotatedProgram,
   MA2Instruction,
   MAInstruction,
-  NamedBlock(..),
+  NamedBlock(..), makeNamedBlock,
   
   -- ** Generic IR
   -- $GIR
@@ -105,8 +105,26 @@ type MA2Instruction regT wrdT = MRAM.Instruction' regT (MAOperand regT wrdT) (MA
 -- | One oprand MicroAssembly
 type MAInstruction regT wrdT = MRAM.Instruction' regT regT (MAOperand regT wrdT)
 
-data NamedBlock md r w = NBlock (Maybe Name) [(MAInstruction r w, md)]
+data NamedBlock md r w = NamedBlock
+  { blockName :: Maybe Name
+  , blockInstrs :: [(MAInstruction r w, md)]
+  , blockSecret :: Bool
+  , blockPrivileged :: Bool
+  , blockExtern :: Bool
+    -- ^ If set, this block is externally visible, meaning its label will be
+    -- visible to other objects during linking.
+  }
   deriving (Show)
+
+makeNamedBlock :: Maybe Name -> [(MAInstruction r w, md)] -> NamedBlock md r w
+makeNamedBlock name instrs = NamedBlock
+  { blockName = name
+  , blockInstrs = instrs
+  , blockSecret = False
+  , blockPrivileged = False
+  , blockExtern = False
+  }
+
 type MAProgram md r w = [NamedBlock md r w] -- These are MicroASM programs
 type AnnotatedProgram md r w = [(MRAM.Instruction r w, md)]
 
@@ -125,6 +143,7 @@ data Function nameT paramT blockT = Function
   , funcArgTys :: [paramT] -- ^ Types of arguments
   , funcArgNms :: [nameT] -- ^ Arguments names
   , funcBlocks :: [blockT] -- ^ Function code as a list of blocks
+  , funcExtern :: Bool
   }
   deriving (Show, Functor)
 
@@ -167,6 +186,9 @@ data IRprog mdata wrdT funcT = IRprog
   { typeEnv :: TypeEnv
   , globals :: GEnv wrdT
   , code :: [funcT]
+  , externFuncs :: [Name]
+  -- ^ Names of external functions that were declared but not defined within
+  -- this program.
   } deriving (Show, Functor, Foldable, Traversable)
 
 
@@ -305,6 +327,7 @@ data LFunction mdata mreg wrdT = LFunction {
   , paramNms :: [Name]
   , stackSize :: MRAM.MWord
   , funBody:: [BB Name $ LTLInstr mdata mreg wrdT]
+  , lfuncExtern :: Bool
   } deriving (Show)
 
 -- | Traverse the LTL functions and replacing operands 
@@ -329,16 +352,16 @@ traverseOpLprog fop = traverse (traverseOpLFun fop)
 
 -- Converts a RTL program to a LTL program.
 rtlToLtl :: forall mdata wrdT . Rprog mdata wrdT -> Hopefully $ Lprog mdata VReg wrdT
-rtlToLtl (IRprog tenv globals code) = do
+rtlToLtl (IRprog tenv globals code ext) = do
   code' <- mapM convertFunc code
-  return $ IRprog tenv globals code'
+  return $ IRprog tenv globals code' ext
   where
    convertFunc :: RFunction mdata wrdT -> Hopefully $ LFunction mdata VReg wrdT
-   convertFunc (Function name retType paramTypes paramNames body) = do
+   convertFunc (Function name retType paramTypes paramNames body extern) = do
      -- JP: Where should we get the metadata and stack size from?
      let stackSize = 0 -- Since nothing is spilled 0
      body' <- mapM convertBasicBlock body
-     return $ LFunction name retType paramTypes paramNames stackSize body' 
+     return $ LFunction name retType paramTypes paramNames stackSize body' extern
 
    convertBasicBlock :: BB name (RTLInstr mdata wrdT) -> Hopefully $ BB name (LTLInstr mdata VReg wrdT)
    convertBasicBlock (BB name instrs term dag) = do

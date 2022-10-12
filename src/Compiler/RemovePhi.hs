@@ -39,20 +39,20 @@ data NameState = NameState
 
 -- Split edges to ensure the "unique successor or predecessor property" (Modern Compiler Implementation in Java, 19.6).
 edgeSplit :: (Rprog Metadata wrdT, Word) -> Hopefully (Rprog Metadata wrdT, Word)
-edgeSplit (IRprog te ge funcs, nextReg) = do
+edgeSplit (IRprog te ge funcs ext, nextReg) = do
   let (funcs', NameState nextReg' _) = runState (mapM edgeSplitFunc funcs) initNameState
-  return $ (IRprog te ge funcs', nextReg')
+  return $ (IRprog te ge funcs' ext, nextReg')
   where initNameState = NameState nextReg Map.empty
 
 edgeSplitFunc :: forall wrdT . RFunction Metadata wrdT -> State NameState (RFunction Metadata wrdT)
-edgeSplitFunc (Function name retTy argTys argNms blocks) = do
+edgeSplitFunc (Function name retTy argTys argNms blocks extern) = do
   -- Function starts with empy name map
   modify (\st -> st {nameMap = Map.empty})
   -- create spliting blocks
   edgeBlocks <- mapM (buildEdgeBlock name) $ Map.toList edgeIndex
   -- Modify existing blocks
   blocks' <- mapM fixInstrs blocks
-  return $ Function name retTy argTys argNms (blocks' ++ edgeBlocks)
+  return $ Function name retTy argTys argNms (blocks' ++ edgeBlocks) extern
 
   where
     (cfg, predecessorMap, successorMap) = buildCFG blocks
@@ -138,15 +138,15 @@ edgeSplitFunc (Function name retTy argTys argNms blocks) = do
 
 -- | Removes phis. Assumes edge splitting has already happened.
 removePhi :: (Rprog Metadata wrdT, Word) -> Hopefully (Rprog Metadata wrdT, Word)
-removePhi (IRprog te ge funcs, nextReg) = do
+removePhi (IRprog te ge funcs ext, nextReg) = do
   (funcs', nextReg') <- runStateT (mapM removePhiFunc funcs) nextReg
-  return (IRprog te ge funcs', nextReg')
+  return (IRprog te ge funcs' ext, nextReg')
 
 removePhiFunc :: forall wrdT.
   RFunction Metadata wrdT -> StateT Word Hopefully (RFunction Metadata wrdT)
-removePhiFunc f@(Function name retTy argTys argNms blocks) = do
+removePhiFunc f@(Function name retTy argTys argNms blocks extern) = do
     blocks' <- mapM removePhiBlock blocks
-    return $ Function name retTy argTys argNms blocks'
+    return $ Function name retTy argTys argNms blocks' extern
   where
     -- Remove phis from a block.
     removePhiBlock :: BB Name (RTLInstr Metadata wrdT) -> StateT Word Hopefully (BB Name (RTLInstr Metadata wrdT))

@@ -13,6 +13,7 @@ module RiscV.RiscVAsm
     Imm (..)
   , ImmOp (..)
   , Modifier (..)
+  , SymbolSuffix (..)
   -- ** Offsets
   , Offset
   -- ** Registers
@@ -72,7 +73,7 @@ module RiscV.RiscVAsm
   , AbsolutePseudo(..)
   , MemOpKind(..)
   , UnaryPseudo(..)
-  , CMovPseudo(..)
+  , CmpFlagPseudo(..)
   , BranchZPseudo(..)
   , BranchPseudo(..)
   , JumpPseudo(..)
@@ -147,6 +148,18 @@ instance Arbitrary Modifier where
       , ModTls_ie_pcrel_hi
       , ModTls_gd_pcrel_hi]
 
+
+data SymbolSuffix =
+  SufPlt        -- ^ @symbol@plt@: Address of the Procedure Linkage Table stub
+                -- for calling @symbol@ after dynamic linking.
+  deriving (Show, Eq, Ord)
+
+instance Arbitrary SymbolSuffix where
+  arbitrary =
+    oneof $ pure <$>
+      [ SufPlt ]
+
+
 {- $operands
 
    An expression specifies an address or numeric value using
@@ -182,7 +195,7 @@ instance Arbitrary Modifier where
 
 data Imm =
   ImmNumber Word64
-  | ImmSymbol String
+  | ImmSymbol String (Maybe SymbolSuffix)
   | ImmLazy (LazyConst Word64) -- Only to go inside Xrvcheck
   | ImmMod Modifier Imm
   | ImmBinOp ImmOp Imm Imm 
@@ -209,7 +222,7 @@ instance Arbitrary ImmOp where
 instance Arbitrary Imm where
   arbitrary = oneof $ 
     [ ImmNumber  <$> arbitrary
-    , ImmSymbol  <$> arbitrary
+    , ImmSymbol  <$> arbitrary <*> arbitrary
     , ImmMod     <$> arbitrary <*> arbitrary
     , ImmBinOp   <$> arbitrary <*> arbitrary <*> arbitrary ]
 
@@ -416,6 +429,7 @@ data Directive
   | RODATA                              -- ^ Emit .rodata section (if not present) and make current
   | BSS                                 -- ^ Emit .bss section (if not present) and make current
   | STRING      String                  -- ^ Emit string
+  | ASCII       String                  -- ^ Emit ascii text without null terminator
   | ASCIZ       String                  -- ^ Emit string (alias for .string)
   | EQU         String Word             -- ^ Constant definition
   | TYPE        String DirTypes         -- ^ Accepted for source compatibility
@@ -1094,7 +1108,7 @@ data InstrRV32I =
   | RegBinop32 Binop32 Reg Reg Reg
   
     -- | Synchronisation Instructions (Fences)
-  | FENCE SetOrdering
+  | FENCE SetOrdering SetOrdering
   | FENCEI            
   deriving (Show, Eq)
 
@@ -1121,10 +1135,10 @@ predecessor set includes loads (resp. stores) if and only if PR
 (resp. PW) is set.
 -}
 data SetOrdering = SetOrdering
-  { predRead  :: Bool
-  , predWrite :: Bool
-  , succRead  :: Bool
-  , succWrite :: Bool
+  { orderRead  :: Bool
+  , orderWrite :: Bool
+  , orderInput :: Bool
+  , orderOutput :: Bool
   } deriving (Show, Eq, Ord)
 
 
@@ -1367,7 +1381,7 @@ data UnaryPseudo
   deriving (Show, Eq, Ord)
 
 {- |
-Conditional move instructions
+Comparison instructions with explicit flag output
 
 +---------------------+---------------------+----------------------------+-----------+
 |  pseudoinstruction  | Base Instruction(s) |          Meaning           | Supported |
@@ -1384,7 +1398,7 @@ Conditional move instructions
 -}
 
 
-data CMovPseudo
+data CmpFlagPseudo
   = SEQZ -- ^ @sltiu rd, rs, 1@      Set if = zero 
   | SNEZ -- ^ @sltu rd, x0, rs@      Set if <> zero
   | SLTZ -- ^ @slt rd, rs, x0@       Set if < zero 
@@ -1519,8 +1533,8 @@ data PseudoInstr
   | AbsolutePI AbsolutePseudo
   -- | Unary register Pseudoinstructions
   | UnaryPI UnaryPseudo Reg Reg
-  -- | Conditional Moves
-  | CMovPI CMovPseudo Reg Reg
+  -- | Comparison with explicit flag output
+  | CmpFlagPI CmpFlagPseudo Reg Reg
   -- | Alternative branches
   | BranchZPI BranchZPseudo Reg Offset
   | BranchPI BranchPseudo Reg Reg Offset

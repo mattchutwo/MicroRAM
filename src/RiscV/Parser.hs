@@ -326,7 +326,7 @@ immediateParser = Expr.buildExpressionParser operands immTerm <?> "an immediate"
     immTerm :: Stream s Identity Char
             => Parsec s u Imm
     immTerm = parens immediateParser
-              <|> ImmSymbol <$> lexeme identifier
+              <|> symbolWithSuffix
               <|> ImmNumber <$> fromInteger <$> lexeme integerParser
               <|> modParse <*> parens immediateParser
     operands :: Stream s Identity Char
@@ -353,7 +353,20 @@ immediateParser = Expr.buildExpressionParser operands immTerm <?> "an immediate"
            => String -> (a -> a -> a) -> Expr.Operator st u Identity a
     infix_ operator func =
       Expr.Infix (symbolParser operator >> return func) Expr.AssocLeft
-    
+
+    symbolWithSuffix :: Stream s Identity Char
+                     => Parsec s u Imm
+    symbolWithSuffix = lexeme $
+                       ImmSymbol <$> identifier <*> optionMaybe suffixParse
+
+    suffixParse :: Stream s Identity Char
+                => Parsec s u SymbolSuffix
+    suffixParse = char '@' *> parseFromPairs suffixes
+
+    suffixes = [
+      ("plt", SufPlt)
+      ]
+
 {- | Offsets.  Offsets are differnt from Immediates. First of all,
 bounded by a smaller number (2^12 I think?). Second, they accept no
 symbols or modifiers (I think).
@@ -429,13 +442,25 @@ parse32I = choiceTry
       , "or"    ==> RegBinop32 OR   <*> regParser <:> regParser <:> regParser
       , "and"   ==> RegBinop32 AND  <*> regParser <:> regParser <:> regParser
       -- fence instructions
-      , "fance"    ==> FENCE    <*> orderingParser
+      , "fence"    ==> FENCE    <*> orderingParser <:> orderingParser
       , "fence.i"  ==> FENCEI ]
     
 
 -- | Memory ordering for fences
-orderingParser :: Parsec s u SetOrdering
-orderingParser = undefined -- not needed?
+orderingParser :: Stream s Identity Char
+               => Parsec s u SetOrdering
+orderingParser = foldl (\x f -> f x) emptyOrdering <$> option [] (many1 flag)
+  where
+    emptyOrdering = SetOrdering False False False False
+    flag = choice
+      [ char 'r' >> pure (\o -> o { orderRead = True })
+      , char 'w' >> pure (\o -> o { orderWrite = True })
+      , char 'i' >> pure (\o -> o { orderInput = True })
+      , char 'o' >> pure (\o -> o { orderOutput = True })
+      ]
+
+allOrdering :: SetOrdering
+allOrdering = SetOrdering True True True True
 
 parse64I :: Stream s Identity Char
          => Parsec s u InstrRV64I
@@ -543,10 +568,10 @@ parsePseudo = choiceTry
       , "negw"   ==> UnaryPI NEGW  <*> regParser <:> regParser
       , "sext.w"  ==> UnaryPI SEXTW <*> regParser <:> regParser
       -- Conditional Moves
-      , "seqz"   ==> CMovPI SEQZ <*> regParser <:> regParser
-      , "snez"   ==> CMovPI SNEZ <*> regParser <:> regParser
-      , "sltz"   ==> CMovPI SLTZ <*> regParser <:> regParser
-      , "sgtz"   ==> CMovPI SGTZ <*> regParser <:> regParser
+      , "seqz"   ==> CmpFlagPI SEQZ <*> regParser <:> regParser
+      , "snez"   ==> CmpFlagPI SNEZ <*> regParser <:> regParser
+      , "sltz"   ==> CmpFlagPI SLTZ <*> regParser <:> regParser
+      , "sgtz"   ==> CmpFlagPI SGTZ <*> regParser <:> regParser
       -- Alternative branches ZERO
       , "beqz"   ==> BranchZPI BEQZ <*> regParser <:> offsetParser
       , "bnez"   ==> BranchZPI BNEZ <*> regParser <:> offsetParser
@@ -676,6 +701,7 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "rodata"        ==> RODATA 
       , "bss"           ==> BSS    
       , "string"        ==> STRING     <*> textParser
+      , "ascii"         ==> ASCII      <*> textParser
       , "asciz"         ==> ASCIZ      <*> textParser
       , "equ"           ==> EQU        <*> identifier <:> (fromInteger <$> integer)
       , "type"          ==> TYPE       <*> identifier <:> typeParser

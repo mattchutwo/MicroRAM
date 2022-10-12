@@ -52,11 +52,11 @@ expandInstrs :: forall f m w.
 expandInstrs f = goProg
   -- TODO: this can probably be done more cleanly with traverse or lenses
   where goProg :: MIRprog m w -> WithNextReg f (MIRprog m w)
-        goProg (IRprog te gs code) = IRprog te gs <$> traverse goFunc code
+        goProg (IRprog te gs code ext) = IRprog te gs <$> traverse goFunc code <*> pure ext
 
         goFunc :: MIRFunction m w -> WithNextReg f (MIRFunction m w)
-        goFunc (Function nm rty atys anms bbs) =
-          Function nm rty atys anms <$> traverse (goBB $ CCM atys) bbs
+        goFunc (Function nm rty atys anms bbs extern) =
+          Function nm rty atys anms <$> traverse (goBB $ CCM atys) bbs <*> pure extern
 
         goBB :: CallingContextMetadata -> BB n (MIRInstr m w) -> WithNextReg f (BB n (MIRInstr m w))
         goBB ccm (BB nm body term dag) = BB nm <$> goInstrs ccm body <*> goInstrs ccm term <*> pure dag
@@ -266,8 +266,10 @@ lowerIntrinsics = expandInstrs (expandIntrinsicCall intrinsics)
 -- This overlaps with dead code elimination (a bit), but enables checking for undefined functions
 removeIntrinsics :: MIRprog m MWord -> WithNextReg Hopefully (MIRprog m MWord)
 removeIntrinsics prog = 
-  return $ prog {code = filter (not . isIntrinsic) $ code prog}
-  where isIntrinsic f = dbName (funcName f) `Map.member` intrinsics
+  return $ prog
+    { code = filter (not . isIntrinsicName . funcName) $ code prog
+    , externFuncs = filter (not . isIntrinsicName) $ externFuncs prog }
+  where isIntrinsicName nm = dbName nm `Map.member` intrinsics
         
 -- | Rename C/LLVM implementations of LLVM intrinsics to line up with their
 -- intrinsic name.
@@ -277,17 +279,19 @@ removeIntrinsics prog =
 -- `@__llvm__memset__p0i8__i64`, then this pass renames it to the dotted form.
 -- It also removes the empty definition of the dotted form, to avoid conflicts later on.
 renameLLVMIntrinsicImpls :: MIRprog Metadata MWord -> Hopefully (MIRprog Metadata MWord)
-renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
+renameLLVMIntrinsicImpls (IRprog te gs code externFuncNames) =
+  return $ IRprog te gs code' externFuncNames'
   where
     renameList :: [(ShortByteString, ShortByteString)]
     renameList = do
-      Function nm _ _ _ _ <- code
+      Function nm _ _ _ _ _ <- code
       Name _ ss <- return nm
       Just name <- return $ Text.stripPrefix "@__llvm__" $ toText ss
       return (ss, fromText $ "@llvm." <> Text.replace "__" "." name) -- Doesn't change the Word
 
     renameMap = Map.fromList renameList
     removeSet = Set.fromList $ map snd renameList
+    externFuncNames' = [nm | nm <- externFuncNames, not $ Set.member (dbName nm) removeSet]
 
     -- | If the code calls `@llvm.memset.p0i8.i64` it will actually call
     -- a dummy, empty function called `Name n "@llvm.memset.p0i8.i64"`.
@@ -296,19 +300,19 @@ renameLLVMIntrinsicImpls (IRprog te gs code) = return $ IRprog te gs code'
     -- So, for every empty function named `Name n "emptyFoo"`
     -- we create the Map `"emptyFoo" -> Name n "emptyFoo"` 
     emptyFuncMap :: Map.Map ShortByteString Name
-    emptyFuncMap = foldr go Map.empty code
-      where go (Function nm _ _ _ bbs) mapNE =
-              if null bbs then Map.insert (dbName nm) nm mapNE else mapNE
+    emptyFuncMap = Map.fromList [(dbName nm, nm) | nm <- names]
+      where names = [nm | Function nm _ _ _ bbs _ <- code, not $ null bbs]
+              ++ externFuncNames
 
     -- | Renames all the function of the form `@__LLVM__foo`
     -- into the dotted form and removes the original, empty,
     -- function with the same dotted name.
     code' :: [MIRFunction Metadata MWord]
     code' = do
-      Function nm rty atys anms bbs <- code
+      Function nm rty atys anms bbs ext <- code
       -- Remove functions in the remove set (i.e. dummy version of the function)
       guard $ not $ Set.member (dbName nm) removeSet
-      let replaceName = Function (changeName nm) rty atys anms bbs
+      let replaceName = Function (changeName nm) rty atys anms bbs ext
       return $ mapMetadataMIRFunction changeMetadata replaceName
     
     -- | Changes the underscored ShortByteString for the dotted form
