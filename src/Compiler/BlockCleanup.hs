@@ -189,7 +189,7 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
         opDep (AReg _) = mempty
 
         fallthroughDep = case instrs of
-          [] -> mempty
+          [] -> Set.singleton $ Right (i + 1)
           _:_ -> case fst $ last instrs of
             Ijmp _ -> mempty
             _ -> Set.singleton $ Right (i + 1)
