@@ -126,8 +126,8 @@ instance RVStateM SimM RV64IM where
     let val = fmap (\a -> Map.findWithDefault 0 a memory)
               [addr..addr+(fromIntegral (natValue bytes-1))]
     return (bvConcatMany' ((knownNat @8) `natMultiply` bytes) val)
-  getCSR = undefined
-  getPriv = undefined
+  getCSR i = trace ("warning: simulator requested CSR " ++ show i) $ return (UnsignedBV $ BV.word64 0)
+  getPriv = trace ("warning: simulator requested privilege level") $ return (UnsignedBV $ BV.zero knownNat)
 
   setPC pc = MS.modify $ \m -> m { mPC = pc }
   setGPR rid regVal = MS.modify $ \m ->
@@ -141,8 +141,8 @@ instance RVStateM SimM RV64IM where
           (UnsignedBV <$> bvGetBytesU (fromIntegral (natValue bytes)) val)
         memory' = foldr (\(a, byte) mem -> Map.insert a byte mem) memory addrValPairs
     MS.modify $ \m -> m { mMemory = memory' }
-  setCSR = undefined
-  setPriv = undefined
+  setCSR i val = trace ("warning: simulator tried to set CSR " ++ show i ++ " = " ++ show val) $ return ()
+  setPriv val = trace ("warning: simulator tried to set privilege level = " ++ show val) $ return ()
   isHalted = undefined
   logInstruction = undefined
 
@@ -418,7 +418,13 @@ regRegImmToSizedBV BRepr rd rs1 imm  =
   \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, wordToSizedBV w) in
           let ops = rd' :<  rs1' :< imm' :< Nil in
             (Operands BRepr ops)
-              
+regRegImmToSizedBV HRepr rd rs1 imm  =
+  withConcreteImm imm $
+  \w -> let (rd', rs1', imm') = (enumToSizedBV rd, enumToSizedBV rs1, wordToSizedBV w) in
+          let ops = rd' :<  rs1' :< imm' :< Nil in
+            (Operands HRepr ops)
+regRegImmToSizedBV repr rd rs1 imm = error $ "unsupported: " ++ show (repr, rd, rs1, imm)
+
 regImmToSizedBV :: FormatRepr a -> Reg -> Imm -> Operands a
 regImmToSizedBV URepr rs1 imm  =
   withConcreteImm imm $
