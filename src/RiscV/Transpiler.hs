@@ -32,7 +32,7 @@ import qualified Native
 
 import qualified Data.List as List (partition)
 import qualified Data.Map as Map
-import  Data.Bits (shiftL, (.|.),(.&.))
+import  Data.Bits (Bits, shiftL, shiftR, (.|.), (.&.))
 import Data.Char (ord)
 
 import Debug.Trace (trace)
@@ -996,13 +996,20 @@ transpileInstr32I instr =
                    ]
       
     
-    -- build 32-bit constants and uses the U-type format. LUI
-    -- places the U-immediate value in the top 20 bits of the
-    -- destination register rd, filling in the lowest 12 bits
-    -- with zeros. (We don't cehck the immediate for overflow,
-    -- but it could technically be larger than 20bits)
+    -- build 32-bit constants and uses the U-type format. LUI places the
+    -- U-immediate value in the top 20 bits of the destination register rd,
+    -- filling in the lowest 12 bits with zeros. (We don't cehck the immediate
+    -- for overflow, but it could technically be larger than 20bits.)  In
+    -- 64-bit mode, the resulting immediate is sign-extended from 32 to 64
+    -- bits.
     luiFunc :: MWord -> MWord
-    luiFunc w = shiftL w 12
+    luiFunc w = signExtendWord 32 $ shiftL w 12
+
+-- | Sign extend a literal word from the given input bit width.
+signExtendWord :: (Num w, Bits w) => Int -> w -> w
+signExtendWord width x = x .|. signMask
+  where signBit = x `shiftR` fromIntegral (width - 1)
+        signMask = signBit * fromInteger ((1 `shiftL` 64) - (1 `shiftL` width))
     
 transpileBranch32
   :: BranchCond
