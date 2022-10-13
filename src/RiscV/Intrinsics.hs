@@ -3,8 +3,10 @@
 module RiscV.Intrinsics
   ( addIntrinsicsHigh
   , addIntrinsicsLow
+  , addIntrinsicsWithNames
   , intrinsicsFstUnusedName
   , intrinsicsMap
+  , lowerExtensionInstrsAsm
   ) where -- (transpiler)
 
 import           Control.Monad.Trans.State.Lazy
@@ -124,7 +126,10 @@ intrinsicsFstUnusedName = _nameIntrID $ snd  intrinsicsAndMap
 
 intrinsicsAndMap
   :: ([NamedBlock Metadata Int MWord], StateIntrNames)
-intrinsicsAndMap = flip runState initState $
+intrinsicsAndMap = runState buildIntrinsics initState
+
+buildIntrinsics :: State StateIntrNames [NamedBlock Metadata Int MWord]
+buildIntrinsics =
   sequence $ [ cc_noop
            , cc_malloc
            , cc_access_valid
@@ -139,6 +144,20 @@ intrinsicsAndMap = flip runState initState $
            , cc_trace_exec]
   ++ exceptions ++ otherTraps
 
+addIntrinsicsWithNames
+  :: (MAProgram Metadata Int MWord, Word)
+  -> Hopefully (MAProgram Metadata Int MWord, Word)
+addIntrinsicsWithNames (blks, nextName) = return (blks ++ intrinBlks, nextName')
+  where st = StateIntrNames nextName mempty
+        (intrinBlks, st') = runState buildIntrinsics st
+        nextName' = st' ^. nameIntrID
+
+lowerExtensionInstrsAsm
+  :: MAProgram Metadata Int MWord
+  -> Hopefully (MAProgram Metadata Int MWord)
+lowerExtensionInstrsAsm blks = return $ map goBlock blks
+  where goBlock blk = blk { blockInstrs = concatMap goInstr $ blockInstrs blk }
+        goInstr (instr, md) = [(instr', md) | instr' <- lowerInstr' newReg instr]
 
 
 {- | # Intrinsiscs: Implementation
@@ -210,7 +229,7 @@ buildIntrinsic name instrs = do
   nameID <- getName name
   let md = intrinsicMetadata nameID
   let instrs_md = putTheMetadata md (instrs ++ [Ijmp $ AReg 1])
-  return $ makeNamedBlock (Just nameID) instrs_md
+  return $ (makeNamedBlock (Just nameID) instrs_md) { blockExtern = True }
 
 ret :: MAInstruction Int MWord
 ret = Ijmp . AReg $ fromEnum X1
@@ -318,7 +337,8 @@ gxx_personality_v0     = buildIntrinsic "__gxx_personality_v0" $ cc_trap "__gxx_
 --  #Other traps
 -- These functions show up on Grit and shouldn't be called.
 -- However we should have a better pipeline to remove them automatically.
-otherTraps = [iob, unwind_Resume, zTIPKc]
+--otherTraps = [iob, unwind_Resume, zTIPKc]
+otherTraps = [unwind_Resume]
 
 iob, unwind_Resume, zTIPKc, memcpy, pos :: Intrinsic
 iob           = buildIntrinsic "__iob" $ cc_trap "iob"

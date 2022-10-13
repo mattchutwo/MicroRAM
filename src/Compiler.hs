@@ -159,6 +159,7 @@ import           Compiler.Stacking
 import           Compiler.UndefinedFunctions
 
 import           MicroRAM (MWord)
+import           RiscV.Intrinsics
 import           RiscV.Parser
 import           RiscV.Transpiler
 import           Sparsity.Sparsity
@@ -389,9 +390,16 @@ compileInput options len (InputRISCV path mCode) firstName = do
   let code = maybe (error $ "missing code for " ++ show path) id mCode
   parsed <- riscvParser path code
   -- TODO: intrinsic handling?
-  masm <- transpiler (verb options) (riscvEmulatorEnabled options) firstName mempty parsed
+  masm <- transpiler verb riscvEmulatorEnabled firstName mempty parsed
   let masm' = masm { traceLen = len }
-  return $ CompiledObject masm' masm' (nameBound masm')
+  -- FIXME: intrinsic handling should be done at the domain or global level instead
+  high <- return masm'
+    >>= (verbTagPass verb "Add RISC-V Intrinsics" $ justCompileWithNames addIntrinsicsWithNames)
+  low <- return high
+    >>= (verbTagPass verb "Lower Extension Instructions" $ justCompile lowerExtensionInstrsAsm)
+  let nextName = max (nameBound high) (nameBound low)
+  return $ CompiledObject low high nextName
+  where CompilerOptions { verb=verb, riscvEmulatorEnabled=riscvEmulatorEnabled } = options
 
 sequenceObjects :: Word -> [Word -> Hopefully CompiledObject] -> Hopefully ([CompiledObject], Word)
 sequenceObjects firstName mkObjs = go firstName mkObjs
