@@ -265,12 +265,19 @@ compileLLVMPremain options prog = return prog
   >>= (verbTagPass verb "Add premain"         $ justCompileWithNames addPremain)
   where CompilerOptions { verb=verb } = options
 
+compileBlockCleanup
+  :: CompilerOptions
+  -> CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord)
+  -> Hopefully (CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord))
+compileBlockCleanup options prog = return prog
+  >>= (verbTagPass verb "Block cleanup"       $ blockCleanup)
+  where CompilerOptions { verb=verb } = options
+
 compile3
   :: CompilerOptions
   -> CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord)
   -> Hopefully (CompilationUnit () (AnnotatedProgram Metadata AReg MWord))
 compile3 options prog = return prog
-  >>= (verbTagPass verb "Block cleanup"       $ blockCleanup)
   >>= (verbTagPass verb "Removing labels"     $ removeLabels tainted)
   where CompilerOptions { verb=verb, tainted=tainted } = options
 
@@ -284,11 +291,13 @@ compile options len llvmProg = do
   high <- return ir
     >>= compile2 options
     >>= compileLLVMPremain options
+    >>= compileBlockCleanup options
     >>= compile3 options
   low <- return ir
     >>= compileLowerExt options
     >>= compile2 options
     >>= compileLLVMPremain options
+    >>= compileBlockCleanup options
     >>= compile3 options
   -- Return both programs, using the analysis data from the final one.
   return $ low { programCU = MultiProg (programCU high) (programCU low) }
