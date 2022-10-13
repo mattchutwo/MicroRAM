@@ -361,6 +361,7 @@ compileDomains options len domains = do
   let compilePremain = case concatMap domainInputs domains of
         InputLLVM _ _ : _ -> compileLLVMPremain
         InputRISCV _ _ : _ -> compileRiscvPremain
+        [] -> error "empty domain"
   high <- return (objHigh obj)
     >>= compilePremain options
     >>= compile3 options
@@ -369,16 +370,31 @@ compileDomains options len domains = do
     >>= compile3 options
   return $ low { programCU = MultiProg (programCU high) (programCU low) }
 
+riscvIntrinsicsObj :: Word -> Hopefully CompiledObject
+riscvIntrinsicsObj nextName = do
+  cu <- riscvIntrinsicsCU nextName
+  return $ CompiledObject cu cu (nameBound cu)
+
 compileDomain :: CompilerOptions
               -> Word
               -> Domain
               -> Word
               -> Hopefully CompiledObject
 compileDomain options len domain firstName = do
-  (objs, nextName) <- sequenceObjects firstName
-    [compileInput options len inp | inp <- domainInputs domain]
+  let inputObjsM = [compileInput options len inp | inp <- domainInputs domain]
+  -- Hack: add intrinsics or not depending on the first input of the domain.
+  let extraObjsM = case domainInputs domain of
+        InputLLVM _ _ : _ -> []
+        InputRISCV _ _ : _ -> [riscvIntrinsicsObj]
+        [] -> error "empty domain"
+  (objs, _nextName) <- sequenceObjects firstUnusedName (inputObjsM ++ extraObjsM)
   obj <- linkObjects objs
-  return $ obj { objNextName = nextName }
+  high <- return (objHigh obj)
+  low <- return (objLow obj)
+    >>= (verbTagPass verb "Lower Extension Instructions" $ justCompile lowerExtensionInstrsAsm)
+  let nextName = max (nameBound high) (nameBound low)
+  return $ CompiledObject low high nextName
+  where CompilerOptions { verb=verb } = options
 
 compileInput :: CompilerOptions
              -> Word
@@ -398,16 +414,9 @@ compileInput options len (InputLLVM path mCode) firstName = do
 compileInput options len (InputRISCV path mCode) firstName = do
   let code = maybe (error $ "missing code for " ++ show path) id mCode
   parsed <- riscvParser path code
-  -- TODO: intrinsic handling?
   masm <- transpiler verb riscvEmulatorEnabled firstName mempty parsed
   let masm' = masm { traceLen = len }
-  -- FIXME: intrinsic handling should be done at the domain or global level instead
-  high <- return masm'
-    >>= (verbTagPass verb "Add RISC-V Intrinsics" $ justCompileWithNames addIntrinsicsWithNames)
-  low <- return high
-    >>= (verbTagPass verb "Lower Extension Instructions" $ justCompile lowerExtensionInstrsAsm)
-  let nextName = max (nameBound high) (nameBound low)
-  return $ CompiledObject low high nextName
+  return $ CompiledObject masm' masm' (nameBound masm')
   where CompilerOptions { verb=verb, riscvEmulatorEnabled=riscvEmulatorEnabled } = options
 
 sequenceObjects :: Word -> [Word -> Hopefully CompiledObject] -> Hopefully ([CompiledObject], Word)

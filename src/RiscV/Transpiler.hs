@@ -1038,6 +1038,24 @@ transpileBranch32 cond src1 src2 off = do
 
 -- Utility functions for the transpiler
 
+makeRiscvCompUnit
+  :: MAProgram Metadata Int MWord
+  -> GEnv MWord
+  -> Word
+  -> CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord)
+makeRiscvCompUnit prog genv nextName = CompUnit {
+  -- Memory is filled in 'RemoveLabels'
+  programCU = ProgAndMem prog [] mempty,
+  -- TraceLen is bogus
+  traceLen = 0,
+  -- We added one new register, which is now the largest
+  regData = NumRegisters (newReg+1),
+  -- Analysis data is bogus
+  aData = AnalysisData mempty mempty,
+  -- Name bound is currently bogus, but we should fix it
+  nameBound = nextName,
+  intermediateInfo = genv }
+
 finalizeTP :: Statefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord))
 finalizeTP = do
   -- First commit the last section/block
@@ -1053,18 +1071,7 @@ finalizeTP = do
   genv <- makeGEnv symTable sections
   nextName <- use nameIDTP
   -- Then build the CompilationUnit
-  return $ CompUnit {
-    -- Memory is filled in 'RemoveLabels'
-    programCU = ProgAndMem prog' [] mempty,
-    -- TraceLen is bogus
-    traceLen = 0,
-    -- We added one new register, which is now the largest
-    regData = NumRegisters (newReg+1),
-    -- Analysis data is bogus
-    aData = AnalysisData mempty mempty,
-    -- Name bound is currently bogus, but we should fix it
-    nameBound = nextName,
-    intermediateInfo = genv } 
+  return $ makeRiscvCompUnit prog' genv nextName
   where makeGEnv :: Map.Map String SymbolTP
                  -> Map.Map String Section
                  -> Statefully [GlobalVariable MWord]

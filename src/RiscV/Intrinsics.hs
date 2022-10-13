@@ -4,6 +4,7 @@ module RiscV.Intrinsics
   ( addIntrinsicsHigh
   , addIntrinsicsLow
   , addIntrinsicsWithNames
+  , riscvIntrinsicsCU
   , intrinsicsFstUnusedName
   , intrinsicsMap
   , lowerExtensionInstrsAsm
@@ -18,12 +19,15 @@ import qualified Data.Text as Text
 
 import           MicroRAM
 import           RiscV.RiscVAsm
+import           RiscV.Transpiler (makeRiscvCompUnit)
 import           Compiler.IRs
 import           Compiler.Metadata
 import           Compiler.Name
 import           Compiler.Errors
 import           Compiler.LazyConstants
 import           Compiler.Extension (lowerInstr')
+import           Compiler.CompilationUnit
+import           Compiler.Common (GEnv)
 
 import           Control.Lens (makeLenses, at, to, (^.), (.=), (%=), (?=), use, over)
 
@@ -141,7 +145,10 @@ buildIntrinsics =
            , cc_flag_invalid
            , cc_flag_bug
            , cc_trace
-           , cc_trace_exec]
+           , cc_trace_exec
+           , cc_answer
+           , cc_exit
+           ]
   ++ exceptions ++ otherTraps
 
 addIntrinsicsWithNames
@@ -151,6 +158,13 @@ addIntrinsicsWithNames (blks, nextName) = return (blks ++ intrinBlks, nextName')
   where st = StateIntrNames nextName mempty
         (intrinBlks, st') = runState buildIntrinsics st
         nextName' = st' ^. nameIntrID
+
+riscvIntrinsicsCU
+  :: Word
+  -> Hopefully (CompilationUnit (GEnv MWord) (MAProgram Metadata Int MWord))
+riscvIntrinsicsCU nextName = do
+  (prog, nextName') <- addIntrinsicsWithNames ([], nextName)
+  return $ makeRiscvCompUnit prog [] nextName'
 
 lowerExtensionInstrsAsm
   :: MAProgram Metadata Int MWord
@@ -322,6 +336,18 @@ cc_trace_exec =
   where otherArgs = [arg1, arg2, arg3]
 -- # Exceptions
 exceptions = [cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_pure_virtual, cxa_throw, gxx_personality_v0]
+
+cc_answer :: Intrinsic
+cc_answer =
+  buildIntrinsic "__cc_answer"
+  [Ianswer arg0]
+
+cc_exit :: Intrinsic
+cc_exit = do
+  blk <- buildIntrinsic "__cc_exit"
+    [Ianswer arg0]
+  -- TODO: adjust blk to ensure it's placed at exactly 0xffff_ffff
+  return blk
 
 cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_pure_virtual, cxa_throw, gxx_personality_v0 :: Intrinsic
 
