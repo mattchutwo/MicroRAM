@@ -264,7 +264,8 @@ snapshotHandler _nextH (Iext (XCheck (Native.NativeInstruction i))) = do
       otherError $ "No cached machine state for XCheck"
     Just initState -> do
       instrs <- use sCachedInstrs
-      traceM $ "simulate " ++ show i ++ " = " ++ show instrs
+      cycle <- conGetValue <$> (use $ sMach . mCycle)
+      traceM $ "cycle " ++ show cycle ++ ": simulate " ++ show i ++ " = " ++ show instrs
       let archState = Native.stepArch (Native.toArchState initState) i
 
       -- Simulation check that toArch (step i) == step (toArch i).
