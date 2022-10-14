@@ -810,7 +810,7 @@ transpileInstr64I    instr =
                   -- but we do not check for it. 
                   SLLIW -> [Ishl rd' rs1' off']<> restrictAndSignExtendResult rd'
                   SRLIW -> [Iand newReg rs1' (LImm $ 2^32 - 1),
-                            Ishr rd' rs1' off']<> restrictAndSignExtendResult rd'
+                            Ishr rd' newReg off']<> restrictAndSignExtendResult rd'
                   SRAIW -> -- TODO There is probably a more optimal way to do this one             
                     [ -- restrict input to 32bits
                       Iand rs1' rs1' (LImm $ 2^32 - 1),
