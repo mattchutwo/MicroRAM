@@ -961,19 +961,22 @@ transpileInstr32I instr =
     -- transpileRegBinop32I
     transpileRegBinop32I :: Binop32 -> Reg -> Reg -> Reg -> [MAInstruction Int MWord]
     transpileRegBinop32I binop reg1 reg2 reg3 =
-      let (rd',rs1',rs2) = tpRegRegReg reg1 reg2 reg3 in
-        let rs2' = AReg rs2 in  
-          case binop of
-            ADD  -> [Iadd  rd' rs1' rs2']
-            SUB  -> [Isub  rd' rs1' rs2']
-            SLL  -> [Ishl  rd' rs1' rs2']
-            SLT  -> [Icmpg rd' rs1' rs2']
-            SLTU -> [Icmpa rd' rs1' rs2']
-            XOR  -> [Ixor rd' rs1' rs2']
-            SRL  -> [Ishr  rd' rs1' rs2']
-            SRA  -> error "Arithmetic right shift not implemented FULL" -- TODO
-            OR   -> [Ior rd' rs1' rs2']
-            AND  -> [Iand rd' rs1' rs2']
+      let (rd',rs1,rs2) = tpRegRegReg reg1 reg2 reg3 in
+      let rs1' = AReg rs1 in
+      let rs2' = AReg rs2 in
+      case binop of
+        ADD  -> [Iadd  rd' rs1 rs2']
+        SUB  -> [Isub  rd' rs1 rs2']
+        SLL  -> [Ishl  rd' rs1 rs2']
+        -- The comparison direction is reversed: RISC-V `slt d,x,y` checks
+        -- whether `x < y`; MicroRAM `cmpg d,x,y` checks whether `x > y`.
+        SLT  -> [Icmpg rd' rs2 rs1']
+        SLTU -> [Icmpa rd' rs2 rs1']
+        XOR  -> [Ixor  rd' rs1 rs2']
+        SRL  -> [Ishr  rd' rs1 rs2']
+        SRA  -> error "Arithmetic right shift not implemented FULL" -- TODO
+        OR   -> [Ior   rd' rs1 rs2']
+        AND  -> [Iand  rd' rs1 rs2']
           
 
           
