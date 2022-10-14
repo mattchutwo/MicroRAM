@@ -519,7 +519,10 @@ tpImm imm = case imm of
         -- The high 20 bits of absolute address for symbol. This is
         -- usually used with the %lo modifier to represent a 32-bit
         -- absolute address.
-        ModHi              -> w .&. (2^32-2^12)
+        --
+        -- The exact calculation here is based on the definition of the
+        -- R_RISCV_HI20 relocation, which is what `%hi(symbol)` produces.
+        ModHi              -> (w + 0x800) .&. (2^32-2^12)
         --  pcrel_lo and pcrel_hi are computed just like lo and hi,
         --  but are relative to the current pc.
         ModPcrel_lo        -> error "pcrel_lo"
@@ -980,7 +983,7 @@ transpileInstr32I instr =
       (rd',rs1',off') <- tpRegRegImm reg1 reg2 imm
       let off_imm = LImm off'
       return $ case binop of
-                 ADDI  -> [Iadd  rd' rs1' off_imm]
+                 ADDI  -> [Iadd  rd' rs1' (LImm $ signExtendWord 12 off')]
                  SLTI  -> [Imov newReg off_imm,
                            Icmpg rd' newReg (AReg rs1')] -- Could we write this in one instruction?
                                                          -- Perhaps we should flip MicroRAM cmpa-cmpg
