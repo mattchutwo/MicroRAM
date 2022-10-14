@@ -19,6 +19,7 @@ import           Control.Monad
 import           Control.Monad.Writer
 import qualified Data.ByteString.Short as BSS
 import           Data.Default
+import           Data.Functor.Identity
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Set (Set)
@@ -35,6 +36,8 @@ import           Compiler.Metadata
 import           Compiler.Registers (RegisterData(..))
 import           Compiler.RegisterAlloc (AReg)
 import           MicroRAM
+import           Native (NativeInstruction(..))
+import           RiscV.RiscVAsm
 
 
 type CompUnit = CompilationUnit [GlobalVariable MWord] (MAProgram Metadata AReg MWord)
@@ -215,10 +218,13 @@ renameBlock f (NamedBlock name instrs secret priv extern) =
     secret
     priv
     extern
-  
+
 renameInstr :: (Name -> Name)
             -> MAInstruction AReg MWord
             -> MAInstruction AReg MWord
+renameInstr f (Iext (XCheck (NativeInstruction riscvInstr) name off)) =
+  Iext (XCheck (NativeInstruction riscvInstr') name off)
+  where riscvInstr' = runIdentity $ traverseOp (return . renameRiscvImm f) return riscvInstr
 renameInstr f instr = mapInstr id id (renameOperand f) instr
 
 renameGlobalVariable :: (Name -> Name)
@@ -238,7 +244,7 @@ renameGlobalVariable f (GlobalVariable name entryPoints const init size align se
 renameOperand :: (Name -> Name)
                 -> MAOperand AReg MWord
                 -> MAOperand AReg MWord
-renameOperand f (AReg r) = AReg r
+renameOperand _f (AReg r) = AReg r
 renameOperand f (LImm lc) = LImm (renameLazyConst f lc)
 renameOperand f (Label name) = Label (f name)
 
@@ -249,4 +255,13 @@ renameLazyConst f (LConst calc names) =
   LConst
     (\getGlobal -> calc (\name -> getGlobal (f name)))
     (Set.fromList [f name | name <- Set.toList names])
-renameLazyConst f (SConst x) = SConst x
+renameLazyConst _f (SConst x) = SConst x
+
+renameRiscvImm :: (Name -> Name)
+               -> Imm
+               -> Imm
+renameRiscvImm _f (ImmNumber x) = ImmNumber x
+renameRiscvImm _f (ImmSymbol name suff) = ImmSymbol name suff
+renameRiscvImm f (ImmLazy lc) = ImmLazy (renameLazyConst f lc)
+renameRiscvImm f (ImmMod m imm) = ImmMod m (renameRiscvImm f imm)
+renameRiscvImm f (ImmBinOp op a b) = ImmBinOp op (renameRiscvImm f a) (renameRiscvImm f b)
