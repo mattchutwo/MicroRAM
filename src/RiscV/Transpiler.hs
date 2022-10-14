@@ -149,6 +149,8 @@ data TPState = TPState
   , _currBlockContentTP :: Seq.Seq (MAInstruction Int MWord, Metadata)
   , _commitedBlocksTP :: Seq.Seq (NamedBlock Metadata Int MWord)
   , _sectionsTP :: Map.Map String Section
+  , _currOffsetTP   :: Word
+  -- ^ Offset of the next instruction in this block.
     
   -- Memory
   , _curObjectTP :: String
@@ -178,6 +180,7 @@ initStateTP firstUnusedName nameMap  = TPState
   , _currBlockContentTP = Seq.empty
   , _commitedBlocksTP   = Seq.empty
   , _sectionsTP         = Map.empty
+  , _currOffsetTP       = 0
   , _curObjectTP        = "NoneInitObj"
   , _atFuncStartTP      = False -- An instruction type needs to be found first.
   , _afterFuncCallTP    = False
@@ -231,6 +234,7 @@ codeLbl lbl = do
   commitBlock
   -- Start a new block
   currBlockTP .= Just lbl
+  currOffsetTP .= 0
   -- If entering a function...
   lblTyp <- _symType <<$>> use (symbolTableTP . at lbl)
   case lblTyp of
@@ -569,6 +573,7 @@ transpileInstr emulatorEnabled instr = do
   -- TODO2: simplify reads from 0
   -- TODO3: replace newReg (X32) with zero (X0)
   currBlockContentTP %= flip mappend instrMD -- Instructions are added at the end.
+  currOffsetTP %= (+ 1)
     where
       addMetadata :: MAInstruction Int MWord
                   -> Statefully (MAInstruction Int MWord, Metadata)
@@ -580,10 +585,12 @@ transpileInstr emulatorEnabled instr = do
 
       insertEmulator instrs instr
         | shouldEmulate instr = do
+            blockName <- getName =<< (maybe "NoName" id) <$> (use currBlockTP)
+            offset <- use currOffsetTP
             lazyInstr <- instrTraverseImmM (ImmLazy <.> tpImm) instr
             return $ [Iext XSnapshot]
               <> instrs
-              <> [Iext (XCheck $ Native.NativeInstruction lazyInstr)]
+              <> [Iext (XCheck (Native.NativeInstruction lazyInstr) blockName offset)]
         | otherwise = return instrs
         where (<.>) :: Functor f => (a -> b) -> (c -> f a) -> c -> f b
               f1 <.> f2 = fmap f1 . f2

@@ -151,8 +151,8 @@ flattenBlocks lm bs = snd $ foldr goBlock (totalBlockSize, []) bs
 
     -- Replace all the `ImmLazy` with `ImmWord`
     goXCheck :: MWord -> MAInstruction regT MWord -> MAInstruction regT MWord
-    goXCheck addr (Iext (XCheck nativeInstr)) =
-      Iext $ XCheck $ instrTraverseImm (goImm addr) nativeInstr -- goImm addr
+    goXCheck addr (Iext (XCheck nativeInstr name off)) =
+      Iext $ XCheck (instrTraverseImm (goImm addr) nativeInstr) name off -- goImm addr
     goXCheck _ i = i
 
     goImm :: MWord -> Imm -> Imm

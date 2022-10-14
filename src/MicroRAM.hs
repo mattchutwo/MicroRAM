@@ -148,6 +148,8 @@ import Data.Word (Word64)
 import GHC.Generics -- Helps testing
 import {-# SOURCE #-} Native (NativeInstruction)
 
+import Compiler.Name
+
 -- * The MicroRAM language(s)
 
 -- | Phase: This language can be instantiated at different levels:
@@ -206,8 +208,11 @@ data ExtInstr operand2 =
   -- bypassing memory safety checks.
   | XSnapshot
   -- ^ Save a copy of the entire machine state.
-  | XCheck NativeInstruction
-  -- ^ Take the latest snapshot (saved by XSnapshot), run the native instruction, and check that the simulator's result matches the MicroRAM machine state.
+  | XCheck NativeInstruction Name Word
+  -- ^ Take the latest snapshot (saved by XSnapshot), run the native
+  -- instruction, and check that the simulator's result matches the MicroRAM
+  -- machine state.  The `Name` and `Word` are the block and offset of the
+  -- original native instruction.
   deriving (Eq, Read, Show, Functor, Foldable, Traversable, Generic)
 
 data ExtValInstr operand2 =
