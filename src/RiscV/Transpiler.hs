@@ -522,7 +522,7 @@ tpImm imm = case imm of
         --
         -- The exact calculation here is based on the definition of the
         -- R_RISCV_HI20 relocation, which is what `%hi(symbol)` produces.
-        ModHi              -> (w + 0x800) .&. (2^32-2^12)
+        ModHi              -> ((w + 0x800) .&. (2^32-1)) `shiftR` 12
         --  pcrel_lo and pcrel_hi are computed just like lo and hi,
         --  but are relative to the current pc.
         ModPcrel_lo        -> error "pcrel_lo"
