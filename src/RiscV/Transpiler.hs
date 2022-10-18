@@ -879,7 +879,7 @@ transpileInstr64I    instr =
     memInstr64 :: MemOp64 -> Reg -> Offset -> Reg -> Statefully [MAInstruction Int MWord]
     memInstr64  mop r1 off r2 = do
       (rd',rs1',off'') <- tpRegRegImm r1 r2 off
-      let off' = LImm off''
+      let off' = LImm $ signExtendWord 12 off''
       return $ case mop of
         -- unsigned load
         LWU -> [Iadd newReg rs1' off',
@@ -922,7 +922,7 @@ transpileInstr32I instr =
     memOp32Instr :: MemOp32 -> Reg -> Offset -> Reg -> Statefully [MAInstruction Int MWord]
     memOp32Instr memOp32 reg1 off reg2 = do
       (rd',rs1',off'') <- tpRegRegImm reg1 reg2 off
-      let off' = LImm off''
+      let off' = LImm $ signExtendWord 12 off''
       return $ case memOp32 of
         -- Loads
         -- Is there a better way to do sign extended loads?
