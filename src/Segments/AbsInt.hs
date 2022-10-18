@@ -205,13 +205,14 @@ joinPaths hs = do
   where
     merge :: AbsIntState r -> AbsIntState r -> AbsIntState r
     merge
-      (InterpState ext1 mach1 cMach1 _cInstrs1)
-      (InterpState ext2 mach2 cMach2 _cInstrs2) =
+      (InterpState ext1 mach1 cMach1 _cInstrs1 count1)
+      (InterpState ext2 mach2 cMach2 _cInstrs2 count2) =
       InterpState
         (mergeExt ext1 ext2)
         (mergeMach mach1 mach2)
         (mergeMach <$> cMach1 <*> cMach2)
         (Seq.Empty)
+        (Map.unionWith (+) count1 count2)
 
     mergeExt
       (ExtraState metadata1)

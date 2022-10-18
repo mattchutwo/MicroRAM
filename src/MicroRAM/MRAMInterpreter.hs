@@ -269,10 +269,15 @@ snapshotHandler _nextH (Iext (XCheck (Native.NativeInstruction i) blockName offs
         ": simulate " ++ show i ++ " = " ++ show instrs
       let archState = Native.stepArch (Native.toArchState initState) i
 
+      pc <- use (sMach . mPc)
+      count <- maybe 0 id <$> use (sCheckCount . at pc)
+
       -- Simulation check that toArch (step i) == step (toArch i).
       case archState of
-        Right r | Native.archStateEq (Native.toArchState mramState) r ->
-                  nextPc
+        _ | count >= 5 -> nextPc
+        Right r | Native.archStateEq (Native.toArchState mramState) r -> do
+          sCheckCount %= Map.insert pc (count + 1)
+          nextPc
         Left e -> do
           traceM $ "warning: unhandled riscv instruction " ++ show i ++ " (" ++ describeError e ++ ")"
           nextPc
@@ -538,7 +543,7 @@ runPass1 verbose steps initMach' = do
   final <- runWith handler steps initState
   return $ getMemInfo $ final ^. sExt
   where
-    initState = InterpState initAllocState initMach' Nothing Seq.Empty
+    initState = InterpState initAllocState initMach' Nothing Seq.Empty mempty
     handler = snapshotHandler $ traceHandler verbose $ allocHandler verbose id $ stepInstr
 
     getMemInfo :: AllocState -> MemInfo
@@ -560,7 +565,7 @@ runPass2 steps initMach' memInfo = do
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
-    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach' Nothing Seq.Empty
+    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach' Nothing Seq.Empty mempty
 
     eTrace :: Lens' (a, b, c) a
     eTrace = _1
@@ -590,7 +595,7 @@ runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
-    initState = InterpState initS initMach' Nothing Seq.Empty
+    initState = InterpState initS initMach' Nothing Seq.Empty mempty
     handler =
       execTraceHandler eTrace eAdvice $
       postHandler $

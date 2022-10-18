@@ -8,7 +8,7 @@ module MicroRAM.MRAMInterpreter.Generic
   ( AbsDomain(..),
     MachineState'(..), mCycle, mPc, mRegs, mProg, mMem, mBug, mAnswer, 
     prettyPrintMachState, mReg,
-    InterpState'(..), sExt, sMach, sCachedMach, sCachedInstrs,
+    InterpState'(..), sExt, sMach, sCachedMach, sCachedInstrs, sCheckCount,
     InterpM', InstrHandler',
     doStore, doLoad, doPoison, doGetPoison, doGetValue,
     fetchInstr, stepInstr, nextPc, finishInstr, regVal, opVal,
@@ -18,6 +18,8 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State
 import Control.Lens (makeLenses, lens, (.=), (%=), use)
+import qualified Data.Map as Map
+import Data.Map (Map)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 
@@ -117,6 +119,7 @@ data InterpState' r v s = InterpState
   , _sMach :: MachineState' r v
   , _sCachedMach   :: Maybe (MachineState' r v)
   , _sCachedInstrs :: Seq (Instruction r MWord) 
+  , _sCheckCount   :: Map MWord Word
   }
 makeLenses ''InterpState'
 
