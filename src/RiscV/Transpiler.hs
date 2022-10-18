@@ -1106,9 +1106,10 @@ addRiscvPremain cu = cu { programCU = goProgAndMem $ programCU cu }
         goProg p = makeNamedBlock (Just premainName) premainCode : p
 
         premainCode =
+          [(Imov 0 (LImm 0), md),
           -- bp is a caller saved reg that keeps the return address.
           -- although we use a special case for returns from main.
-          [(Imov ra (pcPlus 4), md),
+           (Imov ra (pcPlus 4), md),
            -- poison 0
            (IpoisonW (LImm 0) 0, md),
            -- Set the top of the stack.
