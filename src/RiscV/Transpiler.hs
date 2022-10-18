@@ -272,8 +272,8 @@ sectionVariable symTable (Section sectionName False write _secTy _code (MemData 
     , gAlign = toEnum align
     , secret = sectionName == "__DATA,__secret" ||
                sectionName == ".data.secret"
-    -- What variables are not heap-init in RiscV?
-    , gvHeapInit = True}
+    , gvHeapInit = sectionName == "__DATA,__heapinit" ||
+                   sectionName == ".data.heapinit" }
 
 symIsExtern :: Map.Map String SymbolTP -> Name -> Bool
 symIsExtern symTable name = case Map.lookup (short2string $ dbName name) symTable of
