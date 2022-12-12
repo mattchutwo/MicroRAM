@@ -23,6 +23,9 @@ dependencies:
 - base >= 4.7 && < 5
 - containers
 - data-default
+- grift
+- bv-sized
+- parameterized-utils
 - haggle
 - llvm-hs-pure
 - mtl
