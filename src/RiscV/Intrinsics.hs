@@ -335,7 +335,7 @@ cc_trace_exec =
   [Iext (XTraceExec arg0 otherArgs)]
   where otherArgs = [arg1, arg2, arg3]
 -- # Exceptions
-exceptions = [cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_pure_virtual, cxa_throw, gxx_personality_v0]
+exceptions = [cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_throw, gxx_personality_v0]
 
 cc_answer :: Intrinsic
 cc_answer =
@@ -349,12 +349,11 @@ cc_exit = do
   -- TODO: adjust blk to ensure it's placed at exactly 0xffff_ffff
   return blk
 
-cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_pure_virtual, cxa_throw, gxx_personality_v0 :: Intrinsic
+cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_throw, gxx_personality_v0 :: Intrinsic
 
 cxa_allocate_exception = buildIntrinsic "__cxa_allocate_exception" $ cc_trap "__cxa_allocate_exception"
 cxa_begin_catch        = buildIntrinsic "__cxa_begin_catch" $ cc_trap "__cxa_begin_catch"
 cxa_end_catch          = buildIntrinsic "__cxa_end_catch" $ cc_trap "__cxa_end_catch"
-cxa_pure_virtual       = buildIntrinsic "__cxa_pure_virtual" $ cc_trap "__cxa_pure_virtual"
 cxa_throw              = buildIntrinsic "__cxa_throw" $ cc_trap "__cxa_throw"
 gxx_personality_v0     = buildIntrinsic "__gxx_personality_v0" $ cc_trap "__gxx_personality_v0"
 
