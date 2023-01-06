@@ -100,7 +100,10 @@ buildLabelMap blocks globs = do
       let name = globName g
       when (Map.member name m) $
         assumptError $ "name collision between globals: " ++ show name
-      goGlobs (Map.insert name addr m) (nextGlobalAddr addr g) gs
+      if gvHeapInit g then
+        goGlobs (Map.insert name heapInitAddress m) addr gs
+      else
+        goGlobs (Map.insert name addr m) (nextGlobalAddr addr g) gs
 
 getOrZero :: Map Name MWord -> Name -> MWord
 getOrZero m n = case Map.lookup n m of
@@ -148,19 +151,23 @@ flattenGlobals tainted lm gs = goGlobals globalsStart gs
     goGlobals _addr [] = return []
     goGlobals addr (g:gs) = do
       init' <- mapM (mapM goLazyConst) (initializer g)
+      let (addr', nextAddr) = if gvHeapInit g then
+              (heapInitAddress, addr)
+            else
+              (addr, nextGlobalAddr addr g)
       let seg = InitMemSegment {
             isName   = short2string $  dbName $ globName g,
             isSecret = secret g,
             isReadOnly = isConstant g,
             isHeapInit = gvHeapInit g,
-            location = addr `div` fromIntegral wordBytes,
+            location = addr' `div` fromIntegral wordBytes,
             segmentLen = gSize g,
             content = init',
             labels = if tainted then
                 Just $ replicate (fromIntegral $ gSize g) bottomWord
               else Nothing
             }
-      rest <- goGlobals (nextGlobalAddr addr g) gs
+      rest <- goGlobals nextAddr gs
       return $ seg : rest
 
     goLazyConst :: LazyConst MWord -> Hopefully MWord
