@@ -257,12 +257,14 @@ arg0' = fromEnum X10
 arg1' = fromEnum X11
 arg2' = fromEnum X12
 arg3' = fromEnum X13
+arg4' = fromEnum X14
 
 arg0, arg1 :: MAOperand Int MWord
 arg0 = AReg $ arg0'
 arg1 = AReg $ arg1'
 arg2 = AReg $ arg2'
 arg3 = AReg $ arg3'
+arg4 = AReg $ arg4'
 
 -- This on is not used in riscv.
 cc_noop :: Intrinsic
@@ -327,13 +329,12 @@ cc_trace =
   buildIntrinsic "__cc_trace"
   [Iext (XTraceStr arg0)]
 
--- TODO: we could implement trace trace_exec with vargs. Or more simply
--- fix the number of arguments, say 8.
+-- | Trace exec is fixed to 4 arguments. 
 cc_trace_exec :: Intrinsic
 cc_trace_exec =
   buildIntrinsic "__cc_trace_exec"
   [Iext (XTraceExec arg0 otherArgs)]
-  where otherArgs = [arg1, arg2, arg3]
+  where otherArgs = [arg1, arg2, arg3, arg4]
 -- # Exceptions
 exceptions = [cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_throw, gxx_personality_v0]
 
