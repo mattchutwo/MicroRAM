@@ -7,14 +7,17 @@ import RiscV.Transpiler
 
 import RiscV.RiscVAsm
 
+import Control.Monad (mzero, when, void)
+import Data.Maybe (catMaybes)
+import Data.Char (chr)
+import Data.Functor.Identity (Identity)
+
 import Text.Parsec
 -- import Text.Parsec.Combinator (sepBy, sepBy1)
 import qualified Text.Parsec.Language as Lang 
 import qualified Text.Parsec.Expr as Expr
 import qualified Text.Parsec.Token as Token
-import Data.Maybe (catMaybes)
-import Control.Monad (mzero, when, void)
-import Data.Functor.Identity (Identity)
+import Text.Read (readMaybe)
 
 import Compiler.CompilationUnit
 import Compiler.Errors
@@ -113,12 +116,54 @@ symbolParser = Token.symbol riscVLang
 -- | Identifiers are the RiscV names for variables, sections, etc They
 -- can be alphanumeric strings that include "." and "_" or they cna
 -- be arbitrary strings if they are quoted.
-identifier, textParser
+identifier, textParser, stringParser
   :: Stream st Identity Char
   => Parsec st u String
 textParser = Token.stringLiteral riscVLang
 identifier = Token.identifier riscVLang <|>
              Token.stringLiteral riscVLang
+
+-- | StringParser, reads a string following the RiscV assembly rules:
+-- https://sourceware.org/binutils/docs/as/Strings.html unfortunately
+stringParser = char '\"' *>
+      manyTill parseRiscVChar (char '\"')
+  where
+    parseRiscVChar =
+      -- Defined escapes
+      octalParser <|>
+      hexParser <|>
+      oneOf "\b\n\r\t\\\"\f" <|>
+      otherEscaped <|>
+      anyChar
+
+    octalParser, hexParser, otherEscaped ::
+      Stream st Identity Char
+      => Parsec st u Char
+    -- | reads "\x000" as octal
+    octalParser  = try (octalStrToChar =<<
+                        (char '\\' *> count 3 octDigit))
+    octalStrToChar :: Stream st Identity Char
+                   => String
+                   -> Parsec st u Char
+    octalStrToChar octalStr =
+      -- trace ("Reading octal " <> octalStr) $
+      case readMaybe ("0o"<> octalStr) of
+        Just octl -> return $ chr octl
+        Nothing   -> fail "Could't read octal."
+    -- | reads "\x000000..." as hex (at least one digit required)
+    hexParser    = try (hexStrToChar =<<
+                        string "\\x" *> many1 hexDigit)
+    hexStrToChar hexStr =
+      -- trace ("Reading hex " <> hexStr) $
+      case readMaybe ("0x"<> hexStr) of
+        Just hexN -> return $ chr hexN
+        Nothing   -> fail "Couldn't read hex"
+    -- | Any other escaped character is returned as is, but raises a
+    -- warning.
+    otherEscaped = try (
+          (\char -> trace ("WARNING: Found escaped symbol \\"<>[char]<>" while parsing. Kept the character as if the \\ was not present (according to the assembler) but this is probably an error. ") char)
+          <$> char '\\' *>  anyChar)
+
 
 whiteSpace :: Stream st Identity Char
            => Parsec st u ()
@@ -700,9 +745,9 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "data"          ==> DATA   
       , "rodata"        ==> RODATA 
       , "bss"           ==> BSS    
-      , "string"        ==> STRING     <*> textParser
-      , "ascii"         ==> ASCII      <*> textParser
-      , "asciz"         ==> ASCIZ      <*> textParser
+      , "string"        ==> STRING     <*> stringParser
+      , "ascii"         ==> ASCII      <*> stringParser
+      , "asciz"         ==> ASCIZ      <*> stringParser
       , "equ"           ==> EQU        <*> identifier <:> (fromInteger <$> integer)
       , "type"          ==> TYPE       <*> identifier <:> typeParser
       , "option"        ==> OPTION     <*> optParser
