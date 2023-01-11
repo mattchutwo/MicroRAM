@@ -119,9 +119,16 @@ symbolParser = Token.symbol riscVLang
 identifier, textParser, stringParser
   :: Stream st Identity Char
   => Parsec st u String
-textParser = Token.stringLiteral riscVLang
-identifier = Token.identifier riscVLang <|>
-             Token.stringLiteral riscVLang
+  
+-- | NOTE: textParser uses Haskell parsing rules, which are different
+-- from RiscV ASM standards.  for example, RiscV ASM intends `\200` to
+-- be in octal and thus result in `'\128'`, where haskell just reads
+-- it as `'\200'`. It is unclear if this rule applies to all strings
+-- or just the ones in code (i.e. in directives String, Ascii, Asciz).
+-- We keep the following function in case some other string is parsed
+-- diffeerently.
+_textParser = Token.stringLiteral riscVLang
+identifier = Token.identifier riscVLang <|> stringParser
 
 -- | StringParser, reads a string following the RiscV assembly rules:
 -- https://sourceware.org/binutils/docs/as/Strings.html unfortunately
