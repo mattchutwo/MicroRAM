@@ -132,14 +132,23 @@ stringParser = char '\"' *>
       -- Defined escapes
       octalParser <|>
       hexParser <|>
-      oneOf "\b\n\r\t\\\"\f" <|>
+      escapeParser <|>
       otherEscaped <|>
       anyChar
 
-    octalParser, hexParser, otherEscaped ::
+    octalParser, hexParser, otherEscaped, escapeParser ::
       Stream st Identity Char
       => Parsec st u Char
-    -- | reads "\x000" as octal
+    escapeParser = try (char '\\' *>
+                       (choice $ map (\(charIn,charOut) -> char charIn *> return charOut)
+                                 [('b',  '\b')
+                                  ,('n', '\n') 
+                                  ,('r', '\r') 
+                                  ,('t', '\t') 
+                                  ,('f', '\f') 
+                                  ,('\\','\\')
+                                  ,('\"','\"')]))
+    -- | reads "\000" as octal
     octalParser  = try (octalStrToChar =<<
                         (char '\\' *> count 3 octDigit))
     octalStrToChar :: Stream st Identity Char
@@ -161,8 +170,8 @@ stringParser = char '\"' *>
     -- | Any other escaped character is returned as is, but raises a
     -- warning.
     otherEscaped = try (
-          (\char -> trace ("WARNING: Found escaped symbol \\"<>[char]<>" while parsing. Kept the character as if the \\ was not present (according to the assembler) but this is probably an error. ") char)
-          <$> char '\\' *>  anyChar)
+          (\char -> trace ("WARNING: Found escaped symbol \\"<>[char]<>" while parsing. Kept the character as if the \\ was not present (according to the assembler) but this is probably an error. ") char) <$>
+          char '\\' *>  anyChar)
 
 
 whiteSpace :: Stream st Identity Char
