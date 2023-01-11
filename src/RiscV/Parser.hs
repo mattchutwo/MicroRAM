@@ -736,7 +736,7 @@ directiveParse :: Stream s Identity Char
 directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
   choiceTry 
       [ "align"         ==> ALIGN      <*> integer
-      , "file"          ==> FILE       <*> textParser
+      , "file"          ==> FILE       <*> stringParser
       -- Symbol tables and visibility
       , "global"        ==> Visibility GLOBL     <*> identifier
       , "globl"         ==> Visibility GLOBL     <*> identifier
@@ -747,7 +747,7 @@ directiveParse = try (CFIDirectives <$> directiveCFIParse) <|>
       , "protected"     ==> Visibility PROTECTED <*> identifier
       , "comm"          ==> COMM       <*> identifier <:> integer   <:> integer
       , "common"        ==> COMMON     <*> identifier <:> integer   <:> integer
-      , "ident"         ==> IDENT      <*> textParser
+      , "ident"         ==> IDENT      <*> stringParser
       , lexeme(lexeme (string "section") >> sectionParser)
       , "size"          ==> SIZE       <*> identifier <:> immediateParser
       , "text"          ==> TEXT   
