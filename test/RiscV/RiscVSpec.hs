@@ -56,7 +56,7 @@ riscCompilerTest name (OneRISCV file) len expectedResult =
   where 
     riscCompilerTest' file len = do
       riscCode <- readFile $ file
-      mramCode <- handleErrorWith (riscBackend False file riscCode len)
+      mramCode <- handleErrorWith (riscBackend False False file riscCode len)
       return $ execAnswer False False (fmap (tripleFmap fst) mramCode)
 
       
