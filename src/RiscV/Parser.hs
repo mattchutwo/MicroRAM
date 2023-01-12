@@ -116,7 +116,7 @@ symbolParser = Token.symbol riscVLang
 -- | Identifiers are the RiscV names for variables, sections, etc They
 -- can be alphanumeric strings that include "." and "_" or they cna
 -- be arbitrary strings if they are quoted.
-identifier, textParser, stringParser
+identifier, _textParser, stringParser
   :: Stream st Identity Char
   => Parsec st u String
   
