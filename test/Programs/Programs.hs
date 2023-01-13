@@ -346,6 +346,11 @@ riscvTests = ManyTests "RISC-V backend correctness tests" $ OneTest <$>
   ,testDomains = OneRISCV "test/Programs/RISCV/string_escape.s"
   ,testLen = 200
   ,testResult = 1} :
+  defaultTest {
+  testName = "String Escape Octal numbers"
+  ,testDomains = OneRISCV "test/Programs/RISCV/string_escape_octal.s"
+  ,testLen = 1500
+  ,testResult = 1} :
   []
 
 ------------------
