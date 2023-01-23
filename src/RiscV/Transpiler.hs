@@ -861,17 +861,15 @@ transpileInstr64I    instr =
             SRAW -> -- Logical Shift right
                     -- We make the high 32 bits the right sign (i.e. 0 or 1) before and after a logical shift.              
               [ -- restrict input to 32bits
-                Iand rs1' rs1' (LImm $ 2^32 - 1),
+                Iand rd' rs1' (LImm $ 2^32 - 1),
                 -- Get sign bit 
-                Ishr newReg rs1' (LImm 31),
+                Ishr newReg rd' (LImm 31),
                 -- Extension (32 1's or 0's, followed by 32 0's)
                 Imull newReg newReg (LImm (2^64-2^32)),
                 -- fix highest bits
-                Ior rs1' rs1' (AReg newReg),
+                Ior rd' rd' (AReg newReg),
                 -- Logical shift
-                Ishr rd' rs1' (AReg rs2'),
-                -- fix highest bits
-                Ior rs1' rs1' (AReg newReg)
+                Ishr rd' rd' (AReg rs2')
               ]
             )
             
