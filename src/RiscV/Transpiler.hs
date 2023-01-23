@@ -804,26 +804,29 @@ transpileInstr64I    instr =
     transpileImmBinop64I binop64I reg1 reg2 imm = do
       (rd',rs1',off'') <- tpRegRegImm reg1 reg2 imm
       let off' = LImm off''
+      -- Fro shift operations "the shift amount is encoded in the
+      -- lower 6 bits of the I-immediate field for RV64I"
+      let off6 = LImm (\env -> off'' .&. (2^7-1))
       return $ (case binop64I of
                   ADDIW -> [Iadd rd' rs1' off']<> restrictAndSignExtendResult rd'
                   -- It should be true that the  'off' < 2^5'
                   -- but we do not check for it. 
-                  SLLIW -> [Ishl rd' rs1' off']<> restrictAndSignExtendResult rd'
+                  SLLIW -> [Ishl rd' rs1' off6]<> restrictAndSignExtendResult rd'
                   SRLIW -> [Iand newReg rs1' (LImm $ 2^32 - 1),
-                            Ishr rd' newReg off']<> restrictAndSignExtendResult rd'
+                            Ishr rd' newReg off6]<> restrictAndSignExtendResult rd'
                   SRAIW -> -- TODO There is probably a more optimal way to do this one             
                     [ -- restrict input to 32bits
-                      Iand rs1' rs1' (LImm $ 2^32 - 1),
+                      Iand rd' rs1' (LImm $ 2^32 - 1),
                       -- Get sign bit 
-                      Ishr newReg rs1' (LImm 31),
+                      Ishr newReg rd' (LImm 31),
                       -- Extension (32 1's or 0's, followed by 32 0's)
                       Imull newReg newReg (LImm (2^64-2^32)),
                       -- fix highest bits
-                      Ior rs1' rs1' (AReg newReg),
+                      Ior rd' rd' (AReg newReg),
                       -- Logical shift
-                      Ishr rd' rs1' off',
+                      Ishr rd' rd' off6,
                       -- fix highest bits
-                      Ior rs1' rs1' (AReg newReg)
+                      Ior rd' rd' (AReg newReg)
                     ]
                ) 
       where
