@@ -843,7 +843,9 @@ transpileInstr64I    instr =
             -- do the operation 
             op rd' newReg (LImm imm)] <>
           restrictAndSignExtendResult rd'
-      
+
+    -- Note, for shifts, "shifts on the value in register rs1 by the shift
+    -- amount held in the lower 5 bits of register rs2."
     transpileRegBinop64I :: Binop64  -> Reg -> Reg -> Reg -> [MAInstruction Int MWord]
     transpileRegBinop64I binop32 reg1 reg2 reg3 =
       let (rd',rs1',rs2') = tpRegRegReg reg1 reg2 reg3 in
@@ -869,8 +871,10 @@ transpileInstr64I    instr =
                 Imull newReg newReg (LImm (2^64-2^32)),
                 -- fix highest bits
                 Ior rd' rd' (AReg newReg),
+                -- restrict 2nd input to 5bits
+                Iand newReg rs2' (LImm $ 2^6 - 1),
                 -- Logical shift
-                Ishr rd' rd' (AReg rs2')
+                Ishr rd' rd' (AReg newReg)
               ]
             )
             
@@ -961,6 +965,8 @@ transpileInstr32I instr =
               Ior  rd newReg (AReg rd)]
                   
     -- transpileRegBinop32I
+    -- Note, for shifts, "shifts on the value in register rs1 by the shift
+    -- amount held in the lower 5 bits of register rs2."
     transpileRegBinop32I :: Binop32 -> Reg -> Reg -> Reg -> [MAInstruction Int MWord]
     transpileRegBinop32I binop reg1 reg2 reg3 =
       let (rd',rs1,rs2) = tpRegRegReg reg1 reg2 reg3 in
@@ -969,14 +975,16 @@ transpileInstr32I instr =
       case binop of
         ADD  -> [Iadd  rd' rs1 rs2']
         SUB  -> [Isub  rd' rs1 rs2']
-        SLL  -> [Ishl  rd' rs1 rs2']
+        SLL  -> [Iand newReg rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
+                 Ishl  rd' rs1 newReg]
         -- The comparison direction is reversed: RISC-V `slt d,x,y` checks
         -- whether `x < y`; MicroRAM `cmpg d,x,y` checks whether `x > y`.
         SLT  -> [Icmpg rd' rs2 rs1']
         SLTU -> [Icmpa rd' rs2 rs1']
         XOR  -> [Ixor  rd' rs1 rs2']
-        SRL  -> [Ishr  rd' rs1 rs2']
-        SRA  -> error "Arithmetic right shift not implemented FULL" -- TODO
+        SRL  -> [Iand newReg rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
+                 Ishr  rd' rs1 newReg]
+        SRA  -> error "Full arithmetic right shift not implemented" -- TODO
         OR   -> [Ior   rd' rs1 rs2']
         AND  -> [Iand  rd' rs1 rs2']
           
