@@ -987,6 +987,10 @@ transpileInstr32I instr =
     transpileImmBinop32I binop reg1 reg2 imm = do
       (rd',rs1',off') <- tpRegRegImm reg1 reg2 imm
       let off_imm = LImm off'
+      -- For shift operations "the shift amount is encoded in the
+      -- lower 6 bits of the I-immediate field for RV64I" (Notice, for
+      -- non immediate shifts, it's 5bits)
+      let off6_imm = LImm (\env -> off'' .&. (2^7-1))
       return $ case binop of
                  ADDI  -> [Iadd  rd' rs1' (LImm $ signExtendWord 12 off')]
                  SLTI  -> [Imov newReg off_imm,
@@ -998,14 +1002,14 @@ transpileInstr32I instr =
                  XORI  -> [Ixor  rd' rs1' off_imm]
                  ORI   -> [Ior   rd' rs1' off_imm]
                  ANDI  -> [Iand  rd' rs1' off_imm]
-                 SLLI  -> [Ishl  rd' rs1' off_imm]
-                 SRLI  -> [Ishr  rd' rs1' off_imm]
+                 SLLI  -> [Ishl  rd' rs1' off6_imm]
+                 SRLI  -> [Ishr  rd' rs1' off6_imm]
                  SRAI  -> [-- sign bits
                    Ishr newReg rs1' (LImm $ 63),
                    -- extensions (2^off-1)*(2^(64-off))
                    Imull newReg newReg (LImm $ (2 `pow` off' - 1) * (2 `pow` (64-off'))),
                    -- logical extension
-                   Ishr rd' rs1' off_imm,
+                   Ishr rd' rs1' off6_imm,
                    -- add extensions
                    Ior rd' rd' (AReg newReg)
                    ]
