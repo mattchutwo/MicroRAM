@@ -804,8 +804,9 @@ transpileInstr64I    instr =
     transpileImmBinop64I binop64I reg1 reg2 imm = do
       (rd',rs1',off'') <- tpRegRegImm reg1 reg2 imm
       let off' = LImm off''
-      -- Fro shift operations "the shift amount is encoded in the
-      -- lower 6 bits of the I-immediate field for RV64I"
+      -- For shift operations "the shift amount is encoded in the
+      -- lower 6 bits of the I-immediate field for RV64I" (Notice, for
+      -- non immediate shifts, it's 5bits)
       let off6 = LImm (\env -> off'' .&. (2^7-1))
       return $ (case binop64I of
                   ADDIW -> [Iadd rd' rs1' off']<> restrictAndSignExtendResult rd'
