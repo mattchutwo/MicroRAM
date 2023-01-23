@@ -807,7 +807,7 @@ transpileInstr64I    instr =
       -- For shift operations "the shift amount is encoded in the
       -- lower 6 bits of the I-immediate field for RV64I" (Notice, for
       -- non immediate shifts, it's 5bits)
-      let off6 = LImm (\env -> off'' .&. (2^7-1))
+      let off6 = LImm (off'' .&. (2^7-1))
       return $ (case binop64I of
                   ADDIW -> [Iadd rd' rs1' off']<> restrictAndSignExtendResult rd'
                   -- It should be true that the  'off' < 2^5'
@@ -975,15 +975,15 @@ transpileInstr32I instr =
       case binop of
         ADD  -> [Iadd  rd' rs1 rs2']
         SUB  -> [Isub  rd' rs1 rs2']
-        SLL  -> [Iand newReg rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
-                 Ishl  rd' rs1 newReg]
+        SLL  -> [Iand newReg rs2 (LImm $ 2^5 - 1), -- restrict input to 5b
+                 Ishl  rd' rs1 (AReg newReg)]
         -- The comparison direction is reversed: RISC-V `slt d,x,y` checks
         -- whether `x < y`; MicroRAM `cmpg d,x,y` checks whether `x > y`.
         SLT  -> [Icmpg rd' rs2 rs1']
         SLTU -> [Icmpa rd' rs2 rs1']
         XOR  -> [Ixor  rd' rs1 rs2']
-        SRL  -> [Iand newReg rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
-                 Ishr  rd' rs1 newReg]
+        SRL  -> [Iand newReg rs2 (LImm $ 2^5 - 1), -- restrict input to 5b
+                 Ishr rd'    rs1 (AReg newReg)]
         SRA  -> error "Full arithmetic right shift not implemented" -- TODO
         OR   -> [Ior   rd' rs1 rs2']
         AND  -> [Iand  rd' rs1 rs2']
@@ -998,7 +998,7 @@ transpileInstr32I instr =
       -- For shift operations "the shift amount is encoded in the
       -- lower 6 bits of the I-immediate field for RV64I" (Notice, for
       -- non immediate shifts, it's 5bits)
-      let off6_imm = LImm (\env -> off'' .&. (2^7-1))
+      let off6_imm = LImm (off' .&. (2^7-1))
       return $ case binop of
                  ADDI  -> [Iadd  rd' rs1' (LImm $ signExtendWord 12 off')]
                  SLTI  -> [Imov newReg off_imm,
