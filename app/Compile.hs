@@ -97,8 +97,7 @@ main = do
                 , numberRegs = Nothing
                 } in
           -- Then compile
-          handleErrorWith (compile options trLength llvmModule)
-            where undefinedFunctions = allowUndefFun fr
+            handleErrorWith (compile options trLength llvmModule)
 
         -- | Alternative compiler backend going through RiscV 
         riscCompiler :: Word -> FlagRecord -> IO $ CompiledProgram
