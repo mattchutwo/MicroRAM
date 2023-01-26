@@ -60,8 +60,7 @@ main = do
                                                      else if beginning fr == RiscV then
                                                        riscCompiler trLength fr
                                                      else
-                                                       riscCompiler trLength fr -- Allways do risc until llvm is fixed
-                                                       -- callBackend trLength fr
+                                                       callBackend trLength fr
                                                    else
                                                      readMRAMFile trLength fr
   when (ppMRAM fr) $ putStr $ microPrint (pmProg $ lowProg $ programCU microProg)
@@ -83,22 +82,22 @@ main = do
           giveInfo fr output
 
         -- Backend
-        -- callBackend :: Word -> FlagRecord -> IO $ CompiledProgram
-        -- callBackend trLength fr = do  
-        --   giveInfo fr "Running the compiler backend..."
-        --   -- Retrieve program from file
-        --   llvmModule <- llvmParse $ llvmFile fr
-        --   -- Then compile
-        --   handleErrorWith (compile
-        --                     (verbose fr)
-        --                     undefinedFunctions
-        --                     (modeLeakTainted fr)
-        --                     (skipRegisterAllocation fr)
-        --                     trLength
-        --                     llvmModule
-        --                     (spars fr)
-        --                   )
-        --     where undefinedFunctions = allowUndefFun fr
+        callBackend :: Word -> FlagRecord -> IO $ CompiledProgram
+        callBackend trLength fr = do  
+          giveInfo fr "Running the compiler backend..."
+          -- Retrieve program from file
+          llvmModule <- llvmParse $ llvmFile fr
+          -- Then compile
+          handleErrorWith (compile
+                            (verbose fr)
+                            undefinedFunctions
+                            (modeLeakTainted fr)
+                            (skipRegisterAllocation fr)
+                            trLength
+                            llvmModule
+                            (spars fr)
+                          )
+            where undefinedFunctions = allowUndefFun fr
 
         -- | Alternative compiler backend going through RiscV 
         riscCompiler :: Word -> FlagRecord -> IO $ CompiledProgram

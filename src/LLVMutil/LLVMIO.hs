@@ -8,17 +8,17 @@ Stability   : prototype
 -}
 module LLVMutil.LLVMIO where
 
--- import LLVM.Module
--- import LLVM.Context
--- import qualified LLVM.AST as LLVM 
+import LLVM.Module
+import LLVM.Context
+import qualified LLVM.AST as LLVM 
 
--- -- | Read LLVM file
--- llvmParse :: FilePath -> IO LLVM.Module
--- llvmParse file = do
---   contents <- readFile file 
---   withContext $ \context -> do
---     ast <- withModuleFromLLVMAssembly context contents moduleAST
---     return ast
+-- | Read LLVM file
+llvmParse :: FilePath -> IO LLVM.Module
+llvmParse file = do
+  contents <- readFile file 
+  withContext $ \context -> do
+    ast <- withModuleFromLLVMAssembly context contents moduleAST
+    return ast
 
 
 
