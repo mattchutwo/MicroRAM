@@ -88,9 +88,7 @@ main = do
         callBackend trLength fr = do  
           giveInfo fr "Running the compiler backend..."
           -- Retrieve program from file
-          traceM ("I saw a file: " <>  fileIn fr)
-          traceM ("Trying to read file: " <>  llvmFile fr)
-          llvmModule <- llvmParse $ llvmFile fr
+          llvmModule <- llvmParse $ fileIn fr
           -- compiler options
           let options = CompilerOptions
                 { verb = verbose fr
