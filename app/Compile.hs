@@ -34,6 +34,8 @@ import System.FilePath
 import System.IO
 import System.Exit
 
+import Debug.Trace
+
 type CompiledProgram = CompilationResult (AnnotatedProgram Metadata AReg MWord)
 
 main :: IO ()
@@ -86,6 +88,7 @@ main = do
         callBackend trLength fr = do  
           giveInfo fr "Running the compiler backend..."
           -- Retrieve program from file
+          traceM ("Trying to read file: " <>  llvmFile fr)
           llvmModule <- llvmParse $ llvmFile fr
           -- compiler options
           let options = CompilerOptions
