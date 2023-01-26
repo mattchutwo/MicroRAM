@@ -87,16 +87,17 @@ main = do
           giveInfo fr "Running the compiler backend..."
           -- Retrieve program from file
           llvmModule <- llvmParse $ llvmFile fr
+          -- compiler options
+          let options = CompilerOptions
+                { verb = verbose fr
+                , allowUndefFun = allowUndefFunctions fr
+                , spars = sparsNum fr
+                , tainted = modeLeakTainted fr
+                , skipRegisterAllocation = skipRegAlloc fr
+                , numberRegs = Nothing
+                } in
           -- Then compile
-          handleErrorWith (compile
-                            (verbose fr)
-                            undefinedFunctions
-                            (modeLeakTainted fr)
-                            (skipRegisterAllocation fr)
-                            trLength
-                            llvmModule
-                            (spars fr)
-                          )
+          handleErrorWith (compile options trLength llvmModule)
             where undefinedFunctions = allowUndefFun fr
 
         -- | Alternative compiler backend going through RiscV 
