@@ -19,6 +19,12 @@ extra-source-files:
 # common to point users to the README.md file.
 description:         Please see the README on GitHub at <https://github.com/githubuser/MicroRAM#readme>
 
+flags:
+  no-llvm:
+    description: Remove all dependencies to the LLVM project.
+    manual: true
+    default: false
+
 dependencies:
 - base >= 4.7 && < 5
 - containers
@@ -27,8 +33,6 @@ dependencies:
 - bv-sized
 - parameterized-utils
 - haggle
-- llvm-hs-pure
-- llvm-hs
 - mtl
 - bytestring
 - prettyprinter
@@ -57,7 +61,16 @@ dependencies:
 - data-binary-ieee754
 - dom-lt
 - parsec
-
+when:
+- condition: flag(no-llvm)
+  then:
+    dependencies:
+    - llvm-hs-pure
+  else:
+    dependencies:
+    - llvm-hs-pure
+    - llvm-hs
+    
 library:
   source-dirs: src
   ghc-options: -Wall -fno-warn-orphans -Wno-name-shadowing -optP-Wno-nonportable-include-path
