@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -19,7 +20,10 @@ import Compiler.IRs
 import Compiler.Metadata
 import RiscV.Backend
 import Debug.PrettyPrint
+
+#if no-llvm
 import LLVMutil.LLVMIO
+#endif
 
 import Output.Output
 import Output.CBORFormat
@@ -62,7 +66,7 @@ main = do
                                                      else if beginning fr == RiscV then
                                                        riscCompiler trLength fr
                                                      else
-                                                       callBackend trLength fr
+                                                       llvmBackend trLength fr
                                                    else
                                                      readMRAMFile trLength fr
   when (ppMRAM fr) $ putStr $ microPrint (pmProg $ lowProg $ programCU microProg)
@@ -84,11 +88,15 @@ main = do
           giveInfo fr output
 
         -- Backend
-        callBackend :: Word -> FlagRecord -> IO $ CompiledProgram
-        callBackend trLength fr = do  
-          giveInfo fr "Running the compiler backend..."
+        llvmBackend :: Word -> FlagRecord -> IO $ CompiledProgram
+        llvmBackend trLength fr = do
+          giveInfo fr "Running the llvm compiler backend..."
           -- Retrieve program from file
+#if no-llvm          
           llvmModule <- llvmParse $ fileIn fr
+#else
+          llvmModule <- ioError $ userError "LLVM not available. Rebuild package without the `no-llvm` flag."
+#endif 
           -- compiler options
           let options = CompilerOptions
                 { verb = verbose fr

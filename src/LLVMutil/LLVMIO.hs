@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-|
 Module      : LLVMIO
 Description : read llvm file
@@ -8,6 +9,7 @@ Stability   : prototype
 -}
 module LLVMutil.LLVMIO where
 
+#if no-llvm
 import LLVM.Module
 import LLVM.Context
 import qualified LLVM.AST as LLVM 
@@ -19,7 +21,7 @@ llvmParse file = do
   withContext $ \context -> do
     ast <- withModuleFromLLVMAssembly context contents moduleAST
     return ast
-
+#endif
 
 
 
