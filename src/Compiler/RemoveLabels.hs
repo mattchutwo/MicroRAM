@@ -115,7 +115,7 @@ buildLabelMap blocks globs = do
       when (Map.member name m) $
         assumptError $ "name collision between globals: " ++ show name
       return (Map.insert name (addr + offset) m)
-      
+
 getOrZero :: Map Name MWord -> Name -> MWord
 getOrZero m n = case Map.lookup n m of
   Nothing -> trace ("warning: label " ++ show n ++ " is missing; defaulting to zero") 0
