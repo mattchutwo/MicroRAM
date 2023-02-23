@@ -40,7 +40,13 @@ If you want to build without llvm, you can use the `no-llvm` flag
 % stack build --flag MicroRam:no-llvm
 ```
 
-If you use REPL, you will also need to pass that flag. For Emacs you can achieve that by adding the flag in your `haskell-process-args-cabal-repl` flags, in your `emacs.d/init.el` or wherever you initialize your emacs custom variables:
+If you use REPL, you will also need to pass that flag
+
+```
+% stack repl --flag MicroRAM:no-llvm
+```
+
+For Emacs you can achieve that by adding the flag in your `haskell-process-args-cabal-repl` flags, in your `emacs.d/init.el` or wherever you initialize your emacs custom variables:
 
 ```
 (custom-set-variables
