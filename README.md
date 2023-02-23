@@ -10,6 +10,10 @@ MicroRAM is a random-access machine and accompanying C-compiler designed to effi
 
 ## Installing
 
+### LLVM support
+
+The llvm pipeline is known to have build issues in OSX. If you don't need to support the llvm pipeline, skip to the next section.
+
 First get llvm compatible with the haskell bindings:
 
 ```
@@ -22,11 +26,31 @@ Make sure clang is installed
 clang --version
 ```
 
+### MicroRAM
+
 Clone this repository and build it
 
 ```
 % stack build
 ```
+
+If you want to build without llvm, you can use the `no-llvm` flag
+
+```
+% stack build --flag MicroRam:no-llvm
+```
+
+If you use REPL, you will also need to pass that flag. For Emacs you can achieve that by adding the flag in your `haskell-process-args-cabal-repl` flags, in your `emacs.d/init.el` or wherever you initialize your emacs custom variables:
+
+```
+(custom-set-variables
+ ...
+ '(haskell-process-args-cabal-repl '(YOUR-OTHER-FLAGS "--flags MicroRam:no-llvm"))
+ ...
+ )
+```
+
+
 
 ## Documentation:
 
