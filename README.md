@@ -46,14 +46,11 @@ If you use REPL, you will also need to pass that flag
 % stack repl --flag MicroRAM:no-llvm
 ```
 
-For Emacs you can achieve that by adding the flag in your `haskell-process-args-cabal-repl` flags, in your `emacs.d/init.el` or wherever you initialize your emacs custom variables:
+For Emacs you can achieve that by adding the following to your `.dir-locals.el` (which should go at the top level of the project)
 
 ```
-(custom-set-variables
- ...
- '(haskell-process-args-cabal-repl '(YOUR-OTHER-FLAGS "--flags MicroRam:no-llvm"))
- ...
- )
+
+((haskell-mode (haskell-process-args-stack-ghci . ("--ghci-options=-ferror-spans" "--no-build" "--no-load" "--flag=MicroRAM:no-llvm"))))
 ```
 
 
