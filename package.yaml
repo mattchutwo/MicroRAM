@@ -20,7 +20,7 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/githubuser/MicroRAM#readme>
 
 flags:
-  no-llvm:
+  NO_LLVM:
     description: Remove all dependencies to the LLVM project.
     manual: true
     default: false
@@ -62,7 +62,7 @@ dependencies:
 - dom-lt
 - parsec
 when:
-- condition: flag(no-llvm)
+- condition: flag(NO_LLVM)
   then:
     dependencies:
     - llvm-hs-pure
@@ -79,11 +79,12 @@ executables:
   compile:
     main:                Compile.hs
     source-dirs:         app
-    ghc-options: 
+    cpp-options:
+    - "-DNO_LLVM"
+    ghc-options:
     - -main-is Compile
     dependencies:
-    - MicroRAM
-
+    - MicroRAM 
 
 tests:
   riscv:

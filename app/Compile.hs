@@ -21,7 +21,7 @@ import Compiler.Metadata
 import RiscV.Backend
 import Debug.PrettyPrint
 
-#if no-llvm
+#if ! NO_LLVM
 import LLVMutil.LLVMIO
 #endif
 
@@ -92,10 +92,10 @@ main = do
         llvmBackend trLength fr = do
           giveInfo fr "Running the llvm compiler backend..."
           -- Retrieve program from file
-#if no-llvm          
-          llvmModule <- llvmParse $ fileIn fr
+#if NO_LLVM         
+          llvmModule <- ioError $ userError "LLVM not available. Rebuild package without the `no-llvm` flag." 
 #else
-          llvmModule <- ioError $ userError "LLVM not available. Rebuild package without the `no-llvm` flag."
+          llvmModule <- llvmParse $ fileIn fr
 #endif 
           -- compiler options
           let options = CompilerOptions
