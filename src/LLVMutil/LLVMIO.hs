@@ -9,7 +9,7 @@ Stability   : prototype
 -}
 module LLVMutil.LLVMIO where
 
-#if no-llvm
+#if ! NO_LLVM
 import LLVM.Module
 import LLVM.Context
 import qualified LLVM.AST as LLVM 
