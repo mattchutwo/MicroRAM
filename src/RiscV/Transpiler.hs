@@ -861,10 +861,15 @@ transpileInstr64I    instr =
                      Iand rd'    rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
                      Ishr rd' newReg (AReg rd')] <>
                     restrictAndSignExtendResult rd'                                 
-            SRAW -> -- Logical Shift right
+            SRAW -> -- Arithmetic Shift right
                     -- We make the high 32 bits the right sign (i.e. 0 or 1) before and after a logical shift.              
               -- HACK: I couldn't figure out how to do this using only one
               -- scratch register, so I use both newReg and r0 as scratch.
+              -- Here we assert to make sure newReg hasn't changed, since this
+              -- code may need to be updated if we eventually get rid of the
+              -- zero register and either use that slot for newReg or shift all
+              -- the registers down by one.
+              if newReg /= 32 then error "must check SRAW translation after adjusting newReg" else
               [ -- Put masked shift amount in newReg
                 Iand newReg rs2' (LImm $ 2^6 - 1),
                 -- Put sign extension mask into r0
