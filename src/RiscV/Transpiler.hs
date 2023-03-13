@@ -861,25 +861,30 @@ transpileInstr64I    instr =
                      Iand rd'    rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
                      Ishr rd' newReg (AReg rd')] <>
                     restrictAndSignExtendResult rd'                                 
-            SRAW -> -- Logical Shift right
+            SRAW -> -- Arithmetic Shift right
                     -- We make the high 32 bits the right sign (i.e. 0 or 1) before and after a logical shift.              
-              [ -- restrict input to 32bits
-                Iand rd' rs1' (LImm $ 2^32 - 1),
-                -- Get sign bit 
-                Ishr newReg rd' (LImm 31),
-                -- Extension (32 1's or 0's, followed by 32 0's)
-                Imull newReg newReg (LImm (2^64-2^32)),
-                -- fix highest bits
-                Ior rd' rd' (AReg newReg),
-                -- restrict 2nd input to 5bits
+              -- HACK: I couldn't figure out how to do this using only one
+              -- scratch register, so I use both newReg and r0 as scratch.
+              -- Here we assert to make sure newReg hasn't changed, since this
+              -- code may need to be updated if we eventually get rid of the
+              -- zero register and either use that slot for newReg or shift all
+              -- the registers down by one.
+              if newReg /= 32 then error "must check SRAW translation after adjusting newReg" else
+              [ -- Put masked shift amount in newReg
                 Iand newReg rs2' (LImm $ 2^6 - 1),
-                -- Logical shift
-                Ishr rd' rd' (AReg newReg)
+                -- Put sign extension mask into r0
+                Iand 0 rs1' (LImm $ 2^31),
+                Imull 0 0 (LImm $ 2^33 - 1),
+                -- Sign-extend LHS into dest
+                Ior rd' rs1' (AReg 0),
+                -- Right-shift dest in-place
+                Ishr rd' rd' (AReg newReg),
+                -- Sign-extend again
+                Ior rd' rd' (AReg 0),
+                -- Clear r0
+                Imov 0 (LImm 0)
               ]
             )
-            
-            
-
             
         
     memInstr64 :: MemOp64 -> Reg -> Offset -> Reg -> Statefully [MAInstruction Int MWord]
