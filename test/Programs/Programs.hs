@@ -351,6 +351,11 @@ riscvTests = ManyTests "RISC-V backend correctness tests" $ OneTest <$>
   ,testDomains = OneRISCV "test/Programs/RISCV/string_escape_octal.s"
   ,testLen = 1500
   ,testResult = 1} :
+  defaultTest {
+  testName = "SRAW Instruction (Arithmetic Right-Shift)"
+  ,testDomains = OneRISCV "test/Programs/RISCV/sraw.s"
+  ,testLen = 500
+  ,testResult = 1} :
   []
 
 ------------------
