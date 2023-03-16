@@ -34,6 +34,8 @@ import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map as Map 
 import Data.Foldable (foldl')
+import Data.List (partition)
+import GHC.Stack
 
 import Control.Lens (makeLenses, (.=), (%=), (^.), use)
 import Control.Monad.Except
@@ -47,6 +49,7 @@ import qualified LLVM.AST as LLVM
 import qualified LLVM.AST.Constant as LLVM.Constant
 import qualified LLVM.AST.Float as LLVM
 import qualified LLVM.AST.IntegerPredicate as IntPred
+import qualified LLVM.AST.Linkage as LLVM
 
 import Compiler.Errors
 import Compiler.Common
@@ -1128,7 +1131,7 @@ processParams (params, _) = do
 -- | Instruction generation for Functions
 
 isFunction :: Env -> LLVM.Definition -> Statefully $ MIRFunction Metadata MWord
-isFunction env (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
+isFunction env (LLVM.GlobalDefinition (LLVM.Function link _ _ _ _ retT name params _ _ _ _ _ _ code _ _)) =
   do
     name' <- globalName name
     (paramsTyp, paramNames) <- processParams params
@@ -1136,7 +1139,7 @@ isFunction env (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ retT name params 
     currentFunction .= name'
     body <- isBlocks env code -- runStateT (isBlocks env code) initState
     retT' <- lift $ type2type  (llvmtTypeEnv env) retT
-    return $ Function name' retT' paramsTyp paramNames body
+    return $ Function name' retT' paramsTyp paramNames body (linkageIsExtern link)
 isFunction _tenv other = lift $ unreachableError $ show other -- Shoudl be filtered out 
   
 -- | Instruction Selection for all definitions
@@ -1160,6 +1163,15 @@ itIsTypeDef _ = False
 itIsMetaData (LLVM.MetadataNodeDefinition _ _) = True
 itIsMetaData (LLVM.NamedMetadataDefinition _ _) = True
 itIsMetaData _ = False
+
+-- | Returns `True` if the function is a declaration, not a definition.
+llvmFuncName :: HasCallStack => LLVM.Definition -> LLVM.Name
+llvmFuncName (LLVM.GlobalDefinition (LLVM.Function _ _ _ _ _ _ name _ _ _ _ _ _ _ _ _ _)) = name
+llvmFuncName _ = error "called llvmFuncName on non-function"
+
+funcIsDecl :: LLVM.Definition -> Bool
+funcIsDecl (LLVM.GlobalDefinition (LLVM.Function  _ _ _ _ _ _ _ _ _ _ _ _ _ _ [] _ _)) = True
+funcIsDecl _ = False
 
 unreachableError :: MonadError CmplError m => [Char] -> m b
 unreachableError what = otherError $ "This is akward. This error should be unreachable. You called a function that should only be called on a list after filtering, to avoid this error. Here is the info: " ++ what
@@ -1226,8 +1238,8 @@ nameOfGlobals defs = Set.fromList $ concat $ map nameOfGlobal defs
 
           
 isGlobVar :: Env -> LLVM.Global -> Statefully $ GlobalVariable MWord
-isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align _) = do
-  typ' <- lift $ type2type (llvmtTypeEnv env) typ
+isGlobVar env (LLVM.GlobalVariable name link _ _ _ _ const typ _ init sectn _ align _) = do
+  _typ' <- lift $ type2type (llvmtTypeEnv env) typ
   byteSize <- return $ sizeOf (llvmtTypeEnv env) typ
   init' <- flatInit env init
   lift $ case init' of
@@ -1245,7 +1257,8 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
   -- alignment here to avoid the problem.
   let align' = max 1 $ (fromIntegral align + fromIntegral wordBytes - 1) `div` fromIntegral wordBytes
   name' <- globalName name
-  return $ GlobalVariable name' const typ' init' size' align'
+  let extern = linkageIsExtern link
+  return $ GlobalVariable name' [(name', 0, extern)] const init' size' align'
     (sectionIsSecret sectn) (sectionIsHeapInit sectn)
   where flatInit :: Env ->
                     Maybe LLVM.Constant.Constant ->
@@ -1266,6 +1279,11 @@ isGlobVar env (LLVM.GlobalVariable name _ _ _ _ _ const typ _ init sectn _ align
         sectionIsHeapInit _ = False
 isGlobVar _ other = unreachableError $ show other
 
+linkageIsExtern :: LLVM.Linkage -> Bool
+linkageIsExtern LLVM.Private = False
+linkageIsExtern LLVM.Internal = False
+linkageIsExtern _ = True
+
 -- | Evaluate an LLVM constant and flatten its value into a list of (lazy)
 -- machine words.
 flattenConstant :: Env
@@ -1273,30 +1291,9 @@ flattenConstant :: Env
                 -> Statefully [LazyConst MWord]
 flattenConstant env c = do
     chunks <- constant2typedLazyConst env c
-    return $ go (SConst 0) 0 $ map unpack chunks
+    return $ packInWords $ map unpack chunks
   where
     unpack (TypedLazyConst lc w _align) = (lc, widthInt w)
-
-    go ::
-      LazyConst MWord -> Int -> [(LazyConst MWord, Int)] ->
-      [LazyConst MWord]
-    go _acc 0 [] = []
-    go acc _pos [] = [acc]
-    go acc pos ((lc, w) : cs)
-      | w > wordBytes = error "flattenConstant: impossible: TLC had width > word size?"
-      -- Special case for word-aligned chunks
-      | pos == 0 && w == wordBytes = lc : go acc pos cs
-      | pos + w < wordBytes = go (combine acc pos lc) (pos + w) cs
-      | pos + w == wordBytes = combine acc pos lc : go (SConst 0) 0 cs
-      | pos + w > wordBytes = combine acc pos lc :
-          go (consume (wordBytes - pos) lc) (pos + w - wordBytes) cs
-      | otherwise = error "flattenConstant: unreachable"
-
-    combine acc pos lc = acc .|. (lc `shiftL` (pos * 8))
-
-    consume amt lc = lc `shiftR` (amt * 8)
-
-
                         
 
 constant2OnelazyConst ::
@@ -1669,11 +1666,15 @@ isDefs nameBound defs = do
   let globalEvaluation = isGlobVars env $ filter itIsGlobVar defs  -- filtered inside the def 
   (globVars, state') <- runStateT globalEvaluation (initState nameBound) 
   _funcAttr <- isFuncAttributes $ filter itIsFuncAttr defs
-  (funcs, state'') <- runStateT (isFunctions env) state'
+  ((funcs, externFuncNames), state'') <- runStateT (isFunctions env) state'
   checkDiscardedDefs defs -- Make sure we dont drop something important
-  return $ (IRprog Map.empty globVars funcs, state'' ^. nextReg) 
-  where isFunctions env = mapM (isFunction env) $ filter itIsFunc defs
-          
+  return $ (IRprog Map.empty globVars funcs externFuncNames, state'' ^. nextReg)
+  where (funcDecls, funcDefs) = partition funcIsDecl $ filter itIsFunc defs
+        isFunctions env = do
+          funcs <- mapM (isFunction env) funcDefs
+          externFuncNames <- mapM (globalName . llvmFuncName) funcDecls
+          return (funcs, externFuncNames)
+
 -- | Instruction selection generates an RTL Program
 instrSelect :: (LLVM.Module, Word) -> Hopefully $ (MIRprog Metadata MWord, Word)
 instrSelect (LLVM.Module _ _ _ _ defs, bound) = isDefs bound defs

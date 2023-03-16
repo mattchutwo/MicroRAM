@@ -6,6 +6,7 @@ module Compiler.Name (
   Name(..),
   short2string, string2short,
   defaultName, premainName, mainName,
+  pcName,
   va_startName,
   firstUnusedName,
 
@@ -30,9 +31,17 @@ import Control.Monad.State (StateT, get, modify)
 -- | These names are an extension to LLVM's register names.
 -- It includes a `NewName` to produce temporary registers that
 -- don't intefere with existing ones. 
-data Name =
-  Name {nameID:: Word,
-        dbName :: ShortByteString}   -- ^ Global identifier and a human readable name for debugging.
+data Name = Name
+  { nameID:: Word
+  , dbName :: ShortByteString
+  -- ^ String representation of this name.  This is used during linking, where
+  -- undefined symbols in one object are linked to external symbols of the same
+  -- name in other objects.  Names of defined, non-external symbols are not
+  -- used for anything and can be arbitrary.
+  --
+  -- This field is included in the printed form of the `Name` for debugging
+  -- purposes.
+  }
 
 instance Eq Name where
   (Name n _) == (Name m _) = n == m
@@ -65,19 +74,20 @@ instance Regs Name where
   toWord (Name n _) = n
   
 -- | Reserved names.
-spName, bpName, axName :: Name 
+spName, bpName, axName, pcName :: Name 
 spName = Name 0 "sp"
 bpName = Name 1 "bp"
 axName = Name 2 "ax"
+pcName = Name 3 "pc"
 defaultName, premainName, mainName, va_startName :: Name
-defaultName  = Name 3 "DefaultName" -- Can appear in metadata.
-premainName  = Name 4 "premain"
-mainName     = Name 5 "main"
-va_startName = Name 6 "__cc_va_start"
+defaultName  = Name 4 "DefaultName" -- Can appear in metadata.
+premainName  = Name 5 "premain"
+mainName     = Name 6 "main"
+va_startName = Name 7 "__cc_va_start"
 
 -- | Bound for reserved names. 
 firstUnusedName :: Word
-firstUnusedName = 7
+firstUnusedName = 8
 -- ^ TODO: ad the number of reserved names grows,
 -- one might easily forget to update `firstUnusedName`.
 -- We should create a set or a map with all the reserved names

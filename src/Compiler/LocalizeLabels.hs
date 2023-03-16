@@ -24,13 +24,13 @@ import Compiler.IRs
 import Control.Monad.State.Lazy (State, runState, get, put, modify)
 
 localizeLabels :: (Rprog mdata wrdT, Word) -> Hopefully (Rprog mdata wrdT, Word)
-localizeLabels (IRprog te ge funcs, nameBound) =
+localizeLabels (IRprog te ge funcs externFuncNames, nameBound) =
   let (funcs', RenameState nameBound' _) = runState (mapM (localizeFunc funcNames) funcs) $
         RenameState nameBound Map.empty in
-  return $ (IRprog te ge funcs', nameBound')
+  return $ (IRprog te ge funcs' externFuncNames, nameBound')
   where
     -- Function names are not localized.
-    funcNames = Map.fromList $ map (dup . funcName) funcs
+    funcNames = Map.fromList $ map (dup . funcName) funcs ++ map dup externFuncNames
     dup a = (a,a)
      
 data RenameState = RenameState

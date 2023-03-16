@@ -220,6 +220,8 @@ encodeInstr (Iext ext) =
         XAccessValid lo hi -> [encodeString "AccessValid"] ++ concatMap encodeOperand' [lo, hi]
         XAccessInvalid lo hi -> [encodeString "AccessInvalid"] ++ concatMap encodeOperand' [lo, hi]
         XStoreUnchecked ptr val -> [ encodeString "StoreUnchecked" ] ++ concatMap encodeOperand' [ptr, val]
+        XSnapshot -> [encodeString "Snapshot"]
+        XCheck _instr _name _off -> error "Cannon serialize native instruction"
   in list2CBOR $ encodeString "ext" : parts
 encodeInstr (Iextval r1 ext) =
   let parts = case ext of

@@ -33,9 +33,10 @@ mkCompilerTests tg = case tg of
   ManyTests nm ts -> testGroup nm $ mkCompilerTests <$> ts 
 
 mkCompilerTest :: TestProgram -> TestTree
-mkCompilerTest (TestProgram name file len cmpErr res hasBug leakTainted) =
-  if cmpErr then compileErrorTest name file len else 
-  if hasBug then compileBugTest leakTainted name file len else compileCorrectTest leakTainted name file len res
+mkCompilerTest (TestProgram name inputs len cmpErr res hasBug leakTainted) =
+  if cmpErr then compileErrorTest name inputs len else
+  if hasBug then compileBugTest leakTainted name inputs len else
+  compileCorrectTest leakTainted name inputs len res
 
 
 
@@ -45,20 +46,28 @@ compileTest
   :: Executor AReg t -- ^ executes the program and returns some result
   -> (t -> Bool)     -- ^ tests if result is satisfactory
   -> TestName
-  -> FilePath
+  -> [Domain]
   -> Word
   -> TestTree
-compileTest executionFunction tester name file len = 
+compileTest executionFunction tester name domains len =
   testGroup name [monadicTest False, monadicTest True]
   where monadicTest skipRegAlloc =
           testProperty (if skipRegAlloc then "Skip RegAlloc" else "Regular") $ 
           QCM.monadicIO $ do
-          answer <- QCM.run $ compileTest' file len skipRegAlloc
+          let options = defOptions { skipRegisterAllocation = skipRegAlloc }
+          answer <- QCM.run $ case domains of
+            OneLLVM file -> compileLLVM options file
+            domains -> compileMulti options domains
           QCM.assert $ tester answer
-          
-        compileTest' file len skipRegAlloc = do
+
+        compileLLVM options file = do
           llvmProg <- llvmParse file
-          mramProg <- handleErrorWith $ compile defOptions{skipRegisterAllocation = skipRegAlloc} len llvmProg
+          mramProg <- handleErrorWith $ compile options len llvmProg
+          return $ executionFunction (fmap (tripleFmap fst) mramProg)
+
+        compileMulti options domains = do
+          domains' <- mapM (loadCode llvmParse readFile) domains
+          mramProg <- handleErrorWith $ compileDomains options len domains'
           return $ executionFunction (fmap (tripleFmap fst) mramProg)
 
 tripleFmap :: (Functor f1, Functor f2, Functor f3) =>
@@ -68,10 +77,10 @@ tripleFmap f compRes =  fmap (fmap (fmap f)) compRes
                             
 compileErrorTest
   :: TestName
-  -> FilePath
+  -> [Domain]
   -> Word
   -> TestTree
-compileErrorTest name file len = 
+compileErrorTest name (OneLLVM file) len =
   testProperty name $ 
   QCM.monadicIO $ do
   compResult <- QCM.run $ compileFromFile file len
@@ -79,7 +88,8 @@ compileErrorTest name file len =
   where compileFromFile file len = do
           llvmProg <- llvmParse file
           return $ compile defOptions len llvmProg
-          
+compileErrorTest _ _ _ = testGroup "multi-file and non-LLVM tests are ignored" []
+
 -- ## Full compilation tests of correctness
 
 -- | compileCorrectTest : compile step by step llvm code from file:
@@ -89,12 +99,12 @@ type AssertionInfo = IO String
 compileCorrectTest ::
      Bool
   -> String
-  -> FilePath
+  -> [Domain]
   -> Word -- ^ Length
   -> MWord  -- ^ return value
   -> TestTree
-compileCorrectTest leakTainted name file len ret =
-  compileTest (execAnswer False leakTainted) (== ret) name file len
+compileCorrectTest leakTainted name inputs len ret =
+  compileTest (execAnswer False leakTainted) (== ret) name inputs len
 
 -- ## Full compilation tests looking for bugs
 
@@ -103,11 +113,12 @@ compileCorrectTest leakTainted name file len ret =
 compileBugTest ::
      Bool
   -> String
-  -> FilePath
+  -> [Domain]
   -> Word -- ^ Length
   -> TestTree
-compileBugTest leakTainted name file len = 
-  compileTest (execBug False leakTainted) id name file len
+compileBugTest leakTainted name inputs len =
+  compileTest (execBug False leakTainted) id name inputs len
+
 
 
 

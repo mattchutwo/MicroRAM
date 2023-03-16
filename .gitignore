@@ -31,3 +31,4 @@ rungrit.sh
 *.prof
 *.folded
 *.svg
+.dir-locals.el

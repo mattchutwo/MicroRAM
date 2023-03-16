@@ -1,13 +1,13 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 {-|
 Module      : MicroRAM
@@ -103,7 +103,6 @@ module MicroRAM
 ( -- * MicroRAM
   Instruction'(..),
   Instruction,
---  NamedBlock(NBlock),
   Program,
   Operand(..),
 
@@ -135,7 +134,7 @@ module MicroRAM
   wordBits,
 
   -- * Mappiung and Folding
-  mapInstr, mapProg, mapInstrM,
+  mapInstr, mapProg, mapInstrM, traverseInstr,
   foldInstr,
   ) where
 
@@ -147,6 +146,9 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Word (Word64)
 import GHC.Generics -- Helps testing
+import {-# SOURCE #-} Native (NativeInstruction)
+
+import Compiler.Name
 
 -- * The MicroRAM language(s)
 
@@ -204,7 +206,14 @@ data ExtInstr operand2 =
   | XStoreUnchecked operand2 operand2
   -- ^ Store the second operand at the address given by the first operand,
   -- bypassing memory safety checks.
-  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
+  | XSnapshot
+  -- ^ Save a copy of the entire machine state.
+  | XCheck NativeInstruction Name Word
+  -- ^ Take the latest snapshot (saved by XSnapshot), run the native
+  -- instruction, and check that the simulator's result matches the MicroRAM
+  -- machine state.  The `Name` and `Word` are the block and offset of the
+  -- original native instruction.
+  deriving (Eq, Read, Show, Functor, Foldable, Traversable, Generic)
 
 data ExtValInstr operand2 =
     XLoadUnchecked operand2
@@ -267,7 +276,7 @@ data Instruction' regT operand1 operand2 =
   | Iext (ExtInstr operand2)                -- ^ Custom instruction with no return value
   | Iextval regT (ExtValInstr operand2)     -- ^ Custom instruction, returning a value
   | Iextadvise regT operand2 (ExtAdviseInstr operand2) -- ^ Like `Iextval`, but gets serialized as `Iadvise`
-  deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable, Generic)
+  deriving (Eq, Read, Show, Functor, Foldable, Traversable, Generic)
 
 pattern IstoreW :: operand2 -> operand1 -> Instruction' regT operand1 operand2
 pattern IstoreW a b = Istore WWord a b
@@ -384,7 +393,15 @@ mapInstrM :: Monad m =>
   -> (operand2 -> m operand2')
   -> Instruction' regT operand1 operand2
   -> m (Instruction' regT' operand1' operand2')
-mapInstrM regF opF1 opF2 instr =
+mapInstrM regF opF1 opF2 instr = traverseInstr regF opF1 opF2 instr
+
+traverseInstr :: Applicative m =>
+  (regT -> m regT')
+  -> (operand1 -> m operand1')
+  -> (operand2 -> m operand2')
+  -> Instruction' regT operand1 operand2
+  -> m (Instruction' regT' operand1' operand2')
+traverseInstr regF opF1 opF2 instr =
   case instr of             
   -- Bit Operations             
   Iand r1 op1 op2        -> Iand <$>  (regF r1) <*> (opF1 op1) <*> (opF2 op2)          
@@ -428,9 +445,9 @@ mapInstrM regF opF1 opF2 instr =
   -- Poison                                    
   Ipoison w op2 op1      -> Ipoison w <$>  (opF2 op2) <*> (opF1 op1)      
   -- Extensions                            
-  Iext ext               -> Iext <$> (mapM opF2 ext)
-  Iextval dest ext       -> Iextval <$> (regF dest) <*> (mapM opF2 ext)
-  Iextadvise dest op2 ext -> Iextadvise <$> (regF dest) <*> (opF2 op2) <*> (mapM opF2 ext)
+  Iext ext               -> Iext <$> (traverse opF2 ext)
+  Iextval dest ext       -> Iextval <$> (regF dest) <*> (traverse opF2 ext)
+  Iextadvise dest op2 ext -> Iextadvise <$> (regF dest) <*> (opF2 op2) <*> (traverse opF2 ext)
 
 
 foldInstr :: Monoid a =>
@@ -478,3 +495,4 @@ aggregateOps instr =
     Iext ext               -> fold ext
     Iextval dest ext       -> dest <> fold ext
     Iextadvise dest op2 ext -> dest <> op2 <> fold ext
+

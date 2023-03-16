@@ -32,7 +32,7 @@ module MicroRAM.MRAMInterpreter
     run, run_v, execAnswer, execBug,
     -- For post processing check (e.g. segment checking)
     runWith, initMach, InstrHandler, runPassGeneric, InterpState,
-    sMach, sExt, mCycle, mPc,
+    sMach, sCachedMach, sExt, mCycle, mPc,
     InstrHandler', InterpState',
     -- * Trace
     ExecutionState(..),
@@ -48,13 +48,13 @@ module MicroRAM.MRAMInterpreter
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State
-import Control.Lens (makeLenses, ix, at, to, (^.), (.=), (%=), use, Lens', _1, _2, _3)
+import Control.Lens (makeLenses, ix, at, to, (^.), over, (.=), (%=), use, Lens', _1, _2, _3)
 import Data.Bits
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.List (intercalate)
 import qualified Data.Sequence as Seq
-import Data.Sequence (Seq)
+import Data.Sequence (Seq ( (:|>) ))
 import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified Data.Map.Strict as Map
@@ -76,9 +76,11 @@ import MicroRAM
 import MicroRAM.MRAMInterpreter.Concrete
 import MicroRAM.MRAMInterpreter.Generic
 import MicroRAM.MRAMInterpreter.Tainted
+import qualified Native
 
 import Util.Util
 
+import Debug.PrettyPrint
 import Debug.Trace
 
 -- AbsDomain instance for MWord (concrete interpreter)
@@ -108,7 +110,7 @@ data Advice =
 
 concretizeAdvice :: forall v. Concretizable v
                  => v -- ^ address
-                 -> v -- ^ bbstract value
+                 -> v -- ^ abstract value
                  -> MemOpType
                  -> MemWidth
                  -> Advice
@@ -124,25 +126,6 @@ renderAdvc advs = concat $ map renderAdvc' advs
         renderAdvc' (MemOp addr v MOPoison _w l) = "Poison: " ++ show addr ++ "->" ++ show v ++ " (" ++ show l ++ ")"
         renderAdvc' (Advise v) = "Advise: " ++ show v
         renderAdvc' (Stutter) = "...Stutter..."
-
--- | Memory for trace. Contains the default value, the stored values and,
--- when using taint tracking, the tainted labels.
--- TODO: We could merge the values and the labels into a single map of type:
---     `Map MWord v`
--- where `v` is instantiated to `MWord` or `TaintedValue`. Then we can keep everything
--- abstract.
-type Mem = (MWord,
-            Map MWord MWord,
-            Maybe (Map MWord (Vector Label))) -- When tainted
-type Poison = Set MWord
-
-class AbsDomain v => Concretizable v where
-  -- Assumes: `forall v. absGetValue v = Just $ conGetvalue v
-  conGetValue :: v -> MWord
-  conGetTaint :: v -> Maybe (Vector Label)
-  
-  conMem :: Memory v -> Mem
-  conPoison :: Memory v -> Poison
 
 -- Returns address aligned to the word 
 conAlignWord :: forall v. Concretizable v => v -> MWord
@@ -262,6 +245,55 @@ readStr ptr = do
     readByte :: MWord -> Memory v -> Hopefully Word8
     readByte addr mem = fromIntegral . conGetValue <$> absLoad W1 (absExact @v addr) mem
     
+-- This assumes that XSnapshot and XCheck surround a native instruction.
+snapshotHandler :: (Concretizable v, Regs r) => InstrHandler' r v s -> InstrHandler' r v s
+snapshotHandler _nextH (Iext XSnapshot) = do
+  m <- use sMach 
+  sCachedMach .= Just (over mPc succ m) 
+  sCachedInstrs .= Seq.Empty
+  nextPc
+snapshotHandler _nextH (Iext (XCheck (Native.NativeInstruction i) blockName offset)) = do
+
+  -- Get MicroRAM state (after the intepreter already took the steps).
+  mramState <- _sMach <$> get
+
+  -- Convert to native architecture and then take a step.
+  initStateM <- _sCachedMach <$> get
+  case initStateM of
+    Nothing ->
+      otherError $ "No cached machine state for XCheck"
+    Just initState -> do
+      instrs <- use sCachedInstrs
+      cycle <- conGetValue <$> (use $ sMach . mCycle)
+      traceM $ "cycle " ++ show cycle ++ ", block " ++ show blockName ++ " +" ++ show offset ++
+        ": simulate " ++ show i ++ " = " ++ show instrs
+      let archState = Native.stepArch (Native.toArchState initState) i
+
+      pc <- use (sMach . mPc)
+      count <- maybe 0 id <$> use (sCheckCount . at pc)
+
+      -- Simulation check that toArch (step i) == step (toArch i).
+      case archState of
+        _ | count >= 5 -> nextPc
+        Right r | Native.archStateEq (Native.toArchState mramState) r -> do
+          sCheckCount %= Map.insert pc (count + 1)
+          nextPc
+        Left e -> do
+          traceM $ "warning: unhandled riscv instruction " ++ show i ++ " (" ++ describeError e ++ ")"
+          nextPc
+        _ -> do
+          instrs <- use sCachedInstrs
+          otherError $ "[CHECK] Native Simulation failed. Steps didn't match." <>
+            "\nMRAM Instructions:\n\t" <> show (instrs) <>
+            "\nRiscV Instruction:\n\t" <> show i <>
+            "\nThe initial state:\n " <> (prettyPrintMachState initState) <>
+            "\nThe final state  :\n " <> (prettyPrintMachState mramState)
+            
+snapshotHandler nextH instr = do
+  sCachedInstrs %= (\seq -> seq :|> instr)  
+  nextH instr
+
+
 traceHandler :: (Concretizable v, Regs r) => Bool -> InstrHandler' r v s -> InstrHandler' r v s
 traceHandler active _nextH (Iext (XTrace desc ops)) = do
   vals <- mapM opVal ops
@@ -368,7 +400,7 @@ markInvalid start end valid =
 
 -- | Check the allocation status of `addr`, and record a memory error if it
 -- isn't valid.
-checkAccess :: Regs r => Bool -> Lens' s AllocState -> MWord -> InterpM' r v s Hopefully ()
+checkAccess :: (Concretizable v, Regs r) => Bool -> Lens' s AllocState -> MWord -> InterpM' r v s Hopefully ()
 checkAccess verbose allocState addr = do
   validMap <- use $ sExt . allocState . asValid
   let valid = case Map.lookupLE addr validMap of
@@ -377,7 +409,8 @@ checkAccess verbose allocState addr = do
   when (not valid) $ do
     -- TODO: update `asValid` to keep track of why a given region is invalid,
     -- so we can produce a more precise message and MemErrorKind
-    when verbose $ traceM $ "detected bad access at " ++ showHex addr
+    cycle <- conGetValue <$> (use $ sMach . mCycle)
+    when verbose $ traceM $ "Cycle: "++ show cycle ++". Detected bad access at " ++ showHex addr
     sExt . allocState . asMemErrors  %= (Seq.|> (OutOfBounds, addr))
 
 allocHandler :: forall v r s. (Concretizable v, Regs r) => Bool -> Lens' s AllocState -> InstrHandler' r v s -> InstrHandler' r v s
@@ -497,7 +530,7 @@ runWith handler steps initState = execStateT (goSteps steps) initState
       goStep
       ans <- use $ sMach . mAnswer
       case ans of
-        Just _ -> return ()
+        Just _ -> return () -- trace ("ANSWER: " <> show ans <> ". Step : " <> show n) $ return ()
         Nothing -> goSteps (n - 1)
 
     goStep = do
@@ -510,8 +543,8 @@ runPass1 verbose steps initMach' = do
   final <- runWith handler steps initState
   return $ getMemInfo $ final ^. sExt
   where
-    initState = InterpState initAllocState initMach'
-    handler = traceHandler verbose  $ allocHandler verbose id $ stepInstr
+    initState = InterpState initAllocState initMach' Nothing Seq.Empty mempty
+    handler = snapshotHandler $ traceHandler verbose $ allocHandler verbose id $ stepInstr
 
     getMemInfo :: AllocState -> MemInfo
     getMemInfo as = MemInfo (as ^. asMallocAddrs) (getPoisonAddrs $ as ^. asMemErrors)
@@ -532,7 +565,7 @@ runPass2 steps initMach' memInfo = do
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
-    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach'
+    initState = InterpState (Seq.empty, Map.empty, memInfo) initMach' Nothing Seq.Empty mempty
 
     eTrace :: Lens' (a, b, c) a
     eTrace = _1
@@ -557,12 +590,12 @@ runPassGeneric :: forall r s v. (Concretizable v, Regs r)
                -> s -> Word -> MachineState' r v -> Hopefully (Trace r)
 runPassGeneric eTrace eAdvice postHandler initS steps  initMach' = do
   -- The first entry of the trace is always the initial state.  Then `steps`
-  -- entries follow after it.k
+  -- entries follow after it.
   initExecState <- evalStateT (getStateWithAdvice eAdvice) initState
   final <- runWith handler steps initState
   return $ initExecState : toList (final ^. sExt . eTrace)
   where
-    initState = InterpState initS initMach'
+    initState = InterpState initS initMach' Nothing Seq.Empty mempty
     handler =
       execTraceHandler eTrace eAdvice $
       postHandler $

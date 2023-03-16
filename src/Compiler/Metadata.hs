@@ -12,6 +12,7 @@ module Compiler.Metadata
     ( Metadata(..),
       defaultMetadata,
       trivialMetadata,
+      renameMetadata,
     ) where
 
 import Compiler.Common (Name(..), defaultName)
@@ -40,3 +41,16 @@ defaultMetadata =
 
 trivialMetadata :: Name -> Name -> Metadata
 trivialMetadata fname bname = defaultMetadata {mdFunction = fname, mdBlock = bname}
+
+renameMetadata :: (Name -> Name)
+               -> Metadata
+               -> Metadata
+renameMetadata f (Metadata func blk line funcStart retCall isCall isRet) =
+  Metadata
+    (f func)
+    (f blk)
+    line
+    funcStart
+    retCall
+    isCall
+    isRet

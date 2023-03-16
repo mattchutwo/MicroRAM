@@ -7,8 +7,8 @@
 module MicroRAM.MRAMInterpreter.Generic
   ( AbsDomain(..),
     MachineState'(..), mCycle, mPc, mRegs, mProg, mMem, mBug, mAnswer, 
-    mReg,
-    InterpState'(..), sExt, sMach,
+    prettyPrintMachState, mReg,
+    InterpState'(..), sExt, sMach, sCachedMach, sCachedInstrs, sCheckCount,
     InterpM', InstrHandler',
     doStore, doLoad, doPoison, doGetPoison, doGetValue,
     fetchInstr, stepInstr, nextPc, finishInstr, regVal, opVal,
@@ -18,6 +18,8 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State
 import Control.Lens (makeLenses, lens, (.=), (%=), use)
+import qualified Data.Map as Map
+import Data.Map (Map)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 
@@ -26,6 +28,7 @@ import Compiler.CompilationUnit (InitialMem)
 import Compiler.Registers
 import MicroRAM
 
+import Debug.PrettyPrint
 import Debug.Trace
 
 class (Show v, Show (Memory v)) => AbsDomain v where
@@ -95,9 +98,29 @@ makeLenses ''MachineState'
 
 deriving instance (Show r, AbsDomain v) => Show (MachineState' r v)
 
+-- Pretty printing for SOME fields of the machinestate
+prettyPrintMachState :: (Show r, AbsDomain v) => MachineState' r v -> String
+prettyPrintMachState (MachineState cycle pc regs prog mem bug ans) =
+  "STATE: \n-------------" <>
+  "\n\tCYCLE: " <> show cycle <>
+  -- "\n-------------\n\t" <>
+  "\n\tPC: " <> show pc <>
+  -- "\n-------------\n\t" <>
+  "\n\tRegs: " <> show regs <>
+  -- "\n-------------\n\t" <>
+  "\n\tBUG: " <> show bug <>
+  -- "\n-------------\n\t" <>
+  "\n\tANS: " <> show ans <>
+  -- "\n-------------\n\t" <>
+  "\n\tMEMORY: " <> show mem <>
+  "\n-------------\n\t"
+
 data InterpState' r v s = InterpState
   { _sExt :: s
   , _sMach :: MachineState' r v
+  , _sCachedMach   :: Maybe (MachineState' r v)
+  , _sCachedInstrs :: Seq (Instruction r MWord) 
+  , _sCheckCount   :: Map MWord Word
   }
 makeLenses ''InterpState'
 

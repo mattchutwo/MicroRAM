@@ -1,18 +1,22 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 module Programs.Programs (
-  oneTest, allTests, TestProgram(..), TestGroupAbs (..)
+  oneTest, allTests, riscvTests, TestProgram(..), TestGroupAbs (..),
+  pattern OneLLVM, pattern OneRISCV
   ) where
 
+import Compiler (Domain(..), DomainInput(..))
 import MicroRAM
 
 
 ------------------
 -- The Programs
 ------------------
-testTrivial, testLoops, testGEP, testDatastruct, testBugs, testCorrectness, allTests, testErrors :: TestGroupAbs
+testTrivial, testLoops, testGEP, testDatastruct, testBugs, testCorrectness, allTests, testErrors, riscvTests :: TestGroupAbs
 
 oneTest = OneTest $ defaultTest {
     testName = "Heartbleed"
-    , fileName = "test/Programs/noni/heartbleed.ll"
+    , testDomains = OneLLVM "test/Programs/noni/heartbleed.ll"
     , testLen = 5000
     , testResult = 0
     , leakTainted = True
@@ -20,7 +24,7 @@ oneTest = OneTest $ defaultTest {
     }
 
 allTests = ManyTests "Program tests"
-        [testCorrectness, testErrors, testBugs]
+        [testCorrectness, testErrors, testBugs, testMulti]
 testCorrectness = ManyTests "Correctness tests"
                   [testTrivial, testLoops, testGEP, testDatastruct, testFunctionPointer, testVarArgs, testCmov]
 
@@ -28,67 +32,67 @@ testCorrectness = ManyTests "Correctness tests"
 testTrivial = ManyTests "Trivial programs" $ OneTest <$>
   defaultTest {
     testName = "Return 42"
-    ,fileName = "test/Programs/return42.ll"
+    ,testDomains = OneLLVM "test/Programs/return42.ll"
     ,testLen = 30
     ,testResult = 42
     } :
   defaultTest {
     testName = "21 + 21"
-    ,fileName ="test/Programs/compute42.ll"
+    ,testDomains = OneLLVM "test/Programs/compute42.ll"
     ,testLen = 70
     ,testResult = 42
     }  :
   defaultTest {
     testName = "Constant Shr"
-    ,fileName ="test/Programs/constantShr.ll"
+    ,testDomains = OneLLVM "test/Programs/constantShr.ll"
     ,testLen = 50
     ,testResult = 4 -- Unfortunately this depends on shape of memory, since it uses a ptrtoint
     }  :
   defaultTest {
     testName = "Trivial intrinsic call"
-    ,fileName ="test/Programs/intrinsicAdd.ll"
+    ,testDomains = OneLLVM "test/Programs/intrinsicAdd.ll"
     ,testLen = 50
     ,testResult = 120
     }  :
   defaultTest {
     testName = "Function call with multiple args"
-    ,fileName ="test/Programs/multiArgs.ll"
+    ,testDomains = OneLLVM "test/Programs/multiArgs.ll"
     ,testLen = 180 -- 120
     ,testResult = 123
     } :
   defaultTest {
     testName = "Function call with 10 args"
-    ,fileName ="test/Programs/manyArgs.ll"
+    ,testDomains = OneLLVM "test/Programs/manyArgs.ll"
     ,testLen = 400
     ,testResult = 45
     } :
   defaultTest {
     testName = "arithmetic shift right"
-    ,fileName ="test/Programs/arithShr.ll"
+    ,testDomains = OneLLVM "test/Programs/arithShr.ll"
     ,testLen = 1000 -- 850-- 660
     ,testResult = 8
     }  :
   defaultTest {
     testName = "load from global"
-    ,fileName ="test/Programs/trivial_global.ll"
+    ,testDomains = OneLLVM "test/Programs/trivial_global.ll"
     ,testLen = 50
     ,testResult =   10
     } :
   defaultTest {
     testName = "load from global array"
-    ,fileName ="test/Programs/trivial_global_array.ll"
+    ,testDomains = OneLLVM "test/Programs/trivial_global_array.ll"
     ,testLen = 50
     ,testResult =   10
     } :
   defaultTest {
     testName = "signed icmp"
-    ,fileName ="test/Programs/icmp_signed.ll"
+    ,testDomains = OneLLVM "test/Programs/icmp_signed.ll"
     ,testLen = 100
     ,testResult = 3
     } :
   defaultTest {
     testName = "binops with truncated operands"
-    ,fileName ="test/Programs/binopTrunc.ll"
+    ,testDomains = OneLLVM "test/Programs/binopTrunc.ll"
     ,testLen = 300
     ,testResult = 9
     } :
@@ -98,7 +102,7 @@ testTrivial = ManyTests "Trivial programs" $ OneTest <$>
 testErrors = ManyTests "Test errors" $ OneTest <$>
   defaultTest {
     testName = "Error for undefined functions"
-    ,fileName = "test/Programs/errorUndefinedFunction.ll"
+    ,testDomains = OneLLVM "test/Programs/errorUndefinedFunction.ll"
     , compError = True
     } :
   []
@@ -106,19 +110,19 @@ testErrors = ManyTests "Test errors" $ OneTest <$>
 testFunctionPointer = ManyTests "Test function pointers" $ OneTest <$> [
     defaultTest {
       testName = "call function pointer"
-    , fileName = "test/Programs/funcPointer.ll"
+    , testDomains = OneLLVM "test/Programs/funcPointer.ll"
     , testLen = 200 -- 100
     , testResult = 5
     },
     defaultTest {
       testName = "function pointer in static initializer"
-    , fileName = "test/Programs/funcPointerStatic.ll"
+    , testDomains = OneLLVM "test/Programs/funcPointerStatic.ll"
     , testLen = 200 -- 100
     , testResult = 5
     },
     defaultTest {
       testName = "function pointer with multiple args"
-    , fileName = "test/Programs/funcPointerArgs.ll"
+    , testDomains = OneLLVM "test/Programs/funcPointerArgs.ll"
     , testLen = 150
     , testResult = 15
     }
@@ -127,19 +131,19 @@ testFunctionPointer = ManyTests "Test function pointers" $ OneTest <$> [
 testVarArgs = ManyTests "Test varargs" $ OneTest <$> [
     defaultTest {
       testName = "call function with varargs"
-    , fileName = "test/Programs/varArgs.ll"
+    , testDomains = OneLLVM "test/Programs/varArgs.ll"
     , testLen = 900 -- 700
     , testResult = 15
     }
   , defaultTest {
       testName = "call another function with varargs"
-    , fileName = "test/Programs/varArgs2.ll"
+    , testDomains = OneLLVM "test/Programs/varArgs2.ll"
     , testLen = 2500 -- 2000
     , testResult = 23
     }
   , defaultTest {
       testName = "call a third function with varargs"
-    , fileName = "test/Programs/varArgs3.ll"
+    , testDomains = OneLLVM "test/Programs/varArgs3.ll"
     , testLen = 2500 -- 2000
     , testResult = 30
     }
@@ -149,7 +153,7 @@ testVarArgs = ManyTests "Test varargs" $ OneTest <$> [
 testCmov = ManyTests "Test cmov" $ OneTest <$> [
     defaultTest {
       testName = "Many cmov to test reg. alloc."
-    , fileName = "test/Programs/select.ll"
+    , testDomains = OneLLVM "test/Programs/select.ll"
     , testLen = 200
     , testResult = 44
     }
@@ -160,44 +164,44 @@ testCmov = ManyTests "Test cmov" $ OneTest <$> [
 testLoops = ManyTests "Conditionals, Branching and loops" $ OneTest <$>
   defaultTest {
     testName = "Fibonacci loop (not optimized)"
-    ,fileName ="test/Programs/fibSlow.ll"
+    ,testDomains = OneLLVM "test/Programs/fibSlow.ll"
     ,testLen = 800
     ,testResult =   55
     } :
   defaultTest {
     testName = "Easy function call"
-    ,fileName ="test/Programs/easyFunction.ll"
+    ,testDomains = OneLLVM "test/Programs/easyFunction.ll"
     ,testLen = 100 -- 70
     ,testResult =   42
     } : 
   defaultTest {
     testName = "More easy function calls"
-    ,fileName ="test/Programs/callingConventions.ll"
+    ,testDomains = OneLLVM "test/Programs/callingConventions.ll"
     ,testLen = 100
     ,testResult =   42
     } : 
   defaultTest {
     testName = "Factorial with recursive calls"
-    ,fileName ="test/Programs/factRec.ll"
+    ,testDomains = OneLLVM "test/Programs/factRec.ll"
     ,testLen = 800 -- 600
     ,testResult =   120
     } :
   defaultTest {
     testName = "Or with phi"
-    ,fileName ="test/Programs/or.ll"
+    ,testDomains = OneLLVM "test/Programs/or.ll"
     ,testLen = 200 -- 150 -- 100
     ,testResult =   1
     } : 
   {-  defaultTest {
     testName = "Input text into numbers"
-    ,fileName = "test/Programs/returnInput.ll"
+    ,testDomains = OneLLVM "test/Programs/returnInput.ll"
     ,testLen = 80
     ,testResult = 42
     } : -}
 --  defaultTest { "Hello world" "test/Programs/hello.ll" 50 [] 0 :
     defaultTest {
     testName = "Memcpy"
-    ,fileName ="test/Programs/memcpy.ll"
+    ,testDomains = OneLLVM "test/Programs/memcpy.ll"
     ,testLen = 300
     ,testResult = 123
     } :
@@ -207,19 +211,19 @@ testLoops = ManyTests "Conditionals, Branching and loops" $ OneTest <$>
 testGEP = ManyTests "Test structs and arrays with GetElementPtr" $ OneTest <$>
   defaultTest {
     testName = "Trivial array"
-    ,fileName ="test/Programs/easyArray.ll"
+    ,testDomains = OneLLVM "test/Programs/easyArray.ll"
     ,testLen = 50
     ,testResult =   11
     } :
     defaultTest {
     testName = "Trivial struct"
-    ,fileName ="test/Programs/easyStruct.ll"
+    ,testDomains = OneLLVM "test/Programs/easyStruct.ll"
     ,testLen = 100 -- 50
     ,testResult =   3
     } :
     defaultTest {
     testName = "Trivial struct Packed"
-    ,fileName ="test/Programs/easyStructPack.ll"
+    ,testDomains = OneLLVM "test/Programs/easyStructPack.ll"
     ,testLen = 200
     ,testResult =   3
     } :
@@ -232,7 +236,7 @@ testGEP = ManyTests "Test structs and arrays with GetElementPtr" $ OneTest <$>
     } :  -}
     defaultTest {
     testName = "Linked list length 3"
-    ,fileName ="test/Programs/easyLinkedList.ll"
+    ,testDomains = OneLLVM "test/Programs/easyLinkedList.ll"
     ,testLen = 240
     ,testResult = 16
     } :
@@ -240,13 +244,13 @@ testGEP = ManyTests "Test structs and arrays with GetElementPtr" $ OneTest <$>
 testDatastruct = ManyTests "Test data structures" $ OneTest <$>
   defaultTest {
   testName = "Linked list generic"
-  ,fileName ="test/Programs/LinkedList/linkedList.c.ll"
+  ,testDomains = OneLLVM "test/Programs/LinkedList/linkedList.c.ll"
   ,testLen = 2500 -- 1500
   ,testResult = 42
   } :
   defaultTest {
   testName = "Binary search tree"
-  ,fileName ="test/Programs/binaryTree/binaryTree.c.ll"
+  ,testDomains = OneLLVM "test/Programs/binaryTree/binaryTree.c.ll"
   ,testLen = 7000 --3500
   ,testResult = 30
     } :
@@ -257,38 +261,38 @@ testDatastruct = ManyTests "Test data structures" $ OneTest <$>
 testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
   defaultTest {
   testName = "Use after free Bug"
-  ,fileName = "test/Programs/UseAfterFree/useAfterFree.c.ll"
+  ,testDomains = OneLLVM "test/Programs/UseAfterFree/useAfterFree.c.ll"
   ,testLen = 250
   ,testResult = 0
   , bug = True } :
   defaultTest {
   testName = "Invalid Free (Now a pointer given by malloc)"
-  ,fileName = "test/Programs/WrongFree/wrongFree.c.ll"
+  ,testDomains = OneLLVM "test/Programs/WrongFree/wrongFree.c.ll"
   ,testLen = 250
   ,testResult = 0
   , bug = True }  :
   defaultTest {
   testName = "Out of bounds access"
-  ,fileName = "test/Programs/MallocOOB/mallocOOB.c.ll"
+  ,testDomains = OneLLVM "test/Programs/MallocOOB/mallocOOB.c.ll"
   ,testLen = 250
   ,testResult = 0
   , bug = True }  :
   defaultTest {
   testName = "Free after free"
-  ,fileName = "test/Programs/DoubleFree/DoubleFree.c.ll"
+  ,testDomains = OneLLVM "test/Programs/DoubleFree/DoubleFree.c.ll"
   ,testLen = 250
   ,testResult = 0
   , bug = True }  :
   defaultTest {
     testName = "Information leakage"
-  , fileName = "test/Programs/noni/explicit0.ll"
+  , testDomains = OneLLVM "test/Programs/noni/explicit0.ll"
   , testLen = 200
   , testResult = 0
   , leakTainted = True
   , bug = True }  :
   defaultTest {
     testName = "Information leakage: heartbleed"
-  , fileName = "test/Programs/noni/simple_heartbleed_nobranch.ll" -- "test/Programs/noni/heartbleed.ll"
+  , testDomains = OneLLVM "test/Programs/noni/simple_heartbleed_nobranch.ll" -- "test/Programs/noni/heartbleed.ll"
   , testLen = 7000 -- 6000 -- 5000
   , testResult = 0
   , leakTainted = True
@@ -296,6 +300,63 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
   []
 
 
+testMulti = ManyTests "Multi-input tests" $ OneTest <$>
+  defaultTest
+    { testName = "Link f and g (LLVM)"
+    , testDomains = oneDomain
+      [ InputLLVM "test/Programs/domains/g_main.ll" Nothing
+      , InputLLVM "test/Programs/domains/f.ll" Nothing ]
+    , testLen = 200
+    , testResult = 203 } :
+  defaultTest
+    { testName = "Link f and g (RISC-V)"
+    , testDomains = oneDomain
+      [ InputRISCV "test/Programs/domains/g_main.s" Nothing
+      , InputRISCV "test/Programs/domains/f.s" Nothing ]
+    , testLen = 200
+    , testResult = 203 } :
+  []
+
+
+-- ## Test the RISC-V backend
+
+riscvTests = ManyTests "RISC-V backend correctness tests" $ OneTest <$>
+  defaultTest {
+  testName = "Compute 42"
+  ,testDomains = OneRISCV "test/Programs/RISCV/compute42.s"
+  ,testLen = 100
+  ,testResult = 42} :
+  defaultTest {
+  testName = "Fibonacci"
+  ,testDomains = OneRISCV "test/Programs/RISCV/fib.s"
+  ,testLen = 500
+  ,testResult = 55} :
+  defaultTest {
+  testName = "Square"
+  ,testDomains = OneRISCV "test/Programs/RISCV/square.s"
+  ,testLen = 500
+  ,testResult = 64} : 
+  defaultTest {
+  testName = "Function Pointer"
+  ,testDomains = OneRISCV "test/Programs/RISCV/funcPointer.s"
+  ,testLen = 200
+  ,testResult = 5} : 
+  defaultTest {
+  testName = "String Escape"
+  ,testDomains = OneRISCV "test/Programs/RISCV/string_escape.s"
+  ,testLen = 200
+  ,testResult = 1} :
+  defaultTest {
+  testName = "String Escape Octal numbers"
+  ,testDomains = OneRISCV "test/Programs/RISCV/string_escape_octal.s"
+  ,testLen = 1500
+  ,testResult = 1} :
+  defaultTest {
+  testName = "SRAW Instruction (Arithmetic Right-Shift)"
+  ,testDomains = OneRISCV "test/Programs/RISCV/sraw.s"
+  ,testLen = 500
+  ,testResult = 1} :
+  []
 
 ------------------
 -- The constructs
@@ -304,7 +365,7 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
 data TestProgram =
   TestProgram {
     testName :: String
-  , fileName :: FilePath
+  , testDomains :: [Domain]
   , testLen :: Word         -- ^ How long to run it
   , compError :: Bool            -- ^ if compilation should throw an error
   , testResult :: MWord    -- ^ what it should return if it does (meaningless if bug)
@@ -315,7 +376,7 @@ data TestProgram =
 defaultTest :: TestProgram
 defaultTest =  TestProgram {
   testName = ""
-  , fileName = ""
+  , testDomains = []
   , testLen = 100
   , compError = False
   , testResult = 0
@@ -328,5 +389,26 @@ data TestGroupAbs =
   OneTest TestProgram
   | ManyTests String [TestGroupAbs]
   deriving (Eq, Show)
+
+pattern OneLLVM :: FilePath -> [Domain]
+pattern OneLLVM path = [Domain
+  { secretLengths = Nothing
+  , privileged = False
+  , domainInputs = [InputLLVM path Nothing]
+  }]
+
+pattern OneRISCV :: FilePath -> [Domain]
+pattern OneRISCV path = [Domain
+  { secretLengths = Nothing
+  , privileged = False
+  , domainInputs = [InputRISCV path Nothing]
+  }]
+
+oneDomain :: [DomainInput] -> [Domain]
+oneDomain inputs = [Domain
+  { secretLengths = Nothing
+  , privileged = False
+  , domainInputs = inputs
+  }]
 
 

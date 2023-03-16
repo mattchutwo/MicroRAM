@@ -45,7 +45,7 @@ import Util.Util
 redundantMovs :: forall md reg wrd . Eq reg => MAProgram md reg wrd -> Hopefully (MAProgram md reg wrd)
 redundantMovs prog = return $ map updateBlock prog
   where
-    updateBlock (NBlock name instrs) = NBlock name $ filter (not . isRedundant . fst) instrs
+    updateBlock blk = blk { blockInstrs = filter (not . isRedundant . fst) (blockInstrs blk) }
 
     isRedundant :: MAInstruction reg wrd -> Bool
     isRedundant (Imov r1 (AReg r2)) = r1 == r2
@@ -60,14 +60,17 @@ threadJumps prog = return $ map (updateStart . updateBlock) $ filter (not . isJu
   where
 
     -- If removed block (src) was a starting block, mark the dest in jumpMap' as a starting block.
-    updateStart (NBlock name (i:instrs)) | shouldStart name = NBlock name (setStartInst i: instrs)
+    updateStart blk
+      | shouldStart (blockName blk)
+      , i:instrs <- blockInstrs blk
+      = blk { blockInstrs = setStartInst i : instrs }
     updateStart b                                           = b
 
     shouldStart (Just name) =
       let startingDests = Set.fromList $ map snd $ filter (\(src, _dest) ->
               -- Check if the src is a starting block.
               case Map.lookup src blockMap of
-                Just (i:_insts) -> mdFunctionStart $ snd i
+                Just (NamedBlock { blockInstrs = i:_ }) -> mdFunctionStart $ snd i
                 _               -> False
             ) $ Map.toList jumpMap'
       in
@@ -78,14 +81,17 @@ threadJumps prog = return $ map (updateStart . updateBlock) $ filter (not . isJu
 
     -- Map from names to blocks.
     blockMap = Map.fromList $ do
-      NBlock (Just n) is <- prog
-      return (n, is)
+      blk <- prog
+      Just name <- [blockName blk]
+      return (name, blk)
 
     -- Map from old labels to new ones.  If block A contains only a jump to B,
     -- then we record (A, B) in this map.
     jumpMap :: Map.Map Name Name 
     jumpMap = Map.fromList $ do
-      NBlock (Just src) [(Ijmp (Label dest), md)] <- prog
+      blk <- prog
+      Just src <- [blockName blk]
+      [(Ijmp (Label dest), md)] <- [blockInstrs blk]
       -- TODO: This temporarily disables thread jumping for blocks that start functions. This leads to errors if globals reference the function and the names aren't updated.
       guard $ not $ mdFunctionStart md
 
@@ -111,10 +117,10 @@ threadJumps prog = return $ map (updateStart . updateBlock) $ filter (not . isJu
           | Just l' <- Map.lookup l jumpMap = resolve' (n - 1) l'
           | otherwise = Just l
 
-    isJumpSource (NBlock (Just name)_) = Map.member name jumpMap'
+    isJumpSource blk | Just name <- blockName blk = Map.member name jumpMap'
     isJumpSource _ = False
 
-    updateBlock (NBlock name instrs) = NBlock name $ map (mapFst updateInstr) instrs
+    updateBlock blk = blk { blockInstrs = map (mapFst updateInstr) (blockInstrs blk) }
 
     updateInstr i = mapInstr id id updateOperand i
 
@@ -127,13 +133,14 @@ elimDead :: (Show regT, Show wrdT) => [GlobalVariable wrdT] -> MAProgram Metadat
 elimDead _ [] = return []
 elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBlocks]
   where
-    globalMap = Map.fromList $ map (\g -> (globName g, g)) globals
+    globalMap = Map.fromList [(name, g) | g <- globals, (name, _, _) <- entryPoints g]
     progSeq = Seq.fromList prog
 
+    reservedNames = Set.fromList [pcName]
     indexedProg = zip [0..] prog
 
     nameMap :: Map.Map Name Int
-    nameMap = Map.fromList [(name, i) | (i, NBlock (Just name) _) <- indexedProg]
+    nameMap = Map.fromList $ [(name, i) | (i, blk) <- indexedProg, Just name <- [blockName blk]]
 
     premainIndex = Map.findWithDefault (error "unreachable: block for premain not found") premainName nameMap
 
@@ -147,18 +154,24 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
     globalDeps n | Just g <- Map.lookup n globalMap = case initializer g of
       Nothing -> mempty
       Just is -> Set.unions $ map lazyDeps is
+    -- As a special case, reserved names have no dependencies
+    globalDeps n | Set.member n reservedNames = mempty
     globalDeps n = error $ "no global for name " <> show n
 
     lazyDeps :: LazyConst a -> Set.Set (Either Name Int)
-    lazyDeps (LConst _ ds) = Set.map nameToIndex ds
+    lazyDeps (LConst _ ds) = Set.fromList [x | d <- Set.toList ds, Just x <- [nameToIndex d]]
     lazyDeps (SConst _)    = mempty
 
+    -- | Convert a name to a dependency key.  `Left n` means the global named
+    -- `n`, and `Right i` means the block starting at address `i`.  Returns
+    -- `Nothing` if the name is not defined.
+    nameToIndex :: Name -> Maybe (Either Name Int)
     nameToIndex n = case Map.lookup n nameMap of
-      Just j -> Right j
-      Nothing -> if Map.member n globalMap then
-          Left n
-        else
-          error $ "no definition for name " ++ show n
+      Just j -> Just $ Right j
+      Nothing -> if Set.member n reservedNames || Map.member n globalMap then
+          Just $ Left n
+        else       
+          Nothing
 
     blockDeps :: Int -> Set.Set (Either Name Int)
     -- If the last block falls through, consider the one-past-the-end block to
@@ -166,16 +179,17 @@ elimDead globals prog = return [b | (i, b) <- indexedProg, Set.member i liveBloc
     blockDeps i | i >= Seq.length progSeq = mempty
     blockDeps i = deps <> fallthroughDep
       where
-        NBlock _ instrs = progSeq `Seq.index` i
+        instrs = blockInstrs $ progSeq `Seq.index` i
         deps = mconcat $ map ((foldInstr (const mempty) (const mempty) opDep) . fst) instrs
 
-        opDep (Label l) = Set.singleton $ nameToIndex l
+        opDep (Label l) = case nameToIndex l of
+          Just x -> Set.singleton x
+          Nothing -> Set.empty
         opDep (LImm li) = lazyDeps li
         opDep (AReg _) = mempty
-        opDep HereLabel = mempty
 
         fallthroughDep = case instrs of
-          [] -> mempty
+          [] -> Set.singleton $ Right (i + 1)
           _:_ -> case fst $ last instrs of
             Ijmp _ -> mempty
             _ -> Set.singleton $ Right (i + 1)

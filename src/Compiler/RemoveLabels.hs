@@ -12,14 +12,14 @@ Stability   : experimental
 This module compiles Translates MicroASM to MicroRAM.
 
 MicroASM is different to MicrRAM in that it allows the operands
-`Label` and `HereLabel`. The assembler will replace those labels
+`Label` and lazy constants. The assembler will replace those labels
 with the actual instruction numbers to obtain MicroRAM. In particular
 a MicroASM program can be "partial" and needs to be linked to another part
 that contains some of the labels (this allows some simple separta compilation.
 
 Note: This module is completly parametric over the machine register type.
 
-The assembler translates all `Label` and `HereLabel` to the actual
+The assembler translates all `Label` and lazy constants to the actual
 instruction number to produce well formed MicroRAM. It does so in three passes:
  
 1) Create a label map, mapping names -> instruction
@@ -53,6 +53,8 @@ import Compiler.LazyConstants
 import Compiler.Tainted
 import Compiler.Layout (alignTo)
 
+import RiscV.RiscVAsm (instrTraverseImm, Imm(..))
+
 import Debug.Trace
 
 
@@ -64,7 +66,7 @@ blocksStart :: MWord
 blocksStart = 0
 
 blockSize :: NamedBlock md regT MWord -> MWord
-blockSize (NBlock _ instrs) = fromIntegral $ length instrs
+blockSize (NamedBlock { blockInstrs = instrs}) = fromIntegral $ length instrs
 
 globalsStart :: MWord
 globalsStart = 1 * fromIntegral wordBytes
@@ -87,30 +89,39 @@ buildLabelMap blocks globs = do
   return $ blockMap <> globMap
   where
     goBlocks m _addr [] = return m
-    goBlocks m addr (b@(NBlock (Just name) _) : bs) = do
-      when (Map.member name m) $
-        assumptError $ "name collision between blocks: " ++ show name
-      goBlocks (Map.insert name addr m) (addr + blockSize b) bs
-    goBlocks m addr (b@(NBlock Nothing _) : bs) = do
-      trace "warning: unnamed block in RemoveLabels" $
+    goBlocks m addr (b : bs)
+      | Just name <- blockName b = do
+        when (Map.member name m) $
+          assumptError $ "name collision between blocks: " ++ show name
+        goBlocks (Map.insert name addr m) (addr + blockSize b) bs
+      | otherwise = trace "warning: unnamed block in RemoveLabels" $
         goBlocks m (addr + blockSize b) bs
 
+    goGlobs :: Map.Map Name MWord -> MWord -> [GlobalVariable MWord] -> Hopefully (Map.Map Name MWord)
     goGlobs m _addr [] = return m
     goGlobs m addr (g:gs) = do
-      let name = globName g
+      let entries = entryPoints g
+      let (addr', nextAddr) = if gvHeapInit g then
+              (heapInitAddress, addr)
+            else
+              (addr, nextGlobalAddr addr g)
+      m' <- foldM (insertLabel addr') m [(name, offset) | (name, offset, _extern) <- entries]
+      -- Note this still increments by the size of `g`, even for heap-init
+      -- globals.
+      goGlobs m' nextAddr gs
+
+    insertLabel :: MWord -> Map.Map Name MWord -> (Name, MWord) -> Hopefully (Map.Map Name MWord)
+    insertLabel addr m (name, offset) = do
       when (Map.member name m) $
         assumptError $ "name collision between globals: " ++ show name
-      if gvHeapInit g then
-        goGlobs (Map.insert name heapInitAddress m) addr gs
-      else
-        goGlobs (Map.insert name addr m) (nextGlobalAddr addr g) gs
+      return (Map.insert name (addr + offset) m)
 
 getOrZero :: Map Name MWord -> Name -> MWord
 getOrZero m n = case Map.lookup n m of
   Nothing -> trace ("warning: label " ++ show n ++ " is missing; defaulting to zero") 0
   Just x -> x
 
-flattenBlocks ::
+flattenBlocks :: Show regT => 
   Map Name MWord ->
   [NamedBlock md regT MWord] ->
   [(Instruction regT MWord, md)]
@@ -120,25 +131,41 @@ flattenBlocks lm bs = snd $ foldr goBlock (totalBlockSize, []) bs
 
     -- Walks over blocks in reverse order.
     -- The instructions for the last block are placed at the end of the accumulated list and each block is processed right to left.
-    goBlock (NBlock _ instrs) (!postAddr,!acc) =
-      foldr goInstr (postAddr, acc) instrs
+    goBlock blk (!postAddr,!acc) =
+      foldr goInstr (postAddr, acc) (blockInstrs blk)
 
     -- Walks over instructions in reverse order.
-    goInstr :: (MAInstruction regT MWord, md) -> (MWord,[(Instruction regT MWord, md)]) -> (MWord,[(Instruction regT MWord, md)])
+    goInstr :: Show regT => (MAInstruction regT MWord, md) -> (MWord,[(Instruction regT MWord, md)]) -> (MWord,[(Instruction regT MWord, md)])
     goInstr (i, md) (!lastAddr,!acc) =
       -- Get the address of the current instruction.
       let addr = lastAddr - 1 in
-      let !i' = goOperand addr <$> i in
-
-      (addr, (i', md):acc)
+      -- Replace all the labels and lazy constants in the operands of each instruction
+      -- Starting with the XCheck instructions, which have different opperands
+      let i' = goXCheck addr i in
+      let !i''  = goOperand addr <$> i' in
+        (addr, (i'', md):acc)
 
     goOperand :: MWord -> MAOperand regT MWord -> Operand regT MWord
     goOperand _ (AReg r) = Reg r
-    goOperand _ (LImm lc) = Const $ makeConcreteConst lmFunc lc
+    goOperand addr (LImm lc) = Const $ makeConcreteConst (lmFuncWithPc addr) lc
     goOperand _ (Label name) = Const $ lmFunc name
-    goOperand addr HereLabel = Const addr
-
+    
+    -- Add the current pc address to the map (replaces the old
+    -- HereLabel)
+    lmFuncWithPc pcAddress = getOrZero $ Map.insert pcName pcAddress lm
     lmFunc = getOrZero lm
+
+    -- Replace all the `ImmLazy` with `ImmWord`
+    goXCheck :: MWord -> MAInstruction regT MWord -> MAInstruction regT MWord
+    goXCheck addr (Iext (XCheck nativeInstr name off)) =
+      Iext $ XCheck (instrTraverseImm (goImm addr) nativeInstr) name off -- goImm addr
+    goXCheck _ i = i
+
+    goImm :: MWord -> Imm -> Imm
+    goImm addr (ImmLazy lc) =
+      ImmNumber $ makeConcreteConst (lmFuncWithPc addr) lc
+    goImm _ imm = error $ "RemoveLabels: Expected a `ImmLazy` but found: "<> show imm <> ".\n\tThe transpiler should have turned this into a `ImmLazy`"
+    
 
 flattenGlobals ::
   Bool ->
@@ -156,7 +183,7 @@ flattenGlobals tainted lm gs = goGlobals globalsStart gs
             else
               (addr, nextGlobalAddr addr g)
       let seg = InitMemSegment {
-            isName   = short2string $  dbName $ globName g,
+            isName   = short2string $  dbName $ globSectionName g,
             isSecret = secret g,
             isReadOnly = isConstant g,
             isHeapInit = gvHeapInit g,
@@ -177,6 +204,7 @@ flattenGlobals tainted lm gs = goGlobals globalsStart gs
 
 -- ** Remove labels from the entire CompilationUnit  
 removeLabels ::
+  Show regT =>
   Bool ->
   CompilationUnit [GlobalVariable MWord] (MAProgram md regT Wrd) ->
   Hopefully (CompilationUnit () (AnnotatedProgram md regT Wrd))
@@ -199,3 +227,4 @@ stashGlobals ::
   CompilationUnit [GlobalVariable MWord] (Lprog m mreg MWord)
 stashGlobals cu = cu { intermediateInfo = gs }
   where gs = globals $ pmProg $ programCU cu
+

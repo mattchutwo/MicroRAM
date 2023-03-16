@@ -9,6 +9,7 @@ Stability   : prototype
 
 module Compiler.Extension
     ( lowerExtensionInstrs,
+      lowerInstr'
     ) where
 
 import Control.Monad.State
@@ -30,6 +31,8 @@ lowerInstr (MirM (Iext ext) md) = case ext of
   XAccessValid _ _ -> return []
   XAccessInvalid _ _ -> return []
   XStoreUnchecked ptr val -> return [MirM (Istore WWord ptr val) md]
+  XSnapshot -> return []
+  XCheck _ _ _ -> return []
 lowerInstr (MirM (Iextval dest ext) md) = case ext of
   XLoadUnchecked ptr -> return [MirM (Iload WWord dest ptr) md]
 -- Note that `Iextadvise` instructions are not handled here.  Those are left
@@ -38,6 +41,30 @@ lowerInstr (MirM (Iextval dest ext) md) = case ext of
 -- available during the second (lower level) interpreter pass, so the
 -- interpreter knows which kind of advice to give.
 lowerInstr i = return [i]
+
+-- | This version is used by the RISC V
+-- It mimics `lowerInstr`, but the types don't match in a non-trivial way.
+-- We'll need to be a bit more clever to deduplicate.
+-- In this case, we need to use an extra `Imov`, to translate the unchecked load/store
+-- We use a temporary register to acomodate any possible values.
+lowerInstr'
+  :: regT
+  -> Instruction' regT regT op2
+  -> [Instruction' regT regT op2]
+lowerInstr' tempReg (Iext ext) = case ext of
+  XTrace _ _ ->  []
+  XTraceStr _ ->  []
+  XTraceExec _ _ ->  []
+  XFree _ ->  []
+  XAccessValid _ _ ->  []
+  XAccessInvalid _ _ ->  []
+  XStoreUnchecked ptr val ->  [Imov tempReg val, Istore WWord ptr tempReg]
+  -- TODO: Are these right?
+  XSnapshot -> []
+  XCheck _ _ _ -> []
+lowerInstr' _ (Iextval dest ext) = case ext of
+  XLoadUnchecked ptr ->  [Iload WWord dest ptr]
+lowerInstr' _ i =  [i]
 
 -- TODO: share this basic rewriting infrastructure between here and Legalize
 lowerInstrs :: [MIRInstr md MWord] -> Statefully [MIRInstr md MWord]
