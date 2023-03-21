@@ -91,13 +91,10 @@ module RiscV.RiscVAsm
   , instrTraverseRegM
    ) where
 
--- import Data.Bits
 import Data.Word (Word8, Word16, Word64)
 import Data.Functor.Identity (runIdentity, Identity(..))
 import Test.QuickCheck (Arbitrary, arbitrary, oneof)
 import Compiler.LazyConstants (LazyConst(..))
-
-import Debug.Trace
 
 {- | The RISC-V assembler supports following modifiers for relocatable
    addresses used in RISC-V instruction operands. These expressions
