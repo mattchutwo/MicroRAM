@@ -11,10 +11,8 @@ import Compiler.Errors
 import Compiler.Registers
 import MicroRAM.MRAMInterpreter.Concrete (Concretizable(..))
 import Data.Typeable
-import GHC.Generics
-import MicroRAM
 import MicroRAM.MRAMInterpreter.Generic
-import RiscV.RiscVAsm (Imm, Reg, TraversableOp(..))
+import RiscV.RiscVAsm (TraversableOp(..))
 
 data NativeInstruction = forall i . Native i => NativeInstruction (Inst i)
 
