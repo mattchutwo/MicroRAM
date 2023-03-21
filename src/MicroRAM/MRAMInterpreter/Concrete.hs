@@ -21,7 +21,7 @@ instance of the abstract domain with `v =  MWord`.
 
 -}
 
-module MicroRAM.MRAMInterpreter.Concrete (splitAddr, splitAlignedAddr, WordMemory(..), Mem(..), Poison, Concretizable(..)) where
+module MicroRAM.MRAMInterpreter.Concrete (splitAddr, splitAlignedAddr, WordMemory(..), Mem, Poison, Concretizable(..)) where
 
 import Control.Monad
 import Control.Lens (makeLenses, at, (^.), (&), (.~), (%~))

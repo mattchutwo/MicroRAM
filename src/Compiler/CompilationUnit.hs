@@ -20,7 +20,6 @@ import Data.Default (def)
 import Data.Foldable (foldl')
 import qualified Data.Map as Map
 import Data.Vector (Vector)
-import Data.ByteString.Short (ShortByteString)
 
 import Util.Util
 import MicroRAM (MWord)
