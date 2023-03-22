@@ -5,7 +5,6 @@
 module Compile where
 
 import qualified Data.ByteString.Lazy                  as L
-import Data.List
 
 import Frontend.ClangCaller
 import Util.Util
@@ -37,8 +36,6 @@ import System.Environment
 import System.FilePath
 import System.IO
 import System.Exit
-
-import Debug.Trace
 
 type CompiledProgram = CompilationResult (AnnotatedProgram Metadata AReg MWord)
 
@@ -105,6 +102,7 @@ main = do
                 , tainted = modeLeakTainted fr
                 , skipRegisterAllocation = skipRegAlloc fr
                 , numberRegs = Nothing
+                , riscvEmulatorEnabled = False
                 } in
           -- Then compile
             handleErrorWith (compile options trLength llvmModule)
