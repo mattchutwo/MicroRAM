@@ -527,18 +527,20 @@ initState :: Regs r => ProgAndMem (AnnotatedProgram Metadata r MWord) -> AbsIntS
 initState (ProgAndMem prog mem _) =
   InterpState {
     _sMach = MachineState {
-      _mCycle = VExact 0,
-      _mPc = 0,
-      _mRegs = initBank (VExact $ lengthInitMem mem) (VExact 0),
-      _mProg = Seq.fromList $ map fst prog,
-      _mMem = amem,
-      _mBug = False,
-      _mAnswer = Nothing
-    },
+        _mCycle = VExact 0,
+        _mPc = 0,
+        _mRegs = initBank (VExact $ lengthInitMem mem) (VExact 0),
+        _mProg = Seq.fromList $ map fst prog,
+        _mMem = amem,
+        _mBug = False,
+        _mAnswer = Nothing
+        } ,
     _sCachedMach = Nothing,
     _sExt = ExtraState {
       _eMetadata = Seq.fromList $ map snd prog
-    }
+    },
+      _sCachedInstrs = mempty ,
+      _sCheckCount   = mempty
   }
   where
     (pubMem, secMem) = flatInitMem' mem
@@ -562,5 +564,7 @@ havocState s =
     _sCachedMach = Nothing,
     _sExt = ExtraState {
       _eMetadata = s ^. sExt . eMetadata
-    }
+    },
+      _sCachedInstrs = mempty ,
+      _sCheckCount   = mempty
   }
