@@ -1,7 +1,17 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 module Compiler.CompilerSpec where
+
+import Test.Tasty
+
+
+#if NO_LLVM
+main :: IO ()
+main = defaultMain (testGroup "EmptyTest" [])   
+#else
+
 
 import MicroRAM.MRAMInterpreter
 import MicroRAM (MWord)
@@ -12,7 +22,6 @@ import Compiler
 import Compiler.Errors
 
 import LLVMutil.LLVMIO
-import Test.Tasty
 
 import qualified Test.QuickCheck.Monadic as QCM
 import Test.Tasty.QuickCheck
@@ -120,5 +129,4 @@ compileBugTest leakTainted name inputs len =
   compileTest (execBug False leakTainted) id name inputs len
 
 
-
-
+#endif

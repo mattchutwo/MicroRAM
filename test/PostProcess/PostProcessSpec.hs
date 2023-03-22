@@ -1,13 +1,22 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+
 module PostProcess.PostProcessSpec where
+
+import Test.Tasty
+
+
+#if NO_LLVM
+main :: IO ()
+main = defaultMain (testGroup "EmptyTest" [])   
+#else
 
 import Compiler
 import Compiler.Errors
 
 import LLVMutil.LLVMIO
-import Test.Tasty
 
 import qualified Test.QuickCheck.Monadic as QCM
 import Test.Tasty.QuickCheck
@@ -18,7 +27,6 @@ import PostProcess
 
 import Programs.Programs -- If running from ghci use ":set -itest"
 
-
 main :: IO ()
 main = defaultMain testsWithOptions 
 
@@ -26,6 +34,7 @@ main = defaultMain testsWithOptions
 testsWithOptions :: TestTree
 testsWithOptions = localOption (QuickCheckTests 1) postTests
   where postTests = mkPostTests allTests -- oneTest
+
 
 mkPostTests :: TestGroupAbs -> TestTree
 mkPostTests tg = case tg of
@@ -56,3 +65,4 @@ processTest leakTainted name (OneLLVM file) len =
                               Right _ -> counterexample "" True
                               Left msg -> counterexample msg False
 processTest _ _ _ _ = testGroup "multi-file and non-LLVM tests are ignored" []
+#endif

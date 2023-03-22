@@ -14,6 +14,7 @@ import MicroRAM
 ------------------
 testTrivial, testLoops, testGEP, testDatastruct, testBugs, testCorrectness, allTests, testErrors, riscvTests :: TestGroupAbs
 
+oneTest :: TestGroupAbs
 oneTest = OneTest $ defaultTest {
     testName = "Heartbleed"
     , testDomains = OneLLVM "test/Programs/noni/heartbleed.ll"
@@ -107,6 +108,7 @@ testErrors = ManyTests "Test errors" $ OneTest <$>
     } :
   []
 
+testFunctionPointer :: TestGroupAbs
 testFunctionPointer = ManyTests "Test function pointers" $ OneTest <$> [
     defaultTest {
       testName = "call function pointer"
@@ -128,6 +130,7 @@ testFunctionPointer = ManyTests "Test function pointers" $ OneTest <$> [
     }
   ]
 
+testVarArgs :: TestGroupAbs
 testVarArgs = ManyTests "Test varargs" $ OneTest <$> [
     defaultTest {
       testName = "call function with varargs"
@@ -150,6 +153,7 @@ testVarArgs = ManyTests "Test varargs" $ OneTest <$> [
   ]
 
 -- Register allocator needs to count the return register in Icmov as "read register " (i.e. it's live)
+testCmov :: TestGroupAbs
 testCmov = ManyTests "Test cmov" $ OneTest <$> [
     defaultTest {
       testName = "Many cmov to test reg. alloc."
@@ -300,6 +304,7 @@ testBugs = ManyTests "Compiler bug tests" $ OneTest <$>
   []
 
 
+testMulti :: TestGroupAbs
 testMulti = ManyTests "Multi-input tests" $ OneTest <$>
   defaultTest
     { testName = "Link f and g (LLVM)"
