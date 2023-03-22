@@ -2,31 +2,23 @@
 {-# LANGUAGE RankNTypes #-}
 module RiscV.Parser (
   riscvParseFile, riscvParser
-  )where
-import RiscV.Transpiler
+  ) where
 
 import RiscV.RiscVAsm
 
-import Control.Monad (mzero, when, void)
+import Control.Monad (mzero, when)
 import Data.Maybe (catMaybes)
 import Data.Char (chr)
 import Data.Functor.Identity (Identity)
 
 import Text.Parsec
 -- import Text.Parsec.Combinator (sepBy, sepBy1)
-import qualified Text.Parsec.Language as Lang 
 import qualified Text.Parsec.Expr as Expr
 import qualified Text.Parsec.Token as Token
 import Text.Read (readMaybe)
 
-import Compiler.CompilationUnit
 import Compiler.Errors
 import Debug.Trace
-
--- pretty print
-import Debug.PrettyPrint
-import Data.Text.Prettyprint.Doc (pretty)
-import Compiler.RemoveLabels
 
 
 -- Borrow some definitions from haskell
@@ -264,11 +256,6 @@ riscvLnParser = (try instrLnParse
              => Parsec st u String
     tabParse     = try (string "        ") <|> string "    " <|> string "\t" <?> "alignemnt"
 
--- | Consumes trailing space and comments, then any empty lines, including comments
-emptyLine, emptyLines :: Stream st Identity Char
-                      => Parsec st u ()
-emptyLine = whiteSpace <* newline
-emptyLines = void $ many $ try emptyLine
 
 choiceTry :: [ParsecT s u m a] -> ParsecT s u m a
 choiceTry ps           = foldr ((<|>) . try) mzero ps
@@ -519,9 +506,6 @@ orderingParser = foldl (\x f -> f x) emptyOrdering <$> option [] (many1 flag)
       , char 'i' >> pure (\o -> o { orderInput = True })
       , char 'o' >> pure (\o -> o { orderOutput = True })
       ]
-
-allOrdering :: SetOrdering
-allOrdering = SetOrdering True True True True
 
 parse64I :: Stream s Identity Char
          => Parsec s u InstrRV64I
@@ -905,7 +889,7 @@ _test n file = do
                 else
                   lines code
   let enumLn = zip codeLns [1..]
-  _mapUntilM testLn $ enumLn
+  mapUntilM testLn $ enumLn
   where
     testLn :: (String, Int) -> IO Bool
     testLn (ln, lnN) = do
@@ -918,47 +902,10 @@ _test n file = do
           putStrLn $ "Line number " <> show lnN <> " : " <> show e
           return False
 
-_mapUntilM :: (Monad m) => (a -> m Bool) -> [a] -> m ()
-_mapUntilM f ls =
+mapUntilM :: (Monad m) => (a -> m Bool) -> [a] -> m ()
+mapUntilM f ls =
   case ls of
     [] -> return ()
     x:ls' -> do
       result <- f x
-      if result then _mapUntilM f ls' else return ()
-
--- _test' n name = do
---   code <- readFile name -- "src/RiscV/square.s" -- "src/RiscV/grit-rv64-20211105.s" -- "src/RiscV/rotate.s" -- 
---   let codeLns = if n>0 then
---                   take n $ lines code
---                 else
---                   lines code
---   let enumLn = zip codeLns [1..]
---   let parsedCode = parseToComplError $ catMaybes <$> mapM (parse riscvLnParser "") codeLns
---   let masm = (transpiler False <$> parsedCode)
---   let progmm = getProg masm
---   let mram = removeLabels False <$> (simplError masm)
---   let prog = getProg mram
---   trace ("MASM:\n----\n" <> (show $ pretty <$> progmm)) $ return ()
---   --trace ("MASM:\n----\n") $ return ()
---   when (isLeft masm) $ trace ("Error was " <> (show masm)) return ()
---   trace ("MRAM:\n----\n" <> (show $ prettyAnn <$> prog)) $ return () -- pretty
---   --trace ("MRAM:\n----\n") $ return () -- pretty
---   when (isLeft mram) $ trace ("Error was " <> (show mram)) return ()
---   where isLeft either = case either of
---                           Left _ -> True
---                           Right _ -> False
-  
-parseToComplError :: Show x => Either x a -> Hopefully a
-parseToComplError (Right a) = Right a
-parseToComplError (Left x) = otherError $ "Parse failed:" <> show x
-
-
-getProg result =
-  case result of
-    Right (Right cunit) ->
-      Just $ pmProg $ programCU $ cunit
-    _ -> Nothing
-
-simplError :: Hopefully (Hopefully x) -> Hopefully x
-simplError (Left e) = Left e
-simplError (Right x) = x
+      if result then mapUntilM f ls' else return ()

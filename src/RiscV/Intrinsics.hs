@@ -11,11 +11,9 @@ module RiscV.Intrinsics
   ) where -- (transpiler)
 
 import           Control.Monad.Trans.State.Lazy
-import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Bits (complement)
 import           Data.Text (Text)
-import qualified Data.Text as Text
 
 import           MicroRAM
 import           RiscV.RiscVAsm
@@ -29,9 +27,7 @@ import           Compiler.Extension (lowerInstr')
 import           Compiler.CompilationUnit
 import           Compiler.Common (GEnv)
 
-import           Control.Lens (makeLenses, at, to, (^.), (.=), (%=), (?=), use, over)
-
-import Debug.Trace (trace)
+import           Control.Lens (makeLenses, (^.), (.=), (%=), use)
 
 -- | #Names
 -- We create a map of names that relates every intrinsic to it's unique ID.
@@ -104,13 +100,10 @@ addIntrinsicsHigh prog = return $ prog ++ intrinsics
 -- | Adds intrinsics with lowered externals 
 addIntrinsicsLow :: MAProgram Metadata Int MWord -> Hopefully (MAProgram Metadata Int MWord)
 addIntrinsicsLow prog = map lowerBlock <$> addIntrinsicsHigh prog   
-  -- return $ prog ++ loweredIntrinsics
 
 intrinsics :: [NamedBlock Metadata Int MWord] -- Also [Intrinsic]
 intrinsics = fst intrinsicsAndMap
 
-loweredIntrinsics  :: [NamedBlock Metadata Int MWord]
-loweredIntrinsics = lowerBlock <$> intrinsics
 
 lowerBlock
   :: NamedBlock Metadata Int MWord
@@ -252,14 +245,14 @@ retReg :: Int
 retReg = fromEnum X10
 
 
-arg0', arg1' :: Int
+arg0', arg1', arg2', arg3',arg4' :: Int
 arg0' = fromEnum X10
 arg1' = fromEnum X11
 arg2' = fromEnum X12
 arg3' = fromEnum X13
 arg4' = fromEnum X14
 
-arg0, arg1 :: MAOperand Int MWord
+arg0, arg1, arg2, arg3, arg4 :: MAOperand Int MWord
 arg0 = AReg $ arg0'
 arg1 = AReg $ arg1'
 arg2 = AReg $ arg2'
@@ -336,6 +329,7 @@ cc_trace_exec =
   [Iext (XTraceExec arg0 otherArgs)]
   where otherArgs = [arg1, arg2, arg3, arg4]
 -- # Exceptions
+exceptions :: [Intrinsic]
 exceptions = [cxa_allocate_exception, cxa_begin_catch, cxa_end_catch, cxa_throw, gxx_personality_v0]
 
 cc_answer :: Intrinsic
@@ -363,12 +357,12 @@ gxx_personality_v0     = buildIntrinsic "__gxx_personality_v0" $ cc_trap "__gxx_
 --  #Other traps
 -- These functions show up on Grit and shouldn't be called.
 -- However we should have a better pipeline to remove them automatically.
---otherTraps = [iob, unwind_Resume, zTIPKc]
+otherTraps :: [Intrinsic]
 otherTraps = [unwind_Resume, zTIPKc]
 
-iob, unwind_Resume, zTIPKc, memcpy, pos :: Intrinsic
-iob           = buildIntrinsic "__iob" $ cc_trap "iob"
+_iob, unwind_Resume, zTIPKc, _memcpy, _pos :: Intrinsic
+_iob           = buildIntrinsic "__iob" $ cc_trap "iob"
 unwind_Resume = buildIntrinsic "_Unwind_Resume" $ cc_trap "Unwind_Resume"
 zTIPKc        = buildIntrinsic "_ZTIPKc" $ cc_trap "ZTIPKc"
-memcpy        = buildIntrinsic "memcpy" $ cc_trap "memcpy"
-pos           = buildIntrinsic "pos" $ cc_trap "pos"
+_memcpy        = buildIntrinsic "memcpy" $ cc_trap "memcpy"
+_pos           = buildIntrinsic "pos" $ cc_trap "pos"
