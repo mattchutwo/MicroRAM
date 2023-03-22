@@ -11,6 +11,7 @@ import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
 import Data.Map (Map)
+import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -119,7 +120,7 @@ regionInstanceLimit rg = do
         IntSet.foldr' (\pc' blks' -> regionBlocks cfg blks' endPc (fromIntegral pc'))
           (Set.insert pc blks) succs
       where
-        succs = maybe mempty id $ cfg ^? pSuccs . ix (fromIntegral pc)
+        succs = fromMaybe mempty $ cfg ^? pSuccs . ix (fromIntegral pc)
 
     blockSize :: ProgramCFG -> MWord -> Word
     blockSize cfg pc = case IntSet.lookupGT (fromIntegral pc) (cfg ^. pBlockStarts) of
@@ -135,7 +136,7 @@ queueRegion s endPc = do
   let rg = (s ^. sMach . mPc, endPc)
   seen <- use hsSeenRegions
   limit <- regionInstanceLimit rg
-  when (maybe 0 id (Map.lookup rg seen) < limit) $ do
+  when (fromMaybe 0 (Map.lookup rg seen) < limit) $ do
     hsSeenRegions %= Map.insertWith (+) rg 1
     hsPendingRegions %= ((s, endPc) :)
 
@@ -464,7 +465,7 @@ stepExec ex
         return $ Just $ ex & exLive .~ (h':hs)
 
   -- (3) All paths in the current scope have finished.  Apply the continuation.
-  | [] <- ex ^. exLive = case ex ^. exCont of
+  | [] <- ex ^. exLive = (case ex ^. exCont of
     -- In general, the number of finished paths can't exceed the number of
     -- paths in `exLive` when the current scope was created.  But it's possible
     -- for the number to be smaller (even zero), as some paths might terminate
@@ -503,7 +504,9 @@ stepExec ex
         return Nothing
       -- Scopes ending with `KDone` are created with only one path, so it
       -- should be impossible to have multiple paths here.
-      | otherwise -> error $ "impossible: KDone received multiple finished paths"
+      | otherwise -> error "impossible: KDone received multiple finished paths")
+  -- TODO: Why is the compiler complaining about an incomplete patter?
+  | otherwise = error "impossible: exLive is not full or empty. This point shouldn't be reached." 
 
 -- | Construct the initial `Exec` state for starting from program state `s`.
 -- In practice, `s` is usually the initial program state.
@@ -514,7 +517,7 @@ initExec s = do
   let ipdom = case optIpdom of
         Just x -> x
         -- For functions that don't return, we use a dummy join/return address.
-        Nothing -> -1
+        Nothing -> maxBound -- Just like `-1`
   return $ Exec [h] [] ipdom ipdom KDone IntSet.empty
 
 describeExec :: Exec r -> String
