@@ -10,13 +10,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -Wno-missing-signatures -Wno-incomplete-patterns #-}
+-- ^ Disable missing signatures and incomplete patters only for this file.
+-- The missing patters are dure to the dependent types not beign recognized correctly.
+-- The missing signatures are to avoid importing more dependencies.
 
 module RiscV.Simulator where
 
 import qualified Control.Monad.State as MS
 import           Data.Bits
 import qualified Data.BitVector.Sized as BV
-import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized.Unsigned as BVU
 import           Data.BitVector.Sized.Unsigned (UnsignedBV(..))
 import           Data.Foldable (foldl')
@@ -37,16 +40,10 @@ import Data.Parameterized.Some
 
 import GHC.Word (Word64)
 
-import GRIFT.BitVector.BVApp (BVApp(..))
-import GRIFT.BitVector.BVFloatApp (BVFloatApp(..))
-import GRIFT.Decode (encode)
 import GRIFT.InstructionSet
 import GRIFT.InstructionSet.Known
 import GRIFT.Types
 import GRIFT.Semantics hiding (concat)
-import GRIFT.Semantics.Expand
-import GRIFT.Semantics.Pretty
-import GRIFT.Semantics.Utils
 import GRIFT.Simulation
 
 import Compiler.Errors
@@ -75,7 +72,9 @@ prettyPrintMachine (Machine _rv pc mem regs) =
   "\nRegs: " <> show (openVB <$> regs) <>
   "\nMemory: " <> show (openVBMap mem)
 
+openVB :: UnsignedBV w -> Integer
 openVB (UnsignedBV (BV n)) = n
+openVBMap :: Map (UnsignedBV w1) (UnsignedBV w2) -> Map Integer Integer
 openVBMap m = Map.mapKeys openVB $ Map.map openVB m
 
 openGPRs :: Vector (UnsignedBV (RVWidth RV64IM)) -> Vector MWord
@@ -216,9 +215,9 @@ instance Native RiscV where
       memoryEq m1 m2 =
         let descriptiveDifference =
               Map.merge
-              (Map.mapMaybeMissing $     \k x ->   if x==0 then Nothing else Just (x,0))
-              (Map.mapMaybeMissing $     \k y ->   if 0==y then Nothing else Just (0,y))
-              (Map.zipWithMaybeMatched $ \k x y -> if x==y then Nothing else Just (x,y))
+              (Map.mapMaybeMissing $     \_k x ->   if x==0 then Nothing else Just (x,0))
+              (Map.mapMaybeMissing $     \_k y ->   if 0==y then Nothing else Just (0,y))
+              (Map.zipWithMaybeMatched $ \_k x y -> if x==y then Nothing else Just (x,y))
               (openVBMap m1) (openVBMap m2)
         in if Map.null descriptiveDifference then True else
              trace ("Memories don't match. Here is a map with the differences where MRAM is shown first: \n " <> show descriptiveDifference)
@@ -238,7 +237,7 @@ instance Native RiscV where
 -- Mem translation is wrong. It should take into account the MRAM is word-aligned while GRIFT is byte-aligned.
 translateMem :: Mem
              -> Map (UnsignedBV (RVWidth RV64IM)) (UnsignedBV 8)
-translateMem (mDefault, mMap, _) = Map.fromList $ do
+translateMem (_mDefault, mMap, _) = Map.fromList $ do
   (wordAddr, wordVal) <- Map.toList mMap
   offset <- [0..7]
   let byteAddr = wordAddr * 8 + fromIntegral offset
@@ -446,7 +445,6 @@ instrToGrift instr =
   case instr of
     Instr32I (RegBinop32 ADD rd rs1 rs2) -> return $ Some $ Inst Add (regToSizedBV RRepr rd rs1 rs2)
     -- RRepr
-    Instr32I (RegBinop32 ADD rd rs1 rs2  ) -> return $ Some $ Inst Add    (regToSizedBV RRepr rd rs1 rs2)    
     Instr32I (RegBinop32 SUB rd rs1 rs2  ) -> return $ Some $ Inst Sub    (regToSizedBV RRepr rd rs1 rs2)
     Instr32I (RegBinop32 SLL rd rs1 rs2  ) -> return $ Some $ Inst Sll    (regToSizedBV RRepr rd rs1 rs2)
     Instr32I (RegBinop32 SLT rd rs1 rs2  ) -> return $ Some $ Inst Slt    (regToSizedBV RRepr rd rs1 rs2)

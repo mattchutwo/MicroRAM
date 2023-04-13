@@ -18,7 +18,6 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State
 import Control.Lens (makeLenses, lens, (.=), (%=), use)
-import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
@@ -28,7 +27,6 @@ import Compiler.CompilationUnit (InitialMem)
 import Compiler.Registers
 import MicroRAM
 
-import Debug.PrettyPrint
 import Debug.Trace
 
 class (Show v, Show (Memory v)) => AbsDomain v where
@@ -100,9 +98,9 @@ deriving instance (Show r, AbsDomain v) => Show (MachineState' r v)
 
 -- Pretty printing for SOME fields of the machinestate
 prettyPrintMachState :: (Show r, AbsDomain v) => MachineState' r v -> String
-prettyPrintMachState (MachineState cycle pc regs prog mem bug ans) =
+prettyPrintMachState (MachineState cycl pc regs _prog mem bug ans) =
   "STATE: \n-------------" <>
-  "\n\tCYCLE: " <> show cycle <>
+  "\n\tCYCL: " <> show cycl <>
   -- "\n-------------\n\t" <>
   "\n\tPC: " <> show pc <>
   -- "\n-------------\n\t" <>

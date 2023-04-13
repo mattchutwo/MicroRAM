@@ -130,7 +130,7 @@ between functions.
 module Compiler
     ( compile
     , CompilerOptions(..), defOptions
-    , Domain(..), DomainInput(..), loadCode, compileDomains
+    , Domain(..), DomainInput(..), loadCode, inputPath, compileDomains
     , module Export
     ) where
 
@@ -206,15 +206,15 @@ compile1 options len llvmProg firstName = (return $ prog2unit len llvmProg first
   >>= (verbTagPass verb "Instruction Selection" $ justCompileWithNames instrSelect)
   >>= (verbTagPass verb "Rename LLVM Intrinsic Implementations" $ justCompile renameLLVMIntrinsicImpls)
   >>= (verbTagPass verb "Lower Intrinsics" $ justCompileWithNamesSt lowerIntrinsics)
-  where CompilerOptions {verb=verb, allowUndefFun=allowUndefFun} = options
+  where CompilerOptions {verb=verb, allowUndefFun=_allowUndefFun} = options
 
 compileCheckUndef
   :: CompilerOptions
   -> CompilationUnit () (MIRprog Metadata MWord)
   -> Hopefully (CompilationUnit () (MIRprog Metadata MWord))
 compileCheckUndef options prog = return prog
-  >>= (verbTagPass verb "Catch undefined Functions" $ justCompile (catchUndefinedFunctions allowUndefFun))
-  where CompilerOptions {verb=verb, allowUndefFun=allowUndefFun} = options
+  >>= (verbTagPass verb "Catch undefined Functions" $ justCompile (catchUndefinedFunctions allowUndefFunOption))
+  where CompilerOptions {verb=verb, allowUndefFun=allowUndefFunOption} = options
 
 compileLowerExt
   :: CompilerOptions
@@ -353,7 +353,7 @@ compileDomains :: CompilerOptions
                -> [Domain]
                -> Hopefully $ CompilationResult (AnnotatedProgram Metadata AReg MWord)
 compileDomains options len domains = do
-  (objs, nextName) <- sequenceObjects firstUnusedName
+  (objs, _nextName) <- sequenceObjects firstUnusedName
     [compileDomain options len d | d <- domains]
   obj <- concatObjects objs
   -- Hack: add the appropriate premain corresponding to the first input of the
@@ -380,7 +380,7 @@ compileDomain :: CompilerOptions
               -> Domain
               -> Word
               -> Hopefully CompiledObject
-compileDomain options len domain firstName = do
+compileDomain options len domain _firstName = do
   let inputObjsM = [compileInput options len inp | inp <- domainInputs domain]
   -- Hack: add intrinsics or not depending on the first input of the domain.
   let extraObjsM = case domainInputs domain of

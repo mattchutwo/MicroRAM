@@ -76,7 +76,7 @@ instance Typed C.Constant where
                                   []    -> error "Vectors of size zero are not allowed. (Malformed AST)"
                                   (x:_) -> typeOf env x
   typeOf _env (C.Undef t)     = t
-  typeOf _env (C.BlockAddress {..})   = ptr i8
+  typeOf _env (C.BlockAddress {})   = ptr i8
   typeOf _env (C.GlobalReference t _) = t
   typeOf env (C.Add {..})     = typeOf env operand0
   typeOf env (C.FAdd {..})    = typeOf env operand0

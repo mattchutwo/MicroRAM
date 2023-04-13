@@ -4,17 +4,16 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# OPTIONS_GHC -Wtype-defaults #-}
 
 module RiscV.Transpiler where -- (transpiler)
 
 import Control.Monad.State
 import           Data.Sequence (Seq(..))
 import qualified Data.Sequence as Seq
-import Data.Text (unpack, pack)
-import Data.Maybe (listToMaybe, mapMaybe, fromMaybe, isJust)
+import Data.Text (pack)
+import Data.Maybe (mapMaybe, fromMaybe)
 import Data.Foldable (toList)
-import Data.List (foldl')
 -- import Test.QuickCheck (Arbitrary, arbitrary, oneof)
 import Compiler.IRs
 import Compiler.Metadata
@@ -24,15 +23,13 @@ import Compiler.Common
 import Compiler.Registers (RegisterData( NumRegisters ))
 -- import Compiler.Analysis (AnalysisData)
 import Compiler.CompilationUnit
-import Compiler.IRs(lazyPc, hereLabel)
 import Compiler.LazyConstants
 import Compiler.Analysis (AnalysisData(..))
 -- import Compiler.Registers
 import qualified Native
 
-import qualified Data.List as List (partition)
 import qualified Data.Map as Map
-import  Data.Bits (Bits, shiftL, shiftR, (.|.), (.&.))
+import  Data.Bits (bit, Bits, shiftL, shiftR, (.|.), (.&.))
 import Data.Char (ord)
 
 import Debug.Trace (trace)
@@ -40,8 +37,7 @@ import Debug.Trace (trace)
 import RiscV.RiscVAsm
 import RiscV.Simulator () -- Import `Instance Native RiscV` 
 
-import Control.Lens (Lens, lens, makeLenses, ix, at, to, (^.), (.=), (%=), (?=), (&), (.~), _Just, use, over, Lens')
-
+import Control.Lens (makeLenses, at, (^.), (.=), (%=), (?=), (&), (.~), use, Lens')
 
 -- | Option
 _warningOn :: Bool
@@ -253,7 +249,7 @@ memLbl lbl = do
   objName <- getName lbl
   -- Mark data with a new entry point
   dataPointer <- use $ currSectionTP . secData . mdNextData
-  currSectionTP . secData . mdEntryPoints %= (Map.insert objName (toEnum dataPointer))  
+  currSectionTP . secData . mdEntryPoints %= Map.insert objName (toEnum dataPointer)
 
 sectionVariable :: Map.Map String SymbolTP
                 -> Section
@@ -293,17 +289,17 @@ transpileDir verb dir =
     ADDRSIG_SYM _nm -> ignoreDire "ADDRSIG_SYM _nm " -- We ignore address-significance 
     CFIDirectives _ -> ignoreDire "CFIDirectives _ " -- ignore control-flow integrity
     Visibility GLOBL nm -> setSymbol nm symExtern True
-    Visibility _ nm -> ignoreDire "Visibility _ _" -- TODO: unimplementedDir -- Not in binutils. Remove?
-    STRING st      -> emitString st True
-    ASCII  st      -> emitString st False
-    ASCIZ  st      -> emitString st True -- alias for string
-    EQU _st _val   -> unimplementedDir
-    OPTION _opt    -> unimplementedDir -- Rarely used
-    VARIANT_CC _st -> unimplementedDir -- Not in binutils. Remove?
-    SLEB128 _val   -> unimplementedDir -- How do we do this?
-    ULEB128 _val   -> ignoreDire "ULEB128 _val" -- Only used for debugging/exceptions 
-    MACRO _ _ _    -> unimplementedDir -- No macros.
-    ENDM           -> unimplementedDir
+    Visibility _ _  -> ignoreDire "Visibility _ _" -- TODO: unimplementedDir -- Not in binutils. Remove?
+    STRING st       -> emitString st True
+    ASCII  st       -> emitString st False
+    ASCIZ  st       -> emitString st True -- alias for string
+    EQU _st _val    -> unimplementedDir
+    OPTION _opt     -> unimplementedDir -- Rarely used
+    VARIANT_CC _st  -> unimplementedDir -- Not in binutils. Remove?
+    SLEB128 _val    -> unimplementedDir -- How do we do this?
+    ULEB128 _val    -> ignoreDire "ULEB128 _val" -- Only used for debugging/exceptions 
+    MACRO _ _ _     -> unimplementedDir -- No macros.
+    ENDM            -> unimplementedDir
     -- Implemented
     -- ## Declare Symbols 
     COMM   nm size align -> commSetSymbol nm size align
@@ -342,7 +338,7 @@ transpileDir verb dir =
             alignData fill maxFill = do
               pointer <- use $ currSectionTP . secData . mdNextData
               let paddingLength = -(pointer `mod` (-fromInteger align))
-              sName <- use $ currSectionTP . secName
+              _sName <- use $ currSectionTP . secName
               --_ <- trace ("Align " <> show sName <> " at " <> show pointer <> " to " <> show align <> " ( need to add " <> show paddingLength <> ").") $ return ()
               when (paddingLength <= maxFill) $ do
                 let padding = SConst (toEnum fill) -- ^ one byte of fill
@@ -352,7 +348,7 @@ transpileDir verb dir =
 
       emitString :: String -> Bool -> Statefully ()
       emitString st nullTerminated = do
-        pointer <- use $ currSectionTP . secData . mdNextData
+        _pointer <- use $ currSectionTP . secData . mdNextData
         -- _ <- trace ("\tEmit String: "<> st) $ return ()
         mapM_ (\char -> emitValue 1 (ImmNumber $ toEnum $ ord char)) st
         when nullTerminated $ emitValue 1 (ImmNumber 0)
@@ -370,7 +366,7 @@ transpileDir verb dir =
                      -> Statefully ()
       commSetSymbol name size align = do
         -- temporarily change sections to put the uninitialized value somewhere else.
-        Section secName sExec sWrite sType sContent sData sMAling <- use currSectionTP
+        Section secName sExec sWrite sType _sContent _sData _sMAling <- use currSectionTP
         let commSectionName = ".data.comm" -- how to make this unique?
         setSection commSectionName [] Nothing [] 
         -- Align
@@ -502,6 +498,7 @@ tpImm imm = case imm of
                 lc1 <- tpImm imm1
                 lc2 <- tpImm imm2
                 return $ lazyBop (tpImmBop immop) lc1 lc2
+              ImmLazy _ -> error ("Lazy constatnt found during transpilation." <> show imm) 
   where
     tpImmBop :: ImmOp -> MWord -> MWord -> MWord
     tpImmBop bop =
@@ -515,14 +512,14 @@ tpImm imm = case imm of
     modifierFunction mod w =
       case mod of
         -- The low 12 bits of absolute address for symbol.
-        ModLo              -> w .&. (2^12-1)
+        ModLo              -> w .&. (2^(12::Integer)-1)
         -- The high 20 bits of absolute address for symbol. This is
         -- usually used with the %lo modifier to represent a 32-bit
         -- absolute address.
         --
         -- The exact calculation here is based on the definition of the
         -- R_RISCV_HI20 relocation, which is what `%hi(symbol)` produces.
-        ModHi              -> ((w + 0x800) .&. (2^32-1)) `shiftR` 12
+        ModHi              -> ((w + 0x800) .&. (bit 32-1)) `shiftR` 12
         --  pcrel_lo and pcrel_hi are computed just like lo and hi,
         --  but are relative to the current pc.
         ModPcrel_lo        -> error "pcrel_lo"
@@ -600,12 +597,12 @@ transpileInstr emulatorEnabled instr = do
 
       shouldEmulate instr = emulatorEnabled && case instr of
         -- TODO: Should all instructions be emulated?
-        Instr32I instrRV32I     -> True
-        Instr64I instrRV64I     -> True
-        Instr32M instrExt32M    -> True
-        Instr64M instrExt64M    -> True
-        InstrPseudo pseudoInstr -> True
-        InstrAlias aliasInstr   -> True
+        Instr32I _instrRV32I     -> True
+        Instr64I _instrRV64I     -> True
+        Instr32M _instrExt32M    -> True
+        Instr64M _instrExt64M    -> True
+        InstrPseudo _pseudoInstr -> True
+        InstrAlias _aliasInstr   -> True
 
                
 transpileInstralias  :: AliasInstr  -> Seq (MAInstruction Int MWord)
@@ -630,9 +627,9 @@ transpileInstr64M    instr =
   where restrictedOperation rd rs1 rs2 op =
           let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in
             [ -- Restrict input 1 to 32b
-              Iand rs1' rs1' (LImm $ 2^32 - 1),
+              Iand rs1' rs1' (LImm $ bit 32 - 1),
               -- Restrict input 2 to 32b
-              Iand rs2' rs2' (LImm $ 2^32 - 1),
+              Iand rs2' rs2' (LImm $ bit 32 - 1),
               -- do the operation
               op rd' rs1' (AReg rs2')
             ] <> restrictAndSignExtendResult rd'
@@ -646,9 +643,9 @@ transpileInstr32M instr =
     MULHU  rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in Iumulh rd' rs1' (AReg rs2')
     DIVU   rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in Iudiv  rd' rs1' (AReg rs2')
     REMU   rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in Iumod  rd' rs1' (AReg rs2')
-    MULHSU rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in error "Undefined: Signed Unsigned ultiplication"
-    DIV    rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in error "Undefined: Signed division"
-    REM    rd rs1 rs2 -> let (rd', rs1', rs2') = tpRegRegReg rd rs1 rs2 in error "Undefined: Signed reminder"
+    MULHSU rd rs1 rs2 -> let (_rd', _rs1', _rs2') = tpRegRegReg rd rs1 rs2 in error "Undefined: Signed Unsigned ultiplication"
+    DIV    rd rs1 rs2 -> let (_rd', _rs1', _rs2') = tpRegRegReg rd rs1 rs2 in error "Undefined: Signed division"
+    REM    rd rs1 rs2 -> let (_rd', _rs1', _rs2') = tpRegRegReg rd rs1 rs2 in error "Undefined: Signed reminder"
   ]
 
 
@@ -785,10 +782,10 @@ transpileInstrPseudo instr =
 restrictAndSignExtendResult :: Int -> [MAInstruction Int MWord]
 restrictAndSignExtendResult rd' =
   [ -- restrict the result (Forget overflows)
-    Iand rd' rd' (LImm $ 2^32 - 1),
+    Iand rd' rd' (LImm $ bit 32 - 1),
     -- Sign extend
     Ishr newReg rd' (LImm 31), -- sign
-    Imull newReg newReg (LImm $ 2^64-2^32), -- extension
+    Imull newReg newReg (LImm $ bit 64 - bit 32), -- extension
     Ior rd' newReg (AReg rd') -- set sign extension
   ]
 
@@ -807,21 +804,21 @@ transpileInstr64I    instr =
       -- For shift operations "the shift amount is encoded in the
       -- lower 6 bits of the I-immediate field for RV64I" (Notice, for
       -- non immediate shifts, it's 5bits)
-      let off6 = LImm (off'' .&. (2^7-1))
+      let off6 = LImm (off'' .&. (bit 7-1))
       return $ (case binop64I of
                   ADDIW -> [Iadd rd' rs1' off']<> restrictAndSignExtendResult rd'
                   -- It should be true that the  'off' < 2^5'
                   -- but we do not check for it. 
                   SLLIW -> [Ishl rd' rs1' off6]<> restrictAndSignExtendResult rd'
-                  SRLIW -> [Iand newReg rs1' (LImm $ 2^32 - 1),
+                  SRLIW -> [Iand newReg rs1' (LImm $ bit 32 - 1),
                             Ishr rd' newReg off6]<> restrictAndSignExtendResult rd'
                   SRAIW -> -- TODO There is probably a more optimal way to do this one             
                     [ -- restrict input to 32bits
-                      Iand rd' rs1' (LImm $ 2^32 - 1),
+                      Iand rd' rs1' (LImm $ bit 32 - 1),
                       -- Get sign bit 
                       Ishr newReg rd' (LImm 31),
                       -- Extension (32 1's or 0's, followed by 32 0's)
-                      Imull newReg newReg (LImm (2^64-2^32)),
+                      Imull newReg newReg (LImm (bit 64- bit 32)),
                       -- fix highest bits
                       Ior rd' rd' (AReg newReg),
                       -- Logical shift
@@ -829,20 +826,7 @@ transpileInstr64I    instr =
                       -- fix highest bits
                       Ior rd' rd' (AReg newReg)
                     ]
-               ) 
-      where
-        -- We assume, but don't check, that the immediate is less than 32bits long.
-        -- in fact, because of RiscV encoding it should be less than 12bits long.
-        wordRestricted
-          :: Int -> Int -> LazyConst MWord
-          -> (Int -> Int -> (MAOperand Int MWord) -> MAInstruction Int MWord)
-          -> [MAInstruction Int MWord]
-        wordRestricted rd' rs1' imm op =
-          [ -- Restrict the values to 32b
-            Ior newReg rs1' (LImm $ 2^32 - 1),
-            -- do the operation 
-            op rd' newReg (LImm imm)] <>
-          restrictAndSignExtendResult rd'
+               )
 
     -- Note, for shifts, "shifts on the value in register rs1 by the shift
     -- amount held in the lower 5 bits of register rs2."
@@ -854,11 +838,11 @@ transpileInstr64I    instr =
                     restrictAndSignExtendResult rd'                             
             SUBW -> [Isub rd' rs1' (AReg rs2')] <>
                     restrictAndSignExtendResult rd'                                
-            SLLW -> [Iand newReg rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
+            SLLW -> [Iand newReg rs2' (LImm $ bit 5 - 1), -- restrict input to 5b
                      Ishl rd' rs1' (AReg newReg)] <>
                     restrictAndSignExtendResult rd'                                
-            SRLW -> [Iand newReg rs1' (LImm $ 2^32 - 1), -- restrict input to 32b
-                     Iand rd'    rs2' (LImm $ 2^5 - 1), -- restrict input to 5b
+            SRLW -> [Iand newReg rs1' (LImm $ bit 32 - 1), -- restrict input to 32b
+                     Iand rd'    rs2' (LImm $ bit 5 - 1), -- restrict input to 5b
                      Ishr rd' newReg (AReg rd')] <>
                     restrictAndSignExtendResult rd'                                 
             SRAW -> -- Arithmetic Shift right
@@ -871,10 +855,10 @@ transpileInstr64I    instr =
               -- the registers down by one.
               if newReg /= 32 then error "must check SRAW translation after adjusting newReg" else
               [ -- Put masked shift amount in newReg
-                Iand newReg rs2' (LImm $ 2^6 - 1),
+                Iand newReg rs2' (LImm $ bit 6 - 1),
                 -- Put sign extension mask into r0
-                Iand 0 rs1' (LImm $ 2^31),
-                Imull 0 0 (LImm $ 2^33 - 1),
+                Iand 0 rs1' (LImm $ bit 31),
+                Imull 0 0 (LImm $ bit 33 - 1),
                 -- Sign-extend LHS into dest
                 Ior rd' rs1' (AReg 0),
                 -- Right-shift dest in-place
@@ -925,7 +909,7 @@ transpileInstr32I instr =
       return [Imov reg' (LImm $ lazyPc + lazyUop luiFunc off')]
     ImmBinop32 binop32I reg1 reg2 imm -> transpileImmBinop32I binop32I reg1 reg2 imm
     RegBinop32 binop32 reg1 reg2 reg3 -> return $ transpileRegBinop32I binop32  reg1 reg2 reg3
-    FENCE predOrder succOrder         -> return []
+    FENCE _predOrder _succOrder         -> return []
     FENCEI                            -> return []
   where
     -- Memory operations
@@ -965,7 +949,7 @@ transpileInstr32I instr =
             [-- get the sign
               Ishr newReg rd (LImm $ SConst $ toEnum $ len - 1),
               -- make a sign extension mask (a prefix of o's or 1's)
-              Imull newReg newReg (LImm $ 2^64 - 2^len),
+              Imull newReg newReg (LImm $ bit 64 - bit len),
               -- add the sign extension bits
               Ior  rd newReg (AReg rd)]
                   
@@ -980,14 +964,14 @@ transpileInstr32I instr =
       case binop of
         ADD  -> [Iadd  rd' rs1 rs2']
         SUB  -> [Isub  rd' rs1 rs2']
-        SLL  -> [Iand newReg rs2 (LImm $ 2^5 - 1), -- restrict input to 5b
+        SLL  -> [Iand newReg rs2 (LImm $ bit 5 - 1), -- restrict input to 5b
                  Ishl  rd' rs1 (AReg newReg)]
         -- The comparison direction is reversed: RISC-V `slt d,x,y` checks
         -- whether `x < y`; MicroRAM `cmpg d,x,y` checks whether `x > y`.
         SLT  -> [Icmpg rd' rs2 rs1']
         SLTU -> [Icmpa rd' rs2 rs1']
         XOR  -> [Ixor  rd' rs1 rs2']
-        SRL  -> [Iand newReg rs2 (LImm $ 2^5 - 1), -- restrict input to 5b
+        SRL  -> [Iand newReg rs2 (LImm $ bit 5 - 1), -- restrict input to 5b
                  Ishr rd'    rs1 (AReg newReg)]
         SRA  -> error "Full arithmetic right shift not implemented" -- TODO
         OR   -> [Ior   rd' rs1 rs2']
@@ -1003,7 +987,7 @@ transpileInstr32I instr =
       -- For shift operations "the shift amount is encoded in the
       -- lower 6 bits of the I-immediate field for RV64I" (Notice, for
       -- non immediate shifts, it's 5bits)
-      let off6_imm = LImm (off' .&. (2^7-1))
+      let off6_imm = LImm (off' .&. (bit 7-1))
       return $ case binop of
                  ADDI  -> [Iadd  rd' rs1' (LImm $ signExtendWord 12 off')]
                  SLTI  -> [Imov newReg off_imm,
@@ -1018,7 +1002,7 @@ transpileInstr32I instr =
                  SLLI  -> [Ishl  rd' rs1' off6_imm]
                  SRLI  -> [Ishr  rd' rs1' off6_imm]
                  SRAI  -> [-- sign bits
-                   Ishr newReg rs1' (LImm $ 63),
+                   Ishr newReg rs1' (LImm 63),
                    -- extensions (2^off-1)*(2^(64-off))
                    Imull newReg newReg (LImm $ (2 `pow` off' - 1) * (2 `pow` (64-off'))),
                    -- logical extension
@@ -1164,7 +1148,6 @@ ifM b t f = do b <- b; if b then t else f
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM mb thing = do { b <- mb
                     ; when b thing }
-whenL b s = whenM (use b) s
 
 (<<$>>) :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
 (<<$>>) = fmap . fmap

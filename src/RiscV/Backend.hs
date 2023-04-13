@@ -7,7 +7,6 @@ import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.Metadata
 import Compiler.RemoveLabels
-import Debug.Trace
 import Compiler.IRs
 import MicroRAM
 

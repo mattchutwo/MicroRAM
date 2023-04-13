@@ -80,7 +80,7 @@ import qualified Native
 
 import Util.Util
 
-import Debug.PrettyPrint
+-- import Debug.PrettyPrint
 import Debug.Trace
 
 -- AbsDomain instance for MWord (concrete interpreter)
