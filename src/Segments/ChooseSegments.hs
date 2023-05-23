@@ -55,8 +55,8 @@ data PartialState reg = PartialState {
 type InstrNumber = MWord 
 type PState reg x = StateT (PartialState reg) Hopefully x 
  
-chooseSegments :: Show reg => Int -> Sparsity -> Program reg MWord -> Trace reg -> V.Vector (Segment reg MWord) ->  Hopefully [TraceChunk reg]
-chooseSegments privSize spar prog trace segments = do
+chooseSegments :: Show reg => Bool -> Int -> Sparsity -> Program reg MWord -> Trace reg -> V.Vector (Segment reg MWord) ->  Hopefully [TraceChunk reg]
+chooseSegments pubSegModeIsNone privSize spar prog trace segments = do
   -- create starting state
   let initSt = PartialState {
         nextPc = 0 
@@ -69,7 +69,7 @@ chooseSegments privSize spar prog trace segments = do
         , progPS = prog
         , usedSegments = Set.empty}
   -- run the choose statement
-  let go = whileM_ traceNotEmpty (chooseSegment segments privSize) *> allocateQueue privSize
+  let go = whileM_ traceNotEmpty (chooseSegment pubSegModeIsNone segments privSize) *> allocateQueue pubSegModeIsNone privSize
   finalSt <- execStateT go initSt 
   -- extract values and return
   return (reverse $ chunksPS finalSt)
@@ -254,8 +254,8 @@ findPublicPath segments usedSegs startIndx initRemTrace =
                 getPcConstraint (PcConst thePc:_) = thePc  -- Public segments allways have a pc
                 getPcConstraint [] = error "Found public segments without a pc constraint." -- Should this rais a Hopefully error instead? 
 -- | chooses the next segment
-chooseSegment :: Show reg => V.Vector (Segment reg MWord) -> Int -> PState reg ()
-chooseSegment segments privSize = do
+chooseSegment :: Show reg => Bool -> V.Vector (Segment reg MWord) -> Int -> PState reg ()
+chooseSegment pubSegModeIsNone segments privSize = do
   thePc <- nextPc <$> get
   initRemTrace <- remainingTrace <$> get
   avalSegs <-  availableSegments <$> get
@@ -268,7 +268,7 @@ chooseSegment segments privSize = do
       -- T.traceM ("Path: " ++ show path)
       -- allocates the current queue in private pc segments (if there is more than just the last state).  
       queue <- queueSt <$> get
-      when (length queue >1) $ allocateQueue privSize
+      when (length queue >1) $ allocateQueue pubSegModeIsNone privSize
       -- allocates states to use the public pc segment. Returns the last state (now the start of the queue)
       queueInitSt <- mapM (allocateSegment segments) (x:path)
       modify (\st -> st {queueSt = [last queueInitSt] -- push the initial state of the private queue. Already in trace, this one gets dropped
@@ -352,14 +352,14 @@ chooseSegment segments privSize = do
 -- | Finds private segments to put the states in the queue.
 -- It first adds the appropriate stuttering for sparsity and to pad
 -- the last segment to have the right ammount of states.
-allocateQueue :: Show reg => Int -> PState reg ()
-allocateQueue size =
+allocateQueue :: Show reg => Bool -> Int -> PState reg ()
+allocateQueue pubSegModeIsNone size =
   do queue <- reverse . queueSt <$> get -- FIFO
      spar <- sparsityPS <$> get
      prog <- progPS <$> get
      -- Note: We realy on the fact that the first state never stutters. That state will be dropped.
-     let sparseTrace = take (length queue) $ -- Hack for no public pc
-           stutter size spar prog queue 
+     let sparseTrace = (if pubSegModeIsNone then take (length queue) else id) $ -- Hack for no public pc
+           stutter size spar prog queue
      currentPrivSegment <- privLoc <$> get
      let tailTrace = tail sparseTrace -- drop the initial state which is already in the trace (in the previous segment)
      let newChunks =  splitPrivBlocks size currentPrivSegment tailTrace
@@ -469,7 +469,7 @@ testSegmentSets = Map.fromList
 testProg = concat $ segIntrs <$> testSegments'
 
 _testchunks :: Hopefully [TraceChunk ()]
-_testchunks = chooseSegments testPrivSize testSparsity testProg testTrace (V.fromList testSegments')
+_testchunks = chooseSegments False testPrivSize testSparsity testProg testTrace (V.fromList testSegments')
   where testSparsity = (Map.fromList [(KmemOp, 2)])
         testPrivSize = 4
 

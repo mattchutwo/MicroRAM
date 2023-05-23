@@ -63,7 +63,7 @@ chooseSegment' :: (Show reg, Regs reg) => PublicSegmentMode -> Int -> Sparsity -
 chooseSegment' pubSegMode privSize spar trace segProg = do
   let prog = pmProg . lowProg . programCU . compiled $ segProg
   let segs = (V.fromList $ pubSegments segProg)
-  chunks <- chooseSegments privSize' spar prog trace segs
+  chunks <- chooseSegments (pubSegMode == PsmNone) privSize' spar prog trace segs
   let segmentsTrace = maximum (map chunkSeg chunks)
   let numSegments = length (pubSegments segProg) + length (privSegments segProg) 
   -- Check if there are enough segments:
