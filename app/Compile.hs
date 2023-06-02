@@ -17,8 +17,11 @@ import Compiler.CompilationUnit
 import Compiler.Errors
 import Compiler.IRs
 import Compiler.Metadata
+import Data.Either (partitionEithers)
 import RiscV.Backend
 import Debug.PrettyPrint
+import Prelude hiding (read)
+import Text.Read (readMaybe)
 
 #if ! NO_LLVM
 import LLVMutil.LLVMIO
@@ -33,7 +36,7 @@ import Segments (PublicSegmentMode(..))
 import System.Console.GetOpt
 import System.Directory
 import System.Environment
-import System.FilePath
+import System.FilePath hiding ((<.>))
 import System.IO
 import System.Exit
 
@@ -143,8 +146,12 @@ main = do
         readMRAMFile trLength fr = do
           let file = (fileIn fr) 
           giveInfo fr $ "Reading from file " <> file 
-          mramProgram :: CompiledProgram <- read <$> readFile file
-          return $ mramProgram {traceLen = trLength} 
+          mramProgram :: Maybe CompiledProgram <- readMaybe <$> readFile file
+          case mramProgram of
+            Nothing ->
+              error $ "Malformed MRAM file: " <> file
+            Just mramProgram' ->
+              return $ mramProgram' {traceLen = trLength}
 
         -- POST PROCESS
         postProcess :: FlagRecord
@@ -189,9 +196,14 @@ handleErrors hx = case hx of
 data Mode = LeakTaintedMode
   deriving (Eq, Ord)
 
-readMode :: String -> Mode
-readMode "leak-tainted" = LeakTaintedMode
-readMode m = error $ "Unknown --mode `" <> m <> "`. See --help for valid modes." -- TODO: Better error handling.
+readMode :: String -> Either String Mode
+readMode "leak-tainted" = pure LeakTaintedMode
+readMode m = Left $ "Unknown --mode `" <> m <> "`. See --help for valid modes."
+
+read :: Read a => String -> String -> Either String a
+read msg s = case readMaybe s of
+  Nothing -> Left $ "Invalid " <> msg <> ": " <> s <> "\n"
+  Just x -> Right x
 
 data Flag
  = -- General flags
@@ -368,54 +380,56 @@ parseFlag flag fr =
     DomainInputLLVM path ->     withCurDomain (addDomainInput (InputLLVM path Nothing)) fr
     _ ->                        fr
 
-options :: [OptDescr Flag]
+options :: [OptDescr (Either String Flag)]
 options =
-  [ Option ['h'] ["help"]        (NoArg Help)                      "Print this help message"
-  , Option []    ["llvm-out"]    (OptArg LLVMout "FILE")           "Save the llvm IR to file"
-  , Option []    ["mram-out"]    (OptArg MRAMout "FILE")           "Save the compiled MicroRAM program to file"
+  [ Option ['h'] ["help"]        (NoArg $ pure Help)                      "Print this help message"
+  , Option []    ["llvm-out"]    (OptArg (pure . LLVMout) "FILE")         "Save the llvm IR to file"
+  , Option []    ["mram-out"]    (OptArg (pure . MRAMout) "FILE")         "Save the compiled MicroRAM program to file"
   , Option ['O'] ["optimize"]    (OptArg readOpimisation "arg")    "Optimization level of the front end"
-  , Option ['o'] ["output"]      (ReqArg Output "FILE")            "Write ouput to file"
-  , Option []    ["from-llvm"]   (NoArg FromLLVM)                  "Compile only with the backend. Compiles from an LLVM file."
-  , Option ['r'] ["riscv"]        (NoArg FromRiscV)                 "Compile from RiscV assembly."
-  , Option []    ["priv-segs"]   (ReqArg (PrivSegs . read) "arg")  "Number of private segments. " 
-  , Option []    ["just-llvm"]   (NoArg JustLLVM)                  "Compile only with the frontend. "
-  , Option []    ["just-mram"]   (NoArg JustMRAM)                  "Only run the compiler (no interpreter) and output mram. "
-  , Option []    ["verifier"]    (NoArg VerifierMode)              "Run in verifier mode  (skips the interpreter). "
-  , Option []    ["from-mram","interpreter"]   (NoArg FromMRAM)    "Only run the interpreter from a compiled MicroRAM file."
-  , Option ['v'] ["verbose"]     (NoArg Verbose)                   "Chatty compiler"
-  , Option []    ["pretty-hex"]  (NoArg PrettyHex)                 "Pretty print the CBOR output. Won't work if writting to file. "
-  , Option []    ["flat-hex"]    (NoArg FlatFormat)                "Output in flat CBOR format. Won't work if writting to file. "
-  , Option ['c'] ["double-check"](NoArg DoubleCheck)               "check the result"
-  , Option ['s'] ["sparsity"]    (ReqArg (MemSparsity . read) "MEM SARSITY")               "check the result"
-  , Option []    ["allow-undef"] (NoArg AllowUndefFun)             "Allow declared functions with no body."
-  , Option []    ["pretty-print"] (NoArg PrettyPrint)              "Pretty print the MicroRAM program with metadata."
-  , Option []    ["pub-seg-mode"] (ReqArg PubSegMode "MODE")       "Public segment generation mode, one of: none, function-calls, abs-int"
-  , Option []    ["mode"] (ReqArg (ModeFlag . readMode) "MODE")    "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
-  , Option []    ["debug-emulator"] (NoArg NativeEmulator)         "Emulate native instructions to check for consistency between native and MRAM machines. Should only be used while debugging."
-  , Option ['r'] ["regs"]         (ReqArg (NumberRegs . read) "n")    "Define the number of registers."
-  , Option []    ["debug-skip-register-allocation"]   (NoArg SkipRegisterAllocation)    "Skip register allocation. Should only be used while debugging."
+  , Option ['o'] ["output"]      (ReqArg (pure . Output) "FILE")          "Write ouput to file"
+  , Option []    ["from-llvm"]   (NoArg $ pure FromLLVM)                  "Compile only with the backend. Compiles from an LLVM file."
+  , Option ['r'] ["riscv"]       (NoArg $ pure FromRiscV)                 "Compile from RiscV assembly."
+  , Option []    ["priv-segs"]   (ReqArg (PrivSegs <.> read "priv-segs") "arg")  "Number of private segments. "
+  , Option []    ["just-llvm"]   (NoArg $ pure JustLLVM)                  "Compile only with the frontend. "
+  , Option []    ["just-mram"]   (NoArg $ pure JustMRAM)                  "Only run the compiler (no interpreter) and output mram. "
+  , Option []    ["verifier"]    (NoArg $ pure VerifierMode)              "Run in verifier mode  (skips the interpreter). "
+  , Option []    ["from-mram","interpreter"]   (NoArg $ pure FromMRAM)    "Only run the interpreter from a compiled MicroRAM file."
+  , Option ['v'] ["verbose"]     (NoArg $ pure Verbose)                   "Chatty compiler"
+  , Option []    ["pretty-hex"]  (NoArg $ pure PrettyHex)                 "Pretty print the CBOR output. Won't work if writting to file. "
+  , Option []    ["flat-hex"]    (NoArg $ pure FlatFormat)                "Output in flat CBOR format. Won't work if writting to file. "
+  , Option ['c'] ["double-check"](NoArg $ pure DoubleCheck)               "check the result"
+  , Option ['s'] ["sparsity"]    (ReqArg (MemSparsity <.> read "sparsity") "MEM SARSITY")  "check the result"
+  , Option []    ["allow-undef"] (NoArg $ pure AllowUndefFun)             "Allow declared functions with no body."
+  , Option []    ["pretty-print"] (NoArg $ pure PrettyPrint)              "Pretty print the MicroRAM program with metadata."
+  , Option []    ["pub-seg-mode"] (ReqArg (pure . PubSegMode) "MODE")     "Public segment generation mode, one of: none, function-calls, abs-int"
+  , Option []    ["mode"] (ReqArg (ModeFlag <.> readMode) "MODE")         "Mode to run the checker in. Valid options include:\n    leak-tainted - Detect an information leak when a tainted value is output."
+  , Option []    ["debug-emulator"] (NoArg $ pure NativeEmulator)         "Emulate native instructions to check for consistency between native and MRAM machines. Should only be used while debugging."
+  , Option ['r'] ["regs"]         (ReqArg (NumberRegs <.> read "regs") "n")  "Define the number of registers."
+  , Option []    ["debug-skip-register-allocation"]   (NoArg $ pure SkipRegisterAllocation)  "Skip register allocation. Should only be used while debugging."
 
-  , Option []    ["domain"]      (ReqArg Domain "NAME")            "define a new domain called NAME"
+  , Option []    ["domain"]      (ReqArg (pure . Domain) "NAME")          "define a new domain called NAME"
   , Option []    ["domain-secret"] (ReqArg readDomainSecret "CODESIZE,MEMSIZE") "set the secret flag, max code size, and max initial memory size for the current domain"
-  , Option []    ["domain-privileged"] (NoArg DomainPrivileged)    "set the privileged flag for the current domain"
-  , Option []    ["domain-input-riscv"] (ReqArg DomainInputRiscv "PATH") "add a RISC-V assembly file to the current domain"
-  , Option []    ["domain-input-llvm"] (ReqArg DomainInputLLVM "PATH") "add an LLVM IR file to the current domain"
+  , Option []    ["domain-privileged"] (NoArg $ pure DomainPrivileged)    "set the privileged flag for the current domain"
+  , Option []    ["domain-input-riscv"] (ReqArg (pure . DomainInputRiscv) "PATH") "add a RISC-V assembly file to the current domain"
+  , Option []    ["domain-input-llvm"] (ReqArg (pure . DomainInputLLVM) "PATH") "add an LLVM IR file to the current domain"
   ]
-  where readOpimisation Nothing = Optimisation 1
-        readOpimisation (Just ntxt) = Optimisation (read ntxt)
+  where readOpimisation Nothing = pure $ Optimisation 1
+        readOpimisation (Just ntxt) = Optimisation <$> read "optimize" ntxt
 
-        readDomainSecret s = DomainSecret (read a) (read b)
+        readDomainSecret s = DomainSecret <$> read "domain-secret" a <*> read "domain-secret" b
           where (a, ',':b) = break (== ',') s
 
 parseArgs :: [String] -> IO FlagRecord
 parseArgs argv = do
-  (opts, posArgs) <- case getOpt Permute options argv of
-    (opts, posArgs, []) -> do
-      return (opts, posArgs)
-    (_,_,errs)      -> usageError errs
+  case getOpt Permute options argv of
+        (opts', posArgs, []) -> case partitionEithers opts' of
+          ([], opts) -> do
+            let fr = commitCurDomain $ foldr parseFlag defaultFlags opts
+            addPosArgs fr posArgs
+          (errs, _) ->
+            usageError errs
+        (_,_,errs)      -> usageError errs
 
-  let fr = commitCurDomain $ foldr parseFlag defaultFlags opts
-  addPosArgs fr posArgs
 
   where header = "Usage: compile file length [arguments] [options]. \n Options: "
         usageError errs = do
@@ -425,10 +439,15 @@ parseArgs argv = do
         addPosArgs fr posArgs
           | not $ null $ domains fr = case posArgs of
             [] -> return fr
-            [len] -> return (fr { trLen = Just $ read len })
+            [len] -> case read "length" len of
+              Left err -> usageError [err]
+              Right len' -> return (fr { trLen = Just len' })
             _ -> usageError ["too many positional arguments"]
           | otherwise = case posArgs of
             [file] -> return (fr { fileIn = file })
-            [file, len] -> return (fr { fileIn = file, trLen = Just $ read len })
+            [file, len] -> case read "length" len of
+              Left err -> usageError [err]
+              Right len' ->
+                return (fr { fileIn = file, trLen = Just len' })
             [] -> usageError ["file name is required"]
             _ -> usageError ["too many positional arguments"]
