@@ -83,6 +83,10 @@ extra-deps:
 - git: https://github.com/GaloisInc/elf-edit.git
   commit: d6d26540ed50348a597720b0015357bde34d504d
 
+# NEEDED TO COMPILE LLVM-HS 
+ghc-options:
+  llvm-hs: -optcxx-std=c++11
+
 # Override default flag values for local packages and extra-deps
 # flags: {}
 
